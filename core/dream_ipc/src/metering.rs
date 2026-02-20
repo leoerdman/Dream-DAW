@@ -278,8 +278,11 @@ pub fn compute_rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
-    let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
-    (sum_sq / samples.len() as f32).sqrt()
+    // BUG-022 FIX: Use f64 accumulator to prevent precision loss on large buffers.
+    // Master metering in driver.rs already uses f64; this brings per-track metering
+    // to parity, eliminating metering jitter on quiet signals.
+    let sum_sq: f64 = samples.iter().map(|s| (*s as f64) * (*s as f64)).sum();
+    (sum_sq / samples.len() as f64).sqrt() as f32
 }
 
 /// Computes peak of a sample buffer (mono).

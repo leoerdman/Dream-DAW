@@ -61,7 +61,7 @@ impl DeviceChain {
     /// Adds a device at the specified slot index.
     ///
     /// If `slot_index` exceeds the current count, the device is appended
-    /// at the end. If the chain is full (8 slots), the call is ignored.
+    /// at the end. If the chain is full (`MAX_DEVICE_SLOTS` slots), the call is ignored.
     ///
     /// # Returns
     /// `true` if the device was added successfully.
@@ -150,6 +150,18 @@ impl DeviceChain {
     pub fn reset_all(&mut self) {
         for slot in &mut self.slots {
             slot.processor.reset();
+        }
+    }
+
+    /// BUG-023 FIX: Updates the cached sample rate and resets all processors.
+    /// Must be called when the project sample rate changes (e.g. opening a
+    /// project with a different SR). Without this, newly added devices are
+    /// initialized with the wrong sample rate, and existing processors use
+    /// stale filter coefficients.
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate > 0.0 && sample_rate.is_finite() {
+            self.sample_rate = sample_rate;
+            self.reset_all();
         }
     }
 }

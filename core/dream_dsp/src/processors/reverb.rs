@@ -56,6 +56,11 @@ impl CombFilter {
     fn process(&mut self, input: f32) -> f32 {
         let output = self.buffer[self.index];
         self.filter_store = output * self.damp2 + self.filter_store * self.damp1;
+        // BUG-FIX: Flush denormals in the feedback path to prevent
+        // 100x CPU slowdown in long reverb tails on x86 CPUs.
+        if self.filter_store.abs() < 1.0e-20 {
+            self.filter_store = 0.0;
+        }
         self.buffer[self.index] = input + self.filter_store * self.feedback;
         self.index = (self.index + 1) % self.buf_size;
         output

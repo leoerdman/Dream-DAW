@@ -806,26 +806,27 @@ impl ProjectHistory {
     }
 
     fn snapshot(&self, limit: Option<usize>, since_seq: Option<u64>) -> Vec<ProjectHistoryEvent> {
-        let selected: Vec<ProjectHistoryEvent> = if let Some(since) = since_seq {
-            // If caller cursor is ahead of our tail, history likely reset
-            // (new/open project). Fall back to recent full slice.
+        // BUG-FIX: Previous implementation did double-collect (first into a Vec,
+        // then skip+collect into another Vec). Refactored to single allocation.
+        let iter: Box<dyn Iterator<Item = &ProjectHistoryEvent>> = if let Some(since) = since_seq {
             let tail_seq = self.events.back().map(|e| e.seq).unwrap_or(0);
             if since > tail_seq {
-                self.events.iter().cloned().collect()
+                Box::new(self.events.iter())
             } else {
-                self.events
-                    .iter()
-                    .filter(|e| e.seq > since)
-                    .cloned()
-                    .collect()
+                Box::new(self.events.iter().filter(move |e| e.seq > since))
             }
         } else {
-            self.events.iter().cloned().collect()
+            Box::new(self.events.iter())
         };
-        let selected_len = selected.len();
-        let count = limit.unwrap_or(selected_len).min(selected_len);
-        let skip = selected_len.saturating_sub(count);
-        selected.into_iter().skip(skip).collect()
+        // Collect once, then truncate from the front to apply the limit.
+        let mut selected: Vec<ProjectHistoryEvent> = iter.cloned().collect();
+        if let Some(max) = limit {
+            let len = selected.len();
+            if len > max {
+                selected.drain(..len - max);
+            }
+        }
+        selected
     }
 }
 
@@ -938,10 +939,10 @@ fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     drop(undo);
 
     // Always record the history event (it's lightweight and needed for undo/redo tracking).
-    // Only include caller location details when debug logging is enabled to avoid
-    // a format! heap allocation per push_undo in release builds (BUG-003 FIX).
-    let caller = std::panic::Location::caller();
+    // BUG-FIX: Avoid format! heap allocation per push_undo in release builds.
+    // Use a static detail string when debug logging is disabled.
     let detail = if log::log_enabled!(log::Level::Debug) {
+        let caller = std::panic::Location::caller();
         format!(
             "captured undo snapshot depth={} caller={}:{}",
             depth,
@@ -949,7 +950,7 @@ fn push_undo(project_state: &ProjectState) -> Result<(), String> {
             caller.line()
         )
     } else {
-        format!("captured undo snapshot depth={}", depth)
+        String::from("undo snapshot")
     };
     project_state.record_history("mutation_snapshot", detail)?;
     Ok(())

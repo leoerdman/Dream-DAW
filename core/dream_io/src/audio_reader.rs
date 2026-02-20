@@ -167,6 +167,11 @@ impl AudioReader {
         // Decode all packets
         let mut all_samples: Vec<Vec<f32>> = (0..num_channels).map(|_| Vec::new()).collect();
 
+        // BUG-013 FIX: Allocate the SampleBuffer once outside the loop and reuse it.
+        // The previous implementation allocated a new SampleBuffer per decoded packet,
+        // causing ~460 alloc+dealloc cycles for a 5-minute 48kHz WAV.
+        let mut sample_buf: Option<SampleBuffer<f32>> = None;
+
         loop {
             let packet = match format_reader.next_packet() {
                 Ok(p) => p,
@@ -197,10 +202,14 @@ impl AudioReader {
             let spec = *decoded.spec();
             let duration = decoded.capacity();
 
-            let mut sample_buf = SampleBuffer::<f32>::new(duration as u64, spec);
-            sample_buf.copy_interleaved_ref(decoded);
+            // Reuse the SampleBuffer if possible, or allocate if first use / capacity changed
+            let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration as u64, spec));
+            if buf.capacity() < duration {
+                *buf = SampleBuffer::<f32>::new(duration as u64, spec);
+            }
+            buf.copy_interleaved_ref(decoded);
 
-            let samples = sample_buf.samples();
+            let samples = buf.samples();
             let ch_count = spec.channels.count();
 
             // De-interleave into per-channel vectors

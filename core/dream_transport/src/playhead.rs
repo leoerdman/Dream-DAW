@@ -70,6 +70,8 @@ impl Playhead {
     /// - beat: 1-indexed beat within the bar
     /// - tick: fractional beat (0.0–1.0)
     pub fn bar_beat_tick(&self, bpm: f64, beats_per_bar: u32) -> (u32, u32, f64) {
+        // BUG-009 FIX: Guard against beats_per_bar=0 to prevent division by zero.
+        let beats_per_bar = beats_per_bar.max(1);
         let total_beats = self.position_beats(bpm);
         let bar = (total_beats / beats_per_bar as f64).floor() as u32 + 1;
         let beat_in_bar = (total_beats % beats_per_bar as f64).floor() as u32 + 1;

@@ -115,11 +115,11 @@ impl PluginScanner {
         all.extend(self.scan_format(PluginFormat::AudioUnit));
         all.extend(self.scan_format(PluginFormat::VST2));
 
-        // BUG-019 FIX: Deduplicate by lowercase name.
-        // First occurrence wins (which is the highest-priority format).
+        // BUG-024 FIX: Deduplicate by (name, vendor) pair instead of just name.
+        // Two different vendors can ship plugins with the same name (e.g. "Compressor").
         let mut seen = HashSet::new();
         all.retain(|desc| {
-            let key = desc.name.to_lowercase();
+            let key = format!("{}::{}", desc.name.to_lowercase(), desc.vendor.to_lowercase());
             seen.insert(key)
         });
 
@@ -199,24 +199,14 @@ impl PluginScanner {
             "string",
         ];
 
-        // Effect keywords
+        // BUG-039 FIX: Expanded effect keywords for better categorization.
         let effect_keywords = [
-            "eq",
-            "comp",
-            "reverb",
-            "delay",
-            "chorus",
-            "flanger",
-            "phaser",
-            "distortion",
-            "limiter",
-            "gate",
-            "filter",
-            "saturator",
-            "exciter",
-            "de-ess",
-            "multiband",
-            "ott",
+            "eq", "compressor", "comp", "limiter", "reverb", "delay",
+            "chorus", "flanger", "phaser", "distortion", "saturator",
+            "gate", "de-esser", "deesser", "filter", "exciter",
+            "multi", "stereo", "utility", "analyzer", "meter",
+            "pro-q", "pro-c", "pro-l", "pro-r", "pro-mb",
+            "ozone", "neutron", "nectar",
         ];
 
         // Analyzer keywords

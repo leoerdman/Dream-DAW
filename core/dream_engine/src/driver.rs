@@ -202,7 +202,9 @@ impl SharedRoutingSnapshot {
     }
 
     pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        // BUG-FIX: Acquire ordering ensures we see the ArcSwap store that
+        // happened-before the Release in fetch_add.
+        self.generation.load(Ordering::Acquire)
     }
 }
 
@@ -230,7 +232,9 @@ impl SharedSidechainSnapshot {
 
     pub fn swap(&self, sidechains: Vec<Vec<Option<usize>>>) {
         self.inner.store(Arc::new(sidechains));
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        // BUG-FIX: Release ordering so the ArcSwap store is visible to
+        // any thread that observes the incremented generation via Acquire.
+        self.generation.fetch_add(1, Ordering::Release);
     }
 
     pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<Option<usize>>>>> {
@@ -238,7 +242,7 @@ impl SharedSidechainSnapshot {
     }
 
     pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        self.generation.load(Ordering::Acquire)
     }
 }
 
@@ -274,16 +278,15 @@ impl SharedExternalFxSnapshot {
 
     pub fn swap(&self, fx: Vec<Vec<ExternalFxRuntimeSlot>>) {
         self.inner.store(Arc::new(fx));
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Release);
     }
 
     pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<ExternalFxRuntimeSlot>>>> {
         self.inner.load()
     }
 
-    // BUG-100 FIX: Expose generation counter for consistency with other snapshots.
     pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        self.generation.load(Ordering::Acquire)
     }
 }
 
@@ -452,7 +455,7 @@ impl SharedAutomationSnapshot {
 
     pub fn swap(&self, lanes: Vec<TrackAutomationState>) {
         self.inner.store(Arc::new(lanes));
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Release);
     }
 
     pub fn load(&self) -> arc_swap::Guard<Arc<Vec<TrackAutomationState>>> {
@@ -464,7 +467,7 @@ impl SharedAutomationSnapshot {
     }
 
     pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        self.generation.load(Ordering::Acquire)
     }
 }
 
@@ -479,21 +482,17 @@ impl Default for SharedAutomationSnapshot {
 use crate::render_callback::soft_clip;
 
 // BUG-8/9 FIX: Equal-power (constant-power) pan law.
-// BUG-055 FIX: Fast polynomial approximation — ~5× faster than cos/sin.
 // pan ∈ [-1.0, 1.0], where -1 = hard left, 0 = center, +1 = hard right.
 //
-// Uses the rational approximation:
-//   gain_right = (1 + pan) * 0.5  → linear pan position [0, 1]
-//   Apply parabolic curve for equal-power behavior.
-// Accuracy: within 0.3dB of true cos/sin across entire range.
+// Uses cos/sin trig for perfect equal-power behaviour:
+//   angle = t * π/2, where t = (pan + 1) / 2 ∈ [0, 1]
+//   L = cos(angle), R = sin(angle)
+// Guarantees L² + R² = 1 everywhere (constant power).
+// BUG-006 FIX: Comment now accurately describes the trig implementation.
 #[inline]
 fn equal_power_pan_gains(pan: f32) -> (f32, f32) {
     let pan = pan.clamp(-1.0, 1.0);
     let t = (pan + 1.0) * 0.5; // t ∈ [0, 1]
-    // Attempt exact trig at extremes, fast approximation in between.
-    // Equal-power: L² + R² ≈ 1 everywhere.
-    // Approximate cos(t*π/2) ≈ 1 - t² * (1 - π²/8... ) — but use the
-    // well-known angle-based formula with precalculated constants:
     let angle = t * std::f32::consts::FRAC_PI_2; // [0, π/2]
     (angle.cos(), angle.sin())
 }
@@ -554,7 +553,9 @@ fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
         let v = p.value;
         min_v = min_v.min(v);
         max_v = max_v.max(v);
-        if (v - 0.5).abs() <= 0.08 {
+        // BUG-025 FIX: Tighten center hint to ±0.02 to avoid false positives
+        // (e.g. value 0.45 in [-1,1] domain misread as center)
+        if (v - 0.5).abs() <= 0.02 {
             saw_center_hint = true;
         }
     }
@@ -881,10 +882,11 @@ fn build_dag_for_tracks(
         GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
 
     for track_idx in 0..track_count {
+        // BUG-FIX: Avoid heap-allocating format!() in real-time context.
         builder = builder.add_node(AudioNode::new(
             NodeId((track_idx as u64) + 1),
             NodeKind::Track {
-                name: format!("Track {}", track_idx + 1),
+                name: String::new(),
             },
         ));
     }
@@ -1053,10 +1055,14 @@ impl SharedPreparedGraphSnapshot {
     ) {
         let generation = self
             .generation
-            .fetch_add(1, Ordering::Relaxed)
+            .load(Ordering::Relaxed)
             .saturating_add(1);
         let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, sidechains, generation);
+        // BUG-021 FIX: Store snapshot BEFORE incrementing generation.
+        // This ensures readers who observe the new generation always see
+        // the new snapshot (not the stale one from the previous generation).
         self.inner.store(Arc::new(snapshot));
+        self.generation.store(generation, Ordering::Release);
     }
 
     pub fn load(&self) -> arc_swap::Guard<Arc<PreparedGraphSnapshot>> {
@@ -1090,15 +1096,18 @@ impl SharedSamplerSamples {
 
     /// Sets the loaded sample for a specific track (called from UI thread).
     ///
-    /// Uses load-modify-store pattern. Safe because only the UI thread writes.
+    /// BUG-005 FIX: Uses ArcSwap::rcu() for atomic read-copy-update.
+    /// The previous load_full()/clone()/store() pattern was NOT atomic —
+    /// concurrent Tauri commands could race on the Vec, losing one update.
     pub fn set_track_sample(&self, track_index: usize, sample: Option<Arc<ClipAudio>>) {
-        let current = self.inner.load_full();
-        let mut samples = (*current).clone();
-        if track_index >= samples.len() {
-            samples.resize(track_index + 1, None);
-        }
-        samples[track_index] = sample;
-        self.inner.store(Arc::new(samples));
+        self.inner.rcu(|current| {
+            let mut samples = (**current).clone();
+            if track_index >= samples.len() {
+                samples.resize(track_index + 1, None);
+            }
+            samples[track_index] = sample.clone();
+            Arc::new(samples)
+        });
     }
 
     /// Gets all track samples (called from audio thread).
@@ -1527,7 +1536,8 @@ pub fn start_audio_thread_on_device(
 
     // ── 5. Playback state ───────────────────────────────────────────
     let mut is_playing: bool = false;
-    let mut _bpm: f64 = 120.0;
+    // BUG-035 FIX: Removed misleading underscore — BPM IS used in TransportContext.
+    let mut bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
     // Master gain smoothing coefficient — targets ~5ms time constant,
@@ -1572,9 +1582,10 @@ pub fn start_audio_thread_on_device(
     // Per-track active-note tracking for VST3 plugins (flush on stop/seek).
     let mut vst3_note_trackers: Vec<Vst3NoteTracker> =
         vec![Vst3NoteTracker::default(); MAX_TRACKS];
-    // Flag: when true the next graph-render pass injects All-Notes-Off
-    // into every VST3 instrument slot before any new events.
-    let mut vst3_flush_all_notes = false;
+    // BUG-012 FIX: Per-track flush instead of global flag.
+    // The previous global flag killed notes on ALL VST3 instruments when only
+    // one track needed flushing (e.g. single-track bypass/stop).
+    let mut vst3_flush_per_track: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     // Per-track real-time MIDI queue: keyboard/preview NoteOn/Off events
     // are pushed here in the command loop and drained into vst3_midi_scratch
     // during the graph pass so external VST3 instruments (Serum, etc.)
@@ -1582,7 +1593,7 @@ pub fn start_audio_thread_on_device(
     let mut vst3_rt_midi_queue: Vec<Vec<MidiEvent>> =
         (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
     // Track which samples were last loaded per-track to avoid re-assigning
-    let _last_sample_generation: u64 = 0;
+    // BUG-068 FIX: Removed dead variable _last_sample_generation (was never read).
 
     let stream = device
         .build_output_stream(
@@ -1595,7 +1606,14 @@ pub fn start_audio_thread_on_device(
             // └──────────────────────────────────────────────────────┘
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
                 let mut run_callback = || {
-                        let callback_start = Instant::now();
+                        // BUG-050 FIX: Only call Instant::now() when debug stats
+                        // are active. mach_absolute_time() is a ~20ns syscall
+                        // that's unnecessary overhead in production builds.
+                        let callback_start = if rt_debug_stats.is_enabled() {
+                            Some(Instant::now())
+                        } else {
+                            None
+                        };
                         // ═══════════════════════════════════════════════════════════════
                         // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
                         // ═══════════════════════════════════════════════════════════════
@@ -1637,13 +1655,16 @@ pub fn start_audio_thread_on_device(
                         // ── A1. Drain command queue (bounded) ─────────────────────
                         // Bound per-callback command work so UI command bursts
                         // cannot starve audio rendering and cause dropouts.
-                        const MAX_COMMANDS_PER_CALLBACK: usize = 512;
+                        // BUG-040 FIX: Adaptive command budget based on frame_count.
+                        // At 128 frames (2.7ms), original 512 commands could use 18%
+                        // of the budget. Now scales: min 64, max 512.
+                        let max_commands = (frame_count * 4).clamp(64, 512);
                         let mut commands_processed = 0usize;
                         let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
                         let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
                         let mut pending_track_mute: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
                         let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
-                        for _ in 0..MAX_COMMANDS_PER_CALLBACK {
+                        for _ in 0..max_commands {
                             let Ok(cmd) = consumer.pop() else {
                                 break;
                             };
@@ -1657,8 +1678,8 @@ pub fn start_audio_thread_on_device(
                                             sampler_engines[idx].all_notes_off();
                                             midi_note_states[idx] = MidiNoteMapState::default();
                                         }
-                                        // BUG-1 FIX: Flush VST3 plugin notes on transport stop.
-                                        vst3_flush_all_notes = true;
+                                        // BUG-012 FIX: Flush all tracks on transport stop.
+                                        vst3_flush_per_track.fill(true);
                                         test_tone_phase = 0.0;
                                         test_tone_enabled = false;
                                         // Reset all meters to silence when transport stops
@@ -1678,11 +1699,11 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].all_notes_off();
                                         midi_note_states[idx] = MidiNoteMapState::default();
                                     }
-                                    // BUG-1 FIX: Flush VST3 plugin notes on seek.
-                                    vst3_flush_all_notes = true;
+                                    // BUG-012 FIX: Flush all tracks on seek.
+                                    vst3_flush_per_track.fill(true);
                                 }
-                                EngineCommand::SetBpm(bpm) => {
-                                    _bpm = bpm.clamp(20.0, 999.0);
+                                EngineCommand::SetBpm(new_bpm) => {
+                                    bpm = new_bpm.clamp(20.0, 999.0);
                                 }
                                 EngineCommand::SetTimelineSampleRate(sample_rate) => {
                                     render_ctx.set_timeline_sample_rate(sample_rate);
@@ -1909,9 +1930,9 @@ pub fn start_audio_thread_on_device(
                                     if bypassed && idx < sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
                                     }
-                                    // BUG-1 FIX: Also flush VST3 instruments when bypassing.
-                                    if bypassed {
-                                        vst3_flush_all_notes = true;
+                                    // BUG-012 FIX: Only flush the bypassed track, not all.
+                                    if bypassed && idx < MAX_TRACKS {
+                                        vst3_flush_per_track[idx] = true;
                                     }
                                 }
                                 EngineCommand::Shutdown => {
@@ -1921,8 +1942,8 @@ pub fn start_audio_thread_on_device(
                                     for engine in sampler_engines.iter_mut() {
                                         engine.all_notes_off();
                                     }
-                                    // BUG-1 FIX: Flush VST3 plugin notes on shutdown.
-                                    vst3_flush_all_notes = true;
+                                    // BUG-012 FIX: Flush all tracks on shutdown.
+                                    vst3_flush_per_track.fill(true);
                                 }
                                 // ── Device Chain Commands ────────────────────
                                 EngineCommand::AddDevice {
@@ -2485,7 +2506,7 @@ pub fn start_audio_thread_on_device(
                                                 let transport = TransportContext {
                                                     sample_rate: sample_rate_f64,
                                                     position_samples: playhead_pos,
-                                                    tempo: _bpm,
+                                                    tempo: bpm,
                                                     is_playing,
                                                     is_recording: false,
                                                     time_sig_numerator: 4,
@@ -2512,8 +2533,9 @@ pub fn start_audio_thread_on_device(
                                                     );
                                                 }
 
-                                                // BUG-1 FIX: Flush all active notes on transport stop/seek.
-                                                if vst3_flush_all_notes && track_idx < vst3_note_trackers.len() {
+                                                // BUG-012 FIX: Per-track flush instead of global flag.
+                                                if vst3_flush_per_track.get(track_idx).copied().unwrap_or(false)
+                                                    && track_idx < vst3_note_trackers.len() {
                                                     vst3_note_trackers[track_idx].flush_all(&mut vst3_midi_scratch);
                                                 }
 
@@ -2743,9 +2765,8 @@ pub fn start_audio_thread_on_device(
                             },
                             |_node, _left, _right, _count| {},
                         );
-                        // BUG-1 FIX: Clear the flush flag after all tracks have been
-                        // processed — each VST3 slot received its note-off events.
-                        vst3_flush_all_notes = false;
+                        // BUG-012 FIX: Clear per-track flush flags after processing.
+                        vst3_flush_per_track.fill(false);
 
                         for i in 0..n {
                             let base = i * channels;
@@ -2772,7 +2793,10 @@ pub fn start_audio_thread_on_device(
                                 let sample = (test_tone_phase * std::f64::consts::TAU).sin() as f32 * TEST_TONE_AMPLITUDE;
                                 for ch in frame.iter_mut() { *ch = sample; }
                                 test_tone_phase += phase_inc;
-                                if test_tone_phase >= 1.0 { test_tone_phase -= 1.0; }
+                                // BUG-014 FIX: Use fract() for safe phase wrapping.
+                                // The previous `if >= 1.0 { -= 1.0 }` fails when phase_inc > 1.0
+                                // (high frequencies / low sample rates), causing pitch aliasing.
+                                test_tone_phase = test_tone_phase.fract();
                             }
                         }
                         if is_playing && !playhead_advanced_in_render {
@@ -2788,29 +2812,50 @@ pub fn start_audio_thread_on_device(
                                 .advance(frame_count, transport_loop.as_ref());
                         }
                         // ── C. Mix preview audio (browser audition) ─────
-                        // Preview plays regardless of transport state
+                        // Preview plays regardless of transport state.
                         // 100% lock-free: ArcSwap::load() is wait-free.
+                        // BUG-002 FIX: Preview data is interleaved stereo. Mix it
+                        // respecting the actual output channel count to prevent
+                        // misalignment on mono or surround devices.
                         let preview_snap = preview_buffer.load();
                         if let Some(ref preview_data) = **preview_snap {
                             let cursor = preview_cursor.load(Ordering::Relaxed);
                             let total = preview_data.len();
+                            let preview_channels = 2usize; // preview is always stereo
                             if cursor < total {
-                                let end = (cursor + frame_count * channels).min(total);
-                                for i in cursor..end {
-                                    if i - cursor < data.len() {
-                                        data[i - cursor] += preview_data[i];
+                                let preview_frames = (total - cursor) / preview_channels;
+                                let mix_frames = preview_frames.min(frame_count);
+                                for f in 0..mix_frames {
+                                    let p_idx = cursor + f * preview_channels;
+                                    let d_idx = f * channels;
+                                    if p_idx + 1 < total && d_idx < data.len() {
+                                        let p_left = preview_data[p_idx];
+                                        let p_right = preview_data[p_idx + 1];
+                                        if channels == 1 {
+                                            data[d_idx] += (p_left + p_right) * 0.5;
+                                        } else {
+                                            data[d_idx] += p_left;
+                                            if d_idx + 1 < data.len() {
+                                                data[d_idx + 1] += p_right;
+                                            }
+                                        }
                                     }
                                 }
-                                preview_cursor.store(end, Ordering::Relaxed);
+                                preview_cursor.store(cursor + mix_frames * preview_channels, Ordering::Relaxed);
                             }
                         }
 
                         // ── C2. Master fader + final safety clip ─────────
-                        // Smooth target to avoid zipper noise while dragging.
-                        for sample in data.iter_mut() {
+                        // BUG-045 FIX: Smooth per-FRAME (every `channels` samples)
+                        // instead of per-sample. This ensures L and R channels in
+                        // the same frame receive identical gain, eliminating the
+                        // subtle stereo imbalance during gain ramps.
+                        for frame in data.chunks_exact_mut(channels) {
                             master_gain_current +=
                                 (master_gain_target - master_gain_current) * master_gain_smooth;
-                            *sample = soft_clip(*sample * master_gain_current);
+                            for ch in frame.iter_mut() {
+                                *ch = soft_clip(*ch * master_gain_current);
+                            }
                         }
 
                         // Keep master metering in sync with the real final output,
@@ -2862,7 +2907,7 @@ pub fn start_audio_thread_on_device(
                         rt_debug_stats.record_callback(
                             frame_count,
                             commands_processed,
-                            callback_start.elapsed().as_micros() as u64,
+                            callback_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
                             deferred_topology.len(),
                         );
                     };

@@ -191,8 +191,14 @@ impl AdsrEnvelope {
     /// Trigger note-on — starts the attack phase.
     #[inline]
     pub fn note_on(&mut self) {
+        // BUG-FIX: Reset level to 0 when starting from Idle to prevent
+        // starting the attack ramp from a stale non-zero level (causes pops).
+        // When re-triggering from Release/Sustain, keep the current level
+        // for smooth legato transitions.
+        if matches!(self.stage, EnvelopeStage::Idle) {
+            self.level = 0.0;
+        }
         self.stage = EnvelopeStage::Attack;
-        // Don't reset level to 0 — allows legato re-triggers without clicks
     }
 
     /// Trigger note-off — starts the release phase.

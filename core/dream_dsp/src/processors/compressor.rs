@@ -109,7 +109,11 @@ impl CompressorProcessor {
     }
 
     fn update_sc_hpf(&mut self) {
-        self.sc_hp_coeff = (-std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate).exp();
+        // BUG-FIX: Previous formula exp(-2πfc/fs) is a LP coefficient.
+        // The HP filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])
+        // requires α = 1/(1 + 2πfc/fs) for correct HP behaviour.
+        let w = std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate;
+        self.sc_hp_coeff = 1.0 / (1.0 + w);
     }
 
     fn compute_auto_makeup(&self) -> f32 {

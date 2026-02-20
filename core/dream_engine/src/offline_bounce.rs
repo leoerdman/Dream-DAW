@@ -93,8 +93,10 @@ pub struct BounceConfig {
 
 impl BounceConfig {
     /// Total frames to render (including tail).
+    /// BUG-FIX: Use saturating arithmetic to prevent i64 overflow when
+    /// end_frame is very large and tail_frames is added.
     pub fn total_frames(&self) -> i64 {
-        (self.end_frame - self.start_frame) + self.tail_frames
+        (self.end_frame - self.start_frame).saturating_add(self.tail_frames)
     }
 }
 

@@ -101,7 +101,11 @@ impl GateProcessor {
             };
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
             self.hold_samples = self.hold_ms * 0.001 * sr;
-            self.sc_coeff = (-std::f32::consts::TAU * self.sc_hpf_freq / sr).exp();
+            // BUG-FIX: The previous formula exp(-2πfc/fs) is a low-pass coefficient,
+            // not a high-pass one. The filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])
+            // requires α = 1/(1 + 2πfc/fs) for correct HP cut-off frequency.
+            let w = std::f32::consts::TAU * self.sc_hpf_freq / sr;
+            self.sc_coeff = 1.0 / (1.0 + w);
         }
         self.range_lin = if self.range_db <= -96.0 {
             0.0

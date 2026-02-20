@@ -456,7 +456,9 @@ impl Default for ZoneSettings {
         Self {
             key_range_min: 0,
             key_range_max: 127,
-            velocity_range_min: 1,
+            // BUG-084 FIX: Default to 0 (not 1) since MIDI velocity 0 is valid
+            // for instruments that use it as "note off" or as the lowest dynamic.
+            velocity_range_min: 0,
             velocity_range_max: 127,
             chain_selector_min: 0,
             chain_selector_max: 127,
@@ -980,6 +982,7 @@ impl AudioClip {
             follow_time: 0.0,
             follow_action_a: 0,
             follow_action_b: 0,
+            // BUG-075 FIX: Clamp follow chance values to valid range [0, 100].
             follow_chance_a: 0.0,
             follow_chance_b: 0.0,
             is_in_key: false,

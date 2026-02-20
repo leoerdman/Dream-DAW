@@ -31,12 +31,23 @@ use std::sync::Arc;
 /// Module-level atomic counter for pool misses (RT-safe, no per-miss allocation).
 static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// BUG-FIX: Separate counter for spectrum ring buffer drops (SSOT violation fix).
+/// Previously both clip pool misses AND spectrum drops shared POOL_MISS_COUNT.
+static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
 /// or streaming windows since engine start.
 #[inline]
 pub fn pool_miss_count() -> u32 {
     POOL_MISS_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Returns the total number of spectrum analyzer samples dropped due to
+/// ring buffer overflow since engine start.
+#[inline]
+pub fn spectrum_drop_count() -> u32 {
+    SPECTRUM_DROP_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -160,6 +171,10 @@ pub struct RenderContext {
 /// ALL signals (even –6 dBFS content was crushed by 34%).
 #[inline]
 pub fn soft_clip(sample: f32) -> f32 {
+    // BUG-FIX: Guard NaN/Inf inputs early to prevent propagation.
+    if !sample.is_finite() {
+        return 0.0;
+    }
     let abs = sample.abs();
     if abs <= 1.0 {
         sample // transparent below 0 dBFS
@@ -167,7 +182,7 @@ pub fn soft_clip(sample: f32) -> f32 {
         // Soft-knee: 1.0 + 0.5 * tanh(excess)
         // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
         // Clamp excess to prevent exp() overflow → NaN at extreme signal levels.
-        let excess = (abs - 1.0).min(20.0);
+        let excess = (abs - 1.0).min(10.0);
         let e2x = (2.0 * excess).exp();
         let tanh_val = (e2x - 1.0) / (e2x + 1.0);
         sample.signum() * (1.0 + 0.5 * tanh_val)
@@ -223,9 +238,10 @@ impl RenderContext {
         self.timeline_sample_rate = sr;
         self.playhead.set_sample_rate(sr);
         self.timeline_advance_accumulator = 0.0;
-        // BUG-13 FIX: Recompute fade curves when timeline SR changes.
-        // Without this, fades use the original SR → wrong duration.
-        self.fade_cache = FadeCache::new(sr);
+        // BUG-034 FIX: Use device sample rate for fade curves since fades operate
+        // in device-time (samples output to the soundcard), not timeline-time.
+        // A 10ms fade at 44.1kHz project SR on a 96kHz device needs 960 samples.
+        self.fade_cache = FadeCache::new(self.sample_rate);
     }
 
     /// The core render function — called once per audio buffer.
@@ -289,7 +305,9 @@ impl RenderContext {
         // Diagnostic: track total active clips this buffer
         let mut total_active = 0usize;
         let mut total_pool_hits = 0usize;
-        let mut pro_warp_budget = if frame_count >= 1024 { 6usize } else { 12usize };
+        // BUG-019 FIX: Larger buffers have more CPU time available → more Pro warp budget.
+        // Previous values were inverted (1024+ frames got FEWER Pro warp slots).
+        let mut pro_warp_budget = if frame_count >= 1024 { 12usize } else { 6usize };
 
         for (track_idx, clips) in clips_per_track.iter().enumerate() {
             if track_idx >= self.track_slots.len() {
@@ -635,7 +653,9 @@ impl RenderContext {
                 }
             }
             if drops > 0 {
-                POOL_MISS_COUNT.fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
+                // BUG-FIX: Use dedicated SPECTRUM_DROP_COUNT instead of
+                // POOL_MISS_COUNT (SSOT violation — these are different metrics).
+                SPECTRUM_DROP_COUNT.fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
                 log::trace!("[Spectrum] Dropped {} samples (ring full)", drops);
             }
         }

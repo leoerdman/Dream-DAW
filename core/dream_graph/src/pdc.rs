@@ -49,7 +49,6 @@ use crate::dag::{AudioDag, EdgeDelayCompensation};
 /// O(V + E) — single reverse pass over the topological order.
 pub fn compute_delay_compensation(dag: &AudioDag, topo_order: &[NodeIndex]) -> Vec<u32> {
     let graph = dag.graph();
-    let node_count = graph.node_count();
 
     // GR-004 FIX: Use node_bound() not node_count(). petgraph indices
     // can exceed node_count() after removals, causing index OOB panic.
@@ -103,7 +102,6 @@ pub fn compute_edge_delay_compensation(
     topo_order: &[NodeIndex],
 ) -> Vec<EdgeDelayCompensation> {
     let graph = dag.graph();
-    let node_count = graph.node_count();
 
     // GR-005 FIX: Use node_bound() not node_count() — same as GR-004.
     let mut max_to_output = vec![0u32; graph.node_bound()];
@@ -507,7 +505,7 @@ mod tests {
             }
 
             // Property 3: at every merge node, edge-compensated inputs align.
-            let mut max_to_output = vec![0u32; dag.graph().node_count()];
+            let mut max_to_output = vec![0u32; dag.graph().node_bound()];
             for &node_idx in &order {
                 let max_input = dag
                     .inputs(node_idx)

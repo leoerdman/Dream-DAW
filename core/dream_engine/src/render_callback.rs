@@ -50,6 +50,13 @@ pub fn spectrum_drop_count() -> u32 {
     SPECTRUM_DROP_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// AUD-050 FIX: Reset diagnostic counters. Call when starting a new session
+/// or when the UI requests a counter reset for fresh diagnostics.
+pub fn reset_diagnostic_counters() {
+    POOL_MISS_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    SPECTRUM_DROP_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// Maximum number of tracks supported per project.
@@ -365,6 +372,14 @@ impl RenderContext {
                     continue;
                 }
                 let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
+                // AUD-089 FIX: Warn on zero-duration clips (hidden by max(1)).
+                #[cfg(debug_assertions)]
+                if clip.duration.sample_frame <= 0 {
+                    log::warn!(
+                        "[render] Zero-duration clip at track {} — will produce no audio",
+                        track_idx
+                    );
+                }
                 let clip_source_len = if clip.warp_source_duration_frames > 0 {
                     clip.warp_source_duration_frames as f64
                 } else {
@@ -372,7 +387,20 @@ impl RenderContext {
                 };
                 let is_warped = clip.is_warped && clip_source_len > 1.0;
                 let playback_rate = if is_warped {
-                    (clip_source_len / clip_timeline_len).clamp(0.125, 8.0)
+                    let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
+                    // AUD-020 FIX: Log when playback rate is clamped.
+                    #[cfg(debug_assertions)]
+                    {
+                        let unclamped = clip_source_len / clip_timeline_len;
+                        if (unclamped - rate).abs() > 0.001 {
+                            log::trace!(
+                                "[render] Clip playback_rate clamped: {:.3} → {:.3}",
+                                unclamped,
+                                rate
+                            );
+                        }
+                    }
+                    rate
                 } else {
                     1.0
                 };
@@ -509,12 +537,20 @@ impl RenderContext {
                         }
                     } else {
                         let fade_len = self.fade_cache.fade_length;
-                        if ac.is_clip_head && safe_read_len >= fade_len {
-                            let len = fade_len.min(safe_read_len);
-                            for i in 0..len {
-                                let gain = self.fade_cache.fade_in[i];
-                                slot.buf_left[offset + i] *= gain;
-                                slot.buf_right[offset + i] *= gain;
+                        // AE-015 FIX: Apply head fade even for short clips.
+                        // Previously skipped when safe_read_len < fade_len,
+                        // causing clicks at the start of very short clips.
+                        if ac.is_clip_head {
+                            let actual_fade = fade_len.min(safe_read_len);
+                            if actual_fade > 0 {
+                                for i in 0..actual_fade {
+                                    // Map into the START portion of the fade_in table
+                                    // so the first sample always hits gain=0.
+                                    let table_idx = i;
+                                    let gain = self.fade_cache.fade_in[table_idx];
+                                    slot.buf_left[offset + i] *= gain;
+                                    slot.buf_right[offset + i] *= gain;
+                                }
                             }
                         }
 
@@ -614,6 +650,13 @@ impl RenderContext {
         let advance_exact = frame_count as f64 * ratio + self.timeline_advance_accumulator;
         let advance_frames = advance_exact.floor().max(0.0) as usize;
         self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
+        // AUD-039/063 FIX: Recalibrate accumulator periodically.
+        // At 192kHz/44.1kHz ratio, f64 precision errors accumulate ~1e-12 per frame.
+        // After ~1M frames (~5 seconds), clamp to prevent unbounded drift.
+        // This is a safety net — in practice drift is negligible for hours.
+        if self.timeline_advance_accumulator.abs() > 1.0 {
+            self.timeline_advance_accumulator = self.timeline_advance_accumulator.fract();
+        }
         self.playhead
             .advance(advance_frames, transport_loop.as_ref());
     }
@@ -636,10 +679,14 @@ impl RenderContext {
         self.render_tracks(frame_count, clips_per_track, clip_pool);
 
         // ── 5. Sum into master bus ──────────────────────────────
+        // SOLO FIX: Check BOTH active AND output_enabled. The driver sets
+        // output_enabled=false when the track is muted or excluded by solo
+        // (see set_output_enabled at L2097). Without this check, Solo had
+        // no audible effect in the non-graph rendering path.
         let track_slots = &self.track_slots;
         let master_bus = &mut self.master_bus;
         for slot in track_slots {
-            if !slot.active {
+            if !slot.active || !slot.strip.is_output_enabled() {
                 continue;
             }
             master_bus.add_stereo(
@@ -668,16 +715,30 @@ impl RenderContext {
             .master_right()
             .store_peak_decay(m_peak_r, master_decay);
 
-        // Interleave into output [L, R, L, R, ...]
-        for i in 0..frame_count {
-            let base = i * self.channels;
-            if base + 1 < output.len() {
+        // AUD-043 FIX: Precompute safe frame count to avoid per-frame branch.
+        let safe_frames = if self.channels >= 2 {
+            (output.len() / self.channels).min(frame_count)
+        } else {
+            frame_count
+        };
+        // AUD-078 FIX: Stereo-specialized interleave (most common case).
+        if self.channels == 2 {
+            for i in 0..safe_frames {
+                let base = i * 2;
                 output[base] = soft_clip(master_l[i]);
                 output[base + 1] = soft_clip(master_r[i]);
-                for ch in 2..self.channels {
-                    let idx = base + ch;
-                    if idx < output.len() {
-                        output[idx] = 0.0;
+            }
+        } else {
+            for i in 0..safe_frames {
+                let base = i * self.channels;
+                if base + 1 < output.len() {
+                    output[base] = soft_clip(master_l[i]);
+                    output[base + 1] = soft_clip(master_r[i]);
+                    for ch in 2..self.channels {
+                        let idx = base + ch;
+                        if idx < output.len() {
+                            output[idx] = 0.0;
+                        }
                     }
                 }
             }

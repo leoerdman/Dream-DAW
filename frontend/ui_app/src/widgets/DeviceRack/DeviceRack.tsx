@@ -3556,21 +3556,12 @@ const PluginGuiSurface = ({
                                 <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)}
                                     stroke={db === 0 ? 'rgba(80,160,255,0.35)' : 'rgba(60,130,220,0.08)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
                             ))}
-                            {/* ── Vertical frequency grid (major + sub) ── */}
+                            {/* ── Vertical frequency grid (major + sub) — lines only, labels in HTML overlay ── */}
                             {freqLabels.map((fl) => (
-                                <g key={`vf-${fl.freq}`}>
-                                    <line x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(60,130,220,0.12)" strokeWidth="0.5" />
-                                    <text x={freqToX(fl.freq)} y={VB_H - 3} textAnchor="middle" fill="rgba(160,200,255,0.45)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
-                                </g>
+                                <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(60,130,220,0.12)" strokeWidth="0.5" />
                             ))}
                             {freqSubLines.map((f) => (
                                 <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="rgba(60,130,220,0.05)" strokeWidth="0.3" />
-                            ))}
-                            {/* ── dB scale labels ── */}
-                            {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
-                                <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill={db === 0 ? 'rgba(160,200,255,0.5)' : 'rgba(160,200,255,0.28)'} fontSize="6" fontFamily="Inter, sans-serif">
-                                    {db > 0 ? '+' : ''}{db}dB
-                                </text>
                             ))}
                             <defs>
                                 <linearGradient id={`specGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -3614,6 +3605,41 @@ const PluginGuiSurface = ({
                             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                                 <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'rgba(0,220,200,0.9)' : 'rgba(160,190,220,0.4)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
+                        </div>
+                        {/* ── dB scale labels overlay (HTML layer — prevents SVG text stretch) ── */}
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                            {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
+                                <div key={`dblabel-${db}`} style={{
+                                    position: 'absolute',
+                                    left: `${((MARGIN_L + 2) / VB_W) * 100}%`,
+                                    top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
+                                    fontSize: 8,
+                                    fontFamily: 'Inter, sans-serif',
+                                    color: db === 0 ? 'rgba(160,200,255,0.55)' : 'rgba(160,200,255,0.3)',
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: 1,
+                                }}>
+                                    {db > 0 ? '+' : ''}{db}dB
+                                </div>
+                            ))}
+                        </div>
+                        {/* ── Frequency labels overlay (HTML layer — prevents SVG text stretch) ── */}
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                            {freqLabels.map((fl) => (
+                                <div key={`flabel-${fl.freq}`} style={{
+                                    position: 'absolute',
+                                    left: `${(freqToX(fl.freq) / VB_W) * 100}%`,
+                                    bottom: 2,
+                                    transform: 'translateX(-50%)',
+                                    fontSize: 8,
+                                    fontFamily: 'Inter, sans-serif',
+                                    color: 'rgba(160,200,255,0.5)',
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: 1,
+                                }}>
+                                    {fl.label}
+                                </div>
+                            ))}
                         </div>
                         {/* ── Band dots overlay (HTML layer — no SVG stretch distortion) ── */}
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>

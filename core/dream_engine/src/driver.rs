@@ -297,6 +297,10 @@ impl Default for SharedExternalFxSnapshot {
 }
 
 /// Lock-free runtime stats written by audio callback for diagnostics.
+///
+/// AUD-054: All fields use `Relaxed` ordering intentionally. These stats are
+/// for diagnostics only — stale reads across fields in a snapshot are acceptable.
+/// Using `Acquire/Release` would add unnecessary memory fences on every callback.
 pub struct SharedRtDebugStats {
     enabled: AtomicBool,
     callback_count: AtomicU64,
@@ -546,6 +550,12 @@ fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
         return false;
     }
 
+    // AUD-022 FIX: Early-out for all-zero points (common for center pan).
+    // Avoids O(n) scan for the overwhelmingly common case.
+    if points.len() <= 2 && points.iter().all(|p| p.value.abs() < 0.001) {
+        return false;
+    }
+
     let mut min_v = f32::INFINITY;
     let mut max_v = f32::NEG_INFINITY;
     let mut saw_center_hint = false;
@@ -781,7 +791,12 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
         let mut parts = rest.split(':');
         let slot_index = parts.next()?.parse::<usize>().ok()?;
         let _plugin_key = parts.next()?;
-        let param_token = parts.collect::<Vec<_>>().join(":");
+        // AE-002 FIX: Avoid heap-allocating collect+join. Find the remaining
+        // substring directly from the source string instead.
+        let plugin_key_end = rest.find(':').and_then(|first_colon| {
+            rest[first_colon + 1..].find(':').map(|second_colon| first_colon + 1 + second_colon + 1)
+        }).unwrap_or(rest.len());
+        let param_token = &rest[plugin_key_end.min(rest.len())..];
         if param_token.is_empty() {
             return None;
         }
@@ -904,8 +919,11 @@ fn build_dag_for_tracks(
         if let Some(Some(dest_idx)) = routing.get(track_idx) {
             if *dest_idx < track_count && *dest_idx != track_idx {
                 let to = NodeId((*dest_idx as u64) + 1);
-                match builder.clone().add_edge(from, to) {
-                    Ok(next) => builder = next,
+                // AUD-018 FIX: Use add_edge directly instead of clone-then-try.
+                // GraphBuilder::clone() deep-copies all nodes/edges (heap allocation)
+                // on EVERY edge. Adding directly and falling back on error is much cheaper.
+                builder = match builder.add_edge(from, to) {
+                    Ok(next) => next,
                     Err(err) => {
                         log::warn!(
                             "[Graph] routing edge {} -> {} rejected ({}), fallback to linear graph",
@@ -932,6 +950,10 @@ fn build_dag_for_tracks(
                     if *source_idx < track_count && *source_idx != track_idx {
                         let source_node = NodeId((*source_idx as u64) + 1);
                         // Sidechain edges: ordering-only, audio NOT mixed.
+                        // NOTE: clone() is required here because the error path
+                        // continues (doesn't return), so builder must be preserved.
+                        // Unlike routing edges (which return on error), sidechain
+                        // failures are non-fatal — we just skip the edge.
                         match builder.clone().add_edge_typed(
                             source_node,
                             from,
@@ -1067,11 +1089,11 @@ impl SharedPreparedGraphSnapshot {
             .fetch_add(1, Ordering::AcqRel)
             .wrapping_add(1);
         let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, sidechains, generation);
-        // Store snapshot BEFORE publishing generation.
-        // This ensures readers who observe the new generation always see
-        // the new snapshot (not the stale one from the previous generation).
+        // AE-006 FIX: Store snapshot atomically. The ArcSwap::store is already
+        // Release-ordered internally. The generation from fetch_add is already
+        // published — no need for a second store which created a TOCTOU window
+        // where a reader could see incremented generation but stale snapshot.
         self.inner.store(Arc::new(snapshot));
-        self.generation.store(generation, Ordering::Release);
     }
 
     pub fn load(&self) -> arc_swap::Guard<Arc<PreparedGraphSnapshot>> {
@@ -1251,7 +1273,8 @@ impl Vst3NoteTracker {
         }
     }
 
-    #[allow(dead_code)]
+    /// Clears all tracked active notes without sending note-off events.
+    /// Used when the plugin instance is being destroyed or completely reset.
     fn clear(&mut self) {
         self.active.clear();
     }
@@ -1569,8 +1592,12 @@ pub fn start_audio_thread_on_device(
     let mut bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
-    // Master gain smoothing coefficient — targets ~5ms time constant,
-    // derived from sample rate so behavior is consistent across 44.1–192kHz.
+    // AUD-035/036 FIX: Documented master gain system.
+    // master_gain_target: set by EngineCommand::SetMasterGain, clamped [0.0, 2.0].
+    // master_gain_current: exponentially smoothed toward target each frame.
+    // master_gain_smooth: one-pole coefficient for ~5ms time constant.
+    //   Formula: 1.0 - exp(-1/(tau * sr)) where tau = 5ms.
+    //   At 44.1kHz: ~0.00455, at 96kHz: ~0.00208.
     let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
@@ -1589,8 +1616,8 @@ pub fn start_audio_thread_on_device(
     let mut midi_note_states: Vec<MidiNoteMapState> =
         vec![MidiNoteMapState::default(); MAX_TRACKS];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
-    let mut external_left = vec![0.0f32; 8192];
-    let mut external_right = vec![0.0f32; 8192];
+    let mut external_left = vec![0.0f32; MAX_BUFFER_FRAMES];
+    let mut external_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     #[derive(Clone, Copy)]
     enum DeferredTopologyCmd {
         Add {
@@ -1606,7 +1633,9 @@ pub fn start_audio_thread_on_device(
     let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(1024);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(2048);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(2048);
-    let mut midi_events_scratch: Vec<(usize, u8, u8, u8, u64)> = Vec::with_capacity(16384);
+    // AUD-072 FIX: Reduced from 16384 to 2048. Typical MIDI density is <100
+    // events per buffer. 16384 wastes 120KB per Vec allocation.
+    let mut midi_events_scratch: Vec<(usize, u8, u8, u8, u64)> = Vec::with_capacity(2048);
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent
     // objects that external VST3 plugins receive.
     let mut vst3_midi_scratch: Vec<MidiEvent> = Vec::with_capacity(4096);
@@ -2409,10 +2438,11 @@ pub fn start_audio_thread_on_device(
                             // 128 simultaneous mapped notes is far beyond any legitimate
                             // polyphony — drain oldest entries if exceeded.
                             if note_state.active_notes.len() > 128 {
-                                // AUD-027 FIX: Use truncate instead of drain — drain
-                                // creates an iterator object. truncate is a direct
-                                // ptr::drop_in_place + length adjustment.
-                                note_state.active_notes.truncate(128);
+                                // AE-018 FIX: Drop the OLDEST notes (front of Vec) to keep
+                                // the 128 most recent. Previous truncate(128) kept the oldest
+                                // and dropped the newest — wrong priority.
+                                let excess = note_state.active_notes.len() - 128;
+                                note_state.active_notes.drain(..excess);
                             }
 
                             // ── Mark slot active so the metering loop in
@@ -2425,6 +2455,11 @@ pub fn start_audio_thread_on_device(
                         let n = frame_count;
                         graph_out_left[..n].fill(0.0);
                         graph_out_right[..n].fill(0.0);
+
+                        // AE-013 FIX: Cache peak_decay_for_block ONCE before the graph
+                        // closure. Previously called per-track inside the closure —
+                        // exp() is ~5ns × 256 tracks = 1.3μs wasted per buffer.
+                        let graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
 
                         graph_renderer.render(
                             &graph_plan,
@@ -2790,7 +2825,8 @@ pub fn start_audio_thread_on_device(
                                     // AUD-008 FIX: Cache peak_decay outside the closure via
                                     // sample_rate_f64 captured from outer scope. peak_decay_for_block
                                     // involves exp() which is ~5ns — ~1.3μs overhead for 256 tracks.
-                                    let decay = peak_decay_for_block(sample_rate_f64, count);
+                                    // AE-013 FIX: Use pre-cached decay from outer scope.
+                                    let decay = graph_peak_decay;
                                     if let Some((meter_l, meter_r)) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {

@@ -326,13 +326,22 @@ impl SamplerVoice {
     }
 
     /// Start playing a note.
+    ///
+    /// `sr_ratio` is `source_sample_rate / device_sample_rate` — applied to
+    /// `pitch_ratio` so samples play at the correct pitch on any device.
+    /// For synth mode (oscillator), pass `1.0` (phase_increment already
+    /// accounts for device SR via `freq / sample_rate`).
     #[inline]
-    pub fn trigger(&mut self, note: u8, velocity: u8, root_note: u8) {
+    pub fn trigger(&mut self, note: u8, velocity: u8, root_note: u8, sr_ratio: f64) {
         self.active = true;
         self.note = note;
         self.velocity = velocity as f32 / 127.0;
         self.cursor = 0.0;
-        self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0);
+        // PITCH FIX: Apply source/device SR ratio to pitch_ratio.
+        // Without this, a 44100Hz sample on a 48000Hz device plays ~1.5
+        // semitones sharp because each output frame is shorter in time
+        // but the cursor advances by the same amount.
+        self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0) * sr_ratio;
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
         // BUG-12 FIX: Warn when note exceeds Nyquist (clamped to 0.5).
@@ -491,8 +500,17 @@ pub struct SamplerEngine {
     /// Pulse width for square wave (0.05–0.95, default 0.5).
     pulse_width: f32,
 
-    /// Engine sample rate.
+    /// Engine/device sample rate (Hz).
     _sample_rate: f64,
+
+    /// Cached ratio: source_sample_rate / device_sample_rate.
+    ///
+    /// Applied to `pitch_ratio` in sample-mode playback so that samples
+    /// recorded at a different SR play at the correct pitch on any device.
+    /// E.g., a 44100Hz sample on a 48000Hz device needs ratio = 0.91875
+    /// to avoid playing ~1.5 semitones sharp.
+    /// Defaults to 1.0 (no compensation) until a sample is loaded.
+    sample_sr_ratio: f64,
 }
 
 impl SamplerEngine {
@@ -521,11 +539,22 @@ impl SamplerEngine {
             lfo_target: LfoTarget::FilterCutoff,
             pulse_width: 0.5,
             _sample_rate: sample_rate,
+            sample_sr_ratio: 1.0,
         }
     }
 
     /// Load a sample into the engine.
     pub fn set_sample(&mut self, audio: Arc<ClipAudio>) {
+        // PITCH FIX: Cache the ratio between the sample's native SR and
+        // the device's output SR. This ensures samples play at the correct
+        // pitch regardless of which audio device is active.
+        // E.g., 44100Hz sample on 48000Hz device → ratio = 0.91875.
+        let source_sr = audio.sample_rate as f64;
+        if source_sr > 0.0 && self._sample_rate > 0.0 {
+            self.sample_sr_ratio = source_sr / self._sample_rate;
+        } else {
+            self.sample_sr_ratio = 1.0;
+        }
         self.sample = Some(audio);
         // Stop all voices when swapping sample to prevent garbage playback
         self.all_notes_off();
@@ -633,7 +662,7 @@ impl SamplerEngine {
         });
         if let Some(voice) = retrigger {
             voice.envelope.set_params(&self.adsr_params);
-            voice.trigger(note, velocity, self.root_note);
+            voice.trigger(note, velocity, self.root_note, self.sample_sr_ratio);
             return;
         }
 
@@ -642,7 +671,7 @@ impl SamplerEngine {
 
         if let Some(voice) = slot {
             voice.envelope.set_params(&self.adsr_params);
-            voice.trigger(note, velocity, self.root_note);
+            voice.trigger(note, velocity, self.root_note, self.sample_sr_ratio);
             return;
         }
 
@@ -662,7 +691,7 @@ impl SamplerEngine {
 
         if let Some(voice) = steal {
             voice.envelope.set_params(&self.adsr_params);
-            voice.trigger(note, velocity, self.root_note);
+            voice.trigger(note, velocity, self.root_note, self.sample_sr_ratio);
         }
     }
 

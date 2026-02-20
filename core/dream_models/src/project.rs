@@ -275,11 +275,14 @@ impl Default for TimeSignature {
 }
 
 impl TimeSignature {
-    /// Creates a new time signature.
+    /// Creates a new time signature with validated inputs.
+    ///
+    /// Numerator is clamped to [1, 32], denominator to [1, 32].
     pub fn new(numerator: u8, denominator: u8) -> Self {
         Self {
-            numerator,
-            denominator,
+            // BUG-059 FIX: Prevent denominator=0 causing division by zero.
+            numerator: numerator.clamp(1, 32),
+            denominator: denominator.clamp(1, 32),
         }
     }
 

@@ -38,19 +38,40 @@ impl std::fmt::Display for WavWriterError {
 
 impl std::error::Error for WavWriterError {}
 
+/// BUG-067 FIX: Enable ergonomic `?` operator with hound errors.
+impl From<hound::Error> for WavWriterError {
+    fn from(err: hound::Error) -> Self {
+        WavWriterError::WriteError(err.to_string())
+    }
+}
+
 /// WAV file writer for audio export.
 pub struct WavWriter;
 
 /// Incremental WAV writer for large offline renders.
 ///
 /// Allows writing interleaved chunks without keeping the entire render in memory.
+///
+/// BUG-069 FIX: Implements `Drop` to finalize the WAV header on scope exit,
+/// preventing corrupted files on panics or early returns.
 pub struct StreamingWavWriter {
-    writer: hound::WavWriter<BufWriter<File>>,
+    writer: Option<hound::WavWriter<BufWriter<File>>>,
     path: PathBuf,
     channels: u16,
     sample_rate: u32,
     bit_depth: u16,
     frames_written: usize,
+}
+
+/// BUG-069 FIX: Finalize WAV header on drop to prevent corrupted files.
+impl Drop for StreamingWavWriter {
+    fn drop(&mut self) {
+        if let Some(writer) = self.writer.take() {
+            if let Err(e) = writer.finalize() {
+                log::error!("[StreamingWavWriter] failed to finalize {}: {}", self.path.display(), e);
+            }
+        }
+    }
 }
 
 impl WavWriter {
@@ -86,7 +107,7 @@ impl WavWriter {
             .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
 
         Ok(StreamingWavWriter {
-            writer,
+            writer: Some(writer),
             path: path_buf,
             channels,
             sample_rate,
@@ -233,12 +254,15 @@ impl StreamingWavWriter {
             )));
         }
 
+        let writer = self.writer.as_mut()
+            .ok_or_else(|| WavWriterError::WriteError("Writer already finalized".into()))?;
+
         match self.bit_depth {
             16 => {
                 for &sample in samples {
                     let clamped = sample.clamp(-1.0, 1.0);
                     let int_sample = (clamped * i16::MAX as f32) as i16;
-                    self.writer
+                    writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
@@ -247,14 +271,14 @@ impl StreamingWavWriter {
                 for &sample in samples {
                     let clamped = sample.clamp(-1.0, 1.0);
                     let int_sample = (clamped * 8_388_607.0) as i32;
-                    self.writer
+                    writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
             }
             32 => {
                 for &sample in samples {
-                    self.writer
+                    writer
                         .write_sample(sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
@@ -272,11 +296,15 @@ impl StreamingWavWriter {
     }
 
     /// Finalizes the file and flushes headers.
-    pub fn finalize(self) -> Result<(), WavWriterError> {
-        self.writer
+    ///
+    /// After calling this, the Drop impl will be a no-op.
+    pub fn finalize(mut self) -> Result<(), WavWriterError> {
+        let writer = self.writer.take()
+            .ok_or_else(|| WavWriterError::WriteError("Writer already finalized".into()))?;
+        writer
             .finalize()
             .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
-        log::info!(
+        log::debug!(
             "WAV exported (stream): {} — {}ch × {} frames @ {}Hz, {}bit",
             self.path.display(),
             self.channels,

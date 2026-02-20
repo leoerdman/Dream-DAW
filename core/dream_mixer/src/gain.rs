@@ -84,6 +84,23 @@ pub fn apply_gain_smoothed(
 /// Approximately 5ms at 44.1kHz. Prevents audible clicks.
 pub const GAIN_SMOOTH_COEFF: f32 = 0.005;
 
+/// BUG-016 FIX: Compute a sample-rate-aware smoothing coefficient.
+///
+/// Returns a per-sample coefficient that achieves the same perceptual
+/// smoothing time regardless of sample rate.
+///
+/// `time_ms` — desired smoothing time in milliseconds (e.g. 5.0).
+/// `sample_rate` — audio engine sample rate (e.g. 44100.0, 96000.0).
+#[inline]
+#[must_use]
+pub fn gain_smooth_coeff_for_sr(time_ms: f32, sample_rate: f32) -> f32 {
+    if time_ms <= 0.0 || sample_rate <= 0.0 {
+        return 1.0; // Instant — no smoothing
+    }
+    let samples = time_ms * 0.001 * sample_rate;
+    1.0 - (-2.2 / samples).exp() // ~3τ settling ≈ 95% in time_ms
+}
+
 /// Applies a linear gain ramp from `start_gain` to `end_gain` over the buffer.
 ///
 /// Ported from Swift `TrackMixer.smoothSetVolume()` which uses 32-step

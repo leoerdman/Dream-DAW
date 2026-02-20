@@ -160,6 +160,9 @@ const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
         b5freq: 20, b5gain: 21, b5q: 22, b5en: 23,   // Band 5: Peaking
         b6freq: 24, b6gain: 25, b6q: 26, b6en: 27,   // Band 6: High Shelf
         b7freq: 28, b7gain: 29, b7q: 30, b7en: 31,   // Band 7: High Cut (LP)
+        // Filter type per band (0=HP, 1=LP, 2=LowShelf, 3=HighShelf, 4=Peaking, 5=Notch)
+        b0type: 33, b1type: 34, b2type: 35, b3type: 36,
+        b4type: 37, b5type: 38, b6type: 39, b7type: 40,
         // Legacy 3-band aliases (for backward compat with existing presets):
         lowfreq: 4, low: 5, lowq: 6,
         midfreq: 12, mid: 13, midq: 14,
@@ -3383,12 +3386,14 @@ const PluginGuiSurface = ({
         }
 
         /* ── Frequency grid labels ── */
+        /* ── Professional frequency grid with major and sub-gridlines ── */
         const freqLabels = [
-            { freq: 30, label: '30' }, { freq: 50, label: '50' }, { freq: 100, label: '100' },
-            { freq: 200, label: '200' }, { freq: 500, label: '500' }, { freq: 1000, label: '1k' },
-            { freq: 2000, label: '2k' }, { freq: 5000, label: '5k' }, { freq: 10000, label: '10k' },
-            { freq: 20000, label: '20k' },
+            { freq: 20, label: '20' }, { freq: 30, label: '30' }, { freq: 50, label: '50' },
+            { freq: 100, label: '100' }, { freq: 200, label: '200' }, { freq: 500, label: '500' },
+            { freq: 1000, label: '1k' }, { freq: 2000, label: '2k' }, { freq: 5000, label: '5k' },
+            { freq: 10000, label: '10k' }, { freq: 20000, label: '20k' },
         ];
+        const freqSubLines = [40, 60, 80, 150, 300, 400, 700, 800, 1500, 3000, 4000, 7000, 8000, 15000];
 
         /* ── Resolve knob params for active band ── */
         const bi = activeBandIdx;
@@ -3546,18 +3551,24 @@ const PluginGuiSurface = ({
                                     <stop offset="100%" stopColor="#5ab2ff" stopOpacity="0" />
                                 </linearGradient>
                             </defs>
-                            {[-18, -12, -6, 0, 6, 12, 18].map((db) => (
+                            {/* ── Horizontal gain grid lines ── */}
+                            {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                                 <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)}
-                                    stroke={db === 0 ? 'rgba(90,178,255,0.25)' : 'rgba(90,178,255,0.06)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
+                                    stroke={db === 0 ? 'rgba(80,160,255,0.35)' : 'rgba(60,130,220,0.08)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
                             ))}
+                            {/* ── Vertical frequency grid (major + sub) ── */}
                             {freqLabels.map((fl) => (
                                 <g key={`vf-${fl.freq}`}>
-                                    <line x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(90,178,255,0.06)" strokeWidth="0.4" />
-                                    <text x={freqToX(fl.freq)} y={VB_H - 3} textAnchor="middle" fill="rgba(160,190,220,0.35)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
+                                    <line x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(60,130,220,0.12)" strokeWidth="0.5" />
+                                    <text x={freqToX(fl.freq)} y={VB_H - 3} textAnchor="middle" fill="rgba(160,200,255,0.45)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
                                 </g>
                             ))}
-                            {[-12, 0, 12].map((db) => (
-                                <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill="rgba(160,190,220,0.3)" fontSize="6.5" fontFamily="Inter, sans-serif">
+                            {freqSubLines.map((f) => (
+                                <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="rgba(60,130,220,0.05)" strokeWidth="0.3" />
+                            ))}
+                            {/* ── dB scale labels ── */}
+                            {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
+                                <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill={db === 0 ? 'rgba(160,200,255,0.5)' : 'rgba(160,200,255,0.28)'} fontSize="6" fontFamily="Inter, sans-serif">
                                     {db > 0 ? '+' : ''}{db}dB
                                 </text>
                             ))}
@@ -3622,7 +3633,24 @@ const PluginGuiSurface = ({
                                         transform: 'translate(-50%, -50%)',
                                         pointerEvents: 'auto',
                                         cursor: 'grab',
-                                    }}>
+                                    }}
+                                        onMouseDown={(e) => {
+                                            if (e.button === 2) return; // skip right-click
+                                            e.stopPropagation();
+                                            setSelectedEqBand(band.idx);
+                                            beginEqBandGesture(band.idx);
+                                            setDragEqBand(band.idx);
+                                        }}
+                                        onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setEqContextMenu({ x: e.clientX, y: e.clientY, bandIdx: band.idx });
+                                        }}
+                                        onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            onParamChange(`B${band.idx}En`, 0); // disable band
+                                        }}
+                                    >
                                         {/* Active ring */}
                                         {isActive && (
                                             <div style={{
@@ -3702,11 +3730,18 @@ const PluginGuiSurface = ({
                                             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(90,178,255,0.12)'; }}
                                             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                             onClick={() => {
+                                                const FILTER_TYPE_MAP: Record<string, number> = {
+                                                    highpass: 0, lowpass: 1, lowshelf: 2,
+                                                    highshelf: 3, peaking: 4, notch: 5,
+                                                };
                                                 setEqBandFilterTypes(prev => {
                                                     const next = [...prev];
                                                     next[eqContextMenu.bandIdx] = type;
                                                     return next;
                                                 });
+                                                // Sync filter type change to backend DSP processor
+                                                const typeValue = FILTER_TYPE_MAP[type] ?? 4;
+                                                onParamChange(`B${eqContextMenu.bandIdx}Type`, typeValue);
                                                 setEqContextMenu(null);
                                             }}
                                         >

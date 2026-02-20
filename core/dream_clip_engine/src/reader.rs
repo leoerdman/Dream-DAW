@@ -68,7 +68,9 @@ impl ClipReader {
         let c = -0.5 * p0 + 0.5 * p2;
         let d = p1;
 
-        (((a * t + b) * t + c) * t + d).clamp(-1.0, 1.0)
+        // No clamp — intersample peaks above ±1.0 are legitimate.
+        // The master bus soft-clip stage handles final limiting.
+        ((a * t + b) * t + c) * t + d
     }
 
     /// Reads samples from a source buffer and writes them into the output,

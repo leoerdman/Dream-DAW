@@ -639,17 +639,48 @@ export const TrackInspector = ({
             .filter((v) => v.idx >= 0)
             .sort((a, b) => b.idx - a.idx);
         if (selected.length === 0) return;
+
+        // Find the track to select after deletion: the one ABOVE the first deleted track.
+        const lowestDeletedIdx = Math.min(...selected.map((s) => s.idx));
+        const deletedIds = new Set(selected.map((s) => s.id));
+        const nonMasterTracks = tracks.filter((t) => t.type !== 'master');
+
+        // Walk backwards from the lowest deleted index to find the first surviving track.
+        let nextSelectedId: string | null = null;
+        for (let i = lowestDeletedIdx - 1; i >= 0; i--) {
+            const candidate = nonMasterTracks[i];
+            if (candidate && !deletedIds.has(candidate.id)) {
+                nextSelectedId = candidate.id;
+                break;
+            }
+        }
+        // If nothing above, try the first surviving track after the deleted ones.
+        if (!nextSelectedId) {
+            for (let i = lowestDeletedIdx + 1; i < nonMasterTracks.length; i++) {
+                const candidate = nonMasterTracks[i];
+                if (candidate && !deletedIds.has(candidate.id)) {
+                    nextSelectedId = candidate.id;
+                    break;
+                }
+            }
+        }
+
         void (async () => {
             for (const item of selected) {
                 await engineApi.deleteTrack(item.idx);
             }
-            if (selectedTrackIdsProp) onSelectTracks?.([], 'master');
-            else setLocalSelectedTrackIds(new Set());
+            if (selectedTrackIdsProp) {
+                onSelectTracks?.(nextSelectedId ? [nextSelectedId] : [], nextSelectedId ?? 'master');
+            } else {
+                setLocalSelectedTrackIds(nextSelectedId ? new Set([nextSelectedId]) : new Set());
+            }
+            if (onSelectTrack && nextSelectedId) onSelectTrack(nextSelectedId);
+            else if (onSelectTrack) onSelectTrack('master');
             await useEngineStore.getState().fetchProject();
         })().catch((err) => {
             console.error('[TrackInspector] delete selected tracks failed:', err);
         });
-    }, [selectedTrackIdSet, getTrackIndex, onSelectTracks, selectedTrackIdsProp]);
+    }, [selectedTrackIdSet, getTrackIndex, tracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp]);
 
     const handleDuplicateSelectedTracks = useCallback(() => {
         const ids = Array.from(selectedTrackIdSet);

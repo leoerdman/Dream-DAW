@@ -154,6 +154,30 @@ impl DspProcessor for EqProcessor {
             return;
         }
 
+        // Params 33–40 = filter type for bands 0–7
+        // Values: 0=Highpass, 1=Lowpass, 2=LowShelf, 3=HighShelf, 4=Peaking, 5=Notch
+        if idx >= 33 && idx <= 40 {
+            let band_idx = idx - 33;
+            if band_idx < NUM_BANDS {
+                let new_type = match value as u8 {
+                    0 => BiquadType::Highpass,
+                    1 => BiquadType::Lowpass,
+                    2 => BiquadType::LowShelf,
+                    3 => BiquadType::HighShelf,
+                    4 => BiquadType::Peaking,
+                    5 => BiquadType::Notch,
+                    _ => return,
+                };
+                let sr = self.sample_rate;
+                let band = &mut self.bands[band_idx];
+                if band.filter_type != new_type {
+                    band.filter_type = new_type;
+                    band.update(sr);
+                }
+            }
+            return;
+        }
+
         let band_idx = idx / 4;
         let param_idx = idx % 4;
         if band_idx >= NUM_BANDS {

@@ -47,7 +47,8 @@ impl MidiNote {
     pub fn new(pitch: u8, velocity: u8, start_frame: i64, duration_frames: i64) -> Self {
         Self {
             pitch: pitch.min(127),
-            velocity: velocity.clamp(1, 127),
+            // BUG-028 FIX: Allow velocity 0 — MIDI spec uses velocity=0 as note-off.
+            velocity: velocity.min(127),
             start_frame: start_frame.max(0),
             duration_frames: duration_frames.max(1),
         }
@@ -510,8 +511,9 @@ mod tests {
 
     #[test]
     fn midi_note_velocity_clamped() {
+        // BUG-028 FIX: velocity 0 is allowed (MIDI note-off).
         let note = MidiNote::new(60, 0, 0, 1);
-        assert_eq!(note.velocity, 1); // Clamped to minimum 1
+        assert_eq!(note.velocity, 0); // Velocity 0 = note-off, now preserved
 
         let note2 = MidiNote::new(60, 200, 0, 1);
         assert_eq!(note2.velocity, 127); // Clamped to max 127

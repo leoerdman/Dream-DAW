@@ -45,19 +45,36 @@ impl LoopRegion {
     }
 
     /// Returns the loop length in sample frames.
+    ///
+    /// # Panics (debug)
+    /// Debug-asserts that end > start. In release, returns 0 for degenerate regions.
     #[inline]
+    #[must_use]
     pub fn length(&self) -> i64 {
+        debug_assert!(
+            self.end >= self.start,
+            "LoopRegion::length() called with end ({}) < start ({})",
+            self.end,
+            self.start
+        );
         self.end - self.start
     }
 
     /// Returns the loop length in seconds at the given sample rate.
+    ///
+    /// Returns 0.0 if sample_rate ≤ 0.
     #[inline]
+    #[must_use]
     pub fn length_seconds(&self, sample_rate: f64) -> f64 {
+        if sample_rate <= 0.0 {
+            return 0.0;
+        }
         self.length() as f64 / sample_rate
     }
 
     /// Returns the loop length in beats at the given BPM and sample rate.
     #[inline]
+    #[must_use]
     pub fn length_beats(&self, bpm: f64, sample_rate: f64) -> f64 {
         self.length_seconds(sample_rate) * bpm / 60.0
     }

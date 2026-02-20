@@ -237,7 +237,7 @@ fn set_bpm(
 
     let project_name = project.name.clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
 

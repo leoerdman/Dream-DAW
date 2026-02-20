@@ -165,9 +165,24 @@ pub fn resize_clip(
     // Find and remove the clip
     let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
 
+    // BUG-C4 FIX: Adjust source_offset when left edge moves.
+    // If the clip starts later than before, we're trimming the start —
+    // the source_offset must advance by the same amount.
+    let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
+    if left_edge_delta != 0 {
+        clip.source_offset = AbsoluteTime::new(
+            (clip.source_offset.sample_frame + left_edge_delta).max(0)
+        );
+    }
+
     // Update bounds
     clip.position = new_position;
     clip.duration = new_duration;
+
+    // Clamp fades to not exceed the new duration
+    let max_fade = (clip.duration.sample_frame / 2).max(0);
+    clip.fade_in_frames = clip.fade_in_frames.min(max_fade);
+    clip.fade_out_frames = clip.fade_out_frames.min(max_fade);
 
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];
@@ -255,6 +270,15 @@ pub fn split_clip(
         id: original.id,
         duration: AbsoluteTime::new(left_duration),
         fade_out_frames: 0,
+        // BUG-H7 FIX: Clamp inherited fade_in to not exceed new left duration
+        fade_in_frames: original.fade_in_frames.min(left_duration / 2),
+        // BUG-C3 FIX: Proportionally split warp_source_duration_frames
+        warp_source_duration_frames: if original.warp_source_duration_frames > 0 {
+            let ratio = left_duration as f64 / original.duration.sample_frame.max(1) as f64;
+            (original.warp_source_duration_frames as f64 * ratio).round() as i64
+        } else {
+            0
+        },
         ..original.clone()
     };
 
@@ -268,7 +292,16 @@ pub fn split_clip(
         duration: AbsoluteTime::new(right_duration),
         source_offset: AbsoluteTime::new(right_source_offset),
         fade_in_frames: 0,
+        // BUG-H7 FIX: Clamp inherited fade_out to not exceed new right duration
+        fade_out_frames: original.fade_out_frames.min(right_duration / 2),
         is_selected: false,
+        // BUG-C3 FIX: Proportionally split warp_source_duration_frames
+        warp_source_duration_frames: if original.warp_source_duration_frames > 0 {
+            let ratio = right_duration as f64 / original.duration.sample_frame.max(1) as f64;
+            (original.warp_source_duration_frames as f64 * ratio).round() as i64
+        } else {
+            0
+        },
         ..original.clone()
     };
 

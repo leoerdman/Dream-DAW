@@ -257,9 +257,17 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        self.render_tracks_with_post_sum_mask(frame_count, clips_per_track, clip_pool, None);
+        self.render_tracks_with_post_sum_mask(frame_count, clips_per_track, clip_pool, None, None);
     }
 
+    /// Renders all tracks with support for post-sum mask and device-chain skipping.
+    ///
+    /// `skip_device_chain_mask`: when `true` for a track, the per-track
+    /// `device_chain.process_stereo()` is SKIPPED here because the graph
+    /// render callback in `driver.rs` handles individual device slots in
+    /// user-defined order (interleaved with external VST plugins).
+    /// Without this, internal effects (EQ, Compressor…) would be applied
+    /// TWICE: once here (full-chain) and once in the graph loop.
     #[inline]
     pub fn render_tracks_with_post_sum_mask(
         &mut self,
@@ -267,6 +275,7 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
         post_sum_mask: Option<&[bool]>,
+        skip_device_chain_mask: Option<&[bool]>,
     ) {
         let playhead_pos = self.playhead.position();
 
@@ -330,6 +339,8 @@ impl RenderContext {
                 };
                 if matches!(warp_mode, WarpResampleMode::Pro) {
                     if pro_warp_budget == 0 {
+                        // BUG-010 FIX: Log quality downgrade at trace level (zero-cost in release).
+                        log::trace!("[render] Pro warp budget exhausted — downgrading to Standard");
                         warp_mode = WarpResampleMode::Standard;
                     } else {
                         pro_warp_budget = pro_warp_budget.saturating_sub(1);
@@ -496,7 +507,15 @@ impl RenderContext {
                 &mut slot.buf_right[..frame_count],
             );
 
-            if !slot.device_chain.is_empty() {
+            // Only process the full device chain here if the graph render
+            // callback is NOT handling this track's effects. When external VSTs
+            // are present, the graph callback processes internal + external
+            // slots in user-defined order via process_slot_with_sidechain().
+            let skip_device_chain = skip_device_chain_mask
+                .and_then(|mask| mask.get(track_idx))
+                .copied()
+                .unwrap_or(false);
+            if !skip_device_chain && !slot.device_chain.is_empty() {
                 slot.device_chain.process_stereo(
                     &mut slot.buf_left[..frame_count],
                     &mut slot.buf_right[..frame_count],

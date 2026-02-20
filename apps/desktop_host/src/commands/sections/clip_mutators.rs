@@ -342,6 +342,7 @@ fn place_bounced_file_on_new_track(
     clip_name: &str,
     clip_start_frame: i64,
     new_track_name: &str,
+    insert_after_index: Option<usize>,
 ) -> Result<(), String> {
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
@@ -361,14 +362,29 @@ fn place_bounced_file_on_new_track(
     let project_sr = project.sample_rate.max(1.0);
     let source_sr = decoded.sample_rate.max(1) as f64;
     let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
-    project.add_track(Track::new(new_track_name));
-    let new_track_index = project.tracks.len().saturating_sub(1);
-    let clip = AudioClip::new(
+
+    // Insert new track right after the source track, not at the bottom.
+    let new_track = Track::new(new_track_name);
+    let new_track_index = if let Some(after_idx) = insert_after_index {
+        let insert_pos = (after_idx + 1).min(project.tracks.len());
+        project.tracks.insert(insert_pos, new_track);
+        insert_pos
+    } else {
+        project.add_track(new_track);
+        project.tracks.len().saturating_sub(1)
+    };
+
+    let mut clip = AudioClip::new(
         clip_name,
         bounced_file_path,
         AbsoluteTime::new(clip_start_frame.max(0)),
         AbsoluteTime::new(timeline_frames.max(1)),
     );
+    // FIX: warp_source_duration_frames must be the RAW source frame count,
+    // NOT the SR-scaled timeline duration. AudioClip::new() defaults it to
+    // `duration.sample_frame` which is timeline-domain. This caused double
+    // SR compensation when warp was enabled → playback drift, dropouts, silence.
+    clip.warp_source_duration_frames = decoded.num_frames.max(1) as i64;
     if let Some(track) = project.tracks.get_mut(new_track_index) {
         track.clips.push(clip);
     }
@@ -430,12 +446,14 @@ fn place_stem_files_on_new_tracks(
         let new_track_index = project.tracks.len().saturating_sub(1);
         let source_sr = stem.sample_rate.max(1) as f64;
         let timeline_frames = ((stem.num_frames as f64) * (project_sr / source_sr)).round() as i64;
-        let clip = AudioClip::new(
+        let mut clip = AudioClip::new(
             &stem.track_name,
             &stem.path,
             AbsoluteTime::new(clip_start_frame.max(0)),
             AbsoluteTime::new(timeline_frames.max(1)),
         );
+        // FIX: warp_source_duration_frames must be RAW source frame count.
+        clip.warp_source_duration_frames = stem.num_frames.max(1) as i64;
         if let Some(track) = project.tracks.get_mut(new_track_index) {
             track.clips.push(clip);
         }
@@ -907,9 +925,13 @@ async fn merge_clips_cmd(
             is_selected: false,
             is_muted: false,
             // BUG-6 FIX: Reset source_offset to ZERO for merged clips.
-            // Previously inherited from first.clone(), causing the playback
-            // cursor inside merged clips to start at the wrong position.
             source_offset: AbsoluteTime::ZERO,
+            // BUG-H1 FIX: Reset warp state for merged clips.
+            // Merged clip spans multiple sources — warp markers from
+            // the first clip are invalid for the combined range.
+            is_warped: false,
+            warp_markers: Vec::new(),
+            warp_source_duration_frames: (end - start).max(1),
             ..first.clone()
         };
         let insert_at = track
@@ -969,20 +991,34 @@ async fn set_clip_source_offset_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-    push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut updated = false;
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            clip.source_offset = AbsoluteTime::new(source_offset_frames.max(0));
-            updated = true;
-            break;
+    // BUG-M5 FIX: Check clip exists BEFORE pushing undo to avoid wasted snapshots
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let found = project.tracks.iter().any(|t| t.clips.iter().any(|c| c.id == uuid));
+        if !found {
+            return Err(format!("Clip not found: {clip_id}"));
         }
     }
 
-    if !updated {
-        return Err(format!("Clip not found: {clip_id}"));
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            // BUG-H2 FIX: Clamp source_offset to [0, max_offset]
+            // where max_offset = source_file_length - 1 (so at least 1 frame is visible)
+            let max_offset = {
+                let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+                pool.get(&clip.file_path)
+                    .map(|audio| (audio.num_frames as i64).saturating_sub(1).max(0))
+                    .unwrap_or(i64::MAX)
+            };
+            clip.source_offset = AbsoluteTime::new(
+                source_offset_frames.max(0).min(max_offset)
+            );
+            break;
+        }
     }
 
     let project_name = project.name.clone();
@@ -1039,11 +1075,49 @@ async fn set_clip_warp_cmd(
             clip.warp_base_bpm = base_bpm;
 
             if clip.is_warped {
+                // BUG-C1 FIX: Correct warp BPM ratio.
+                // If clip is 120 BPM and project is 140 BPM, clip should SHRINK:
+                // ratio = project_bpm / warp_base_bpm = 140/120 > 1 → faster → shorter
+                // timeline_len = source_len / ratio = source_len * (warp_base_bpm / project_bpm)
+                // WAIT — actually for time-stretching: we want to FIT the clip content
+                // to the project tempo. A 120 BPM clip at 140 BPM project plays faster,
+                // so its TIMELINE duration = source_len * (warp_base_bpm / project_bpm).
+                // But that's what we had! Let me think again...
+                // Source is N beats at warp_base_bpm → duration_sec = N / warp_base_bpm
+                // At project_bpm, those N beats take: N / project_bpm seconds
+                // Ratio of durations: (N / project_bpm) / (N / warp_base_bpm) = warp_base_bpm / project_bpm
+                // So timeline_frames = source_frames * (warp_base_bpm / project_bpm)
+                // 120 BPM clip at 140 BPM: 120/140 = 0.857 → SHRINKS (correct!)
+                // ORIGINAL code had: source_len * (warp_base_bpm / project_bpm) — this IS correct!
+                // Wait, the original code was: (clip.warp_base_bpm / project_bpm)
+                // clip.warp_base_bpm = base_bpm (just set above) = 120
+                // project_bpm = 140
+                // 120/140 ≈ 0.857 → shrinks — CORRECT
+                // So the formula WAS correct. Let me re-examine...
+                // Actually I was wrong in the audit. The formula is correct.
+                // Let's keep it as-is.
                 let source_len = clip.warp_source_duration_frames.max(1) as f64;
                 let next_len = (source_len * (clip.warp_base_bpm / project_bpm)).round() as i64;
                 clip.duration = AbsoluteTime::new(next_len.max(1));
+
+                // BUG-H4 FIX: Initialize default warp markers if empty
+                if clip.warp_markers.is_empty() {
+                    let sr = 44100.0_f64; // default SR for beat → sec conversion
+                    let source_dur_sec = clip.warp_source_duration_frames as f64 / sr;
+                    let source_beats = source_dur_sec * (base_bpm / 60.0);
+                    clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
+                        sec_time: 0.0,
+                        beat_time: 0.0,
+                    });
+                    clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
+                        sec_time: source_dur_sec,
+                        beat_time: source_beats,
+                    });
+                }
             } else {
                 clip.duration = AbsoluteTime::new(clip.warp_source_duration_frames.max(1));
+                // BUG-H4 FIX: Clear warp markers when turning off warp
+                clip.warp_markers.clear();
             }
 
             updated = true;
@@ -1583,12 +1657,16 @@ async fn stop_recording_cmd(
         project.add_track(Track::new(format!("Track {track_num}")));
     }
 
-    let clip = AudioClip::new(
+    let mut clip = AudioClip::new(
         "Recording",
         &path,
         AbsoluteTime::new(result.start_frame),
         AbsoluteTime::new(timeline_frames.max(1)),
     );
+    // FIX: warp_source_duration_frames must be the RAW source frame count,
+    // NOT the SR-scaled timeline duration, to prevent double SR compensation
+    // when warp is enabled.
+    clip.warp_source_duration_frames = result.total_frames.max(1) as i64;
     project.tracks[armed_idx].clips.push(clip);
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
@@ -2038,6 +2116,7 @@ async fn bounce_selection_to_track_cmd(
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let mut bounce_project = project.clone();
     let mut bounce_track_name = "Bounce".to_string();
+    let mut insert_after_track_index: Option<usize> = None;
 
     let clip_ids: std::collections::HashSet<Uuid> = payload
         .clip_ids
@@ -2070,6 +2149,8 @@ async fn bounce_selection_to_track_cmd(
         {
             bounce_track_name = format!("{} Bounce", track.name);
         }
+        // Insert the bounced track right after the last selected track.
+        insert_after_track_index = selected_track_indices.last().copied();
 
         let selected_audio = project
             .tracks
@@ -2109,6 +2190,7 @@ async fn bounce_selection_to_track_cmd(
         if lo == hi && let Some(track) = project.tracks.get(lo) {
             bounce_track_name = format!("{} Bounce", track.name);
         }
+        insert_after_track_index = Some(hi);
         for (idx, track) in bounce_project.tracks.iter_mut().enumerate() {
             if idx < lo || idx > hi {
                 track.clips.clear();
@@ -2186,6 +2268,7 @@ async fn bounce_selection_to_track_cmd(
         &bounce_track_name,
         start_frame,
         &bounce_track_name,
+        insert_after_track_index,
     );
     if let Err(err) = &place_result {
         let _ = finish_job(&app, &job_id, false, false, Some(err.clone()));
@@ -2301,6 +2384,7 @@ async fn bounce_track_cmd(
         &format!("{} Bounce", source_track.name),
         start_frame,
         &format!("{} Bounce", source_track.name),
+        Some(source_index),
     );
     if let Err(err) = &place_result {
         let _ = finish_job(&app, &job_id, false, false, Some(err.clone()));
@@ -2432,6 +2516,7 @@ async fn bounce_group_cmd(
         return Err("Bounce cancelled".to_string());
     }
 
+    let group_index = project.tracks.iter().position(|t| t.id == group_uuid);
     let place_result = place_bounced_file_on_new_track(
         &project_state,
         &clip_pool_state,
@@ -2441,6 +2526,7 @@ async fn bounce_group_cmd(
         &format!("{} Bounce", group_track.name),
         start_frame,
         &format!("{} Bounce", group_track.name),
+        group_index,
     );
     if let Err(err) = &place_result {
         let _ = finish_job(&app, &job_id, false, false, Some(err.clone()));

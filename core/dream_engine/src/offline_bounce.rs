@@ -260,6 +260,7 @@ impl OfflineBouncer {
             clips_per_track,
             clip_pool,
             Some(post_sum_mask),
+            None, // No external VSTs in offline bounce — process full device chain
         );
 
         // Phase 2: Route source tracks into their group buses

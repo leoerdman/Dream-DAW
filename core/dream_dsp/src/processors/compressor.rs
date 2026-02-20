@@ -134,9 +134,12 @@ impl CompressorProcessor {
         }
     }
 
+    /// ln(10) / 20 ≈ 0.11512925 — pre-computed for fast dB→linear.
+    const LN10_OVER_20: f32 = 0.11512925;
+
     #[inline]
     fn db_to_linear(db: f32) -> f32 {
-        10.0_f32.powf(db / 20.0)
+        (db * Self::LN10_OVER_20).exp()
     }
 
     /// Soft-knee gain computation.

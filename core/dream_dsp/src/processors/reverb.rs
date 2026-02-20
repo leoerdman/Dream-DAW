@@ -197,10 +197,13 @@ impl ReverbProcessor {
     }
 
     fn update_combs(&mut self) {
+        // BUG-FIX: Previous range was 0.28..0.98 — minimum 0.28 is far too
+        // reverberant for "small room" settings (size=0).  Professional
+        // Freeverb uses 0.0..0.98 so that tiny rooms decay quickly.
         let fb = if self.freeze {
             1.0
         } else {
-            0.28 + self.room_size * 0.70
+            self.room_size * 0.98
         };
         let damp = if self.freeze { 0.0 } else { self.damping };
         for c in &mut self.combs_l {
@@ -276,6 +279,11 @@ impl DspProcessor for ReverbProcessor {
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
         let low_damp_coeff = self.low_damp * 0.5;
 
+        // BUG-FIX: Normalise the summed output of 8 parallel combs.
+        // Without this, the wet signal is ~8× hotter than the dry signal,
+        // causing massive distortion/clipping.  1/8 = 0.125.
+        const COMB_NORM: f32 = 1.0 / 8.0;
+
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
@@ -290,27 +298,36 @@ impl DspProcessor for ReverbProcessor {
             self.predelay_buf_r[pd_pos] = dry_r;
             self.predelay_pos = (pd_pos + 1) % MAX_PREDELAY_SAMPLES;
 
-            let input = (pd_l + pd_r) * 0.5;
+            // BUG-FIX: Feed pre-delayed LEFT into L-combs, RIGHT into R-combs.
+            // Previously `(pd_l + pd_r) * 0.5` collapsed to mono before the
+            // comb banks, destroying the stereo image entirely.
+            let input_l = pd_l;
+            let input_r = pd_r;
 
             // LFO for subtle modulation
             let lfo =
-                (self.lfo_phase as f32 * std::f32::consts::TAU).sin() * self.mod_depth * 0.002;
+                (self.lfo_phase as f32 * std::f32::consts::TAU).sin() * self.mod_depth * 0.01;
             self.lfo_phase += lfo_inc;
             if self.lfo_phase >= 1.0 {
                 self.lfo_phase -= 1.0;
             }
 
-            let input_mod = input * (1.0 + lfo);
+            let input_l_mod = input_l * (1.0 + lfo);
+            let input_r_mod = input_r * (1.0 + lfo);
 
-            // Parallel comb filters
+            // Parallel comb filters — L and R fed independently for stereo
             let mut out_l = 0.0f32;
             let mut out_r = 0.0f32;
             for c in &mut self.combs_l {
-                out_l += c.process(input_mod);
+                out_l += c.process(input_l_mod);
             }
             for c in &mut self.combs_r {
-                out_r += c.process(input_mod);
+                out_r += c.process(input_r_mod);
             }
+
+            // Normalise summed comb output
+            out_l *= COMB_NORM;
+            out_r *= COMB_NORM;
 
             // Serial allpass filters
             for ap in &mut self.allpasses_l {
@@ -414,7 +431,7 @@ mod tests {
         r[0] = 1.0;
         proc.process_stereo(&mut l, &mut r, 44100.0);
         let tail_energy: f32 = l[22050..].iter().map(|s| s * s).sum();
-        assert!(tail_energy > 0.001, "Reverb tail too short: {tail_energy}");
+        assert!(tail_energy > 0.0001, "Reverb tail too short: {tail_energy}");
     }
 
     #[test]

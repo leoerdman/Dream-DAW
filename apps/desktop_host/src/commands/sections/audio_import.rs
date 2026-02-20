@@ -127,12 +127,16 @@ async fn import_audio_file(
         let timeline_frames = ((num_frames as f64) * (project_sr / source_sr)).round() as i64;
 
         // Create AudioClip in the project's frame domain.
-        let clip = AudioClip::new(
+        let mut clip = AudioClip::new(
             &clip_name,
             &path,
             AbsoluteTime::new(clip_position),
             AbsoluteTime::new(timeline_frames.max(1)),
         );
+        // FIX: warp_source_duration_frames must be the RAW source frame count,
+        // NOT the SR-scaled timeline duration, to prevent double SR compensation
+        // when warp is enabled.
+        clip.warp_source_duration_frames = num_frames.max(1) as i64;
         clip_id = clip.id.to_string();
 
         let idx = track_index as usize;

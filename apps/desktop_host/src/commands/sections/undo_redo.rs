@@ -21,6 +21,10 @@ async fn undo_cmd(
     // Save current state to redo stack
     let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.redo_stack.back());
     undo.redo_stack.push_back(current_snapshot);
+    // BUG-024 FIX: Cap redo stack to prevent unbounded memory growth.
+    while undo.redo_stack.len() > MAX_REDO_DEPTH {
+        undo.redo_stack.pop_front();
+    }
     *project = previous.to_project();
     drop(undo);
 

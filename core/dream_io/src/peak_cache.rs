@@ -85,6 +85,8 @@ pub struct WaveformPeakPair {
     pub max: f32,
 }
 
+// BUG-019 FIX: repr(C) for stable layout + future zero-copy potential.
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct PeakCacheHeader {
     magic: [u8; 4],
@@ -94,6 +96,8 @@ struct PeakCacheHeader {
     total_samples: u64,
 }
 
+// BUG-019 FIX: repr(C) for stable layout + future zero-copy potential.
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct PeakCacheLevelIndex {
     samples_per_peak: u32,
@@ -153,8 +157,9 @@ impl PeakCache {
         samples
             .chunks(samples_per_peak)
             .map(|chunk| {
-                let mut min = f32::MAX;
-                let mut max = f32::MIN;
+                // BUG-070 FIX: INFINITY handles NaN samples correctly.
+                let mut min = f32::INFINITY;
+                let mut max = f32::NEG_INFINITY;
                 for &s in chunk {
                     if s < min {
                         min = s;
@@ -297,7 +302,10 @@ impl PeakCache {
         }
 
         let levels = header.level_count as usize;
-        let idx_size = 20;
+        // BUG-020 FIX: Use computed constant instead of magic number.
+        // PeakCacheLevelIndex = u32 (4) + u64 (8) + u64 (8) = 20 bytes
+        const PEAK_LEVEL_INDEX_BYTE_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u64>() * 2;
+        let idx_size = PEAK_LEVEL_INDEX_BYTE_SIZE;
         let idx_bytes_len = levels
             .checked_mul(idx_size)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak index overflow"))?;
@@ -323,6 +331,17 @@ impl PeakCache {
                     chunk[19],
                 ]),
             });
+        }
+
+        // BUG-052 FIX: Validate all samples_per_peak values are non-zero
+        // to prevent division-by-zero with corrupted cache files.
+        for idx in &indices {
+            if idx.samples_per_peak == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "peak cache level has samples_per_peak=0",
+                ));
+            }
         }
 
         let pair_size = std::mem::size_of::<WaveformPeakPair>();

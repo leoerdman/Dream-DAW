@@ -161,7 +161,7 @@ impl StreamingWindow {
             return false;
         }
 
-        let mut _frames_written = 0usize;
+
         let mut any_hit = false;
 
         // Fades are NOT applied here — clip boundary fades are handled
@@ -206,8 +206,6 @@ impl StreamingWindow {
                 out_left[dst_idx] += chunk.left[src_idx] * gain;
                 out_right[dst_idx] += chunk.right[src_idx] * gain;
             }
-
-            _frames_written += overlap_frames;
         }
 
         any_hit
@@ -619,8 +617,13 @@ fn disk_io_thread(
                     );
                 }
                 Err(e) => {
-                    log::warn!("DiskIO: seek failed: {} — restarting from frame 0", e);
-                    last_read_frame = 0;
+                    // BUG-003 FIX: Stay near the playhead instead of jumping to 0.
+                    // Resetting to 0 would cause the user to hear wrong audio.
+                    log::error!(
+                        "DiskIO: seek to frame {} failed: {} — staying at frame {}",
+                        seek_to_frame, e, current_playhead
+                    );
+                    last_read_frame = current_playhead;
                 }
             }
             needs_seek = false;

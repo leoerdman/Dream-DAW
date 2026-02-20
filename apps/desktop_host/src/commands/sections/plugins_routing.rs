@@ -2312,8 +2312,16 @@ fn add_plugin_to_track_cmd(
         if effective_plugin_id.starts_with("internal://")
             && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
         {
-            let slot_index = (track.effects.len().saturating_sub(1)).min(u8::MAX as usize) as u8;
-            runtime_add = Some((track.id, slot_index, effect_type));
+            // Count only preceding INTERNAL effects — device_chain on the engine
+            // side only holds internal processors, so the slot_index must match
+            // the internal-only ordering, not the full effects list position.
+            let internal_slot_index = track.effects.iter()
+                .filter_map(|node| node.as_single())
+                .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+                .count()
+                .saturating_sub(1) // -1 because we just pushed the new one
+                .min(u8::MAX as usize) as u8;
+            runtime_add = Some((track.id, internal_slot_index, effect_type));
         }
     }
 
@@ -2414,7 +2422,24 @@ fn remove_plugin_from_track_cmd(
 
     if !removed {
         if let Some(effect_idx) = track.effects.iter().position(|node| node.id() == slot_uuid) {
-            runtime_remove_slot = Some(effect_idx.min(u8::MAX as usize) as u8);
+            // Determine if this is an internal effect — only internal effects
+            // exist in the engine's device_chain and need a RemoveDevice command.
+            let is_internal_effect = track.effects.get(effect_idx)
+                .and_then(|node| node.as_single())
+                .map(|slot| slot.plugin_id.starts_with("internal://effect/"))
+                .unwrap_or(false);
+
+            if is_internal_effect {
+                // Compute the internal-only slot index: count how many internal
+                // effects appear BEFORE this one in the effects list.
+                let internal_idx = track.effects[..effect_idx].iter()
+                    .filter_map(|node| node.as_single())
+                    .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+                    .count();
+                runtime_remove_slot = Some(internal_idx.min(u8::MAX as usize) as u8);
+            }
+            // External VSTs don't live in device_chain — no RemoveDevice needed.
+
             track.effects.remove(effect_idx);
             removed = true;
         }

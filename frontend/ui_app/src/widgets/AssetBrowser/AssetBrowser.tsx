@@ -1352,6 +1352,7 @@ export const AssetBrowser = () => {
                ══════════════════════════════════════════════ */}
             <div style={{
                 flex: 1,
+                minHeight: 0,
                 display: 'flex',
                 overflow: 'hidden',
             }} ref={splitRootRef}>

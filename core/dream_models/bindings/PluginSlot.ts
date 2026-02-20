@@ -81,4 +81,8 @@ external_preset_blob: string | null,
 /**
  * Kind/source tag for `external_preset_blob` (for diagnostics/reconstruction).
  */
-external_preset_blob_kind: string | null, };
+external_preset_blob_kind: string | null, 
+/**
+ * BUG-070 FIX: Per-instance runtime parameter state for internal DSP effects.
+ */
+params: Array<number> | null, };

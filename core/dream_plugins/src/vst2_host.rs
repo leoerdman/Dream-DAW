@@ -324,10 +324,88 @@ type VstPluginMainFn = unsafe extern "C" fn(
     ) -> VstIntPtr,
 ) -> *mut AEffect;
 
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+
 // ── Thread-Local Host State ──
 //
 // The audioMasterCallback doesn't receive a user-data pointer, so we must
 // use thread-local storage to provide sample rate, block size, etc.
+
+const PARAM_RING_SIZE: usize = 1024;
+
+struct ParamEditEntry {
+    param_id: AtomicU32,
+    value_bits: AtomicUsize,
+}
+
+impl ParamEditEntry {
+    const fn new() -> Self {
+        Self {
+            param_id: AtomicU32::new(0),
+            value_bits: AtomicUsize::new(0),
+        }
+    }
+}
+
+struct ParamEditRing {
+    entries: [ParamEditEntry; PARAM_RING_SIZE],
+    head: AtomicUsize,
+    tail: AtomicUsize,
+}
+
+impl ParamEditRing {
+    const fn new() -> Self {
+        #[allow(clippy::declare_interior_mutable_const)]
+        const ENTRY: ParamEditEntry = ParamEditEntry::new();
+        Self {
+            entries: [ENTRY; PARAM_RING_SIZE],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+
+    fn push(&self, param_id: u32, value: f64) {
+        let head = self.head.load(Ordering::Relaxed);
+        let next = (head + 1) % PARAM_RING_SIZE;
+        self.entries[head].param_id.store(param_id, Ordering::Relaxed);
+        self.entries[head].value_bits.store(value.to_bits() as usize, Ordering::Relaxed);
+        self.head.store(next, Ordering::Release);
+    }
+
+    pub fn drain(&self, mut f: impl FnMut(u32, f64)) -> usize {
+        let mut count = 0;
+        loop {
+            let tail = self.tail.load(Ordering::Acquire);
+            let head = self.head.load(Ordering::Acquire);
+            if tail == head {
+                break;
+            }
+            let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
+            let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
+            f(pid, f64::from_bits(vbits as u64));
+            self.tail.store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
+            count += 1;
+        }
+        count
+    }
+}
+
+unsafe impl Sync for ParamEditRing {}
+
+static PARAM_EDIT_RING: ParamEditRing = ParamEditRing::new();
+
+/// Set when any VST2 plugin signals a state change
+static PLUGIN_STATE_DIRTY: AtomicBool = AtomicBool::new(false);
+
+/// Public API: Drain pending GUI parameter edits.
+pub fn drain_gui_param_edits(f: impl FnMut(u32, f64)) -> usize {
+    PARAM_EDIT_RING.drain(f)
+}
+
+/// Public API: Check and clear the plugin-state-dirty flag.
+pub fn take_plugin_state_dirty() -> bool {
+    PLUGIN_STATE_DIRTY.swap(false, Ordering::AcqRel)
+}
 
 thread_local! {
     static HOST_SAMPLE_RATE: std::cell::Cell<f64> = const { std::cell::Cell::new(44100.0) };
@@ -370,11 +448,16 @@ unsafe extern "C" fn audio_master_callback(
         // Return a host unique ID
         AUDIO_MASTER_CURRENT_ID => 0,
 
-        // Idle — no-op
+        // IDLE — check flags here if needed, but usually a no-op
         AUDIO_MASTER_IDLE => 0,
 
-        // Automate — parameter changed from plugin GUI (logged, not blocking)
-        AUDIO_MASTER_AUTOMATE => 0,
+        // BUG-VP2 FIX: Automate — parameter changed from plugin GUI
+        // VST2 spec: index = param index, opt = parameter value as f32
+        AUDIO_MASTER_AUTOMATE => {
+            PARAM_EDIT_RING.push(_index as u32, _opt as f64);
+            PLUGIN_STATE_DIRTY.store(true, std::sync::atomic::Ordering::Release);
+            0
+        }
 
         // Return current sample rate
         AUDIO_MASTER_GET_SAMPLE_RATE => {
@@ -450,8 +533,12 @@ unsafe extern "C" fn audio_master_callback(
         // Size window — acknowledge
         AUDIO_MASTER_SIZE_WINDOW => 1,
 
-        // Update display — acknowledge
-        AUDIO_MASTER_UPDATE_DISPLAY => 0,
+        // BUG-VP2 FIX: Update display — acknowledge
+        // Signals that the plugin UI changed internal state (like preset or params)
+        AUDIO_MASTER_UPDATE_DISPLAY => {
+            PLUGIN_STATE_DIRTY.store(true, std::sync::atomic::Ordering::Release);
+            0
+        }
 
         // Everything else — return 0 (not supported)
         _ => 0,
@@ -912,10 +999,12 @@ impl PluginInstance for Vst2Instance {
         self.output_ptrs.clear();
         self.output_ptrs.reserve(num_plugin_outputs);
 
-        // Dummy output buffers for extra plugin output channels
+        // BUG-VP1 FIX: Pre-allocate dummy output buffers here on the UI thread,
+        // rather than doing lazy allocations in the RT thread process() loop.
         self.dummy_output_buffers.clear();
-        // We'll allocate these as needed; pre-reserve capacity
-        self.dummy_output_buffers.reserve(num_plugin_outputs);
+        for _ in 0..num_plugin_outputs {
+            self.dummy_output_buffers.push(vec![0.0f32; max_buffer_size]);
+        }
 
         // Resume processing (effMainsChanged with value=1)
         self.dispatch(EFF_MAINS_CHANGED, 0, 1, ptr::null_mut(), 0.0);
@@ -965,6 +1054,12 @@ impl PluginInstance for Vst2Instance {
         // Update transport / time info
         self.update_time_info();
 
+        // BUG-VP3 FIX: Ensure thread-locals are updated for the RT Audio Thread
+        // so that if the plugin queries AUDIO_MASTER_GET_SAMPLE_RATE during process,
+        // it gets the real values instead of the 44100 fallback default.
+        HOST_SAMPLE_RATE.with(|sr| sr.set(self.sample_rate));
+        HOST_BLOCK_SIZE.with(|bs| bs.set(num_frames as i32));
+
         // Send MIDI events if any
         if !midi_events.is_empty() {
             if let Some(events_ptr) = self.marshal_midi_events(midi_events) {
@@ -983,11 +1078,17 @@ impl PluginInstance for Vst2Instance {
         let num_plugin_outputs = unsafe { (*self.effect).num_outputs } as usize;
 
         // Build an array of input channel pointers
-        // If the host provides fewer channels than the plugin expects, pad with silence
-        // Ensure silence buffer is large enough
-        if self.silence_buffer.len() < num_frames {
-            self.silence_buffer.resize(num_frames, 0.0);
-        }
+        // If the host provides fewer channels than the plugin expects, pad with silence.
+        // BUG-VP1 FIX: Avoid slice resizing in the audio thread loop.
+        let safe_frames = num_frames.min(self.max_buffer_size);
+        let silence_ptr = if self.silence_buffer.len() >= safe_frames {
+            self.silence_buffer.as_ptr()
+        } else {
+            // Unlikely to ever happen due to activate() allocating properly,
+            // but if block size changes without activate(), fail safely.
+            std::ptr::null() 
+        };
+
         self.input_ptrs.clear();
         for i in 0..num_plugin_inputs {
             if i < inputs.len() {
@@ -1000,28 +1101,20 @@ impl PluginInstance for Vst2Instance {
         // Build an array of output channel pointers
         // Use the provided output buffers for channels we have, and dummy buffers for the rest
         self.output_ptrs.clear();
-        let extra_outputs_needed = if num_plugin_outputs > outputs.len() {
-            num_plugin_outputs - outputs.len()
-        } else {
-            0
-        };
-        // Ensure we have enough dummy output buffers
-        while self.dummy_output_buffers.len() < extra_outputs_needed {
-            self.dummy_output_buffers.push(vec![0.0f32; self.max_buffer_size.max(num_frames)]);
-        }
-        // Ensure each dummy buffer is large enough
-        for buf in self.dummy_output_buffers.iter_mut() {
-            if buf.len() < num_frames {
-                buf.resize(num_frames, 0.0);
-            }
-        }
+        
+        // BUG-VP1 FIX: Removed while dummy_output_buffers.len() < extra_outputs_needed RT allocs.
+        // It relies on activate() providing enough preallocated dummy buffers.
         let mut dummy_idx = 0;
         for i in 0..num_plugin_outputs {
             if i < outputs.len() {
                 self.output_ptrs.push(outputs[i].as_mut_ptr());
-            } else {
+            } else if dummy_idx < self.dummy_output_buffers.len() {
                 self.output_ptrs.push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
                 dummy_idx += 1;
+            } else {
+                // Safety net: should never be reached if activate() ran correctly.
+                // If it is reached, we just drop the extra output to avoid crashing.
+                self.output_ptrs.push(std::ptr::null_mut());
             }
         }
 

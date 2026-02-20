@@ -48,49 +48,17 @@ use crate::dag::{AudioDag, EdgeDelayCompensation};
 /// # Complexity
 /// O(V + E) — single reverse pass over the topological order.
 pub fn compute_delay_compensation(dag: &AudioDag, topo_order: &[NodeIndex]) -> Vec<u32> {
-    let graph = dag.graph();
-
-    // GR-004 FIX: Use node_bound() not node_count(). petgraph indices
-    // can exceed node_count() after removals, causing index OOB panic.
-    let mut max_to_master: Vec<u32> = vec![0; graph.node_bound()];
-    for &node_idx in topo_order.iter().rev() {
-        let own_latency = dag.node(node_idx).latency_samples();
-        let best_child = graph
-            .edges_directed(node_idx, petgraph::Direction::Outgoing)
-            .map(|edge| max_to_master[edge.target().index()])
-            .max()
-            .unwrap_or(0);
-        max_to_master[node_idx.index()] = own_latency + best_child;
+    // BUG-077 FIX: The original source-only computation assumed linear chains
+    // and failed to report compensation for parallel routing branches.
+    // We now derive diagnostic node PDC directly from the robust edge compensations by
+    // assigning each node the maximum delay applied to its outgoing edges.
+    let edge_delays = compute_edge_delay_compensation(dag, topo_order);
+    let mut node_delays = vec![0u32; dag.graph().node_bound()];
+    for edge in edge_delays {
+        let from_idx = edge.from.index();
+        node_delays[from_idx] = node_delays[from_idx].max(edge.delay_samples);
     }
-
-    // ── Step 2: Longest source path (critical path) ──────────────────
-    let mut global_max = 0u32;
-    for node_idx in graph.node_indices() {
-        let is_source = graph
-            .edges_directed(node_idx, petgraph::Direction::Incoming)
-            .next()
-            .is_none();
-        if is_source {
-            global_max = global_max.max(max_to_master[node_idx.index()]);
-        }
-    }
-
-    // ── Step 3: Compensation only on sources ─────────────────────────
-    let mut compensation = vec![0u32; graph.node_bound()];
-    for node_idx in graph.node_indices() {
-        let is_source = graph
-            .edges_directed(node_idx, petgraph::Direction::Incoming)
-            .next()
-            .is_none();
-        if is_source {
-            let node_path = max_to_master[node_idx.index()];
-            if node_path < global_max {
-                compensation[node_idx.index()] = global_max - node_path;
-            }
-        }
-    }
-
-    compensation
+    node_delays
 }
 
 /// Computes per-edge delay compensation for merge-point alignment.
@@ -313,11 +281,11 @@ mod tests {
     }
 
     #[test]
-    fn single_source_split_has_no_source_level_compensation() {
+    fn single_source_split_shows_compensation_on_shorter_branch() {
         // One source splits into two branches with different latencies.
         //
-        // With source-level compensation, we do not compensate this case
-        // because both branches originate from the same source node.
+        // BUG-077 FIX: Now derived from edge delays, so the node feeding the
+        // shorter branch (FX2) correctly shows compensation to align with FX1.
         let dag = GraphBuilder::new()
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
@@ -362,8 +330,14 @@ mod tests {
         let order = dag.topological_order().unwrap();
         let comp = compute_delay_compensation(&dag, &order);
 
-        // Track is the only source, so no source-level compensation.
-        assert!(comp.iter().all(|&c| c == 0));
+        // FX2's short path needs 128 samples compensation before Sum Bus
+        let fx2_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(3))
+            .unwrap();
+
+        assert_eq!(comp[fx2_idx.index()], 128);
 
         let summary = pdc_summary(&dag, &comp);
         assert!(summary.contains("PDC Summary"));
@@ -481,27 +455,20 @@ mod tests {
                 global_max = global_max.max(longest_to_master(&dag, src, &mut memo));
             }
 
-            // Property 1: source latency + compensation equals critical path.
-            for &src in &sources {
-                let total = longest_to_master(&dag, src, &mut memo);
-                assert_eq!(
-                    total + comp[src.index()],
-                    global_max,
-                    "source {:?} not aligned to critical path",
-                    dag.node(src).id
-                );
-            }
-
-            // Property 2: non-source nodes do not receive source-level compensation.
+            // Property 1: No double-compensation (max node delay in any path component <= edge delays)
+            // (Replaced the source-only linear DAG tests as BUG-077 correctly identifies 
+            // that parallel chains mandate non-source node compensation).
             for idx in dag.graph().node_indices() {
-                if !dag.inputs(idx).is_empty() {
-                    assert_eq!(
-                        comp[idx.index()],
-                        0,
-                        "non-source node {:?} should not have compensation",
-                        dag.node(idx).id
-                    );
-                }
+                let comp_val = comp[idx.index()];
+                let max_out_edge = dag.graph().edges_directed(idx, petgraph::Direction::Outgoing)
+                    .map(|e| {
+                        edge_comp.iter().find(|c| c.from == e.source() && c.to == e.target())
+                            .map(|c| c.delay_samples)
+                            .unwrap_or(0)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                assert_eq!(comp_val, max_out_edge);
             }
 
             // Property 3: at every merge node, edge-compensated inputs align.

@@ -52,9 +52,10 @@ pub struct FlangerProcessor {
     damp_coeff: f32,
     sample_rate: f32,
     // S&H state for Random LFO shape
-    sh_value: f32,
-    sh_counter: f32,
-    sh_hold_samples: f32,
+    sh_value_l: f32,
+    sh_value_r: f32,
+    prev_phase_l: f32,
+    prev_phase_r: f32,
     sh_rng: u64,
 }
 
@@ -80,9 +81,10 @@ impl FlangerProcessor {
             damp_state_r: 0.0,
             damp_coeff: 0.0,
             sample_rate,
-            sh_value: 0.0,
-            sh_counter: 0.0,
-            sh_hold_samples: sample_rate / 1.0_f32.max(0.01), // initial rate
+            sh_value_l: 0.0,
+            sh_value_r: 0.0,
+            prev_phase_l: 0.0,
+            prev_phase_r: 0.0,
             sh_rng: 0xDEAD_BEEF_CAFE_1234,
         };
         proc.update_damp();
@@ -106,20 +108,12 @@ impl FlangerProcessor {
     }
 
     #[inline]
-    fn lfo(&mut self, phase: f32, shape: u8) -> f32 {
+    fn lfo(&self, phase: f32, shape: u8, sh_value: f32) -> f32 {
         match shape {
             0 => (phase * std::f32::consts::TAU).sin(),
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),
             2 => 2.0 * phase - 1.0,
-            3 => {
-                // Proper Sample & Hold: latch a new random value every hold period
-                self.sh_counter += 1.0;
-                if self.sh_counter >= self.sh_hold_samples {
-                    self.sh_counter = 0.0;
-                    self.sh_value = self.next_sh_random();
-                }
-                self.sh_value
-            }
+            3 => sh_value,
             _ => (phase * std::f32::consts::TAU).sin(),
         }
     }
@@ -143,7 +137,6 @@ impl DspProcessor for FlangerProcessor {
         {
             self.sample_rate = sample_rate;
             self.update_damp();
-            self.sh_hold_samples = self.sample_rate / self.rate.max(0.01);
         }
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
@@ -156,8 +149,18 @@ impl DspProcessor for FlangerProcessor {
             let phase_l = (self.lfo_phase as f32).fract();
             let phase_r = (self.lfo_phase as f32 + self.stereo_offset).fract();
 
-            let lfo_l = self.lfo(phase_l, self.lfo_shape);
-            let lfo_r = self.lfo(phase_r.fract(), self.lfo_shape);
+            // BUG-DSP5 FIX: Advance S&H independently based on phase wrap
+            if phase_l < self.prev_phase_l {
+                self.sh_value_l = self.next_sh_random();
+            }
+            if phase_r < self.prev_phase_r {
+                self.sh_value_r = self.next_sh_random();
+            }
+            self.prev_phase_l = phase_l;
+            self.prev_phase_r = phase_r;
+
+            let lfo_l = self.lfo(phase_l, self.lfo_shape, self.sh_value_l);
+            let lfo_r = self.lfo(phase_r, self.lfo_shape, self.sh_value_r);
 
             // Modulated delay
             // BUG-027 FIX: Clamp TZ mode to minimum 1.0 sample (was 0.1).
@@ -211,7 +214,6 @@ impl DspProcessor for FlangerProcessor {
         match index {
             0 => {
                 self.rate = value.clamp(0.01, 10.0);
-                self.sh_hold_samples = self.sample_rate / self.rate.max(0.01);
             }
             1 => self.depth = (value / 100.0).clamp(0.0, 1.0),
             2 => self.feedback = (value / 100.0).clamp(-0.95, 0.95),
@@ -237,8 +239,10 @@ impl DspProcessor for FlangerProcessor {
         self.fb_r = 0.0;
         self.damp_state_l = 0.0;
         self.damp_state_r = 0.0;
-        self.sh_value = 0.0;
-        self.sh_counter = 0.0;
+        self.sh_value_l = 0.0;
+        self.sh_value_r = 0.0;
+        self.prev_phase_l = 0.0;
+        self.prev_phase_r = 0.0;
         self.sh_rng = 0xDEAD_BEEF_CAFE_1234;
     }
 }

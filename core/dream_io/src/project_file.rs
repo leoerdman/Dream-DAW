@@ -621,6 +621,7 @@ mod tests {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }));
         midi_track.effects.push(DeviceNode::Single(PluginSlot {
             id: uuid::Uuid::new_v4(),
@@ -642,6 +643,7 @@ mod tests {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }));
         project.add_track(midi_track);
 

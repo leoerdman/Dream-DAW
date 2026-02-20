@@ -235,53 +235,59 @@ impl MidiScheduler {
             return;
         }
 
-        let pre_wrap_frames = (lr.end - playhead_pos).max(0) as usize;
-        let post_wrap_frames = frame_count.saturating_sub(pre_wrap_frames);
-
         out.clear();
-        if pre_wrap_frames > 0 {
-            Self::fill_active(clips, playhead_pos, pre_wrap_frames, out);
-        }
+        
+        let mut current_playhead = playhead_pos;
+        let mut frames_remaining = frame_count;
+        let mut current_buffer_offset = 0;
 
-        if post_wrap_frames > 0 {
-            Self::fill_active(clips, lr.start, post_wrap_frames, tmp);
-            for mut note in tmp.iter().copied() {
-                note.buffer_onset += pre_wrap_frames;
-                note.buffer_offset_end += pre_wrap_frames;
-                note.buffer_onset = note.buffer_onset.min(frame_count);
-                note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
-                out.push(note);
-            }
-
-            // Loop boundary safety:
-            // Any note that is still active at loop end must be explicitly turned off
-            // at the wrap point. Without this, notes can leak across iterations and
-            // stack/double-trigger on the next loop cycle.
-            let mut forced_off_by_pitch = [false; 128];
-            for clip in clips {
-                if clip.is_muted {
-                    continue;
+        while frames_remaining > 0 {
+            let frames_to_end = (lr.end - current_playhead).max(0) as usize;
+            let chunk_frames = frames_remaining.min(frames_to_end);
+            
+            if chunk_frames > 0 {
+                Self::fill_active(clips, current_playhead, chunk_frames, tmp);
+                for mut note in tmp.iter().copied() {
+                    note.buffer_onset += current_buffer_offset;
+                    note.buffer_offset_end += current_buffer_offset;
+                    note.buffer_onset = note.buffer_onset.min(frame_count);
+                    note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
+                    out.push(note);
                 }
-                let clip_start = clip.position.sample_frame;
-                for note in &clip.notes {
-                    let note_abs_start = clip_start + note.start_frame;
-                    let note_abs_end = clip_start + note.end_frame();
-                    if note_abs_start < lr.end && note_abs_end > lr.end {
-                        let p = note.pitch as usize;
-                        if !forced_off_by_pitch[p] {
-                            forced_off_by_pitch[p] = true;
-                            out.push(ScheduledNote {
-                                pitch: note.pitch,
-                                velocity: 1,
-                                note_uid: Self::note_uid(clip, note),
-                                buffer_onset: pre_wrap_frames.min(frame_count),
-                                buffer_offset_end: pre_wrap_frames.min(frame_count),
-                                is_note_on: false,
-                                is_note_off: true,
-                            });
+            }
+            
+            frames_remaining -= chunk_frames;
+            current_buffer_offset += chunk_frames;
+            
+            if frames_remaining > 0 {
+                // Loop boundary safety: explicitly turn off notes that cross the wrap point.
+                let mut forced_off_by_pitch = [false; 128];
+                for clip in clips {
+                    if clip.is_muted { continue; }
+                    let clip_start = clip.position.sample_frame;
+                    for note in &clip.notes {
+                        let note_abs_start = clip_start + note.start_frame;
+                        let note_abs_end = clip_start + note.end_frame();
+                        if note_abs_start < lr.end && note_abs_end > lr.end {
+                            let p = note.pitch as usize;
+                            if !forced_off_by_pitch[p] {
+                                forced_off_by_pitch[p] = true;
+                                out.push(ScheduledNote {
+                                    pitch: note.pitch,
+                                    velocity: 1,
+                                    note_uid: Self::note_uid(clip, note),
+                                    buffer_onset: current_buffer_offset.min(frame_count),
+                                    buffer_offset_end: current_buffer_offset.min(frame_count),
+                                    is_note_on: false,
+                                    is_note_off: true,
+                                });
+                            }
                         }
                     }
                 }
+                
+                // Wrap around to loop start
+                current_playhead = lr.start;
             }
         }
 

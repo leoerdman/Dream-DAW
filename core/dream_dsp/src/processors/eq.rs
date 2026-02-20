@@ -136,28 +136,23 @@ impl DspProcessor for EqProcessor {
                 right[i] *= g;
             }
         }
-        // BUG-031 FIX: Fast soft-clip (cubic approx, ~8x faster than tanh).
-        // Preserves linearity in [-6, 6] and clamps smoothly beyond.
+        // BUG-013 FIX: Truly continuous soft-clip for signals exceeding ±4.0.
+        // This preserves perfect EQ transparency (y=x) on clean signals while
+        // protecting against cascaded filter boosts without creating click artifacts.
         #[inline(always)]
-        fn fast_soft_clip(x: f32) -> f32 {
-            let s = x * (1.0 / 6.0);  // normalize to [-1, 1] range
-            if s.abs() >= 1.0 {
-                s.signum() * 6.0
+        fn continuous_clip(x: f32) -> f32 {
+            if x > 4.0 {
+                4.0 + (x - 4.0) / (1.0 + (x - 4.0))
+            } else if x < -4.0 {
+                -4.0 + (x + 4.0) / (1.0 - (x + 4.0))
             } else {
-                // cubic: x * (1 - x²/3) ≈ tanh(x) for |x| < 1
-                (s - s * s * s * (1.0 / 3.0)) * 6.0
+                x
             }
         }
-        // BUG-013 FIX: Only soft-clip when signal actually exceeds ±4.0.
-        // This preserves perfect EQ transparency on clean signals while
-        // still protecting against cascaded filter boosts.
+
         for i in 0..left.len().min(right.len()) {
-            if left[i].abs() > 4.0 {
-                left[i] = fast_soft_clip(left[i]);
-            }
-            if right[i].abs() > 4.0 {
-                right[i] = fast_soft_clip(right[i]);
-            }
+            left[i] = continuous_clip(left[i]);
+            right[i] = continuous_clip(right[i]);
         }
     }
 

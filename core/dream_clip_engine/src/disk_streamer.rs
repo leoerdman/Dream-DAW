@@ -91,7 +91,11 @@ impl StreamingWindow {
         sample_rate: u32,
     ) -> Self {
         Self {
-            chunks: VecDeque::with_capacity(LOOK_AHEAD_CHUNKS + 4),
+            // MEGA-05 FIX: Pre-allocate capacity to successfully enclose the
+            // max threshold of 2 * LOOK_AHEAD_CHUNKS (32). If capacity < 33, 
+            // .insert() will trigger a realloc() global lock inside the RT-thread 
+            // rendering loop, causing unrecoverable stuttering and dropouts.
+            chunks: VecDeque::with_capacity((LOOK_AHEAD_CHUNKS * 2) + 2),
             total_frames,
             _num_channels: num_channels,
             sample_rate,
@@ -103,6 +107,7 @@ impl StreamingWindow {
     ///
     /// If a chunk with the same start_frame already exists, it is replaced.
     pub fn push_chunk(&mut self, chunk: StreamChunk) {
+        let inserted_start = chunk.start_frame;
         // BUG-048 FIX: Binary search instead of O(n) linear search.
         let pos = self
             .chunks
@@ -120,7 +125,13 @@ impl StreamingWindow {
 
         // Evict old chunks that are far behind the newest chunk
         while self.chunks.len() > LOOK_AHEAD_CHUNKS * 2 {
-            self.chunks.pop_front();
+            let first_start = self.chunks.front().map(|c| c.start_frame).unwrap_or(0);
+            let last_start = self.chunks.back().map(|c| c.start_frame).unwrap_or(0);
+            if (inserted_start - first_start).abs() > (inserted_start - last_start).abs() {
+                self.chunks.pop_front();
+            } else {
+                self.chunks.pop_back();
+            }
         }
     }
 
@@ -277,16 +288,50 @@ impl StreamingWindow {
         }
 
         let mut any_hit = false;
+        let mut chunk_idx_hint = 0;
+
         for i in 0..write_frames {
             let src_pos = source_start + (i as f64) * rate;
             let out_idx = out_offset + i;
 
-            if let Some(v) = self.sample_linear_at(src_pos, false) {
-                out_left[out_idx] += v * gain;
+            let max_pos = (self.total_frames.saturating_sub(1)) as f64;
+            if !src_pos.is_finite() || max_pos < 0.0 { continue; }
+            let clamped = src_pos.clamp(0.0, max_pos);
+            let frame0 = clamped.floor() as i64;
+            let frame1 = (frame0 + 1).min(self.total_frames.saturating_sub(1));
+            let frac = (clamped - frame0 as f64) as f32;
+
+            let mut sample_frame = |frame: i64, is_right: bool| -> Option<f32> {
+                if frame < 0 || frame >= self.total_frames { return None; }
+                if let Some(c) = self.chunks.get(chunk_idx_hint) {
+                    let end = c.start_frame + c.num_frames as i64;
+                    if frame >= c.start_frame && frame < end {
+                        let idx = (frame - c.start_frame) as usize;
+                        return if is_right { c.right.get(idx).copied() } else { c.left.get(idx).copied() };
+                    }
+                }
+                for (idx, c) in self.chunks.iter().enumerate() {
+                    let end = c.start_frame + c.num_frames as i64;
+                    if frame >= c.start_frame && frame < end {
+                        chunk_idx_hint = idx;
+                        let src_idx = (frame - c.start_frame) as usize;
+                        return if is_right { c.right.get(src_idx).copied() } else { c.left.get(src_idx).copied() };
+                    }
+                }
+                None
+            };
+
+            let l0 = sample_frame(frame0, false);
+            let l1 = sample_frame(frame1, false).or(l0);
+            if let (Some(a), Some(b)) = (l0, l1) {
+                out_left[out_idx] += (a * (1.0 - frac) + b * frac) * gain;
                 any_hit = true;
             }
-            if let Some(v) = self.sample_linear_at(src_pos, true) {
-                out_right[out_idx] += v * gain;
+
+            let r0 = sample_frame(frame0, true);
+            let r1 = sample_frame(frame1, true).or(r0);
+            if let (Some(a), Some(b)) = (r0, r1) {
+                out_right[out_idx] += (a * (1.0 - frac) + b * frac) * gain;
                 any_hit = true;
             }
         }
@@ -590,6 +635,7 @@ fn disk_io_thread(
                     pending_retries += 1;
                     if pending_retries > 2000 {
                         log::warn!("DiskIO: dropping pending chunk after 2s of back-pressure");
+                        last_read_frame = chunk.start_frame + chunk.num_frames as i64;
                         pending_retries = 0;
                         // Chunk is dropped
                         continue;

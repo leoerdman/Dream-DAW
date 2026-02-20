@@ -383,15 +383,33 @@ impl OfflineBouncer {
         // Phase 5: Interleave master bus into output with soft clipping
         let master_l = &render_ctx.master_bus.left()[..frame_count];
         let master_r = &render_ctx.master_bus.right()[..frame_count];
-        for i in 0..frame_count {
-            let base = i * channels;
-            if base + 1 < output.len() {
-                output[base] = soft_clip(master_l[i]);
-                output[base + 1] = soft_clip(master_r[i]);
-                for ch in 2..channels {
-                    let idx = base + ch;
-                    if idx < output.len() {
-                        output[idx] = 0.0;
+        if channels == 2 {
+            for i in 0..frame_count {
+                let base = i * 2;
+                if base + 1 < output.len() {
+                    output[base] = soft_clip(master_l[i]);
+                    output[base + 1] = soft_clip(master_r[i]);
+                }
+            }
+        } else if channels == 1 {
+            // BUG-078 FIX: Mix stereo to mono, preventing sample overlap corruption.
+            for i in 0..frame_count {
+                let mono = (master_l[i] + master_r[i]) * std::f32::consts::FRAC_1_SQRT_2;
+                if i < output.len() {
+                    output[i] = soft_clip(mono);
+                }
+            }
+        } else {
+            for i in 0..frame_count {
+                let base = i * channels;
+                if base + 1 < output.len() {
+                    output[base] = soft_clip(master_l[i]);
+                    output[base + 1] = soft_clip(master_r[i]);
+                    for ch in 2..channels {
+                        let idx = base + ch;
+                        if idx < output.len() {
+                            output[idx] = 0.0;
+                        }
                     }
                 }
             }

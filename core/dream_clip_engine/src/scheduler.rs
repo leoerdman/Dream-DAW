@@ -127,20 +127,31 @@ impl ClipScheduler {
             return;
         }
 
-        let pre_wrap_frames = (loop_region.end - playhead_pos).max(0) as usize;
-        let post_wrap_frames = buffer_size.saturating_sub(pre_wrap_frames);
         out.clear();
         tmp.clear();
 
-        if pre_wrap_frames > 0 {
-            Self::fill_active(clips, playhead_pos, pre_wrap_frames, out);
-        }
+        let mut current_playhead = playhead_pos;
+        let mut frames_remaining = buffer_size;
+        let mut current_buffer_offset = 0;
 
-        if post_wrap_frames > 0 {
-            Self::fill_active(clips, loop_region.start, post_wrap_frames, tmp);
-            for mut clip in tmp.iter().copied() {
-                clip.buffer_offset += pre_wrap_frames;
-                out.push(clip);
+        while frames_remaining > 0 {
+            let frames_to_end = (loop_region.end - current_playhead).max(0) as usize;
+            let chunk_frames = frames_remaining.min(frames_to_end);
+            
+            if chunk_frames > 0 {
+                Self::fill_active(clips, current_playhead, chunk_frames, tmp);
+                for mut clip in tmp.iter().copied() {
+                    clip.buffer_offset += current_buffer_offset;
+                    out.push(clip);
+                }
+            }
+            
+            frames_remaining -= chunk_frames;
+            current_buffer_offset += chunk_frames;
+            
+            if frames_remaining > 0 {
+                // Wrap around to loop start
+                current_playhead = loop_region.start;
             }
         }
     }

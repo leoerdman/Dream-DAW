@@ -152,9 +152,20 @@ impl SpectrumAnalyzer {
     /// # BUG-057 FIX
     /// Rate-limited to ~30Hz to avoid wasting CPU on FFTs the UI can't display.
     pub fn compute(&mut self) -> Option<SpectrumData> {
+        let now_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        if now_ns - self.last_compute_ns < MIN_COMPUTE_INTERVAL_NS {
+            return None;
+        }
+
         if !self.has_new_data.swap(false, Ordering::AcqRel) {
             return None;
         }
+        
+        self.last_compute_ns = now_ns;
 
         // BUG-001 FIX: Snapshot write_pos atomically for safe concurrent read
         let snapshot_pos = self.write_pos.load(Ordering::Acquire);

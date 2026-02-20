@@ -221,7 +221,7 @@ impl DspProcessor for NoiseMachineProcessor {
 
         for i in 0..len {
             // Generate L channel noise
-            let raw_l = Self::generate_sample_static(
+            let mut raw_l = Self::generate_sample_static(
                 self.noise_type,
                 &mut self.rng_l,
                 &mut self.pink_l,
@@ -229,7 +229,7 @@ impl DspProcessor for NoiseMachineProcessor {
                 &mut self.prev_white_l,
                 &mut self.prev_blue_l,
             );
-            let raw_r = Self::generate_sample_static(
+            let mut raw_r = Self::generate_sample_static(
                 self.noise_type,
                 &mut self.rng_r,
                 &mut self.pink_r,
@@ -237,6 +237,19 @@ impl DspProcessor for NoiseMachineProcessor {
                 &mut self.prev_white_r,
                 &mut self.prev_blue_r,
             );
+
+            // Apply DC blocker for brown noise
+            if self.noise_type == 2 {
+                let dc_l = raw_l;
+                self.brown_dc_l = self.brown_dc_coeff * (self.brown_dc_l + dc_l - self.brown_dc_prev_l);
+                self.brown_dc_prev_l = dc_l;
+                raw_l = self.brown_dc_l;
+
+                let dc_r = raw_r;
+                self.brown_dc_r = self.brown_dc_coeff * (self.brown_dc_r + dc_r - self.brown_dc_prev_r);
+                self.brown_dc_prev_r = dc_r;
+                raw_r = self.brown_dc_r;
+            }
 
             // Stereo correlation: blend toward mono
             let mono = (raw_l + raw_r) * 0.5;

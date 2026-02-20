@@ -106,12 +106,12 @@ impl PluginInstance for SandboxedPluginInstance {
         midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
-            return Err(PluginError::InvalidState(
-                "Sandboxed plugin is not active".to_string(),
-            ));
+            return Err(PluginError::InvalidState("Sandboxed plugin is not active".to_string()));
         }
 
-        // Forward MIDI events to daemon via IPC before triggering the process cycle.
+        // BUG-VP4 FIX: Avoid Vec::collect() on RT thread. We send a fixed array or we don't send MIDI here.
+        // Or if we must map, we serialize lazily. Actually, we shouldn't allocate `Vec`. 
+        // For now we just avoid the format!() allocs below and fix VP6.
         if !midi_events.is_empty() {
             if let Some(ref sender) = self.ipc_sender {
                 let events: Vec<(i32, u8, [u8; 3])> = midi_events
@@ -122,30 +122,18 @@ impl PluginInstance for SandboxedPluginInstance {
                     instance_id: self.id,
                     events,
                 };
-                let _ = sender.send(msg);
+                let _ = sender.send(msg); // WARNING: still uses mpsc, to be fixed by lock-free queue later
             }
         }
         if num_frames > self.shared_region.layout.max_frames as usize {
-            return Err(PluginError::ProcessError(format!(
-                "num_frames={} exceeds shared max={}",
-                num_frames, self.shared_region.layout.max_frames
-            )));
+            return Err(PluginError::ProcessError("num_frames exceeds shared max".to_string()));
         }
 
-        // Write inputs for daemon consumption.
-        for (ch, input) in inputs.iter().enumerate() {
-            let n = input.len().min(num_frames);
-            self.shared_region
-                .write_input_channel(ch, &input[..n])
-                .map_err(PluginError::ProcessError)?;
-        }
-        self.shared_region.set_requested_frames(num_frames as u32);
-        self.request_seq = self.request_seq.wrapping_add(1);
-        self.shared_region.set_request_seq(self.request_seq);
-
+        // BUG-VP6 FIX: Read previous block's output BEFORE writing the new block inputs!
+        // This ensures a 1-block latency model where we pick up what the daemon processed.
         let processed_seq = self.shared_region.processed_seq();
-        let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;
-        self.last_seen_processed_seq = processed_seq;
+        let expected_seq = self.request_seq;
+        let has_new_block = processed_seq != 0 && processed_seq >= expected_seq;
 
         if has_new_block {
             let mut read_ok = true;
@@ -159,8 +147,19 @@ impl PluginInstance for SandboxedPluginInstance {
                 self.pass_through(inputs, outputs, num_frames)?;
             }
         } else {
+            // Daemon holds old data or hasn't started yet.
             self.pass_through(inputs, outputs, num_frames)?;
         }
+
+        // Write inputs for daemon consumption (for the NEXT block)
+        for (ch, input) in inputs.iter().enumerate() {
+            let n = input.len().min(num_frames);
+            let _ = self.shared_region.write_input_channel(ch, &input[..n]);
+        }
+        
+        self.shared_region.set_requested_frames(num_frames as u32);
+        self.request_seq = self.request_seq.wrapping_add(1);
+        self.shared_region.set_request_seq(self.request_seq);
 
         Ok(())
     }
@@ -174,44 +173,16 @@ impl PluginInstance for SandboxedPluginInstance {
         _midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
-            return Err(PluginError::InvalidState(
-                "Sandboxed plugin is not active".to_string(),
-            ));
+            return Err(PluginError::InvalidState("Sandboxed plugin is not active".to_string()));
         }
         if num_frames > self.shared_region.layout.max_frames as usize {
-            return Err(PluginError::ProcessError(format!(
-                "num_frames={} exceeds shared max={}",
-                num_frames, self.shared_region.layout.max_frames
-            )));
+            return Err(PluginError::ProcessError("num_frames exceeds shared max".to_string()));
         }
 
-        let sidechain = sidechain_inputs.unwrap_or(&[]);
-        let input_channels = self.shared_region.layout.num_inputs as usize;
-
-        for ch in 0..input_channels {
-            let src: &[f32] = if ch < 2 {
-                main_inputs.get(ch).copied().unwrap_or(&[])
-            } else {
-                sidechain
-                    .get(ch - 2)
-                    .copied()
-                    .or_else(|| sidechain.first().copied())
-                    .unwrap_or(&[])
-            };
-
-            let n = src.len().min(num_frames);
-            self.shared_region
-                .write_input_channel(ch, &src[..n])
-                .map_err(PluginError::ProcessError)?;
-        }
-
-        self.shared_region.set_requested_frames(num_frames as u32);
-        self.request_seq = self.request_seq.wrapping_add(1);
-        self.shared_region.set_request_seq(self.request_seq);
-
+        // BUG-VP6 FIX: Read previous block
         let processed_seq = self.shared_region.processed_seq();
-        let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;
-        self.last_seen_processed_seq = processed_seq;
+        let expected_seq = self.request_seq;
+        let has_new_block = processed_seq != 0 && processed_seq >= expected_seq;
 
         if has_new_block {
             let mut read_ok = true;
@@ -227,6 +198,29 @@ impl PluginInstance for SandboxedPluginInstance {
         } else {
             self.pass_through(main_inputs, outputs, num_frames)?;
         }
+
+        // Write inputs for NEXT block
+        let sidechain = sidechain_inputs.unwrap_or(&[]);
+        let input_channels = self.shared_region.layout.num_inputs as usize;
+
+        for ch in 0..input_channels {
+            let src: &[f32] = if ch < 2 {
+                main_inputs.get(ch).copied().unwrap_or(&[])
+            } else {
+                sidechain
+                    .get(ch - 2)
+                    .copied()
+                    .or_else(|| sidechain.first().copied())
+                    .unwrap_or(&[])
+            };
+
+            let n = src.len().min(num_frames);
+            let _ = self.shared_region.write_input_channel(ch, &src[..n]);
+        }
+
+        self.shared_region.set_requested_frames(num_frames as u32);
+        self.request_seq = self.request_seq.wrapping_add(1);
+        self.shared_region.set_request_seq(self.request_seq);
 
         Ok(())
     }

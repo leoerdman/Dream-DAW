@@ -2200,6 +2200,7 @@ mod tests {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -2222,6 +2223,7 @@ mod tests {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -2244,6 +2246,7 @@ mod tests {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }));
 
         assert_eq!(track.total_latency_frames(), 64 + 128); // Instrument + active effect

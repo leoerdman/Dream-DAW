@@ -1679,23 +1679,26 @@ pub fn start_audio_thread_on_device(
                         // ═══════════════════════════════════════════════════════════════
 
                         // ── A0. Denormal Protection (DAZ/FTZ) ────────────────────────
-                        // Flush denormals to zero to prevent CPU spikes during reverb tails.
+                        // MEGA-03 FIX: Save original hardware FPU state so we can restore it.
+                        // Mutating the OS audio thread's FPU state permanently breaks IEEE-754
+                        // for the entire host process (logic pro, bitwig, ableton, etc.)
                         #[cfg(target_arch = "x86_64")]
-                        unsafe {
+                        let original_csr = unsafe {
                             use std::arch::x86_64::*;
                             let csr = _mm_getcsr();
                             _mm_setcsr(csr | 0x8040); // DAZ + FTZ bits
-                        }
+                            csr
+                        };
+                        
                         #[cfg(target_arch = "aarch64")]
-                        unsafe {
-                            // ARM FPCR bit 24 = FZ (Flush-to-Zero).
-                            // AArch64 has no DAZ equivalent — FZ covers both
-                            // input denormals and output denormals.
+                        let original_fpcr = unsafe {
                             let mut fpcr: u64;
                             std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+                            let orig = fpcr;
                             fpcr |= 1 << 24; // FZ bit
                             std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
-                        }
+                            orig
+                        };
 
                         let frame_count = data.len() / channels.max(1);
 
@@ -2843,7 +2846,7 @@ pub fn start_audio_thread_on_device(
                                     // sample_rate_f64 captured from outer scope. peak_decay_for_block
                                     // involves exp() which is ~5ns — ~1.3μs overhead for 256 tracks.
                                     // AE-013 FIX: Use pre-cached decay from outer scope.
-                                    let decay = graph_peak_decay;
+                                    let _decay = graph_peak_decay;
                                     if let Some((meter_l, meter_r)) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {
@@ -2859,8 +2862,10 @@ pub fn start_audio_thread_on_device(
                                         let peak_r = linear_to_db(compute_peak(meter_src_r));
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
-                                        meter_l.store_peak_decay(peak_l, decay);
-                                        meter_r.store_peak_decay(peak_r, decay);
+                                        // MEGA-04 FIX: Do not double-decay active tracks inside the graph loop
+                                        // since baseline_decay was already applied globally at start of block.
+                                        meter_l.store_peak(peak_l.max(meter_l.load_peak()));
+                                        meter_r.store_peak(peak_r.max(meter_r.load_peak()));
                                     }
                                 }
                             },
@@ -3137,6 +3142,13 @@ pub fn start_audio_thread_on_device(
                             callback_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
                             deferred_topology.len(),
                         );
+
+                        // MEGA-03 FIX: Restore original FPU semantics for OS audio thread
+                        #[cfg(target_arch = "x86_64")]
+                        unsafe { std::arch::x86_64::_mm_setcsr(original_csr); }
+                        
+                        #[cfg(target_arch = "aarch64")]
+                        unsafe { std::arch::asm!("msr fpcr, {}", in(reg) original_fpcr); }
                     };
 
                 #[cfg(debug_assertions)]

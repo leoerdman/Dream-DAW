@@ -130,7 +130,11 @@ impl GateProcessor {
         if x < 1e-10 {
             -96.0
         } else {
-            20.0 * x.log10()
+            // BUG-DSP4 FIX: Fast log2 approximation → dB (missing BUG-036 fix).
+            // 20 * log10(x) = 20 * log2(x) / log2(10) ≈ 6.0206 * log2(x)
+            let bits = x.to_bits() as i32;
+            let log2_approx = (bits as f32) * 1.1920928955078125e-7 - 126.94269504;
+            log2_approx * 6.0206
         }
     }
 }

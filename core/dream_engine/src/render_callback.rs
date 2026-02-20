@@ -33,7 +33,7 @@ static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomic
 
 /// BUG-FIX: Separate counter for spectrum ring buffer drops (SSOT violation fix).
 /// Previously both clip pool misses AND spectrum drops shared POOL_MISS_COUNT.
-static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
@@ -424,8 +424,10 @@ impl RenderContext {
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     if is_warped {
-                        let clip_local_timeline_start = (playhead_pos + ac.buffer_offset as i64
-                            - clip.position.sample_frame)
+                        // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
+                        // to prevent desyncs when playhead wraps across a loop boundary.
+                        let clip_local_timeline_start = (ac.source_start_frame
+                            - clip.source_offset.sample_frame)
                             .max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                             + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
@@ -461,8 +463,10 @@ impl RenderContext {
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     if is_warped {
-                        let clip_local_timeline_start = (playhead_pos + ac.buffer_offset as i64
-                            - clip.position.sample_frame)
+                        // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
+                        // to prevent desyncs when playhead wraps across a loop boundary.
+                        let clip_local_timeline_start = (ac.source_start_frame
+                            - clip.source_offset.sample_frame)
                             .max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                             + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
@@ -503,8 +507,10 @@ impl RenderContext {
                     let user_fade_in = clip.fade_in_frames.max(0) as usize;
                     let user_fade_out = clip.fade_out_frames.max(0) as usize;
                     let clip_len_frames = clip.duration.sample_frame.max(1) as usize;
-                    let clip_local_start = (playhead_pos + ac.buffer_offset as i64
-                        - clip.position.sample_frame)
+                    // MEGA-02 FIX: Base fade automation envelope on robust source offset
+                    // so fades don't jump/reset when a clip crosses a loop wrap boundary.
+                    let clip_local_start = (ac.source_start_frame
+                        - clip.source_offset.sample_frame)
                         .max(0) as usize;
 
                     let has_user_fades = user_fade_in > 0 || user_fade_out > 0;
@@ -727,6 +733,14 @@ impl RenderContext {
                 output[base] = soft_clip(master_l[i]);
                 output[base + 1] = soft_clip(master_r[i]);
             }
+        } else if self.channels == 1 {
+            // BUG-078 FIX: Mix stereo to mono, preventing sample overlap corruption.
+            for i in 0..safe_frames {
+                let mono = (master_l[i] + master_r[i]) * std::f32::consts::FRAC_1_SQRT_2;
+                if i < output.len() {
+                    output[i] = soft_clip(mono);
+                }
+            }
         } else {
             for i in 0..safe_frames {
                 let base = i * self.channels;
@@ -741,7 +755,6 @@ impl RenderContext {
                     }
                 }
             }
-        }
         }
     }
 

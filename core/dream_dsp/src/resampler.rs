@@ -163,6 +163,30 @@ pub fn resample_channels(
         pos += this_chunk;
     }
 
+    // MEGA-06 FIX: Flush the inherent Sinc filter group delay line by pushing dummy zeros
+    // so the end of the audio isn't trapped inside the algorithm latency line indefinitely.
+    let delay_frames = resampler.output_delay();
+    let pad_chunk: Vec<Vec<f32>> = vec![vec![0.0f32; chunk_size]; num_channels];
+    let pad_refs: Vec<&[f32]> = pad_chunk.iter().map(|v| v.as_slice()).collect();
+    
+    let mut flushed = 0;
+    while flushed < delay_frames {
+        if let Ok(result) = resampler.process(&pad_refs, None) {
+            for (ch_idx, resampled) in result.into_iter().enumerate() {
+                output_channels[ch_idx].extend_from_slice(&resampled);
+            }
+        }
+        flushed += chunk_size;
+    }
+
+    // MEGA-06 FIX: Compensate for filter latency by discarding the padding frames 
+    // at the start of the output. This strictly preserves transient phase alignment.
+    for ch in &mut output_channels {
+        if ch.len() > delay_frames {
+            ch.drain(0..delay_frames);
+        }
+    }
+
     // Trim output to expected length
     // BUG-055 FIX: Use ceil() instead of round() to prevent losing the last few samples.
     let expected_len = (input_len as f64 * ratio).ceil() as usize;

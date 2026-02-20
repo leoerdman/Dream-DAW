@@ -90,23 +90,19 @@ impl SharedAudioBufferRegion {
         &mut self,
         output_index: usize,
         samples: &[f32],
-    ) -> Result<(), String> {
+    ) -> Result<(), &'static str> {
         if output_index >= self.layout.num_outputs as usize {
-            return Err(format!("output channel out of range: {}", output_index));
+            return Err("output channel out of range");
         }
         if samples.len() > self.layout.max_frames as usize {
-            return Err(format!(
-                "too many frames for shared buffer: {} > {}",
-                samples.len(),
-                self.layout.max_frames
-            ));
+            return Err("too many frames for shared buffer");
         }
 
         let base = self.layout.output_offset(output_index);
         let bytes: &[u8] = bytemuck::cast_slice(samples);
         let end = base + bytes.len();
         if end > self.mmap.len() {
-            return Err("shared region overflow".to_string());
+            return Err("shared region overflow");
         }
         self.mmap[base..end].copy_from_slice(bytes);
         Ok(())
@@ -116,22 +112,18 @@ impl SharedAudioBufferRegion {
         &mut self,
         input_index: usize,
         samples: &[f32],
-    ) -> Result<(), String> {
+    ) -> Result<(), &'static str> {
         if input_index >= self.layout.num_inputs as usize {
-            return Err(format!("input channel out of range: {}", input_index));
+            return Err("input channel out of range");
         }
         if samples.len() > self.layout.max_frames as usize {
-            return Err(format!(
-                "too many frames for shared buffer: {} > {}",
-                samples.len(),
-                self.layout.max_frames
-            ));
+            return Err("too many frames for shared buffer");
         }
         let base = self.layout.header_bytes() + input_index * self.layout.channel_stride_bytes();
         let bytes: &[u8] = bytemuck::cast_slice(samples);
         let end = base + bytes.len();
         if end > self.mmap.len() {
-            return Err("shared region overflow".to_string());
+            return Err("shared region overflow");
         }
         self.mmap[base..end].copy_from_slice(bytes);
         Ok(())
@@ -142,23 +134,18 @@ impl SharedAudioBufferRegion {
         output_index: usize,
         num_frames: usize,
         out: &mut [f32],
-    ) -> Result<(), String> {
+    ) -> Result<(), &'static str> {
         if output_index >= self.layout.num_outputs as usize {
-            return Err(format!("output channel out of range: {}", output_index));
+            return Err("output channel out of range");
         }
         if num_frames > self.layout.max_frames as usize || num_frames > out.len() {
-            return Err(format!(
-                "requested frames out of bounds: requested={} max={} out_len={}",
-                num_frames,
-                self.layout.max_frames,
-                out.len()
-            ));
+            return Err("requested frames out of bounds");
         }
         let base = self.layout.output_offset(output_index);
         let bytes_len = num_frames * std::mem::size_of::<f32>();
         let end = base + bytes_len;
         if end > self.mmap.len() {
-            return Err("shared region overflow".to_string());
+            return Err("shared region overflow");
         }
         let src = &self.mmap[base..end];
         let src_f32: &[f32] = bytemuck::cast_slice(src);

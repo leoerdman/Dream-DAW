@@ -228,7 +228,7 @@ export const DawShell = () => {
                 setSettingsOpen(prev => !prev);
             }
             // Cmd/Ctrl + Shift + R: open render/export dialog
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'r') {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyR') {
                 e.preventDefault();
                 setExportOpen(true);
                 return;

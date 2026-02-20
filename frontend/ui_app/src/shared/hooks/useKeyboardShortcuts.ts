@@ -211,7 +211,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + Z: Undo ────────────────────────────────
-            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.repeat) {
+            if (isModKey(e) && !e.shiftKey && e.code === 'KeyZ' && !e.repeat) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
@@ -225,8 +225,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── Cmd/Ctrl + Shift + Z  OR  Ctrl + Y: Redo ─────────
             const isRedo =
-                (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z') ||
-                (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'y');
+                (isModKey(e) && e.shiftKey && e.code === 'KeyZ') ||
+                (e.ctrlKey && !e.shiftKey && !e.metaKey && e.code === 'KeyY');
             if (isRedo && !e.repeat) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -240,7 +240,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + T: New Audio Track ─────────────────────
-            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 't') {
+            if (isModKey(e) && !e.shiftKey && e.code === 'KeyT') {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
@@ -258,7 +258,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + Shift + T: New MIDI Track ──────────────
-            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 't') {
+            if (isModKey(e) && e.shiftKey && e.code === 'KeyT') {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
@@ -276,7 +276,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + Shift + M: Create MIDI Clip(s) from Selection Box ──
-            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'm') {
+            if (isModKey(e) && e.shiftKey && e.code === 'KeyM') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -326,7 +326,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + E: Split at Playhead ────────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'e' && !e.repeat) {
+            if (isModKey(e) && e.code === 'KeyE' && !e.repeat) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -385,7 +385,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + D: Duplicate selected clip(s) ───────────
-            if (isModKey(e) && e.key.toLowerCase() === 'd') {
+            if (isModKey(e) && e.code === 'KeyD') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -430,7 +430,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + J: Merge selected clip(s) ────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'j') {
+            if (isModKey(e) && e.code === 'KeyJ') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -455,7 +455,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + C: Copy selected clip(s) ─────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'c') {
+            if (isModKey(e) && e.code === 'KeyC') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -472,7 +472,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + V: Paste copied clip(s) ──────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'v') {
+            if (isModKey(e) && e.code === 'KeyV') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -544,7 +544,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + X: Cut selected clip(s) ──────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'x') {
+            if (isModKey(e) && e.code === 'KeyX') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -635,7 +635,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── S: Toggle Track Solo ─────────────────────────────────
             // Solos/unsolos the currently selected track.
-            if (e.key.toLowerCase() === 's' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+            if (e.code === 'KeyS' && !isModKey(e) && !e.shiftKey && !e.altKey) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -659,7 +659,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── M: Toggle Track Mute ────────────────────────────────
             // Mutes/unmutes the currently selected track.
-            if (e.key.toLowerCase() === 'm' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+            if (e.code === 'KeyM' && !isModKey(e) && !e.shiftKey && !e.altKey) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -682,7 +682,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── B: Bounce selected clips/area to new track ──────────
-            if (e.key.toLowerCase() === 'b' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+            if (e.code === 'KeyB' && !isModKey(e) && !e.shiftKey && !e.altKey) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -723,7 +723,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             // ── Cmd/Ctrl + L: Loop Selection ─────────────────────────
             // Selects the bounding box of all selected clips and sets
             // the loop region to it. Pressing again toggles off.
-            if (isModKey(e) && e.key.toLowerCase() === 'l') {
+            if (isModKey(e) && e.code === 'KeyL') {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();

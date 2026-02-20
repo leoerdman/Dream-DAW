@@ -10,7 +10,7 @@ import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2 } from 'lucide-reac
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
-import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup, type ActionGroup } from './AgentActionCard';
+import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup } from './AgentActionCard';
 import './AgentActionCard.css';
 import './AssistantChat.css';
 
@@ -85,9 +85,6 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
     const [isListening, setIsListening] = useState(false);
 
     // ── Live agent state (real-time during streaming) ──
-    const [liveAgent, setLiveAgent] = useState<LiveAgentState | null>(null);
-
-    // Live agent state — tracks tool execution progress during streaming
     const [liveAgent, setLiveAgent] = useState<LiveAgentState | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);

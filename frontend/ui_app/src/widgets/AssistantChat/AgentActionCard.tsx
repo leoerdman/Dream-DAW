@@ -1,15 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════════════════
  * Dream DAW — Agent Action Card (Enterprise)
  *
- * Premium collapsible cards showing agent tool executions with:
- * ▸ Category icons (Transport, Track, Clip, Mix, Inspect)
- * ▸ Human-readable action summaries
- * ▸ Expand/collapse to see full details + results
- * ▸ Rich formatting for parameters
- * ▸ Live streaming mode with real-time reasoning + tool execution
+ * Two rendering modes:
+ *   1. LiveAgentCard  — real-time streaming: scrollable window (max ~10 lines)
+ *                       auto-scrolls as reasoning + actions appear, freezes
+ *                       when done, final response below.
+ *   2. AgentActionCard — completed: collapsed summary, expandable action log.
+ *
+ * UX flow per agent turn:
+ *   [user msg] → [scrollable live window] → [final response]
+ *   After completion the live window becomes a collapsed AgentActionCard.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-import { useState, memo, useMemo } from 'react';
+import { useState, useRef, useEffect, memo, useMemo } from 'react';
 import {
     ChevronDown, ChevronRight,
     Play, Square, Volume2, PanelTop, Trash2, Plus,
@@ -79,7 +82,7 @@ function formatToolResult(name: string, resultJson: string): string {
 
         switch (name) {
             case 'get_project_overview':
-                return `📁 ${data.projectName} • ${data.bpm} BPM • ${data.sampleRate}Hz • ${data.trackCount} tracks`;
+                return `📁 ${data.projectName} • ${data.bpm} BPM • ${data.sampleRate}Hz • ${data.trackCount} tracks • ${data.totalClips ?? 0} clips`;
             case 'get_track_clips':
                 return Array.isArray(data) ? `Found ${data.length} clip${data.length !== 1 ? 's' : ''}` : resultJson;
             case 'get_transport_state':
@@ -110,21 +113,17 @@ function formatToolResult(name: string, resultJson: string): string {
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface ActionGroup {
-    /** Assistant's thinking text before tool calls (may be empty) */
     thinking: string;
-    /** Tool calls with their results */
     actions: {
         toolName: string;
         args: Record<string, unknown>;
         result: string;
     }[];
-    /** Final assistant response after all tool loops */
     finalResponse: string;
 }
 
 /**
  * Groups raw conversation messages into ActionGroups for rich rendering.
- * Each group represents one agent "turn": thinking → actions → final response.
  */
 export function groupMessagesIntoActions(messages: ChatMessage[]): (ChatMessage | ActionGroup)[] {
     const result: (ChatMessage | ActionGroup)[] = [];
@@ -133,14 +132,12 @@ export function groupMessagesIntoActions(messages: ChatMessage[]): (ChatMessage 
     while (i < messages.length) {
         const msg = messages[i];
 
-        // User message — pass through
         if (msg.role === 'user') {
             result.push(msg);
             i++;
             continue;
         }
 
-        // Assistant with tool_calls — start an action group
         if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
             const group: ActionGroup = {
                 thinking: msg.content || '',
@@ -148,31 +145,25 @@ export function groupMessagesIntoActions(messages: ChatMessage[]): (ChatMessage 
                 finalResponse: '',
             };
 
-            // Collect this assistant's tool calls
             for (const tc of msg.tool_calls) {
                 let args: Record<string, unknown> = {};
                 try { args = JSON.parse(tc.function.arguments); } catch { /* empty */ }
                 group.actions.push({ toolName: tc.function.name, args, result: '' });
             }
 
-            // Consume following tool results
             let j = i + 1;
             while (j < messages.length && messages[j].role === 'tool') {
                 const toolMsg = messages[j];
                 const matchAction = group.actions.find(
                     (a) => !a.result && a.toolName === toolMsg.name,
                 );
-                if (matchAction) {
-                    matchAction.result = toolMsg.content;
-                }
+                if (matchAction) matchAction.result = toolMsg.content;
                 j++;
             }
 
-            // Check if there are more assistant+tool rounds (multi-step tool loop)
             while (j < messages.length) {
                 const nextMsg = messages[j];
                 if (nextMsg.role === 'assistant' && nextMsg.tool_calls && nextMsg.tool_calls.length > 0) {
-                    // Another tool call round
                     if (nextMsg.content) group.thinking += '\n' + nextMsg.content;
                     for (const tc of nextMsg.tool_calls) {
                         let args: Record<string, unknown> = {};
@@ -180,19 +171,15 @@ export function groupMessagesIntoActions(messages: ChatMessage[]): (ChatMessage 
                         group.actions.push({ toolName: tc.function.name, args, result: '' });
                     }
                     j++;
-                    // Consume following tool results
                     while (j < messages.length && messages[j].role === 'tool') {
                         const toolMsg = messages[j];
                         const matchAction = group.actions.find(
                             (a) => !a.result && a.toolName === toolMsg.name,
                         );
-                        if (matchAction) {
-                            matchAction.result = toolMsg.content;
-                        }
+                        if (matchAction) matchAction.result = toolMsg.content;
                         j++;
                     }
                 } else if (nextMsg.role === 'assistant' && !nextMsg.tool_calls) {
-                    // Final response
                     group.finalResponse = nextMsg.content;
                     j++;
                     break;
@@ -206,21 +193,17 @@ export function groupMessagesIntoActions(messages: ChatMessage[]): (ChatMessage 
             continue;
         }
 
-        // Plain assistant message (no tool calls)
         if (msg.role === 'assistant') {
             result.push(msg);
             i++;
             continue;
         }
 
-        // Skip stray tool messages
         i++;
     }
 
     return result;
 }
-
-// ── Helper: is ActionGroup ──────────────────────────────────────────────────
 
 export function isActionGroup(item: ChatMessage | ActionGroup): item is ActionGroup {
     return 'actions' in item && Array.isArray((item as ActionGroup).actions);
@@ -262,8 +245,55 @@ function ActionStep({ toolName, args, result, isExecuting }: {
     );
 }
 
+// ── Scrollable action log content (shared between live and completed) ───────
+
+function ActionLogContent({ thinking, actions, isLive }: {
+    thinking: string;
+    actions: { toolName: string; args: Record<string, unknown>; result: string | null }[];
+    isLive?: boolean;
+}) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll to bottom when content changes (for live mode)
+    useEffect(() => {
+        if (isLive && scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [thinking, actions, isLive]);
+
+    return (
+        <div className="agent-log-scroll" ref={scrollRef}>
+            {/* Thinking */}
+            {thinking && (
+                <div className="agent-thinking">
+                    <span className="agent-thinking-label">💭 Reasoning</span>
+                    <p>
+                        {thinking}
+                        {isLive && <span className="streaming-cursor" />}
+                    </p>
+                </div>
+            )}
+
+            {/* Action Steps */}
+            {actions.length > 0 && (
+                <div className="agent-steps">
+                    {actions.map((action, idx) => (
+                        <ActionStep
+                            key={idx}
+                            toolName={action.toolName}
+                            args={action.args}
+                            result={action.result}
+                            isExecuting={isLive && action.result === null}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPLETED ACTION CARD (collapsible, for finished agent turns)
+// COMPLETED ACTION CARD (collapsed summary → expandable scrollable log)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface AgentActionCardProps {
@@ -280,7 +310,6 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
             const meta = TOOL_META[a.toolName] || DEFAULT_META;
             return meta.describe(a.args);
         }
-        // Multiple actions — summarize by category
         const categories = new Map<string, number>();
         for (const a of group.actions) {
             const meta = TOOL_META[a.toolName] || DEFAULT_META;
@@ -291,7 +320,6 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
             .join(', ');
     }, [group.actions]);
 
-    // Determine primary category color
     const primaryColor = useMemo(() => {
         const first = group.actions[0];
         if (!first) return '#6b7280';
@@ -302,7 +330,6 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
         <div className="assistant-msg assistant">
             <span className="msg-label">Dream AI</span>
 
-            {/* ── Action Summary Card ── */}
             <div className="agent-action-card" style={{ '--action-accent': primaryColor } as React.CSSProperties}>
                 <button
                     className="agent-action-header"
@@ -312,9 +339,7 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
                         <div className="agent-action-icon" style={{ background: primaryColor }}>
                             <Zap size={11} />
                         </div>
-                        <span className="agent-action-summary">
-                            {summary}
-                        </span>
+                        <span className="agent-action-summary">{summary}</span>
                         <span className="agent-action-count">
                             {group.actions.length} step{group.actions.length !== 1 ? 's' : ''}
                         </span>
@@ -324,33 +349,16 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
                     </div>
                 </button>
 
-                {/* ── Expanded Details ── */}
                 {expanded && (
                     <div className="agent-action-details">
-                        {/* Thinking */}
-                        {group.thinking && (
-                            <div className="agent-thinking">
-                                <span className="agent-thinking-label">💭 Reasoning</span>
-                                <p>{group.thinking}</p>
-                            </div>
-                        )}
-
-                        {/* Action Steps */}
-                        <div className="agent-steps">
-                            {group.actions.map((action, idx) => (
-                                <ActionStep
-                                    key={idx}
-                                    toolName={action.toolName}
-                                    args={action.args}
-                                    result={action.result}
-                                />
-                            ))}
-                        </div>
+                        <ActionLogContent
+                            thinking={group.thinking}
+                            actions={group.actions}
+                        />
                     </div>
                 )}
             </div>
 
-            {/* ── Final Response ── */}
             {group.finalResponse && (
                 <div className="msg-bubble assistant agent-final-response">
                     {group.finalResponse}
@@ -363,8 +371,9 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
 AgentActionCard.displayName = 'AgentActionCard';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LIVE AGENT CARD (real-time streaming, always expanded)
-// Shows reasoning, tool execution chain, and final response as they happen.
+// LIVE AGENT CARD — Scrollable real-time window
+// Max ~10 lines height, auto-scrolls as content appears.
+// When streaming ends, this card disappears and becomes an AgentActionCard.
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface LiveAgentCardProps {
@@ -376,19 +385,16 @@ export const LiveAgentCard = memo(({ live }: LiveAgentCardProps) => {
     const hasThinking = live.thinking.length > 0;
     const hasFinal = live.finalText.length > 0;
 
-    // Show nothing if completely empty (initial state)
-    if (!hasActions && !hasThinking && !hasFinal) {
-        return (
-            <div className="assistant-msg assistant">
-                <span className="msg-label">Dream AI</span>
-                <div className="agent-live-card">
-                    <div className="agent-live-header">
-                        <div className="agent-live-dot" />
-                        <span className="agent-live-status">Thinking…</span>
-                    </div>
-                </div>
-            </div>
-        );
+    // Determine status text
+    let statusText = 'Thinking…';
+    if (hasActions && live.actions.some(a => a.result === null)) {
+        statusText = 'Executing…';
+    } else if (hasActions && live.actions.every(a => a.result !== null) && !hasFinal) {
+        statusText = 'Preparing response…';
+    } else if (hasFinal) {
+        statusText = 'Responding…';
+    } else if (hasThinking) {
+        statusText = 'Reasoning…';
     }
 
     return (
@@ -399,41 +405,19 @@ export const LiveAgentCard = memo(({ live }: LiveAgentCardProps) => {
                 {/* ── Live header with pulsing dot ── */}
                 <div className="agent-live-header">
                     <div className="agent-live-dot" />
-                    <span className="agent-live-status">
-                        {!hasActions && hasThinking && 'Reasoning…'}
-                        {hasActions && live.actions.some(a => a.result === null) && 'Executing…'}
-                        {hasActions && live.actions.every(a => a.result !== null) && !hasFinal && 'Preparing response…'}
-                        {hasFinal && 'Responding…'}
-                    </span>
+                    <span className="agent-live-status">{statusText}</span>
                 </div>
 
-                {/* ── Live thinking (streaming) ── */}
-                {hasThinking && (
-                    <div className="agent-thinking agent-live-thinking">
-                        <span className="agent-thinking-label">💭 Reasoning</span>
-                        <p>
-                            {live.thinking}
-                            <span className="streaming-cursor" />
-                        </p>
-                    </div>
+                {/* ── Scrollable action log (max ~10 lines, auto-scroll) ── */}
+                {(hasThinking || hasActions) && (
+                    <ActionLogContent
+                        thinking={live.thinking}
+                        actions={live.actions}
+                        isLive
+                    />
                 )}
 
-                {/* ── Live action steps (appear one by one) ── */}
-                {hasActions && (
-                    <div className="agent-steps">
-                        {live.actions.map((action, idx) => (
-                            <ActionStep
-                                key={idx}
-                                toolName={action.toolName}
-                                args={action.args}
-                                result={action.result}
-                                isExecuting={action.result === null}
-                            />
-                        ))}
-                    </div>
-                )}
-
-                {/* ── Live final response (streaming) ── */}
+                {/* ── Final response (appears below the log when ready) ── */}
                 {hasFinal && (
                     <div className="agent-live-response">
                         {live.finalText}

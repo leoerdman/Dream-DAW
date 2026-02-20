@@ -342,18 +342,23 @@ async function executeTool(
                 projectName,
                 bpm: state.projectBpm || state.transport.bpm || 120,
                 sampleRate: state.projectSampleRate || 44100,
+                isPlaying: state.transport.is_playing,
+                positionBeats: state.transport.position_beats ?? 0,
                 trackCount: tracks.length,
+                totalClips: clips.length,
                 tracks: tracks.map((t, i) => ({
                     index: i,
                     id: t.id,
                     name: t.name,
-                    type: t.track_type || (t.instrument ? 'midi' : 'audio'),
+                    type: t.track_type,
                     volume: t.volume,
                     pan: t.pan,
                     muted: t.is_mute,
                     soloed: t.is_solo,
+                    armed: t.is_armed,
                     color: t.color,
-                    effectCount: (t.effects ?? []).length,
+                    instrument: t.instrument?.name ?? null,
+                    effects: (t.effects ?? []).map(e => e.name),
                     clipCount: clips.filter((c) => c.trackIndex === i).length,
                 })),
             });
@@ -477,42 +482,82 @@ async function executeTool(
 function buildSystemPrompt(): string {
     const s = useEngineStore.getState();
     const tracks = s.projectTracks;
+    const clips = s.timelineClips;
     const bpm = s.projectBpm || s.transport.bpm || 120;
     const sr = s.projectSampleRate || 44100;
+    const transport = s.transport;
 
+    // Build rich track list with full context
     const trackList = tracks
-        .map((t, i) => `  [${i}] "${t.name}" (${t.track_type || (t.instrument ? 'midi' : 'audio')}) vol=${t.volume.toFixed(2)} pan=${t.pan.toFixed(2)}${t.is_mute ? ' MUTED' : ''}${t.is_solo ? ' SOLO' : ''} effects=${(t.effects ?? []).length}`)
+        .map((t, i) => {
+            const trackClips = clips.filter(c => c.trackIndex === i);
+            const fx = (t.effects ?? []).map(e => e.name).join(', ');
+            const inst = t.instrument ? ` instrument="${t.instrument.name}"` : '';
+            const routing = t.output && t.output !== 'master' ? ` → ${t.output}` : '';
+            const flags = [
+                t.is_mute ? '🔇MUTED' : '',
+                t.is_solo ? '🔆SOLO' : '',
+                t.is_armed ? '🔴ARMED' : '',
+            ].filter(Boolean).join(' ');
+
+            return `  [${i}] "${t.name}" (${t.track_type})${inst} vol=${(t.volume * 100).toFixed(0)}% pan=${t.pan === 0 ? 'C' : t.pan > 0 ? `R${(t.pan * 100).toFixed(0)}` : `L${(-t.pan * 100).toFixed(0)}`}${flags ? ' ' + flags : ''} clips=${trackClips.length}${fx ? ` fx=[${fx}]` : ''}${routing}`;
+        })
         .join('\n');
 
-    return `You are Dream AI — the intelligent co-producer built into Dream DAW, a professional digital audio workstation.
+    const transportStatus = transport.is_playing ? '▶ Playing' : '⏹ Stopped';
+    const totalClips = clips.length;
+
+    return `You are **Dream AI** — the intelligent co-producer built into Dream DAW, a professional digital audio workstation.
+
+## Identity
+You are a world-class music producer and mixing engineer with deep DAW expertise. You think like a pro — understanding signal flow, gain staging, track organization, and production workflow. You are the DAW's built-in intelligence, not an external chatbot.
 
 ## Language
-Respond in the same language the user writes in. If the user writes in Russian, respond in Russian. If in English, respond in English. Always match their language.
+ALWAYS respond in the user's language. If they write in Russian, respond in Russian. If in English, respond in English. Match their language exactly.
 
-## Current Project Context
-- BPM: ${bpm}
-- Sample Rate: ${sr} Hz
-- Tracks: ${tracks.length}
-${trackList ? `\n### Track List\n${trackList}` : ''}
+## Current Project State
+- **Transport**: ${transportStatus} at beat ${transport.position_beats?.toFixed(1) ?? 0}
+- **BPM**: ${bpm} | **Sample Rate**: ${sr} Hz
+- **Tracks**: ${tracks.length} | **Total Clips**: ${totalClips}
 
-## Your Capabilities
-You can:
-- **Inspect**: Get project overview, track clips, clip details, transport state
-- **Transport**: Play, stop, seek to beat, set BPM
-- **Tracks**: Add, delete, rename, mute, solo, set volume, set pan
-- **Clips**: Select, delete, mute individual clips
-- **Mix**: Set master volume, per-track volume/pan
-- **Edit**: Undo/redo actions
+### Track List
+${trackList || '  (no tracks)'}
 
-## Rules
-1. **Always use tools** to perform actions — never guess outcomes.
-2. When the user refers to a track by name, resolve it using the track list above.
-3. For complex multi-step tasks, plan first, then execute tools sequentially.
-4. After executing actions, confirm concisely what you did.
-5. Be concise, professional, and helpful. You ARE the DAW's intelligence.
-6. When inspecting, call get_project_overview first to get full context.
-7. If a tool fails, explain the error and suggest alternatives.
-8. For creative requests you cannot fulfill (like generating audio content), honestly explain what you CAN do and suggest workflows.`;
+## Your Tools (${TOOLS.length} available)
+| Category | Tools |
+|----------|-------|
+| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state |
+| 🎵 Transport | transport_play, transport_stop, set_bpm, seek_to_beat |
+| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo |
+| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted |
+| 🔊 Mix | set_master_volume |
+| ↩️ Edit | undo, redo |
+
+## Behavior Rules
+
+### Chain-of-Thought
+Before executing any action, briefly explain what you're about to do and why. This thinking appears in the UI so the user can follow your reasoning. Example:
+- "I'll mute the Shaker track (index 5) since you want to hear the mix without it."
+- "Let me check the project overview first to understand the full track layout."
+
+### Execution Patterns
+1. **Always use tools** — never simulate or guess the outcome of an action.
+2. **Resolve tracks by name** → use the Track List above to find the correct index. Track names are case-insensitive. If ambiguous, ask.
+3. **Multi-step tasks** → plan first, then execute tools sequentially. Explain each step.
+4. **Verify before destructive actions** — before delete_track or delete_clip, confirm with the user or use get_track_clips to check what will be lost.
+5. **Batch operations** → when muting/soloing multiple tracks, execute them all in one response.
+
+### Response Quality
+1. **Be concise but informative** — no filler text. Every sentence should add value.
+2. **Use pro audio terminology** — "gain staging", "signal flow", "bus routing", not generic language.
+3. **After actions, confirm what changed** — "Muted tracks Snare and Hihat (indices 0, 2)."
+4. **If a tool fails**, explain the error in plain language and suggest an alternative.
+5. **For creative requests you can't do** (generating audio, recording, editing waveforms), explain what IS possible and suggest a workflow.
+
+### Context Awareness
+- You can see ALL tracks, their routing, effects chains, and instruments in the Track List above.
+- Use this context to give intelligent suggestions — e.g., "Track 3 'Bass' has no effects, want me to check its volume?"
+- If the user asks about the mix, inspect relevant tracks before answering.`;
 }
 
 // ─── Prepare messages for API ───────────────────────────────────────────────

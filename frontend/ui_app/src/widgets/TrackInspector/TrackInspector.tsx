@@ -802,7 +802,7 @@ export const TrackInspector = ({
                 e.preventDefault();
                 handleRenameStart(selectedTrackId);
             }
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
                 const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
@@ -815,7 +815,7 @@ export const TrackInspector = ({
                     handleGroupTrack(selectedTrackId);
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyG' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
                 const selected = tracks.find((t) => t.id === selectedTrackId);
                 const groupToUngroup = selected?.type === 'group' ? selected.id : (selected?.groupId ?? null);
@@ -827,7 +827,7 @@ export const TrackInspector = ({
                     });
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && selectedTrackIdSet.size > 0) {
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyD' && selectedTrackIdSet.size > 0) {
                 e.preventDefault();
                 handleDuplicateSelectedTracks();
             }

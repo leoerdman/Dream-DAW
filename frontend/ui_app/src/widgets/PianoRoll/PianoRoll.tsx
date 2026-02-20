@@ -1402,7 +1402,7 @@ export const PianoRoll = memo(function PianoRoll({
             // on the unified backend undo stack.
 
             // Ctrl+C / Cmd+C — Copy selected notes
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
                 e.preventDefault();
                 e.stopPropagation();
                 copySelection();
@@ -1410,7 +1410,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // Ctrl+V / Cmd+V — Paste notes from clipboard
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
                 e.preventDefault();
                 e.stopPropagation();
                 pasteClipboard();
@@ -1426,7 +1426,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // Ctrl/Cmd + D — duplicate selected (or all) notes
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') {
                 e.preventDefault();
                 e.stopPropagation();
                 duplicateSelection();
@@ -1435,7 +1435,7 @@ export const PianoRoll = memo(function PianoRoll({
 
             // Q — quantize selected (or all) to current grid amount.
             // Shift+Q forces 100% quantize.
-            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'q') {
+            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyQ') {
                 e.preventDefault();
                 e.stopPropagation();
                 quantizeAllNotesToGrid(e.shiftKey ? 100 : quantizeAmount);
@@ -1443,7 +1443,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // H — humanize selected (or all)
-            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'h') {
+            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyH') {
                 e.preventDefault();
                 e.stopPropagation();
                 humanizeSelection();
@@ -1451,7 +1451,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // L — legato on selected (or all per pitch)
-            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyL') {
                 e.preventDefault();
                 e.stopPropagation();
                 applyLegato();
@@ -1459,7 +1459,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // Shift+P — select all notes with the same pitch as first selected note.
-            if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+            if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyP') {
                 e.preventDefault();
                 e.stopPropagation();
                 selectSamePitch();

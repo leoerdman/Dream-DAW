@@ -507,14 +507,28 @@ export class TimelineEngine {
     // ═══════════════════════════════════════════════════════════════════
 
     private _needsRedraw = true;
+    /** Tracks edit cursor blink state (on/off) for the 500ms blink cycle (PERF-FIX-3). */
+    private _lastCursorBlinkOn = true;
 
     private _requestRedraw(): void {
         this._needsRedraw = true;
     }
 
     private _drawFrameNow(force = false): void {
-        const animateEditCursor = this._editCursorBeat >= 0;
-        if (!force && !this._needsRedraw && !this._viewport.isDirty && !animateEditCursor) return;
+        // PERF-FIX-3: Previously, animateEditCursor = (editCursorBeat >= 0)
+        // caused the entire canvas to redraw EVERY frame (~60fps) even when
+        // nothing changed. Now we use a 500ms blink cycle and only request
+        // redraws when the blink state toggles.
+        const hasEditCursor = this._editCursorBeat >= 0;
+        if (hasEditCursor) {
+            const now = performance.now();
+            const blinkOn = (Math.floor(now / 500) % 2) === 0;
+            if (blinkOn !== this._lastCursorBlinkOn) {
+                this._lastCursorBlinkOn = blinkOn;
+                this._needsRedraw = true;
+            }
+        }
+        if (!force && !this._needsRedraw && !this._viewport.isDirty) return;
         this._needsRedraw = false;
         this._viewport.clearDirty();
 
@@ -940,8 +954,11 @@ export class TimelineEngine {
                         clipOriginalDuration: 0,
                     };
                 } else {
-                    // Ruler click = set edit cursor (deferred seek on play).
-                    const snapped = this._snapBeat(hit.beat);
+                    // Ruler click = set edit cursor position (queued seek on play start).
+                    // NOTE: We do NOT fire onPlayheadSeek here — that triggers a Tauri IPC
+                    // seekToBeat call. Instead, the edit cursor position is stored in React
+                    // state and used as the start anchor when transport starts playing.
+                    const snapped = this._snapBeat(Math.max(0, hit.beat));
                     this._drag = {
                         mode: DragMode.RulerScrub,
                         clipId: null,
@@ -1058,8 +1075,9 @@ export class TimelineEngine {
                 if (hit.region === 'body' && !isAdditive) {
                     // Body click: move edit cursor to click position (snapped)
                     const snapped = this._snapBeat(hit.beat);
-                    this.setEditCursor(snapped, hit.trackIndex, hit.trackIndex);
                     this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
+                    // FIX: Also select the track where the body was clicked.
+                    this.onTrackSelect?.(hit.trackIndex);
                     // Do NOT select the clip, do NOT arm drag.
                     break;
                 }
@@ -1260,7 +1278,12 @@ export class TimelineEngine {
             }
 
             case DragMode.RulerScrub: {
-                // Ruler drag = continuous edit-cursor repositioning (no live scrub).
+                // Ruler drag = continuous edit-cursor repositioning.
+                // NOTE: We do NOT fire onPlayheadSeek on every frame — that would
+                // flood Tauri IPC with seekToBeat calls and freeze the UI.
+                // The edit cursor position is applied as the start anchor when
+                // transport starts playing (via queuedStartBeatRef).
+                canvas.style.cursor = 'col-resize';
                 const snapped = this._snapBeat(Math.max(0, beat));
                 this.onEditCursorChange?.(snapped, this._editCursorTrack, this._editCursorTrackEnd);
                 break;
@@ -1301,7 +1324,8 @@ export class TimelineEngine {
                 // ── Neighbor-aware left clamp ──
                 // Find the nearest clip to the LEFT on the same track.
                 // The new start cannot go before the end of the left neighbor.
-                const clipTrack = this._clips.find(c => c.id === this._drag.clipId)?.trackIndex ?? -1;
+                // FIX: Use _drag.clipOriginalTrack so track is always correct even mid-drag.
+                const clipTrack = this._drag.clipOriginalTrack;
                 let leftBound = 0;
                 for (const c of this._clips) {
                     if (c.id === this._drag.clipId || c.trackIndex !== clipTrack) continue;
@@ -1310,9 +1334,13 @@ export class TimelineEngine {
                         leftBound = cEnd;
                     }
                 }
-                const newStart = this._snapBeat(Math.max(leftBound, Math.min(maxNewStart, rawNewStart)));
-                const newDuration = Math.max(0.25, clipEnd - newStart);
-                this._trimPreview = { clipId: this._drag.clipId, startBeat: newStart, durationBeats: newDuration };
+                const clampedStart = Math.max(leftBound, Math.min(maxNewStart, rawNewStart));
+                const newStart = this._snapBeat(clampedStart);
+                // FIX: After snapping, re-clamp to leftBound to prevent snap from pushing
+                // start before the left neighbor.
+                const safeStart = Math.max(leftBound, newStart);
+                const newDuration = Math.max(0.25, clipEnd - safeStart);
+                this._trimPreview = { clipId: this._drag.clipId, startBeat: safeStart, durationBeats: newDuration };
                 this._requestRedraw();
                 break;
             }
@@ -1324,8 +1352,8 @@ export class TimelineEngine {
 
                 // ── Neighbor-aware right clamp ──
                 // Find the nearest clip to the RIGHT on the same track.
-                // The new end cannot go past the start of the right neighbor.
-                const rClipTrack = this._clips.find(c => c.id === this._drag.clipId)?.trackIndex ?? -1;
+                // FIX: Use _drag.clipOriginalTrack so track is always correct even mid-drag.
+                const rClipTrack = this._drag.clipOriginalTrack;
                 const originalEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 let rightBound = Infinity;
                 for (const c of this._clips) {
@@ -1860,6 +1888,14 @@ export class TimelineEngine {
                     if (c) {
                         c.startBeat = this._drag.clipOriginalBeat;
                         c.trackIndex = this._drag.clipOriginalTrack;
+                        // FIX: Restore fade values when cancelling a fade drag so the
+                        // in-flight mutation on the clip object is reverted.
+                        if (this._isFadeDragMode(this._drag.mode)) {
+                            c.fadeIn = this._drag.clipOriginalFadeIn ?? c.fadeIn;
+                            c.fadeOut = this._drag.clipOriginalFadeOut ?? c.fadeOut;
+                            c.fadeInCurve = this._drag.clipOriginalFadeInCurve ?? c.fadeInCurve;
+                            c.fadeOutCurve = this._drag.clipOriginalFadeOutCurve ?? c.fadeOutCurve;
+                        }
                     }
                     if (this._drag.coMoverOrigins) {
                         for (const [id, origin] of this._drag.coMoverOrigins) {
@@ -1871,7 +1907,10 @@ export class TimelineEngine {
                         }
                     }
                 }
+                // FIX: Clear trim preview on escape so stale resize ghost doesn't persist.
+                this._trimPreview = null;
                 this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0 };
+                if (this._canvas) this._canvas.style.cursor = 'default';
                 this._requestRedraw();
             } else if (this._marquee) {
                 this._setMarquee(null);

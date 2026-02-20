@@ -1,4 +1,4 @@
-/**
+д/**
  * Timeline — Canvas-based arrangement timeline.
  *
  * Thin React shell around the TimelineEngine canvas.
@@ -112,11 +112,9 @@ export const Timeline = (props: TimelineProps) => {
     const totalBeats = totalBars * beatsPerBar;
     // Read live sample rate from engine (could be 44100, 48000, 96000+)
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
-    // Subscribe to playhead position directly — avoids DawShell 30fps re-render.
-    const storePositionBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const storeIsPlaying = useEngineStore((s) => s.transport.is_playing);
-    const effectivePlayheadBeat = storePositionBeats;
-    const effectiveIsPlaying = storeIsPlaying;
+    // PERF-FIX: Playhead position AND isPlaying are pumped to the engine via a
+    // direct Zustand subscription (below) instead of React subscriptions. This
+    // avoids ~30 React re-renders per second of the entire Timeline component.
 
     // ── Grid store for dynamic snap ───────────────────────────────────
     const gridInterval = useGridStore((s) => s.gridInterval);
@@ -482,12 +480,31 @@ export const Timeline = (props: TimelineProps) => {
         engine.setClipSelection(selectedClipIds);
     }, [selectedClipIds, engineRef]);
 
-    // ── Feed playhead ─────────────────────────────────────────────────
+    // ── Feed playhead (DIRECT ZUSTAND SUBSCRIPTION — bypasses React) ──
+    // PERF-FIX: This replaces the old useEffect([effectivePlayheadBeat]) pattern
+    // that caused 30fps React re-renders of the entire Timeline component.
+    // Now the engine gets position updates synchronously from the store without
+    // touching React at all.
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        engine.setPlayheadBeat(effectivePlayheadBeat);
-    }, [effectivePlayheadBeat, engineRef]);
+
+        const unsub = useEngineStore.subscribe((state, prevState) => {
+            const beats = state.transport.position_beats ?? 0;
+            const prevBeats = prevState?.transport.position_beats ?? 0;
+            const playing = state.transport.is_playing;
+
+            if (beats !== prevBeats) {
+                engine.setPlayheadBeat(beats);
+                // Follow playhead: keep playhead visible during playback
+                if (playing && propsRef.current.followPlayhead) {
+                    engine.ensureBeatVisible(beats);
+                }
+            }
+        });
+
+        return unsub;
+    }, [engineRef]);
 
     // ── Feed edit cursor ──────────────────────────────────────────────
     useEffect(() => {
@@ -517,14 +534,6 @@ export const Timeline = (props: TimelineProps) => {
             enabled: loopEnabled,
         });
     }, [loopStart, loopEnd, loopEnabled, engineRef]);
-
-    // ── Playhead follow ───────────────────────────────────────────────
-    useEffect(() => {
-        if (!effectiveIsPlaying || !followPlayhead) return;
-        const engine = engineRef.current;
-        if (!engine) return;
-        engine.ensureBeatVisible(effectivePlayheadBeat);
-    }, [effectivePlayheadBeat, effectiveIsPlaying, followPlayhead, engineRef]);
 
     // ── Scroll sync cleanup ──────────────────────────────────────────
     useEffect(() => {

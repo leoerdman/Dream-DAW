@@ -27,9 +27,9 @@ export interface KeyboardShortcutsConfig {
     selectedClipIds: string[];
     selectedTrackId: string;
     projectTracks: ProjectTrack[];
-
-    /** Current playhead position in sample frames. */
-    playheadFrames: number;
+    /** Current playhead position in sample frames (read from store on-demand). */
+    // PERF-FIX: removed playheadFrames from config — it changed every tick
+    // and forced DawShell to re-render. Now read from useEngineStore on-demand.
     /** Edit cursor beat in arrangement (negative means hidden/inactive). */
     editCursorBeat?: number;
     timelineClips: TimelineClip[];
@@ -114,7 +114,6 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 selectedClipIds,
                 selectedTrackId,
                 projectTracks,
-                playheadFrames,
                 editCursorBeat = -1,
                 timelineClips,
                 marqueeSelection,
@@ -123,23 +122,55 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 onClipSelectionChanged,
             } = configRef.current;
 
+            // PERF-FIX: read playheadFrames from store on-demand instead of
+            // receiving it as a prop (which changed every tick and forced
+            // DawShell to re-render the entire component tree).
+            const storeState = useEngineStore.getState();
+            const posSeconds = storeState.transport.position_seconds ?? 0;
+            const sr = storeState.projectSampleRate || storeState.transport.sample_rate || 44100;
+            const playheadFrames = Math.round(posSeconds * sr);
+
             // Ignore if user is typing in an input.
-            // Check both e.target AND document.activeElement to handle Tauri
-            // webview focus edge cases where e.target may differ from the
-            // actual focused element.
+            // BULLETPROOF GUARD: Uses 4 independent strategies to detect text
+            // input focus — any single match blocks the shortcut.
+            // Strategy 1: Check tagName of e.target and document.activeElement
+            // Strategy 2: Check CSS selectors via closest()
+            // Strategy 3: Check if ::selection exists in an editable element
+            // Strategy 4: Check if inside AI assistant chat panel
             const target = e.target as HTMLElement;
             const active = document.activeElement as HTMLElement | null;
-            const isTextTarget = (el: HTMLElement | null): boolean => {
+
+            const isEditableTag = (el: HTMLElement | null): boolean => {
                 if (!el) return false;
                 const tag = el.tagName;
-                return (
-                    tag === 'INPUT' ||
-                    tag === 'TEXTAREA' ||
-                    el.isContentEditable ||
-                    !!el.closest?.('[role="textbox"], [contenteditable="true"]')
-                );
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+                if (el.isContentEditable) return true;
+                // Walk ancestor chain for shadow DOM / portals
+                if (el.closest?.('input, textarea, select, [contenteditable="true"], [role="textbox"], [data-keyboard-scope="text-input"]')) return true;
+                return false;
             };
-            if (isTextTarget(target) || isTextTarget(active)) {
+
+            // Strategy 4: Inside assistant chat panel — ALL keyboard
+            // shortcuts must be suppressed (including Space for play/pause).
+            const insideAssistantChat = (el: HTMLElement | null): boolean => {
+                if (!el) return false;
+                return !!el.closest?.('.assistant-chat-overlay');
+            };
+
+            // Also check window selection — when typing in a textarea/input,
+            // the selection's anchorNode will be inside an editable element.
+            const selectionInEditable = (): boolean => {
+                try {
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0) return false;
+                    const node = sel.anchorNode;
+                    if (!node) return false;
+                    const parent = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement | null;
+                    return isEditableTag(parent);
+                } catch { return false; }
+            };
+
+            if (isEditableTag(target) || isEditableTag(active) || selectionInEditable() || insideAssistantChat(target) || insideAssistantChat(active)) {
                 return;
             }
 

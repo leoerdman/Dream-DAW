@@ -1,54 +1,43 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — AI Assistant Service
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Connects to OpenRouter API with tool calling for DAW project control.
-// Enterprise-grade: streaming, retry, CoT reasoning, context injection.
-//
-// ═══════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Dream DAW — AI Assistant Service (Enterprise)
+ *
+ * OpenRouter API ▸ Streaming ▸ 22 DAW tools ▸ Chain-of-Thought loop
+ *
+ * CRITICAL FIX: tool_calls are now included in assistant messages and
+ * properly serialized for the API. This fixes Claude/Anthropic 400 errors
+ * where tool_result blocks couldn't find matching tool_use blocks.
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 
-// ── Types ─────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant' | 'system' | 'tool';
+    role: 'user' | 'assistant' | 'tool';
     content: string;
-    toolCallId?: string;
-    toolName?: string;
-    timestamp: number;
-    isStreaming?: boolean;
-    thinking?: string;
+    name?: string;           // tool name (for role=tool)
+    tool_call_id?: string;   // matches the tool_call id
+    thinking?: string;       // CoT trace
+    /** Tool calls made by the assistant in this message (needed for API round-trips). */
+    tool_calls?: ToolCall[];
 }
 
-export interface ToolCall {
+interface ToolCall {
     id: string;
     type: 'function';
-    function: {
-        name: string;
-        arguments: string;
-    };
+    function: { name: string; arguments: string };
 }
 
-export type AssistantModel =
-    | 'google/gemini-3.1-pro-preview'
-    | 'anthropic/claude-sonnet-4.6';
-
-export const MODEL_LABELS: Record<AssistantModel, string> = {
-    'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
-    'anthropic/claude-sonnet-4.6': 'Claude Sonnet 4.6',
-};
-
-// ── Tool Definitions ──────────────────────────────────────────────────────
+// ─── Tool definitions ───────────────────────────────────────────────────────
 
 const TOOLS = [
+    // ── Inspection ──
     {
         type: 'function' as const,
         function: {
             name: 'get_project_overview',
-            description:
-                'Get a complete overview of the current DAW project: track names, types, clip counts, BPM, sample rate, time signature, transport state.',
+            description: 'Get full project overview: name, BPM, sample rate, time signature, track list with types and device counts.',
             parameters: { type: 'object', properties: {}, required: [] },
         },
     },
@@ -56,21 +45,13 @@ const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'get_track_clips',
-            description:
-                'Get all clips on a specific track. Identify the track by name (case-insensitive partial match) or by 0-based index.',
+            description: 'Get all clips on a specific track by track name or 0-based index.',
             parameters: {
                 type: 'object',
                 properties: {
-                    track_name: {
-                        type: 'string',
-                        description: 'Track name (partial, case-insensitive). Use this OR track_index.',
-                    },
-                    track_index: {
-                        type: 'number',
-                        description: '0-based track index. Use this OR track_name.',
-                    },
+                    track: { type: 'string', description: 'Track name or 0-based index' },
                 },
-                required: [],
+                required: ['track'],
             },
         },
     },
@@ -78,48 +59,11 @@ const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'get_clip_details',
-            description: 'Get detailed information about a specific clip by its ID.',
+            description: 'Get full details for a clip by its UUID.',
             parameters: {
                 type: 'object',
-                properties: {
-                    clip_id: { type: 'string', description: 'UUID of the clip.' },
-                },
-                required: ['clip_id'],
-            },
-        },
-    },
-    {
-        type: 'function' as const,
-        function: {
-            name: 'select_clips',
-            description:
-                'Select one or more clips in the timeline by their IDs. This highlights them in the UI.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    clip_ids: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: 'Array of clip UUIDs to select.',
-                    },
-                },
-                required: ['clip_ids'],
-            },
-        },
-    },
-    {
-        type: 'function' as const,
-        function: {
-            name: 'select_all_clips_on_track',
-            description:
-                'Select all clips on a specific track by name (case-insensitive partial match) or index.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    track_name: { type: 'string', description: 'Track name (partial match).' },
-                    track_index: { type: 'number', description: '0-based track index.' },
-                },
-                required: [],
+                properties: { clipId: { type: 'string' } },
+                required: ['clipId'],
             },
         },
     },
@@ -127,219 +71,528 @@ const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'get_transport_state',
-            description:
-                'Get current transport state: playing/stopped, position in beats/bars, loop enabled, loop region, BPM.',
+            description: 'Get current transport state: playing, position, BPM, loop settings.',
             parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    // ── Selection ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'select_clips',
+            description: 'Select clips on timeline by their IDs.',
+            parameters: {
+                type: 'object',
+                properties: { clipIds: { type: 'array', items: { type: 'string' } } },
+                required: ['clipIds'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'select_all_clips_on_track',
+            description: 'Select all clips on a track by name or index.',
+            parameters: {
+                type: 'object',
+                properties: { track: { type: 'string' } },
+                required: ['track'],
+            },
+        },
+    },
+    // ── Transport ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'transport_play',
+            description: 'Start playback.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'transport_stop',
+            description: 'Stop playback.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_bpm',
+            description: 'Set project BPM.',
+            parameters: {
+                type: 'object',
+                properties: { bpm: { type: 'number' } },
+                required: ['bpm'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'seek_to_beat',
+            description: 'Seek playhead to a specific beat position.',
+            parameters: {
+                type: 'object',
+                properties: { beat: { type: 'number' } },
+                required: ['beat'],
+            },
+        },
+    },
+    // ── Track management ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_volume',
+            description: 'Set volume for a track (0.0-1.0). Index is 0-based.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    volume: { type: 'number' },
+                },
+                required: ['trackIndex', 'volume'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_pan',
+            description: 'Set panning for a track (-1.0 to 1.0, 0 = center). Index is 0-based.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    pan: { type: 'number' },
+                },
+                required: ['trackIndex', 'pan'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_mute',
+            description: 'Mute or unmute a track. Index is 0-based.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    muted: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'muted'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_solo',
+            description: 'Solo or unsolo a track. Index is 0-based.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    soloed: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'soloed'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_track',
+            description: 'Add a new track to the project. Optionally provide a name.',
+            parameters: {
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'rename_track',
+            description: 'Rename a track. Index is 0-based.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    name: { type: 'string' },
+                },
+                required: ['trackIndex', 'name'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'delete_track',
+            description: 'Delete a track by 0-based index.',
+            parameters: {
+                type: 'object',
+                properties: { trackIndex: { type: 'number' } },
+                required: ['trackIndex'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'delete_clip',
+            description: 'Delete a clip by its UUID.',
+            parameters: {
+                type: 'object',
+                properties: { clipId: { type: 'string' } },
+                required: ['clipId'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clip_muted',
+            description: 'Mute or unmute a specific clip.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    muted: { type: 'boolean' },
+                },
+                required: ['clipId', 'muted'],
+            },
+        },
+    },
+    // ── Undo/Redo ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'undo',
+            description: 'Undo the last action.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'redo',
+            description: 'Redo the last undone action.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    // ── Master ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_master_volume',
+            description: 'Set master output volume (0.0-1.0).',
+            parameters: {
+                type: 'object',
+                properties: { volume: { type: 'number' } },
+                required: ['volume'],
+            },
         },
     },
 ];
 
-// ── Tool Executor ─────────────────────────────────────────────────────────
+import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
 
-type ClipSelector = (ids: string[]) => void;
+// ─── Resolve track index ────────────────────────────────────────────────────
 
-function findTrackIndex(nameOrIndex: { track_name?: string; track_index?: number }): number {
-    const store = useEngineStore.getState();
-    const tracks = store.projectTracks;
-    if (typeof nameOrIndex.track_index === 'number') {
-        return nameOrIndex.track_index;
-    }
-    if (nameOrIndex.track_name) {
-        const needle = nameOrIndex.track_name.toLowerCase();
-        const idx = tracks.findIndex((t) => t.name.toLowerCase().includes(needle));
-        return idx;
-    }
-    return -1;
+function resolveTrackIndex(track: string): number {
+    const idx = parseInt(track, 10);
+    if (!isNaN(idx)) return idx;
+    const tracks = useEngineStore.getState().projectTracks;
+    const found = tracks.findIndex(
+        (t) => t.name.toLowerCase() === track.toLowerCase(),
+    );
+    return found >= 0 ? found : 0;
 }
 
-export function executeTool(
-    toolName: string,
-    argsJson: string,
-    clipSelector: ClipSelector,
-): string {
-    const store = useEngineStore.getState();
-    const tracks = store.projectTracks;
-    const clips = store.timelineClips;
-    const transport = store.transport;
+// ─── Execute tool ───────────────────────────────────────────────────────────
 
-    try {
-        const args = JSON.parse(argsJson || '{}');
+async function executeTool(
+    name: string,
+    args: Record<string, unknown>,
+    onSelectClips?: (ids: string[]) => void,
+): Promise<string> {
+    // Show visual feedback for every action
+    useAgentActionStore.getState().showAction(getToolLabel(name));
 
-        switch (toolName) {
-            case 'get_project_overview': {
-                const overview = {
-                    project_name: 'Current Project',
-                    bpm: store.projectBpm || transport.bpm || 120,
-                    sample_rate: store.projectSampleRate || 44100,
-                    track_count: tracks.length,
-                    total_clips: clips.length,
-                    is_playing: transport.is_playing,
-                    tracks: tracks.map((t, i) => ({
-                        index: i,
-                        name: t.name,
-                        type: t.track_type,
-                        clip_count: clips.filter((c) => c.trackIndex === i).length,
-                        is_muted: t.is_mute,
-                        is_solo: t.is_solo,
-                        is_armed: t.is_armed,
-                        volume: t.volume,
-                        pan: t.pan,
-                    })),
-                };
-                return JSON.stringify(overview, null, 2);
-            }
+    const state = useEngineStore.getState();
+    const tracks = state.projectTracks;
+    const clips = state.timelineClips;
 
-            case 'get_track_clips': {
-                const idx = findTrackIndex(args);
-                if (idx < 0 || idx >= tracks.length) {
-                    return JSON.stringify({ error: `Track not found: ${JSON.stringify(args)}` });
+    switch (name) {
+        case 'get_project_overview': {
+            let projectName = 'Untitled';
+            try {
+                const status = await engineApi.getProjectStatus();
+                if (status.filePath) {
+                    const parts = status.filePath.replace(/\\/g, '/').split('/');
+                    projectName = parts[parts.length - 1]?.replace(/\.dream$/, '') || 'Untitled';
                 }
-                const trackClips = clips
-                    .filter((c) => c.trackIndex === idx)
-                    .map((c) => ({
-                        id: c.id,
-                        name: c.name,
-                        type: c.type,
-                        start_beat: Math.round(c.startBeat * 100) / 100,
-                        duration_beats: Math.round(c.durationBeats * 100) / 100,
-                        is_warped: c.isWarped,
-                        is_muted: c.muted,
-                        color: c.color,
-                    }));
-                return JSON.stringify(
-                    { track_name: tracks[idx].name, track_index: idx, clips: trackClips },
-                    null,
-                    2,
-                );
-            }
-
-            case 'get_clip_details': {
-                const clip = clips.find((c) => c.id === args.clip_id);
-                if (!clip) return JSON.stringify({ error: `Clip not found: ${args.clip_id}` });
-                return JSON.stringify(clip, null, 2);
-            }
-
-            case 'select_clips': {
-                if (Array.isArray(args.clip_ids) && args.clip_ids.length > 0) {
-                    clipSelector(args.clip_ids);
-                    return JSON.stringify({
-                        success: true,
-                        selected_count: args.clip_ids.length,
-                        message: `Selected ${args.clip_ids.length} clip(s).`,
-                    });
-                }
-                return JSON.stringify({ error: 'No clip_ids provided.' });
-            }
-
-            case 'select_all_clips_on_track': {
-                const idx = findTrackIndex(args);
-                if (idx < 0 || idx >= tracks.length) {
-                    return JSON.stringify({ error: `Track not found: ${JSON.stringify(args)}` });
-                }
-                const ids = clips.filter((c) => c.trackIndex === idx).map((c) => c.id);
-                if (ids.length === 0) {
-                    return JSON.stringify({
-                        success: true,
-                        message: `Track "${tracks[idx].name}" has no clips.`,
-                    });
-                }
-                clipSelector(ids);
-                return JSON.stringify({
-                    success: true,
-                    selected_count: ids.length,
-                    track_name: tracks[idx].name,
-                    message: `Selected all ${ids.length} clips on track "${tracks[idx].name}".`,
-                });
-            }
-
-            case 'get_transport_state': {
-                return JSON.stringify(
-                    {
-                        is_playing: transport.is_playing,
-                        position_beats: transport.position_beats,
-                        bpm: store.projectBpm || transport.bpm || 120,
-                        loop_enabled: transport.loop_enabled,
-                        loop_start: transport.loop_start,
-                        loop_end: transport.loop_end,
-                        sample_rate: transport.sample_rate,
-                    },
-                    null,
-                    2,
-                );
-            }
-
-            default:
-                return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+            } catch { /* fallback */ }
+            return JSON.stringify({
+                projectName,
+                bpm: state.projectBpm || state.transport.bpm || 120,
+                sampleRate: state.projectSampleRate || 44100,
+                trackCount: tracks.length,
+                tracks: tracks.map((t, i) => ({
+                    index: i,
+                    id: t.id,
+                    name: t.name,
+                    type: t.track_type || (t.instrument ? 'midi' : 'audio'),
+                    volume: t.volume,
+                    pan: t.pan,
+                    muted: t.is_mute,
+                    soloed: t.is_solo,
+                    color: t.color,
+                    effectCount: (t.effects ?? []).length,
+                    clipCount: clips.filter((c) => c.trackIndex === i).length,
+                })),
+            });
         }
-    } catch (err) {
-        return JSON.stringify({ error: `Tool execution failed: ${err}` });
+
+        case 'get_track_clips': {
+            const idx = resolveTrackIndex(args.track as string);
+            const trackClips = clips.filter((c) => c.trackIndex === idx);
+            return JSON.stringify(trackClips.map((c) => ({
+                id: c.id,
+                name: c.name,
+                startBeat: c.startBeat,
+                durationBeats: c.durationBeats,
+                type: c.type,
+                muted: c.muted,
+            })));
+        }
+
+        case 'get_clip_details': {
+            const clip = clips.find((c) => c.id === args.clipId);
+            return clip ? JSON.stringify(clip) : JSON.stringify({ error: 'Clip not found' });
+        }
+
+        case 'get_transport_state': {
+            const t = state.transport;
+            return JSON.stringify({
+                isPlaying: t.is_playing,
+                positionFrames: t.position_frames,
+                bpm: state.projectBpm || t.bpm,
+                loopEnabled: t.loop_enabled,
+                loopStartFrames: t.loop_start,
+                loopEndFrames: t.loop_end,
+            });
+        }
+
+        case 'select_clips': {
+            const ids = args.clipIds as string[];
+            onSelectClips?.(ids);
+            return JSON.stringify({ selected: ids.length });
+        }
+
+        case 'select_all_clips_on_track': {
+            const idx = resolveTrackIndex(args.track as string);
+            const ids = clips.filter((c) => c.trackIndex === idx).map((c) => c.id);
+            onSelectClips?.(ids);
+            return JSON.stringify({ selected: ids.length, trackIndex: idx });
+        }
+
+        case 'transport_play':
+            await engineApi.play();
+            return JSON.stringify({ status: 'playing' });
+
+        case 'transport_stop':
+            await engineApi.stop();
+            return JSON.stringify({ status: 'stopped' });
+
+        case 'set_bpm':
+            await engineApi.setBpm(args.bpm as number);
+            return JSON.stringify({ bpm: args.bpm });
+
+        case 'seek_to_beat':
+            await engineApi.seekToBeat(args.beat as number);
+            return JSON.stringify({ seekedTo: args.beat });
+
+        case 'set_track_volume':
+            await engineApi.setTrackVolume(args.trackIndex as number, args.volume as number);
+            return JSON.stringify({ trackIndex: args.trackIndex, volume: args.volume });
+
+        case 'set_track_pan':
+            await engineApi.setTrackPan(args.trackIndex as number, args.pan as number);
+            return JSON.stringify({ trackIndex: args.trackIndex, pan: args.pan });
+
+        case 'set_track_mute':
+            await engineApi.setTrackMute(args.trackIndex as number, args.muted as boolean);
+            return JSON.stringify({ trackIndex: args.trackIndex, muted: args.muted });
+
+        case 'set_track_solo':
+            await engineApi.setTrackSolo(args.trackIndex as number, args.soloed as boolean);
+            return JSON.stringify({ trackIndex: args.trackIndex, soloed: args.soloed });
+
+        case 'add_track': {
+            const result = await engineApi.addTrack(args.name as string | undefined);
+            return JSON.stringify({ added: true, result });
+        }
+
+        case 'rename_track':
+            await engineApi.renameTrack(args.trackIndex as number, args.name as string);
+            return JSON.stringify({ trackIndex: args.trackIndex, name: args.name });
+
+        case 'delete_track':
+            await engineApi.deleteTrack(args.trackIndex as number);
+            return JSON.stringify({ deleted: args.trackIndex });
+
+        case 'delete_clip':
+            await engineApi.deleteClip(args.clipId as string);
+            return JSON.stringify({ deleted: args.clipId });
+
+        case 'set_clip_muted':
+            await engineApi.setClipMuted(args.clipId as string, args.muted as boolean);
+            return JSON.stringify({ clipId: args.clipId, muted: args.muted });
+
+        case 'undo':
+            await engineApi.undo();
+            return JSON.stringify({ undone: true });
+
+        case 'redo':
+            await engineApi.redo();
+            return JSON.stringify({ redone: true });
+
+        case 'set_master_volume':
+            await engineApi.setMasterVolume(args.volume as number);
+            return JSON.stringify({ masterVolume: args.volume });
+
+        default:
+            return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
 }
 
-// ── System Prompt ─────────────────────────────────────────────────────────
+// ─── System prompt builder ──────────────────────────────────────────────────
 
 function buildSystemPrompt(): string {
-    const store = useEngineStore.getState();
-    const tracks = store.projectTracks;
-    const bpm = store.projectBpm || store.transport.bpm || 120;
+    const s = useEngineStore.getState();
+    const tracks = s.projectTracks;
+    const bpm = s.projectBpm || s.transport.bpm || 120;
+    const sr = s.projectSampleRate || 44100;
 
     const trackList = tracks
-        .map(
-            (t, i) =>
-                `  ${i}: "${t.name}" (${t.track_type})${t.is_mute ? ' [MUTED]' : ''}${t.is_solo ? ' [SOLO]' : ''}`,
-        )
+        .map((t, i) => `  [${i}] "${t.name}" (${t.track_type || (t.instrument ? 'midi' : 'audio')}) vol=${t.volume.toFixed(2)} pan=${t.pan.toFixed(2)}${t.is_mute ? ' MUTED' : ''}${t.is_solo ? ' SOLO' : ''} effects=${(t.effects ?? []).length}`)
         .join('\n');
 
-    return `You are Dream DAW Assistant — an intelligent AI music production helper embedded directly inside a professional DAW (Digital Audio Workstation).
+    return `You are Dream AI — the intelligent co-producer built into Dream DAW, a professional digital audio workstation.
 
-## Your Capabilities
-- You can inspect the current project: tracks, clips, transport state, BPM, and more.
-- You can select clips in the timeline to help the user find and work with specific audio/MIDI material.
-- You provide expert advice on music production, mixing, arrangement, and sound design.
-- You think step by step when performing multi-step actions.
+## Language
+Respond in the same language the user writes in. If the user writes in Russian, respond in Russian. If in English, respond in English. Always match their language.
 
 ## Current Project Context
 - BPM: ${bpm}
-- Sample Rate: ${store.projectSampleRate || 44100} Hz
-- Tracks (${tracks.length}):
-${trackList || '  (no tracks)'}
+- Sample Rate: ${sr} Hz
+- Tracks: ${tracks.length}
+${trackList ? `\n### Track List\n${trackList}` : ''}
 
-## Guidelines
-1. Always use tools to inspect data before answering questions about the project.
-2. When asked to select clips, use select_clips or select_all_clips_on_track.
-3. Be concise but helpful. Use music production terminology naturally.
-4. Format responses with markdown for readability.
-5. When performing actions, explain what you're doing.
-6. If the user references a track by name, use case-insensitive partial matching.`;
+## Your Capabilities
+You can:
+- **Inspect**: Get project overview, track clips, clip details, transport state
+- **Transport**: Play, stop, seek to beat, set BPM
+- **Tracks**: Add, delete, rename, mute, solo, set volume, set pan
+- **Clips**: Select, delete, mute individual clips
+- **Mix**: Set master volume, per-track volume/pan
+- **Edit**: Undo/redo actions
+
+## Rules
+1. **Always use tools** to perform actions — never guess outcomes.
+2. When the user refers to a track by name, resolve it using the track list above.
+3. For complex multi-step tasks, plan first, then execute tools sequentially.
+4. After executing actions, confirm concisely what you did.
+5. Be concise, professional, and helpful. You ARE the DAW's intelligence.
+6. When inspecting, call get_project_overview first to get full context.
+7. If a tool fails, explain the error and suggest alternatives.
+8. For creative requests you cannot fulfill (like generating audio content), honestly explain what you CAN do and suggest workflows.`;
 }
 
-// ── API Call ───────────────────────────────────────────────────────────────
+// ─── Prepare messages for API ───────────────────────────────────────────────
 
-interface StreamCallbacks {
-    onToken: (token: string) => void;
-    onToolCall: (toolCall: ToolCall) => void;
-    onDone: (fullContent: string, toolCalls: ToolCall[]) => void;
-    onError: (error: string) => void;
+/**
+ * Converts internal ChatMessage[] to the OpenRouter/OpenAI API format.
+ *
+ * CRITICAL: Assistant messages that triggered tool calls MUST include
+ * the `tool_calls` array. Without this, Claude/Anthropic returns a 400
+ * because tool_result blocks can't find matching tool_use blocks.
+ */
+function toApiMessages(
+    conversation: ChatMessage[],
+    systemPrompt: string,
+): Record<string, unknown>[] {
+    const msgs: Record<string, unknown>[] = [
+        { role: 'system', content: systemPrompt },
+    ];
+
+    for (const m of conversation) {
+        if (m.role === 'tool') {
+            msgs.push({
+                role: 'tool',
+                content: m.content,
+                tool_call_id: m.tool_call_id,
+            });
+        } else if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+            // Assistant message WITH tool calls — must include tool_calls for API
+            msgs.push({
+                role: 'assistant',
+                content: m.content || null,
+                tool_calls: m.tool_calls,
+            });
+        } else {
+            msgs.push({ role: m.role, content: m.content });
+        }
+    }
+
+    return msgs;
 }
 
-export async function sendChatMessage(
+// ─── Stream event types ─────────────────────────────────────────────────────
+
+/** Structured events emitted during agent streaming for real-time UI. */
+export type StreamEvent =
+    | { type: 'thinking'; text: string }
+    | { type: 'tool-start'; toolName: string; args: Record<string, unknown>; index: number }
+    | { type: 'tool-end'; toolName: string; result: string; index: number }
+    | { type: 'delta'; text: string }
+    | { type: 'done'; conversation: ChatMessage[] }
+    | { type: 'error'; message: string };
+
+// ─── Streaming chat (event-driven) ──────────────────────────────────────────
+
+export async function streamChat(
+    messages: ChatMessage[],
     apiKey: string,
-    model: AssistantModel,
-    messages: { role: string; content: string; tool_call_id?: string; name?: string }[],
-    callbacks: StreamCallbacks,
-): Promise<void> {
-    const systemPrompt = buildSystemPrompt();
+    model: string,
+    onEvent: (event: StreamEvent) => void,
+    onSelectClips?: (ids: string[]) => void,
+    signal?: AbortSignal,
+): Promise<ChatMessage[]> {
+    const MAX_TOOL_DEPTH = 8;
+    let depth = 0;
+    let conversation = [...messages];
+    let globalToolIndex = 0;
 
-    const apiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+    while (depth < MAX_TOOL_DEPTH) {
+        depth++;
 
-    try {
+        const systemPrompt = buildSystemPrompt();
+        const apiMessages = toApiMessages(conversation, systemPrompt);
+
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
                 'HTTP-Referer': 'https://dreamdaw.app',
-                'X-Title': 'Dream DAW Assistant',
+                'X-Title': 'Dream DAW AI Assistant',
             },
             body: JSON.stringify({
                 model,
@@ -347,28 +600,35 @@ export async function sendChatMessage(
                 tools: TOOLS,
                 tool_choice: 'auto',
                 stream: true,
-                temperature: 0.3,
                 max_tokens: 4096,
             }),
+            signal,
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            callbacks.onError(`API error ${response.status}: ${errorText}`);
-            return;
+            const errText = await response.text().catch(() => 'Unknown error');
+            let humanError = `API error (${response.status})`;
+            try {
+                const parsed = JSON.parse(errText);
+                if (parsed.error?.message) {
+                    humanError = parsed.error.message;
+                } else if (parsed.error?.metadata?.raw) {
+                    const raw = JSON.parse(parsed.error.metadata.raw);
+                    humanError = raw.error?.message || humanError;
+                }
+            } catch { /* use default */ }
+            onEvent({ type: 'error', message: humanError });
+            throw new Error(humanError);
         }
 
         const reader = response.body?.getReader();
-        if (!reader) {
-            callbacks.onError('No response body');
-            return;
-        }
+        if (!reader) throw new Error('No response stream');
 
         const decoder = new TextDecoder();
+        let assistantContent = '';
+        let toolCalls: ToolCall[] = [];
         let buffer = '';
-        let fullContent = '';
-        const toolCalls: ToolCall[] = [];
-        const toolCallArgs: Record<number, string> = {};
+        let hasEmittedContent = false;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -379,69 +639,113 @@ export async function sendChatMessage(
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
-                const data = trimmed.slice(6);
-                if (data === '[DONE]') break;
+                if (!line.startsWith('data: ')) continue;
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') continue;
 
                 try {
                     const parsed = JSON.parse(data);
                     const delta = parsed.choices?.[0]?.delta;
                     if (!delta) continue;
 
-                    // Content streaming
                     if (delta.content) {
-                        fullContent += delta.content;
-                        callbacks.onToken(delta.content);
+                        assistantContent += delta.content;
+                        // If we're in a tool loop (depth > 1), this is intermediate thinking.
+                        // If depth === 1 and no tool calls yet, could be thinking OR final response.
+                        // Emit as 'thinking' during tool loops, 'delta' for final response.
+                        if (depth > 1 || toolCalls.length > 0) {
+                            onEvent({ type: 'thinking', text: delta.content });
+                        } else {
+                            // Might become thinking if tool_calls appear later.
+                            // Buffer and re-emit correctly at the end.
+                            if (!hasEmittedContent) {
+                                hasEmittedContent = true;
+                            }
+                            onEvent({ type: 'delta', text: delta.content });
+                        }
                     }
 
-                    // Tool call streaming
                     if (delta.tool_calls) {
                         for (const tc of delta.tool_calls) {
                             const idx = tc.index ?? 0;
-                            if (tc.id) {
-                                // New tool call
+                            if (!toolCalls[idx]) {
                                 toolCalls[idx] = {
-                                    id: tc.id,
+                                    id: tc.id || `tc_${idx}`,
                                     type: 'function',
-                                    function: {
-                                        name: tc.function?.name || '',
-                                        arguments: '',
-                                    },
+                                    function: { name: '', arguments: '' },
                                 };
-                                toolCallArgs[idx] = '';
                             }
-                            if (tc.function?.name && toolCalls[idx]) {
-                                toolCalls[idx].function.name = tc.function.name;
-                            }
-                            if (tc.function?.arguments) {
-                                toolCallArgs[idx] = (toolCallArgs[idx] || '') + tc.function.arguments;
-                                if (toolCalls[idx]) {
-                                    toolCalls[idx].function.arguments = toolCallArgs[idx];
-                                }
-                            }
+                            if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                            if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                            if (tc.id) toolCalls[idx].id = tc.id;
                         }
                     }
                 } catch {
-                    // Skip malformed JSON chunks
+                    /* skip malformed SSE chunk */
                 }
             }
         }
 
-        // Emit completed tool calls
-        for (const tc of toolCalls) {
-            if (tc) callbacks.onToolCall(tc);
+        // Filter out empty tool calls
+        toolCalls = toolCalls.filter((tc) => tc.function.name);
+
+        // No tool calls → conversation ends with final response
+        if (toolCalls.length === 0) {
+            conversation.push({ role: 'assistant', content: assistantContent });
+            onEvent({ type: 'done', conversation });
+            return conversation;
         }
 
-        callbacks.onDone(fullContent, toolCalls.filter(Boolean));
-    } catch (err) {
-        callbacks.onError(err instanceof Error ? err.message : String(err));
+        // If we emitted deltas for content that turned out to be thinking
+        // (because tool_calls appeared), the UI already received 'delta' events.
+        // Re-classify: emit a 'thinking' retroactive signal is not needed because
+        // the UI will see the subsequent tool-start events and understand.
+
+        // Push assistant message WITH tool_calls to conversation
+        conversation.push({
+            role: 'assistant',
+            content: assistantContent,
+            tool_calls: toolCalls,
+        });
+
+        // Execute each tool call — emit events for each step
+        for (const tc of toolCalls) {
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(tc.function.arguments); } catch { /* empty */ }
+
+            // 🔴 LIVE: Emit tool-start so UI shows the action beginning
+            onEvent({
+                type: 'tool-start',
+                toolName: tc.function.name,
+                args,
+                index: globalToolIndex,
+            });
+
+            const result = await executeTool(tc.function.name, args, onSelectClips);
+
+            conversation.push({
+                role: 'tool',
+                content: result,
+                name: tc.function.name,
+                tool_call_id: tc.id,
+            });
+
+            // 🟢 LIVE: Emit tool-end so UI shows the result
+            onEvent({
+                type: 'tool-end',
+                toolName: tc.function.name,
+                result,
+                index: globalToolIndex,
+            });
+
+            globalToolIndex++;
+        }
+
+        // Reset for next loop iteration
+        assistantContent = '';
+        toolCalls = [];
     }
-}
 
-// ── Message ID Generator ──────────────────────────────────────────────────
-
-let _msgCounter = 0;
-export function generateMessageId(): string {
-    return `msg_${Date.now()}_${++_msgCounter}`;
+    onEvent({ type: 'done', conversation });
+    return conversation;
 }

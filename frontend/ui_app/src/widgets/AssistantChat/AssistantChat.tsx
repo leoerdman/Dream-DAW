@@ -1,54 +1,138 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — AI Assistant Chat Widget
-// ═══════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Dream DAW — AI Assistant Chat Widget (Enterprise)
+ *
+ * Multi-turn chat ▸ Stop button ▸ Native voice input ▸ Model selector
+ * Key events isolated from DAW global shortcuts
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Bot, Send, X, Trash2, Sparkles } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2 } from 'lucide-react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import {
-    sendChatMessage,
-    executeTool,
-    generateMessageId,
-    MODEL_LABELS,
-    type ChatMessage,
-    type AssistantModel,
-    type ToolCall,
-} from '@/shared/api/assistantService';
+import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
+import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
+import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup, type ActionGroup } from './AgentActionCard';
+import './AgentActionCard.css';
 import './AssistantChat.css';
+
+// ── Supported models ────────────────────────────────────────────────────────
+
+const MODELS = [
+    { id: 'google/gemini-2.5-pro-preview-06-05', label: 'Gemini' },
+    { id: 'anthropic/claude-sonnet-4', label: 'Claude' },
+];
+
+// ── Live streaming state types ───────────────────────────────────────────────
+
+/** A tool action being tracked in real-time during streaming. */
+export interface LiveAction {
+    toolName: string;
+    args: Record<string, unknown>;
+    result: string | null;   // null = still executing, string = complete
+    index: number;
+}
+
+/** Real-time agent streaming state shown during execution. */
+export interface LiveAgentState {
+    thinking: string;        // accumulated reasoning text
+    actions: LiveAction[];   // tool calls (in-progress + completed)
+    finalText: string;       // final response text (streamed)
+}
+
+// ── Props ───────────────────────────────────────────────────────────────────
 
 interface AssistantChatProps {
     open: boolean;
     onClose: () => void;
-    onSelectClips: (ids: string[]) => void;
+    onSelectClips?: (ids: string[]) => void;
 }
 
-const AVAILABLE_MODELS: AssistantModel[] = [
-    'google/gemini-3.1-pro-preview',
-    'anthropic/claude-sonnet-4.6',
-];
+// ── Native speech recognition helper ────────────────────────────────────────
+
+type SpeechRecognitionInstance = {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onresult: ((event: { resultIndex: number; results: { length: number;[i: number]: { [j: number]: { transcript: string } } } }) => void) | null;
+    onerror: ((event: { error: string; message?: string }) => void) | null;
+    onend: (() => void) | null;
+    onstart: (() => void) | null;
+    start: () => void;
+    stop: () => void;
+    abort: () => void;
+};
+
+function createSpeechRecognition(): SpeechRecognitionInstance | null {
+    const w = window as unknown as Record<string, unknown>;
+    const Ctor = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
+        | (new () => SpeechRecognitionInstance)
+        | undefined;
+    if (!Ctor) return null;
+    try {
+        return new Ctor();
+    } catch {
+        return null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [model, setModel] = useState<AssistantModel>('google/gemini-3.1-pro-preview');
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [streamText, setStreamText] = useState('');
+    const [model, setModel] = useState(MODELS[0].id);
+    const [isListening, setIsListening] = useState(false);
+
+    // ── Live agent state (real-time during streaming) ──
+    const [liveAgent, setLiveAgent] = useState<LiveAgentState | null>(null);
+
+    // Live agent state — tracks tool execution progress during streaming
+    const [liveAgent, setLiveAgent] = useState<LiveAgentState | null>(null);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const abortRef = useRef<AbortController | null>(null);
+    const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+    const intentionalStopRef = useRef(false);
+
     const apiKey = useSettingsStore((s) => s.settings.openRouterApiKey);
 
-    // Auto-scroll to bottom
+    // ── Auto scroll & focus ──
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, streamText, liveAgent]);
 
-    // Auto-focus input when opening
+    // ── Load history from localStorage on open ──
     useEffect(() => {
-        if (open) {
-            setTimeout(() => inputRef.current?.focus(), 100);
-        }
+        if (!open) return;
+        let cancelled = false;
+        void loadChatHistory().then((history) => {
+            if (!cancelled && history.length > 0) {
+                setMessages(history);
+            }
+        });
+        return () => { cancelled = true; };
     }, [open]);
 
-    // Close on Escape
+    // ── Persist history on every message change ──
+    const lastSavedRef = useRef('');
+    useEffect(() => {
+        if (messages.length === 0) return;
+        // Avoid redundant saves: check if messages actually changed.
+        const serialized = JSON.stringify(messages);
+        if (serialized === lastSavedRef.current) return;
+        lastSavedRef.current = serialized;
+        void saveChatHistory(messages);
+    }, [messages]);
+
+    useEffect(() => {
+        if (open) setTimeout(() => inputRef.current?.focus(), 100);
+    }, [open]);
+
+    // ── Escape to close ──
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -58,282 +142,404 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         return () => document.removeEventListener('keydown', onKey);
     }, [open, onClose]);
 
-    const clearChat = useCallback(() => {
-        setMessages([]);
+    // ── Cleanup on unmount ──
+    useEffect(() => {
+        return () => {
+            recognitionRef.current?.abort();
+            mediaRecorderRef.current?.stop();
+        };
     }, []);
 
+    // ── Stop streaming ──
+    const handleStop = useCallback(() => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setIsStreaming(false);
+    }, []);
+
+    // ── Send message ──
     const handleSend = useCallback(async () => {
         const text = input.trim();
-        if (!text || isLoading) return;
+        if (!text || isStreaming) return;
         if (!apiKey) {
             setMessages((prev) => [
                 ...prev,
-                {
-                    id: generateMessageId(),
-                    role: 'assistant',
-                    content: '⚠️ No OpenRouter API key configured. Go to **Settings → AI** and add your key.',
-                    timestamp: Date.now(),
-                },
+                { role: 'user', content: text },
+                { role: 'assistant', content: '⚠️ No API key configured. Go to **Settings → AI** and enter your OpenRouter API key.' },
             ]);
+            setInput('');
             return;
         }
 
-        const userMsg: ChatMessage = {
-            id: generateMessageId(),
-            role: 'user',
-            content: text,
-            timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, userMsg]);
+        const userMsg: ChatMessage = { role: 'user', content: text };
+        const newMessages = [...messages, userMsg];
+        setMessages(newMessages);
         setInput('');
-        setIsLoading(true);
+        setIsStreaming(true);
+        setStreamText('');
+        setLiveAgent({ thinking: '', actions: [], finalText: '' });
 
-        // Build message history for API
-        const allMessages = [...messages, userMsg];
+        const controller = new AbortController();
+        abortRef.current = controller;
 
-        const runConversation = async (
-            currentMessages: ChatMessage[],
-            depth = 0,
-        ): Promise<void> => {
-            if (depth > 8) {
+        try {
+            const result = await streamChat(
+                newMessages, apiKey, model,
+                (event) => {
+                    switch (event.type) {
+                        case 'thinking':
+                            // Real-time reasoning — accumulate thinking text
+                            setLiveAgent(prev => prev ? {
+                                ...prev,
+                                thinking: prev.thinking + event.text,
+                            } : prev);
+                            break;
+
+                        case 'tool-start':
+                            // Tool execution begins — add pending action
+                            setLiveAgent(prev => prev ? {
+                                ...prev,
+                                actions: [...prev.actions, {
+                                    toolName: event.toolName,
+                                    args: event.args,
+                                    result: null,  // null = still executing
+                                    index: event.index,
+                                }],
+                            } : prev);
+                            break;
+
+                        case 'tool-end':
+                            // Tool execution complete — fill in result
+                            setLiveAgent(prev => {
+                                if (!prev) return prev;
+                                const updated = prev.actions.map(a =>
+                                    a.index === event.index
+                                        ? { ...a, result: event.result }
+                                        : a
+                                );
+                                return { ...prev, actions: updated };
+                            });
+                            break;
+
+                        case 'delta':
+                            // Final response text streaming
+                            setStreamText(prev => prev + event.text);
+                            setLiveAgent(prev => prev ? {
+                                ...prev,
+                                finalText: prev.finalText + event.text,
+                            } : prev);
+                            break;
+
+                        case 'error':
+                            // Error from API
+                            break;
+
+                        case 'done':
+                            // Streaming complete
+                            break;
+                    }
+                },
+                onSelectClips, controller.signal,
+            );
+            setMessages(result);
+        } catch (err: unknown) {
+            if ((err as Error).name === 'AbortError') {
+                setMessages(prev => [...prev, { role: 'assistant', content: streamText || '(stopped)' }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${(err as Error).message}` }]);
+            }
+        } finally {
+            setIsStreaming(false);
+            setStreamText('');
+            setLiveAgent(null);
+            abortRef.current = null;
+        }
+    }, [input, isStreaming, apiKey, messages, model, onSelectClips, streamText]);
+
+    // ── Voice input (native SpeechRecognition with getUserMedia pre-request) ──
+    const toggleVoice = useCallback(async () => {
+        // ── STOP ──
+        if (isListening) {
+            intentionalStopRef.current = true;
+            recognitionRef.current?.stop();
+            mediaRecorderRef.current?.stop();
+            setIsListening(false);
+            return;
+        }
+
+        intentionalStopRef.current = false;
+
+        // ── Step 1: Ensure microphone permission via getUserMedia ──
+        // On macOS WKWebView (Tauri), SpeechRecognition silently fails without
+        // an explicit getUserMedia call first. Once the user grants permission,
+        // we cache it in localStorage so we don't re-prompt.
+        const micPermCacheKey = 'dream-ai-mic-permission';
+        const cachedPermission = localStorage.getItem(micPermCacheKey);
+
+        if (cachedPermission !== 'granted') {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Release the stream immediately — we just needed the permission prompt.
+                stream.getTracks().forEach((t) => t.stop());
+                localStorage.setItem(micPermCacheKey, 'granted');
+            } catch (err) {
+                console.warn('[DreamAI] Microphone permission denied:', err);
                 setMessages((prev) => [
                     ...prev,
                     {
-                        id: generateMessageId(),
                         role: 'assistant',
-                        content: 'Reached maximum reasoning depth. Please try a simpler request.',
-                        timestamp: Date.now(),
+                        content: '⚠️ Доступ к микрофону отклонён. Разрешите доступ: Системные настройки → Конфиденциальность → Микрофон. / Microphone access denied. Grant permission in System Preferences → Privacy & Security → Microphone.',
                     },
                 ]);
                 return;
             }
+        }
 
-            // Create streaming assistant message
-            const assistantId = generateMessageId();
-            let accumulatedContent = '';
+        // ── Step 2: Try native SpeechRecognition ──
+        const recognition = createSpeechRecognition();
+        if (recognition) {
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            // Auto-detect user's language
+            recognition.lang = navigator.language || 'en-US';
 
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: assistantId,
-                    role: 'assistant',
-                    content: '',
-                    timestamp: Date.now(),
-                    isStreaming: true,
-                },
-            ]);
+            let hasStarted = false;
 
-            // Convert to API format
-            const apiMessages = currentMessages
-                .filter((m) => m.role !== 'system')
-                .map((m) => {
-                    if (m.role === 'tool') {
-                        return {
-                            role: 'tool' as const,
-                            content: m.content,
-                            tool_call_id: m.toolCallId || '',
-                            name: m.toolName || '',
-                        };
-                    }
-                    return { role: m.role, content: m.content };
-                });
+            recognition.onstart = () => {
+                hasStarted = true;
+            };
 
-            const collectedToolCalls: ToolCall[] = [];
-
-            await sendChatMessage(apiKey, model, apiMessages, {
-                onToken: (token) => {
-                    accumulatedContent += token;
-                    setMessages((prev) =>
-                        prev.map((m) =>
-                            m.id === assistantId
-                                ? { ...m, content: accumulatedContent }
-                                : m,
-                        ),
-                    );
-                },
-
-                onToolCall: (tc) => {
-                    collectedToolCalls.push(tc);
-                },
-
-                onDone: () => {
-                    // Finalize streaming
-                    setMessages((prev) =>
-                        prev.map((m) =>
-                            m.id === assistantId
-                                ? { ...m, content: accumulatedContent, isStreaming: false }
-                                : m,
-                        ),
-                    );
-                },
-
-                onError: (error) => {
-                    setMessages((prev) =>
-                        prev.map((m) =>
-                            m.id === assistantId
-                                ? {
-                                    ...m,
-                                    content: `❌ Error: ${error}`,
-                                    isStreaming: false,
-                                }
-                                : m,
-                        ),
-                    );
-                    setIsLoading(false);
-                },
-            });
-
-            // Handle tool calls
-            if (collectedToolCalls.length > 0) {
-                const toolResults: ChatMessage[] = [];
-
-                for (const tc of collectedToolCalls) {
-                    const result = executeTool(
-                        tc.function.name,
-                        tc.function.arguments,
-                        onSelectClips,
-                    );
-
-                    const toolMsg: ChatMessage = {
-                        id: generateMessageId(),
-                        role: 'tool',
-                        content: result,
-                        toolCallId: tc.id,
-                        toolName: tc.function.name,
-                        timestamp: Date.now(),
-                    };
-                    toolResults.push(toolMsg);
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
                 }
+                if (transcript) {
+                    setInput((prev) => {
+                        const spacer = prev.length > 0 && !prev.endsWith(' ') ? ' ' : '';
+                        return prev + spacer + transcript;
+                    });
+                }
+            };
 
-                // Add tool results to messages
-                setMessages((prev) => [...prev, ...toolResults]);
+            recognition.onerror = (event) => {
+                console.warn('[DreamAI] Speech recognition error:', event.error);
+                setIsListening(false);
+                recognitionRef.current = null;
 
-                // Build new message list including tool results for next API call
-                const updatedMessages: ChatMessage[] = [
-                    ...currentMessages,
-                    {
-                        id: assistantId,
-                        role: 'assistant',
-                        content: accumulatedContent,
-                        timestamp: Date.now(),
-                    },
-                    ...toolResults,
-                ];
+                if (event.error === 'no-speech') {
+                    // Silence — not an error, just nothing to transcribe
+                } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    // Clear cached permission so we re-prompt next time
+                    localStorage.removeItem(micPermCacheKey);
+                    setMessages((prev) => [
+                        ...prev,
+                        { role: 'assistant', content: '⚠️ Доступ к микрофону заблокирован. Проверьте настройки Конфиденциальности. / Microphone blocked. Check Privacy settings.' },
+                    ]);
+                } else {
+                    setMessages((prev) => [
+                        ...prev,
+                        { role: 'assistant', content: `⚠️ Ошибка распознавания: ${event.error}. Попробуйте ещё раз.` },
+                    ]);
+                }
+            };
 
-                // Continue the conversation with tool results
-                await runConversation(updatedMessages, depth + 1);
-            } else {
-                setIsLoading(false);
+            recognition.onend = () => {
+                if (!intentionalStopRef.current && !hasStarted) {
+                    setIsListening(false);
+                    setMessages((prev) => [
+                        ...prev,
+                        { role: 'assistant', content: '⚠️ Распознавание не удалось запустить. Используйте текстовый ввод.' },
+                    ]);
+                    return;
+                }
+                setIsListening(false);
+                recognitionRef.current = null;
+            };
+
+            recognitionRef.current = recognition;
+            setIsListening(true);
+
+            try {
+                recognition.start();
+            } catch (err) {
+                console.warn('[DreamAI] Speech recognition start failed:', err);
+                setIsListening(false);
+                setMessages((prev) => [
+                    ...prev,
+                    { role: 'assistant', content: '⚠️ Не удалось запустить распознавание речи. Используйте текстовый ввод.' },
+                ]);
             }
-        };
-
-        try {
-            await runConversation(allMessages);
-        } catch (err) {
-            console.error('[AssistantChat] Conversation failed:', err);
-            setIsLoading(false);
+            return;
         }
-    }, [input, isLoading, apiKey, messages, model, onSelectClips]);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // ── No native support — inform user ──
+        setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: '⚠️ Голосовой ввод недоступен в этой среде. macOS WebView не поддерживает Web Speech API. Используйте текстовый ввод.' },
+        ]);
+
+    }, [isListening]);
+
+    // Voice input is native-only (SpeechRecognition API). No external API fallback.
+
+    // ── Key handler (MUST stopPropagation to prevent DAW shortcuts) ──
+    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+        e.stopPropagation();
+        // Ctrl+Enter (or Cmd+Enter on macOS) to send
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
-            void handleSend();
+            handleSend();
         }
-    };
+    }, [handleSend]);
 
+    // ── Don't render when closed ──
     if (!open) return null;
 
+    // ── Render ──────────────────────────────────────────────────────────────
+
+    // Group messages into rich action groups for premium rendering
+    const groupedItems = groupMessagesIntoActions(messages);
+
+    // Voice button icon
+    const VoiceIcon = isListening ? MicOff : Mic;
+    const voiceTitle = isListening ? 'Click to stop' : 'Voice input';
+    const voiceClass = `assistant-voice-btn${isListening ? ' listening' : ''}`;
+
     return (
-        <div className="assistant-chat-overlay">
-            {/* Header */}
+        <div
+            className="assistant-chat-overlay"
+            data-keyboard-scope="text-input"
+            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDownCapture={(e) => {
+                // Prevent DAW global shortcuts (Space=play, Delete=delete clip, etc.)
+                // from firing while the user is typing in the AI chat.
+                // This must be in the CAPTURE phase because useKeyboardShortcuts
+                // also listens in capture phase ({ capture: true }).
+                const tag = (e.target as HTMLElement)?.tagName;
+                if (tag === 'TEXTAREA' || tag === 'INPUT') {
+                    e.stopPropagation();
+                }
+            }}
+        >
+            {/* ── Header ── */}
             <div className="assistant-header">
                 <div className="assistant-header-left">
                     <div className="assistant-header-icon">
-                        <Bot size={16} />
+                        <Sparkles size={14} />
                     </div>
-                    <span className="assistant-header-title">Dream Assistant</span>
+                    <span className="assistant-header-title">Dream AI</span>
                 </div>
+
                 <div className="assistant-header-actions">
                     <div className="model-selector">
-                        {AVAILABLE_MODELS.map((m) => (
+                        {MODELS.map((m) => (
                             <button
-                                key={m}
-                                className={`model-selector-btn${model === m ? ' active' : ''}`}
-                                onClick={() => setModel(m)}
-                                title={m}
+                                key={m.id}
+                                className={`model-selector-btn ${model === m.id ? 'active' : ''}`}
+                                onClick={() => setModel(m.id)}
                             >
-                                {MODEL_LABELS[m]}
+                                {m.label}
                             </button>
                         ))}
                     </div>
-                    <button className="assistant-mini-btn" onClick={clearChat} title="Clear chat">
+                    <button className="assistant-mini-btn" onClick={() => {
+                        setMessages([]);
+                        lastSavedRef.current = '';
+                        void clearChatHistory();
+                    }} title="Clear history">
                         <Trash2 size={14} />
                     </button>
-                    <button className="assistant-mini-btn" onClick={onClose} title="Close (Esc)">
+                    <button className="assistant-mini-btn" onClick={onClose} title="Close">
                         <X size={14} />
                     </button>
                 </div>
             </div>
 
-            {/* Messages */}
+            {/* ── Messages ── */}
             <div className="assistant-messages">
-                {messages.length === 0 ? (
+                {groupedItems.length === 0 && !isStreaming && (
                     <div className="assistant-empty">
                         <div className="assistant-empty-icon">
-                            <Sparkles size={24} />
+                            <Bot size={24} />
                         </div>
-                        <h3>Dream Assistant</h3>
+                        <h3>Dream AI</h3>
                         <p>
-                            Ask me anything about your project. I can inspect tracks, clips,
-                            select elements, and give production advice.
+                            I can control your DAW — manage tracks, playback, clips, mix levels, and more. Ask me anything about your project.
                         </p>
                     </div>
-                ) : (
-                    messages.map((msg) => (
-                        <div key={msg.id} className={`assistant-msg ${msg.role}`}>
-                            {msg.role === 'tool' && (
-                                <span className="msg-label">
-                                    🔧 {msg.toolName}
-                                </span>
-                            )}
-                            <div className={`msg-bubble ${msg.role}`}>
-                                {msg.content || (msg.isStreaming ? '' : '...')}
-                                {msg.isStreaming && <span className="streaming-cursor" />}
-                            </div>
-                        </div>
-                    ))
                 )}
+
+                {groupedItems.map((item, i) => {
+                    if (isActionGroup(item)) {
+                        return <AgentActionCard key={`action-${i}`} group={item} />;
+                    }
+                    const msg = item as ChatMessage;
+                    return (
+                        <div key={i} className={`assistant-msg ${msg.role}`}>
+                            {msg.role === 'user' && <span className="msg-label">You</span>}
+                            {msg.role === 'assistant' && <span className="msg-label">Dream AI</span>}
+                            <div className={`msg-bubble ${msg.role}`}>{msg.content}</div>
+                        </div>
+                    );
+                })}
+
+                {/* ── Live Agent Card (real-time streaming) ── */}
+                {isStreaming && liveAgent && (
+                    <LiveAgentCard live={liveAgent} />
+                )}
+
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
+            {/* ── Input Area ── */}
             <div className="assistant-input-area">
+                <button
+                    className={voiceClass}
+                    onClick={toggleVoice}
+                    title={voiceTitle}
+                >
+                    <VoiceIcon size={14} />
+                </button>
+
                 <textarea
                     ref={inputRef}
                     className="assistant-input"
-                    placeholder="Ask about your project..."
+                    placeholder="Спроси Dream AI… (Ctrl+Enter — отправить)"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                        setInput(e.target.value);
+                        // Auto-resize textarea
+                        const el = e.target;
+                        el.style.height = 'auto';
+                        el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+                    }}
                     onKeyDown={handleKeyDown}
                     rows={1}
-                    disabled={isLoading}
+                    disabled={isStreaming}
                 />
-                <button
-                    className="assistant-send-btn"
-                    onClick={() => void handleSend()}
-                    disabled={!input.trim() || isLoading}
-                    title="Send (Enter)"
-                >
-                    <Send size={16} />
-                </button>
+
+                {isStreaming ? (
+                    <button className="assistant-stop-btn" onClick={handleStop} title="Stop generation">
+                        <Square size={14} fill="currentColor" />
+                    </button>
+                ) : (
+                    <button
+                        className="assistant-send-btn"
+                        onClick={handleSend}
+                        disabled={!input.trim()}
+                        title="Send (Ctrl+Enter)"
+                    >
+                        <Send size={14} />
+                    </button>
+                )}
             </div>
 
-            {/* Status */}
+            {/* ── Status ── */}
             <div className="assistant-status">
                 <span>
                     <span className={`dot ${apiKey ? 'connected' : 'disconnected'}`} />
-                    {apiKey ? MODEL_LABELS[model] : 'No API key'}
+                    {apiKey ? 'Connected' : 'No API key'}
                 </span>
                 <span>{messages.filter((m) => m.role === 'user').length} messages</span>
             </div>

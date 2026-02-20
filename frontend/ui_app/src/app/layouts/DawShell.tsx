@@ -9,6 +9,7 @@ import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
+import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentActionIndicator';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
@@ -155,7 +156,10 @@ export const DawShell = () => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
-    const transportPositionSeconds = useEngineStore(s => s.transport.position_seconds ?? 0);
+    // PERF-FIX-1: removed transport.position_seconds subscription.
+    // It changed every telemetry tick (~30fps), causing the entire DawShell
+    // (2346 lines, all children) to re-render during playback.
+    // Playhead position is now read on-demand in useKeyboardShortcuts.
     const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
@@ -206,7 +210,8 @@ export const DawShell = () => {
         selectedClipIds,
         selectedTrackId,
         projectTracks: projectTracksSnapshot,
-        playheadFrames: Math.round(transportPositionSeconds * projectSampleRate),
+        // PERF-FIX-1: playheadFrames is now read from the store on-demand
+        // inside the hook, not passed as a reactive prop.
         editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
@@ -331,6 +336,9 @@ export const DawShell = () => {
     }, [importFile]);
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
+    const handleOpenExport = useCallback(() => setExportOpen(true), []);
+    const handleRecordingStateChange = useCallback((state: { active: boolean; trackIndex: number }) => setRecordingState(state), []);
+    const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => !v), []);
     const handleSelectTrack = useCallback((id: string) => {
         setSelectedTrackId(id);
         setSelectedTrackIds(id && id !== 'master' ? [id] : []);
@@ -870,11 +878,16 @@ export const DawShell = () => {
     }, []);
 
     // ── Final unthrottled sends on pointer release ──
+    // PERF-FIX-7: Use a ref for selectedTimelineClip so this effect doesn't
+    // re-register the global listener on every clip selection change.
+    const selectedTimelineClipRef = useRef(selectedTimelineClip);
+    selectedTimelineClipRef.current = selectedTimelineClip;
+
     useEffect(() => {
         const onPointerUp = () => {
             void flushTrackControlFinals();
             flushMidiThrottles();
-            const clip = selectedTimelineClip;
+            const clip = selectedTimelineClipRef.current;
             if (!clip || clip.type !== 'midi') return;
             if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
                 const notes = latestMidiNotesRef.current[clip.id] ?? [];
@@ -898,7 +911,7 @@ export const DawShell = () => {
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, flushMidiThrottles, selectedTimelineClip, serializeMidiNotesToFrames]);
+    }, [flushTrackControlFinals, flushMidiThrottles, serializeMidiNotesToFrames]);
 
     // ── Scroll sync ──────────────────────────────────────────────────
     // Scroll is synchronized via the scrollSync singleton (useScrollSync.ts).
@@ -1334,8 +1347,8 @@ export const DawShell = () => {
                     <ErrorBoundary module="Transport">
                         <TransportBar
                             onSettingsClick={openSettings}
-                            onOpenExport={() => setExportOpen(true)}
-                            onRecordingStateChange={(state) => setRecordingState(state)}
+                            onOpenExport={handleOpenExport}
+                            onRecordingStateChange={handleRecordingStateChange}
                             followPlayhead={followPlayhead}
                             onFollowPlayheadChange={setFollowPlayhead}
                             automationVisible={automationVisible}
@@ -1343,7 +1356,7 @@ export const DawShell = () => {
                             onFitTimelineHorizontally={handleFitTimelineHorizontally}
                             onResetTrackHeights={handleResetTrackHeights}
                             assistantOpen={assistantOpen}
-                            onAssistantToggle={() => setAssistantOpen((v) => !v)}
+                            onAssistantToggle={handleAssistantToggle}
                         />
                     </ErrorBoundary>
                 </header>
@@ -1690,6 +1703,9 @@ export const DawShell = () => {
                 onClose={() => setAssistantOpen(false)}
                 onSelectClips={setSelectedClipIds}
             />
+
+            {/* ═══ AGENT ACTION INDICATORS ═══ */}
+            <AgentActionIndicator />
 
             <ErrorBoundary module="Resolver">
                 <Suspense fallback={null}>

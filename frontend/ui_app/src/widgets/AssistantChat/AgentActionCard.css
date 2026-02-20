@@ -1,0 +1,262 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dream DAW — Agent Action Card Styles (Enterprise Premium)
+   Glassmorphism + micro-animations + rich category colors
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Action Card Container ─────────────────────────────────────────────── */
+
+.agent-action-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(8px);
+}
+
+.agent-action-card:hover {
+    border-color: color-mix(in srgb, var(--action-accent, #6b7280) 30%, transparent);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+/* ── Header (clickable summary) ─────────────────────────────────────── */
+
+.agent-action-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--color-text-primary);
+    gap: 8px;
+    transition: background 0.12s ease;
+}
+
+.agent-action-header:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.agent-action-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.agent-action-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.agent-action-summary {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.agent-action-count {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.agent-action-chevron {
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    display: flex;
+    align-items: center;
+}
+
+.agent-action-chevron.expanded {
+    transform: rotate(0deg);
+}
+
+/* ── Expanded Details ───────────────────────────────────────────────── */
+
+.agent-action-details {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: agent-details-in 0.2s ease;
+}
+
+@keyframes agent-details-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Thinking / Reasoning ───────────────────────────────────────────── */
+
+.agent-thinking {
+    background: rgba(251, 191, 36, 0.04);
+    border: 1px solid rgba(251, 191, 36, 0.1);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.agent-thinking-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #fbbf24;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.agent-thinking p {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+}
+
+/* ── Action Steps ───────────────────────────────────────────────────── */
+
+.agent-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-step {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 5px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    transition: border-color 0.12s ease;
+}
+
+.agent-step:hover {
+    border-color: rgba(255, 255, 255, 0.07);
+}
+
+.agent-step-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.agent-step-icon {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.agent-step-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-step-badge {
+    font-size: 9px;
+    font-weight: 600;
+    color: white;
+    padding: 1px 5px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+.agent-step-result {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    padding-left: 24px;
+    line-height: 1.4;
+    opacity: 0.8;
+}
+
+/* ── Final Response (after action card) ─────────────────────────────── */
+
+.agent-final-response {
+    margin-top: 6px;
+}
+
+/* ── Streaming Actions Indicator ────────────────────────────────────── */
+
+.agent-streaming-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    animation: agent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes agent-pulse {
+
+    0%,
+    100% {
+        opacity: 0.7;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.agent-streaming-card .agent-action-icon {
+    animation: agent-icon-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-icon-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.08);
+    }
+}
+
+.agent-streaming-text {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-style: italic;
+}

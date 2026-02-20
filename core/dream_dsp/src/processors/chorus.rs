@@ -185,9 +185,7 @@ impl DspProcessor for ChorusProcessor {
             right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-8.0, 8.0);
 
             self.lfo_phase += phase_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            self.lfo_phase = self.lfo_phase.fract();
             self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
         }
     }

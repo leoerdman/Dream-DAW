@@ -79,13 +79,13 @@ impl RecordingState {
     /// Stores a peak value atomically (f32 → u32 bit-cast).
     #[inline]
     pub fn store_peak(atom: &AtomicU32, value: f32) {
-        atom.store(value.to_bits(), Ordering::Relaxed);
+        atom.store(value.to_bits(), Ordering::Release);
     }
 
     /// Loads a peak value atomically (u32 → f32 bit-cast).
     #[inline]
     pub fn load_peak(atom: &AtomicU32) -> f32 {
-        f32::from_bits(atom.load(Ordering::Relaxed))
+        f32::from_bits(atom.load(Ordering::Acquire))
     }
 
     /// Returns the current peak levels (left, right).
@@ -263,7 +263,7 @@ impl RecordingSession {
 
         // ── 3. Create shared state ───────────────────────────────
         let state = RecordingState::new();
-        state.is_recording.store(true, Ordering::SeqCst);
+        state.is_recording.store(true, Ordering::Release);
 
         // ── 4. Create file paths ─────────────────────────────────
         std::fs::create_dir_all(output_dir).map_err(|e| RecordingError::IoError(e.to_string()))?;
@@ -380,7 +380,7 @@ impl RecordingSession {
     /// to create an `AudioClip`.
     pub fn stop(mut self) -> Result<RecordingResult, RecordingError> {
         // Signal the worker to stop
-        self.state.is_recording.store(false, Ordering::SeqCst);
+        self.state.is_recording.store(false, Ordering::Release);
 
         let total_frames = self.state.total_frames();
 

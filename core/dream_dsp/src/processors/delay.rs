@@ -164,9 +164,8 @@ impl DspProcessor for DelayProcessor {
             // LFO modulation
             let lfo = (self.lfo_phase as f32 * std::f32::consts::TAU).sin();
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            // AUD-109 FIX: Use fract() for safe phase wrapping.
+            self.lfo_phase = self.lfo_phase.fract();
 
             let mod_offset = lfo * mod_max;
             let dl = (self.delay_samples_l + mod_offset).clamp(1.0, (bs - 2) as f32);
@@ -208,8 +207,11 @@ impl DspProcessor for DelayProcessor {
             self.buf_r[self.write_pos] = dry_r + self.fb_filter_r * fb;
 
             // Store for ping-pong
-            self.cross_fb_l = delayed_l;
-            self.cross_fb_r = delayed_r;
+            // AUD-114 FIX: Flush denormals in cross-feedback buffers.
+            // When ping-pong is on, these delay tails cross over and can
+            // sustain denormal values indefinitely, causing CPU spikes.
+            self.cross_fb_l = if delayed_l.abs() < 1.0e-20 { 0.0 } else { delayed_l };
+            self.cross_fb_r = if delayed_r.abs() < 1.0e-20 { 0.0 } else { delayed_r };
 
             // Mix
             left[i] = dry_l * dry + delayed_l * wet;

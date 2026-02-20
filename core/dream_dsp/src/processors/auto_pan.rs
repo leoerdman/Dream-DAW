@@ -104,9 +104,7 @@ impl DspProcessor for AutoPanProcessor {
             right[i] = dry_r * (1.0 - mix) + wet_r * mix;
 
             self.lfo_phase += phase_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            self.lfo_phase = self.lfo_phase.fract();
         }
     }
 

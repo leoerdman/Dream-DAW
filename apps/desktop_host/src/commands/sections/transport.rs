@@ -147,8 +147,7 @@ fn set_bpm(
         return Err(format!("BPM {bpm} out of range (20–999)"));
     }
 
-    // Runtime transport BPM update for the audio thread.
-    push_command(&handle, EngineCommand::SetBpm(bpm))?;
+    // BPM map is fully computed below before pushing to the audio thread.
 
     // Snapshot undo BEFORE project mutation.
     push_undo(&project_state)?;
@@ -243,12 +242,24 @@ fn set_bpm(
 
     // Re-anchor realtime transport to the same musical beat after tempo change.
     push_command(&handle, EngineCommand::Seek(remapped_engine_frame))?;
-    if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames)
+    let loop_region_opt = if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames)
         && end > start
     {
-        push_command(&handle, EngineCommand::SetLoopRegion { start, end })?;
-    }
-    push_command(&handle, EngineCommand::SetLoopEnabled(project.is_looping))?;
+        Some((start, end))
+    } else {
+        None
+    };
+
+    // BUG-014 FIX: Atomic composite command so the audio thread doesn't read the new BPM
+    // while still referencing the old loop region frame numbers for a buffer cycle.
+    push_command(
+        &handle,
+        EngineCommand::SetBpmAndLoop {
+            bpm,
+            loop_enabled: project.is_looping,
+            loop_region: loop_region_opt,
+        },
+    )?;
 
     let mut state = handle
         .playback_state

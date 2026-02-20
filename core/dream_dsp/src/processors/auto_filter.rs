@@ -209,9 +209,7 @@ impl DspProcessor for AutoFilterProcessor {
             let phase = (self.lfo_phase as f32).fract();
             let lfo = self.lfo_value(phase);
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            self.lfo_phase = self.lfo_phase.fract();
 
             // Modulated cutoff (log scale) — BUG-034 FIX: base_log_cutoff pre-computed
             let mod_offset = lfo * self.lfo_depth * max_range * 0.5

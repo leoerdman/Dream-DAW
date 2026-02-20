@@ -1770,6 +1770,23 @@ pub fn start_audio_thread_on_device(
                                     // breakcore/speedcore (999 BPM).
                                     bpm = new_bpm.clamp(10.0, 999.0);
                                 }
+                                EngineCommand::SetBpmAndLoop {
+                                    bpm: new_bpm,
+                                    loop_enabled,
+                                    loop_region,
+                                } => {
+                                    bpm = new_bpm.clamp(10.0, 999.0);
+                                    if !loop_enabled {
+                                        render_ctx.loop_region = None;
+                                    } else if let Some((start, end)) = loop_region {
+                                        let region = LoopRegion { start, end };
+                                        last_loop_region = Some(region.clone());
+                                        render_ctx.loop_region = Some(region);
+                                    } else if let Some(ref lr) = last_loop_region {
+                                        // enabled but no struct given = fallback to last known
+                                        render_ctx.loop_region = Some(lr.clone());
+                                    }
+                                }
                                 EngineCommand::SetTimelineSampleRate(sample_rate) => {
                                     render_ctx.set_timeline_sample_rate(sample_rate);
                                 }

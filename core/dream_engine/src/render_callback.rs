@@ -165,10 +165,9 @@ pub struct RenderContext {
     /// audio is read from the streaming window instead of the in-memory pool.
     /// This prevents OOM for files exceeding `RAM_THRESHOLD_BYTES`.
     ///
-    /// AUD-002 NOTE: Uses HashMap which can allocate on insert. Insertions
-    /// happen from the UI thread BEFORE the audio callback runs (via command),
-    /// so this is safe. Reads in the hot path (`.get()`) are O(1) and non-allocating.
-    pub streaming_windows: std::collections::HashMap<String, StreamingWindow>,
+    /// AUD-002 NOTE: Uses Vec instead of HashMap to prevent allocation
+    /// on insert. Reads in the hot path (`.find()`) are O(N) but N is very small.
+    pub streaming_windows: Vec<(String, StreamingWindow)>,
 
     /// Reused active-clip scratch (pre-allocated, no per-buffer allocs).
     scratch_active_clips: Vec<ActiveClipInfo>,
@@ -246,7 +245,7 @@ impl RenderContext {
             channels: channels.max(1),
             meter_bank,
             loop_region: None,
-            streaming_windows: std::collections::HashMap::new(),
+            streaming_windows: Vec::with_capacity(32),
             // AUD-071 FIX: 128 active clips per buffer is the realistic max.
             // 1024 wastes 7× memory for the scratch Vec's backing allocation.
             scratch_active_clips: Vec::with_capacity(128),
@@ -456,7 +455,7 @@ impl RenderContext {
                             WarpResampleMode::Standard,
                         );
                     }
-                } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
+                } else if let Some((_, window)) = self.streaming_windows.iter().find(|(p, _)| p == &clip.file_path) {
                     total_pool_hits += 1;
                     let source_to_timeline_rate = (window.sample_rate().max(1) as f64
                         / self.sample_rate.max(1.0))

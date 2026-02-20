@@ -202,9 +202,7 @@ impl DspProcessor for FlangerProcessor {
             right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
 
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            self.lfo_phase = self.lfo_phase.fract();
             self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
         }
     }

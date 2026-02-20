@@ -52,6 +52,13 @@ pub enum EngineCommand {
     /// Set the loop region (start_sample, end_sample).
     SetLoopRegion { start: i64, end: i64 },
 
+    /// Atomically set BPM and Loop region to prevent desync (BUG-014).
+    SetBpmAndLoop {
+        bpm: f64,
+        loop_enabled: bool,
+        loop_region: Option<(i64, i64)>,
+    },
+
     // ── Track Control ────────────────────────────────────────────────
     /// Set a track's volume (linear gain, 0.0–2.0). `track_index` is 0-based.
     SetTrackVolume { track_index: u16, volume: f32 },

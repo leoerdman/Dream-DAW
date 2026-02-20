@@ -167,9 +167,7 @@ impl DspProcessor for PhaserProcessor {
             right[i] = right[i] * (1.0 - self.mix) + out_r * self.mix;
 
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            self.lfo_phase = self.lfo_phase.fract();
         }
     }
 

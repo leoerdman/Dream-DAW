@@ -664,8 +664,12 @@ fn disk_io_thread(
                         log::error!("DiskIO: too many errors, stopping: {}", e);
                         return;
                     }
-                    log::warn!("DiskIO: packet error: {}", e);
-                    thread::sleep(std::time::Duration::from_millis(1));
+                    log::warn!("DiskIO: packet error (#{consecutive_errors}): {}", e);
+                    // BUG-049 FIX: Exponential backoff (1→2→4→...→100ms) prevents
+                    // spinning at full CPU during sustained filesystem issues while
+                    // recovering quickly from transient errors.
+                    let backoff_ms = (1u64 << consecutive_errors.min(7)).min(100);
+                    thread::sleep(std::time::Duration::from_millis(backoff_ms));
                     continue;
                 }
             };

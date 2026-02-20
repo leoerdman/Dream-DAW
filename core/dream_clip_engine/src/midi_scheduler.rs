@@ -287,6 +287,11 @@ impl MidiScheduler {
     }
 
     /// Loop-aware MIDI scheduling into caller-provided scratch output.
+    ///
+    /// # ⚠ RT-Safety Warning
+    /// This allocates a temporary `Vec` internally. For real-time audio callbacks,
+    /// use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
+    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
     pub fn fill_active_looped(
         clips: &[MidiClip],
         playhead_pos: i64,
@@ -317,6 +322,11 @@ impl MidiScheduler {
     ///
     /// Without this, MIDI notes exactly at the first beat of the loop
     /// would be missed after the loop restarts.
+    ///
+    /// # ⚠ RT-Safety Warning
+    /// This allocates `Vec`s — do NOT use on the audio thread.
+    /// Use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
+    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
     pub fn find_active_looped(
         clips: &[MidiClip],
         playhead_pos: i64,

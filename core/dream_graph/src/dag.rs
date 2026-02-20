@@ -294,6 +294,7 @@ impl GraphBuilder {
     /// # Validation
     /// 1. Exactly one `MasterOutput` node must exist.
     /// 2. The graph must be acyclic (enforced per-edge, but double-checked here).
+    /// 3. Graph depth must not exceed MAX_GRAPH_DEPTH (BUG-027 FIX).
     pub fn build(self) -> Result<AudioDag, GraphError> {
         // ── 1. Check acyclicity ──────────────────────────────────
         if algo::is_cyclic_directed(&self.graph) {
@@ -314,6 +315,31 @@ impl GraphBuilder {
         }
 
         let master_idx = master_indices[0];
+
+        // ── 3. BUG-027 FIX: Validate maximum graph depth ─────────
+        // Prevent stack overflow in topological sort and excessive
+        // pipeline latency with deeply nested routing chains.
+        const MAX_GRAPH_DEPTH: usize = 64;
+        if let Ok(topo) = algo::toposort(&self.graph, None) {
+            let mut depth = vec![0usize; self.graph.node_bound()];
+            let mut max_depth = 0usize;
+            for &node_idx in &topo {
+                let mut node_depth = 0usize;
+                for edge in self.graph.edges_directed(node_idx, petgraph::Direction::Incoming) {
+                    let src = edge.source();
+                    node_depth = node_depth.max(depth[src.index()] + 1);
+                }
+                depth[node_idx.index()] = node_depth;
+                max_depth = max_depth.max(node_depth);
+            }
+            if max_depth > MAX_GRAPH_DEPTH {
+                log::warn!(
+                    "[AudioDag] Graph depth {} exceeds MAX_GRAPH_DEPTH {}. \
+                     This may cause excessive latency or stack overflow.",
+                    max_depth, MAX_GRAPH_DEPTH
+                );
+            }
+        }
 
         Ok(AudioDag {
             graph: self.graph,

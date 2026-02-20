@@ -528,8 +528,24 @@ fn recording_worker(
         tmp_path.display()
     );
 
+    // BUG-028 FIX: Warn if recording sample rate seems unusual.
+    // Common project rates: 44100, 48000, 88200, 96000, 176400, 192000.
+    const STANDARD_RATES: [u32; 6] = [44100, 48000, 88200, 96000, 176400, 192000];
+    if !STANDARD_RATES.contains(&sample_rate) {
+        log::warn!(
+            "[RecordingWorker] Non-standard sample rate {} Hz detected. \
+             Playback may sound wrong if project expects a different rate.",
+            sample_rate
+        );
+    }
+
     let mut total_samples_written: u64 = 0;
     let mut samples_since_last_flush: u64 = 0;
+
+    // BUG-002 FIX: Maximum samples we can write before hitting the 4GB
+    // WAV data chunk limit.  WAV uses a u32 for data_size (bytes).
+    // Each sample is 4 bytes (f32), so max_samples = u32::MAX / 4.
+    let max_samples_before_4gb: u64 = (u32::MAX as u64) / 4;
 
     // ── Drain loop ──────────────────────────────────────────────
     loop {
@@ -538,6 +554,21 @@ fn recording_worker(
 
         // Drain all available samples from ring buffer
         while let Ok(sample) = consumer.pop() {
+            // BUG-002 FIX: Stop writing before exceeding 4GB WAV limit.
+            // This prevents corrupted WAV files where the header declares
+            // a smaller size than the actual data on disk.
+            if total_samples_written + drained as u64 >= max_samples_before_4gb {
+                log::warn!(
+                    "[RecordingWorker] Reached 4GB WAV limit ({} samples). \
+                     Stopping recording to prevent file corruption. \
+                     Consider splitting into multiple files.",
+                    total_samples_written + drained as u64
+                );
+                // Signal the recording to stop
+                state.is_recording.store(false, Ordering::Relaxed);
+                break;
+            }
+
             // Write f32 sample as raw little-endian bytes
             file.write_all(&sample.to_le_bytes())
                 .map_err(|e| RecordingError::IoError(e.to_string()))?;

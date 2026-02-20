@@ -183,6 +183,29 @@ impl ClipPool {
     pub fn loaded_paths(&self) -> Vec<&str> {
         self.entries.keys().map(|k| k.as_str()).collect()
     }
+
+    /// BUG-047 FIX: Evicts pool entries not referenced by any clip in the project.
+    ///
+    /// Call this after deleting clips/tracks to reclaim memory from orphaned audio data.
+    /// Returns the number of entries evicted and bytes freed.
+    pub fn evict_unreferenced(&mut self, referenced_paths: &std::collections::HashSet<String>) -> (usize, usize) {
+        let before_count = self.entries.len();
+        let mut freed_bytes = 0usize;
+
+        self.entries.retain(|path, audio| {
+            if referenced_paths.contains(path) {
+                true
+            } else {
+                freed_bytes += audio.memory_bytes();
+                log::info!("ClipPool: evicted '{}' — {:.1} MB freed", path, audio.memory_bytes() as f64 / 1_048_576.0);
+                false
+            }
+        });
+
+        self.running_memory_bytes = self.running_memory_bytes.saturating_sub(freed_bytes);
+        let evicted = before_count - self.entries.len();
+        (evicted, freed_bytes)
+    }
 }
 
 impl Default for ClipPool {

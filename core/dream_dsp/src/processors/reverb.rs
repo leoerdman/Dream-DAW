@@ -93,11 +93,17 @@ impl AllpassFilter {
         }
     }
 
+    /// BUG-033 FIX: Allpass feedback coefficient.
+    /// Default 0.5 is the standard Schroeder value for natural decay.
+    /// Higher values (0.6–0.7) produce denser reverb; lower values (0.3–0.4)
+    /// produce cleaner but sparser reflections.
+    const AP_FEEDBACK: f32 = 0.5;
+
     #[inline]
     fn process(&mut self, input: f32) -> f32 {
         let buf_out = self.buffer[self.index];
         let output = -input + buf_out;
-        self.buffer[self.index] = input + buf_out * 0.5;
+        self.buffer[self.index] = input + buf_out * Self::AP_FEEDBACK;
         self.index = (self.index + 1) % self.buf_size;
         output
     }

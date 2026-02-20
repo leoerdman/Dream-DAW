@@ -42,10 +42,15 @@ pub enum Waveform {
 impl Waveform {
     pub fn from_u8(value: u8) -> Self {
         match value {
+            0 => Self::Sine,
             1 => Self::Triangle,
             2 => Self::Saw,
             3 => Self::Square,
-            _ => Self::Sine,
+            // BUG-084 FIX: Log a warning for unknown waveform values.
+            unknown => {
+                log::warn!("[Sampler] Unknown waveform value {}, defaulting to Sine", unknown);
+                Self::Sine
+            }
         }
     }
 }
@@ -204,7 +209,9 @@ impl AdsrEnvelope {
     pub fn process(&mut self) -> f32 {
         match self.stage {
             EnvelopeStage::Idle => {
-                self.level = 0.0;
+                // BUG-071 FIX: Don't redundantly set level=0 every sample.
+                // Level is already 0.0 from the transition. Only return.
+                return 0.0;
             }
             EnvelopeStage::Attack => {
                 self.level += self.attack_rate;
@@ -363,6 +370,10 @@ impl SamplerVoice {
 
         let last_idx = sample_len - 1;
 
+        // BUG-004 FIX: Number of samples for end-of-sample crossfade.
+        // Prevents click/pop when the voice reaches the end of the sample.
+        const END_FADE_FRAMES: usize = 16;
+
         for i in 0..frame_count {
             // Envelope
             let env = self.envelope.process();
@@ -391,7 +402,16 @@ impl SamplerVoice {
             let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
 
             // Apply velocity and envelope
-            let gain = self.velocity * env;
+            let mut gain = self.velocity * env;
+
+            // BUG-004 FIX: Apply linear fade-out when approaching end of sample
+            // to prevent click/pop. When within END_FADE_FRAMES of the end,
+            // linearly ramp gain to zero for a smooth transition.
+            let samples_remaining = last_idx.saturating_sub(idx);
+            if samples_remaining < END_FADE_FRAMES {
+                let fade = samples_remaining as f32 / END_FADE_FRAMES as f32;
+                gain *= fade;
+            }
 
             left_out[i] += l * gain;
             right_out[i] += r * gain;
@@ -882,8 +902,10 @@ fn render_oscillator_voice(
         let lfo_val = if lfo_depth > 0.0001 {
             let lfo_sample = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32;
             voice.lfo_phase += lfo_inc;
+            // BUG-099 FIX: Use fract() instead of subtraction to prevent
+            // floating-point precision loss over long playback sessions.
             if voice.lfo_phase >= 1.0 {
-                voice.lfo_phase -= 1.0;
+                voice.lfo_phase = voice.lfo_phase.fract();
             }
             lfo_sample * lfo_depth
         } else {

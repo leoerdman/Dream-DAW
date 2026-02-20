@@ -59,6 +59,10 @@ fn bypass_device_cmd(
 }
 
 /// Sets a parameter on a device in a track's insert chain.
+///
+/// NOTE (BUG-070): Internal DSP effect parameters are stored at the engine
+/// runtime level, not in the PluginSlot model. A future refactor should add
+/// a `params: Vec<f32>` field to PluginSlot for project-level persistence.
 #[tauri::command]
 fn set_device_param_cmd(
     track_index: u16,

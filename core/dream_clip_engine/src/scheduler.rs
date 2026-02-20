@@ -61,7 +61,8 @@ impl ClipScheduler {
         buffer_size: usize,
         out: &mut Vec<ActiveClipInfo>,
     ) {
-        let buffer_end = playhead_pos + buffer_size as i64;
+        // BUG-010 FIX: saturating_add prevents i64 overflow in long sessions.
+        let buffer_end = playhead_pos.saturating_add(buffer_size as i64);
         out.clear();
 
         for (clip_index, clip) in clips.iter().enumerate() {
@@ -145,6 +146,11 @@ impl ClipScheduler {
     }
 
     /// Loop-aware scheduler variant.
+    ///
+    /// # ⚠ RT-Safety Warning
+    /// This allocates a temporary `Vec` internally. For real-time audio callbacks,
+    /// use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
+    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
     pub fn fill_active_looped(
         clips: &[AudioClip],
         playhead_pos: i64,
@@ -173,9 +179,10 @@ impl ClipScheduler {
     /// # Returns
     /// A vector of `ActiveClip` descriptors for clips that need rendering.
     ///
-    /// # Real-Time Safety
-    /// This allocates a Vec — in production, use a pre-allocated scratch buffer.
-    /// For now, this is acceptable as clip counts are typically < 100 per track.
+    /// # ⚠ RT-Safety Warning
+    /// This allocates a `Vec` — do NOT use on the audio thread.
+    /// Use [`fill_active`](Self::fill_active) with a pre-allocated scratch buffer instead.
+    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active with pre-allocated buffer.")]
     pub fn find_active<'a>(
         clips: &'a [AudioClip],
         playhead_pos: i64,
@@ -212,6 +219,11 @@ impl ClipScheduler {
     /// - `playhead_pos`: Current playhead position in sample frames.
     /// - `buffer_size`: Size of the current audio buffer in frames.
     /// - `loop_region`: Optional loop region. If `None`, behaves like `find_active`.
+    ///
+    /// # ⚠ RT-Safety Warning
+    /// This allocates `Vec`s — do NOT use on the audio thread.
+    /// Use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
+    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
     pub fn find_active_looped<'a>(
         clips: &'a [AudioClip],
         playhead_pos: i64,

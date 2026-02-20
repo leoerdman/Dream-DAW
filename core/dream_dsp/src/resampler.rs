@@ -142,8 +142,10 @@ pub fn resample_channels(
             .map(|ch| {
                 let end = (pos + this_chunk).min(ch.len());
                 let mut chunk = ch[pos..end].to_vec();
-                // Pad with zeros if needed to fill chunk_size
-                chunk.resize(chunk_size, 0.0);
+                // BUG-017 FIX: Pad with the last sample value instead of 0.0
+                // to prevent discontinuity that causes sinc ringing at chunk boundaries.
+                let pad_value = chunk.last().copied().unwrap_or(0.0);
+                chunk.resize(chunk_size, pad_value);
                 chunk
             })
             .collect();

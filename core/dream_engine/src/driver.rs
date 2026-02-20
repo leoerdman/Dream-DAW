@@ -3060,6 +3060,29 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
+                        // ── BUG-075 FIX: Feed spectrum analyzer POST-fader ──
+                        if let Some(producer) = &mut render_ctx.spectrum_producer {
+                            let mut drops = 0u32;
+                            if channels >= 2 {
+                                for frame in data.chunks_exact(channels) {
+                                    let mono = (frame[0] + frame[1]) * 0.5;
+                                    if producer.push(mono).is_err() {
+                                        drops += 1;
+                                    }
+                                }
+                            } else if channels == 1 {
+                                for &sample in data.iter() {
+                                    if producer.push(sample).is_err() {
+                                        drops += 1;
+                                    }
+                                }
+                            }
+                            if drops > 0 {
+                                crate::render_callback::SPECTRUM_DROP_COUNT
+                                    .fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+
                         // Keep master metering in sync with the real final output,
                         // including sampler and preview contributions.
                         if channels >= 2 {

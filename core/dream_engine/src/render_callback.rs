@@ -742,25 +742,6 @@ impl RenderContext {
                 }
             }
         }
-
-        // ── Feed spectrum analyzer (lock-free push) ───────────────
-        if let Some(producer) = &mut self.spectrum_producer {
-            // BUG-81 FIX: Count dropped samples for diagnostics.
-            let mut drops = 0u32;
-            for i in 0..frame_count {
-                let mono = (master_l[i] + master_r[i]) * 0.5;
-                // Best-effort push: if ring buffer is full, drop oldest
-                // (no stalling the audio thread under any circumstances)
-                if producer.push(mono).is_err() {
-                    drops += 1;
-                }
-            }
-            if drops > 0 {
-                // BUG-FIX: Use dedicated SPECTRUM_DROP_COUNT instead of
-                // POOL_MISS_COUNT (SSOT violation — these are different metrics).
-                SPECTRUM_DROP_COUNT.fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
-                log::trace!("[Spectrum] Dropped {} samples (ring full)", drops);
-            }
         }
     }
 

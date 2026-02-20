@@ -385,6 +385,10 @@ pub struct PluginSlot {
     /// Kind/source tag for `external_preset_blob` (for diagnostics/reconstruction).
     #[serde(default)]
     pub external_preset_blob_kind: Option<String>,
+
+    /// BUG-070 FIX: Per-instance runtime parameter state for internal DSP effects.
+    #[serde(default)]
+    pub params: Option<Vec<f32>>,
 }
 
 impl PluginSlot {
@@ -410,6 +414,7 @@ impl PluginSlot {
             external_state_blob_kind: None,
             external_preset_blob: None,
             external_preset_blob_kind: None,
+            params: None,
         }
     }
 }

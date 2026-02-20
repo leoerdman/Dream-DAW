@@ -2,240 +2,55 @@
 use std::path::{Path, PathBuf};
 
 fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
-    let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
+    let pid = plugin_id.trim().to_lowercase();
+    let pname = plugin_name.trim().to_lowercase();
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // CRITICAL GUARD: Known third-party VST3/VST2 plugin families.
-    // These must NEVER be mapped to internal devices. If any keyword in
-    // the merged string matches a known third-party signature, bail out
-    // immediately so the caller can create a proper missing:// placeholder.
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const THIRD_PARTY_SIGNATURES: &[&str] = &[
-        // Cableguys
-        "shaperbox", "volumeshaper", "pancake", "filtershaper", "timeshaper",
-        "midishaper", "wideshaper", "kickshaper", "noiseshaper", "driveshaper",
-        // FabFilter
-        "fabfilter", "pro-q", "proq", "pro-c", "proc2", "pro-r", "pror",
-        "pro-l", "prol2", "pro-mb", "promb", "pro-ds", "pro-g",
-        // iZotope
-        "izotope", "ozone", "neutron", "nectar", "rx ", "vinyl",
-        // Waves
-        "waves ", "waveshell", "ssl ", "abbey road",
-        // Xfer Records
-        "serum", "serumfx", "ott ", "lfotool",
-        // Native Instruments
-        "kontakt", "reaktor", "massive", "battery", "guitar rig",
-        "fm8", "absynth", "supercharger",
-        // Soundtoys
-        "soundtoys", "decapitator", "echoboy", "crystallizer", "panman",
-        "radiator", "ein", "little",
-        // Valhalla
-        "valhalla", "val ",
-        // U-he
-        "u-he", "diva", "repro", "zebra", "hive", "presswerk",
-        // Arturia
-        "arturia", "pigments", "mini v", "jupiter", "jup-8",
-        // Slate Digital
-        "slate", "eiosis",
-        // Plugin Alliance
-        "plugin alliance", "brainworx", "bx_",
-        // Tokyo Dawn
-        "tdr ", "kotelnikov", "nova ",
-        // Kilohearts
-        "kilohearts", "phaseplant", "snapheap", "multipass",
-        // Spectrasonics
-        "omnisphere", "keyscape", "trilian",
-        // IK Multimedia
-        "amplitube", "t-racks", "tracks",
-        // Softube
-        "softube",
-        // Cherry Audio
-        "cherry audio",
-        // Output
-        "output portal", "output thermal",
-    ];
-    for sig in THIRD_PARTY_SIGNATURES {
-        if merged.contains(sig) {
-            log::debug!(
-                "[CanonicalPlugin] Skipping third-party plugin: '{}' / '{}' (matched '{}')",
-                plugin_id, plugin_name, sig
-            );
-            return None;
+    // 1. Direct XML Tag Matching (Ableton Native Devices)
+    // Ableton stores its internal devices using their exact XML tag names.
+    // We match these directly to avoid false positives on user-renamed racks/VSTs.
+    let is_vst = pid == "plugindevice" || pid == "auplugindevice";
+    if !is_vst {
+        match pid.as_str() {
+            "eq8" | "eqeight" | "channeleq" | "eqthree" => return Some(("internal://effect/eq-eight", "EQ", "effect")),
+            "compressor2" | "compressor" | "gluecompressor" | "drumbuss" | "multibanddynamics" | "transientshaper" => return Some(("internal://effect/compressor", "Compressor", "effect")),
+            "delay" | "echo" | "pingpongdelay" | "filterdelay" | "beatrepeat" | "graindelay" | "spectraltime" => return Some(("internal://effect/delay", "Delay", "effect")),
+            "reverb" | "hybridreverb" | "corpus" | "resonators" | "spectralresonator" => return Some(("internal://effect/reverb", "Reverb", "effect")),
+            "chorus" | "chorus2" | "ensemble" | "vibrato" => return Some(("internal://effect/chorus", "Chorus", "effect")),
+            "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift" => return Some(("internal://effect/utility", "Utility", "effect")),
+            "autopan" | "autopan2" => return Some(("internal://effect/auto-pan", "Auto Pan", "effect")),
+            "saturator" | "dynamictube" => return Some(("internal://effect/saturator", "Saturator", "effect")),
+            "spectrumanalyzer" | "spectrum" => return Some(("internal://effect/spectrum", "Spectrum", "effect")),
+            "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
+            "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
+            "redux" | "bitcrusher" => return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect")),
+            "autofilter" | "vocoder" => return Some(("internal://effect/auto-filter", "Auto Filter", "effect")),
+            "phasernew" | "phaser" | "phaserflanger" => return Some(("internal://effect/phaser", "Phaser", "effect")),
+            "flanger" => return Some(("internal://effect/flanger", "Flanger", "effect")),
+            "erosion" | "vinyldistortion" | "distortion" | "overdrive" | "amp" | "cabinet" | "pedal" | "roar" => return Some(("internal://effect/distortion", "Distortion", "effect")),
+            "noisemachine" => return Some(("internal://effect/noise-machine", "Noise Machine", "effect")),
+            
+            "midipitcher" => return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect")),
+            "mxdevicescale" | "midichord" => return Some(("internal://midi-fx/scale", "MIDI Scale", "effect")),
+            "mxdevicevelocity" | "midinotelength" | "midivelocity" => return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect")),
+            "mxdevicerandom" | "midiarpeggiator" | "midirandom" => return Some(("internal://midi-fx/random", "MIDI Random", "effect")),
+
+            "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => return Some(("internal://instrument/sampler", "Sampler", "instrument")),
+            "wavetable" | "operator" | "analog" | "collision" | "tension" | "electricpiano" | "instrumentmeld" | "drift" | "instrumentvector" | "loungelizard" | "ultraanalog" | "stringstudio" => return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument")),
+            
+            _ => {}
         }
     }
 
-    if compact.contains("originalsimpler") || compact.contains("drift") || compact.contains("instrumentvector") {
-        if compact.contains("originalsimpler") {
-            return Some(("internal://instrument/sampler", "Sampler", "instrument"));
-        }
-        return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
-    }
-
-    if merged.contains("operator")
-        || merged.contains("analog")
-        || merged.contains("wavetable")
-        || compact.contains("simplesinesynth")
-        || merged.contains("wave synth")
-        || compact.contains("wavesynth")
-        || compact.contains("instrumentvector")
-        || compact.contains("stringstudio")
-        || compact.contains("ultraanalog")
-        || compact.contains("collision")
-        || compact.contains("tension")
-        || compact.contains("electricpiano")
-        || compact.contains("instrumentmeld")
-        || compact.contains("mxdeviceinstrument")
-        || compact.contains("loungelizard")
-        || compact.contains("synthesizervstudio2")
-        || compact.contains("synthesizervstudio")
-    {
-        return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
-    }
-    if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
-        return Some(("internal://instrument/sampler", "Sampler", "instrument"));
-    }
-
-    // EQ matching — ONLY match Ableton-native EQ device tags/display names.
-    // Never match broad substrings like "eq" that would catch third-party
-    // plugins (Pro-Q 3, SlickEQ, etc.). The third-party guard above also
-    // catches FabFilter Pro-Q explicitly.
-    if compact.contains("eq8") || compact.contains("eqeight")
-        || compact.contains("channeleq") || compact.contains("eqthree")
-        || compact.contains("filtereq") || compact == "eq"
-        || merged == "eq eight" || merged == "channel eq" || merged == "eq three"
-    {
-        return Some(("internal://effect/eq-eight", "EQ", "effect"));
-    }
-    if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss")
-        || compact.contains("compressor2")
-    {
-        return Some(("internal://effect/compressor", "Compressor", "effect"));
-    }
-    // prol/nectar → Compressor: REMOVED. FabFilter Pro-L and iZotope Nectar
-    // are third-party plugins and are handled by the THIRD_PARTY_SIGNATURES
-    // guard above. They should never be mapped to internal devices.
-    if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong")
-        || compact.contains("beatrepeat") || compact.contains("graindelay")
-        || compact.contains("filterdelay") || compact.contains("spectraltime")
-    {
-        return Some(("internal://effect/delay", "Delay", "effect"));
-    }
-    if merged.contains("reverb") || merged.contains("corpus") || merged.contains("resonators")
-        || compact.contains("spectralresonator") || compact.contains("resonator")
-        || compact.contains("hybrid")
-    {
-        return Some(("internal://effect/reverb", "Reverb", "effect"));
-    }
-    if merged.contains("chorus") || compact.contains("chorus2") {
-        return Some(("internal://effect/chorus", "Chorus", "effect"));
-    }
-    if compact.contains("stereogain") {
-        return Some(("internal://effect/utility", "Utility", "effect"));
-    }
-    if compact.contains("autopan") || compact.contains("autopan2") {
-        return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
-    }
-    if compact.contains("midipitcher") {
-        return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect"));
-    }
-    if compact.contains("mxdevicescale") || compact == "scale" {
-        return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
-    }
-    if compact.contains("mxdevicevelocity") || compact == "velocity" {
-        return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
-    }
-    if compact.contains("midivelocity") {
-        return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
-    }
-    if compact.contains("midichord") {
-        return Some(("internal://midi-fx/scale", "MIDI Chord", "effect"));
-    }
-    if compact.contains("mxdevicerandom") || compact == "random" || compact.contains("midirandom") {
-        return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
-    }
-    if compact.contains("midiarpeggiator") {
-        return Some(("internal://midi-fx/random", "MIDI Arp", "effect"));
-    }
-    if compact.contains("midinotelength") {
-        return Some(("internal://midi-fx/velocity", "MIDI Note Length", "effect"));
-    }
-    if merged.contains("noise machine") || compact.contains("noisemachine") {
-        return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
-    }
-    if merged.contains("saturator") || compact.contains("dynamictube")
-        || compact == "tube"
-    {
-        return Some(("internal://effect/saturator", "Saturator", "effect"));
-    }
-    if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
-        return Some(("internal://effect/spectrum", "Spectrum", "effect"));
-    }
-    if compact.contains("span")
-        || compact.contains("youlean")
-        || compact.contains("loudnessmeter")
-        || compact.contains("psyscope")
-    {
-        return Some(("internal://effect/spectrum", "Spectrum", "effect"));
-    }
-    if merged.contains("utility") || merged.contains("looper") || merged.contains("tuner")
-        || compact.contains("frequencyshifter")
-        || compact.contains("shifter")
-        || compact.contains("autoshift")
-        || compact.contains("pitchhack") || compact.contains("spectral")
-        || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect")
-    {
-        return Some(("internal://effect/utility", "Utility", "effect"));
-    }
-    if compact.contains("reastream") || compact.contains("ozoneimager") {
-        return Some(("internal://effect/utility", "Utility", "effect"));
-    }
-    if merged.contains("limiter") {
-        return Some(("internal://effect/limiter", "Limiter", "effect"));
-    }
-    if merged.contains("gate") && !merged.contains("bitcrusher") {
-        return Some(("internal://effect/gate", "Gate", "effect"));
-    }
-    if compact.contains("redux") || compact.contains("bitcrusher") {
-        return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
-    }
-    if merged.contains("auto filter") || merged.contains("autofilter") {
-        return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
-    }
-    if merged.contains("phaser") {
-        return Some(("internal://effect/phaser", "Phaser", "effect"));
-    }
-    if compact.contains("phasernew") {
-        return Some(("internal://effect/phaser", "Phaser", "effect"));
-    }
-    if merged.contains("flanger") {
-        return Some(("internal://effect/flanger", "Flanger", "effect"));
-    }
-    // Ableton native distortion family — use precise matching to avoid
-    // catching third-party plugins (ShaperBox → "shaper", AmpliTube → "amp").
-    {
-        let pid = plugin_id.to_lowercase();
-        let pname = plugin_name.to_lowercase();
-        if merged.contains("distortion") || merged.contains("overdrive")
-            || merged.contains("erosion") || merged.contains("transmute")
-            || compact.contains("roar")
-            || merged.contains("transient shaper") || compact.contains("transientshaper")
-            || merged.contains("vinyl distortion") || compact.contains("vinyldistortion")
-            // Exact Ableton native device names (XML tags or display names).
-            // Only match when plugin_id IS the device tag or plugin_name IS
-            // the exact device name — never match substrings that could be
-            // part of third-party plugin names.
-            || pid == "pedal" || pname == "pedal"
-            || pid == "cabinet" || pname == "cabinet"
-            || pid == "amp" || pname == "amp"
-            || pid == "vocoder" || pname == "vocoder"
-        {
-            return Some(("internal://effect/distortion", "Distortion", "effect"));
+    // 2. Strict VST/Fallback Matching
+    // Only map VSTs to internal IF their display name exactly matches known fallbacks.
+    if is_vst {
+        match pname.as_str() {
+            "span" | "youlean loudness meter" | "loudness meter" | "psyscope" => return Some(("internal://effect/spectrum", "Spectrum", "effect")),
+            "synthesizer v studio 2 plugin" => return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument")),
+            _ => return None,
         }
     }
-    if compact.contains("hybrid") {
-        return Some(("internal://effect/reverb", "Reverb", "effect"));
-    }
+
     None
 }
 
@@ -334,7 +149,18 @@ fn beats_to_frames(beats: f64, bpm: f64, sample_rate: f64) -> i64 {
     if !beats.is_finite() || !bpm.is_finite() || !sample_rate.is_finite() || bpm <= 0.0 || sample_rate <= 0.0 {
         return 0;
     }
-    ((beats * 60.0 / bpm) * sample_rate).round() as i64
+    // Set a sensible minimum BPM to avoid division by zero or super close to zero.
+    let safe_bpm = bpm.max(0.001);
+    let frames = ((beats * 60.0 / safe_bpm) * sample_rate).round();
+
+    // BUG-067 FIX: Clamp to prevent overflow during cast to i64.
+    if frames >= i64::MAX as f64 {
+        i64::MAX
+    } else if frames <= i64::MIN as f64 {
+        i64::MIN
+    } else {
+        frames as i64
+    }
 }
 
 fn node_child_value(node: roxmltree::Node<'_, '_>, child_tag: &str) -> Option<String> {
@@ -586,6 +412,28 @@ fn parse_audio_clip_warp(
             markers.push(dream_models::project::WarpMarkerPoint { sec_time, beat_time });
         }
     }
+    // BUG-066 FIX: Validate and sort warp markers.
+    // Ensure markers are strictly monotonically ordered by both beat and sec time.
+    if !markers.is_empty() {
+        markers.sort_by(|a, b| {
+            a.beat_time
+                .partial_cmp(&b.beat_time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    a.sec_time
+                        .partial_cmp(&b.sec_time)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+
+        // dedup_by drops 'a' if the closure returns true.
+        // `b` is the previous element, `a` is the current element.
+        // We drop any marker that doesn't strictly increase in both time domains.
+        markers.dedup_by(|a, b| {
+            a.beat_time <= b.beat_time || a.sec_time <= b.sec_time
+        });
+    }
+
     (is_warped, warp_mode, markers)
 }
 

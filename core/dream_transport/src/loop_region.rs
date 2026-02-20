@@ -80,9 +80,13 @@ impl LoopRegion {
     }
 
     /// Sets the loop boundaries, ensuring start < end.
+    /// BUG-055 FIX: Forcefully disable if zero-length to prevent wrapping edge cases.
     pub fn set_range(&mut self, start: i64, end: i64) {
         self.start = start.min(end);
         self.end = start.max(end);
+        if self.start == self.end {
+            self.enabled = false;
+        }
     }
 
     /// Returns whether a sample position falls within the loop.

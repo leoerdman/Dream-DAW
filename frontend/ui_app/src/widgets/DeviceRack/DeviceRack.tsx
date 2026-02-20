@@ -732,58 +732,61 @@ export const DeviceRack = ({
                 selectedTrack.instrument?.id === id ? 'instrument' : isVst ? 'vst' : 'utility';
             const internalDef = getInternalPluginById(pluginIdLower);
             const mappedInternalType = internalDef?.id ? INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[internalDef.id] : undefined;
-            if (mappedInternalType) effectType = mappedInternalType;
-            else if (normalized.includes('sampler')) effectType = 'sampler';
-            else if (
-                normalized.includes('eq')
-                || normalized.includes('channel eq')
-                || normalized.includes('band eq')
-            ) effectType = 'eq';
-            else if (
-                normalized.includes('compressor')
-                || normalized.includes('transient shaper')
-                || normalized.includes('multiband dynamics')
-            ) effectType = 'compressor';
-            else if (
-                normalized.includes('delay')
-                || normalized.includes('echo')
-                || normalized.includes('beat repeat')
-                || normalized.includes('looper')
-                || normalized.includes('spectral time')
-            ) effectType = 'delay';
-            else if (
-                normalized.includes('reverb')
-                || normalized.includes('corpus')
-                || normalized.includes('resonators')
-                || normalized.includes('spectral resonator')
-            ) effectType = 'reverb';
-            else if (normalized.includes('chorus')) effectType = 'chorus';
-            else if (normalized.includes('saturator') || normalized.includes('drum buss') || normalized.includes('dynamic tube')) effectType = 'saturator';
-            else if (normalized.includes('limiter')) effectType = 'limiter';
-            else if (normalized.includes('gate')) effectType = 'gate';
-            else if (normalized.includes('auto pan') || normalized.includes('auto-pan') || normalized.includes('autopan')) effectType = 'autoPan';
-            else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter') || normalized.includes('vocoder')) effectType = 'autoFilter';
-            else if (normalized.includes('phaser') || normalized.includes('phaser-flanger')) effectType = 'phaser';
-            else if (normalized.includes('flanger')) effectType = 'flanger';
-            else if (
-                normalized.includes('distortion')
-                || normalized.includes('amp')
-                || normalized.includes('cabinet')
-                || normalized.includes('overdrive')
-                || normalized.includes('pedal')
-                || normalized.includes('roar')
-            ) effectType = 'distortion';
-            else if (normalized.includes('bitcrusher') || normalized.includes('bit-crusher')) effectType = 'bitcrusher';
-            else if (normalized.includes('noise-machine') || normalized.includes('noise machine') || normalized.includes('noisemachine')) effectType = 'noiseMachine';
-            else if (normalized.includes('spectrum')) effectType = 'spectrum';
-            else if (normalized.includes('internal://midi-fx/pitch') || normalized.includes('midipitch')) effectType = 'midiPitch';
-            else if (normalized.includes('internal://midi-fx/scale') || normalized.includes('midiscale')) effectType = 'midiScale';
-            else if (normalized.includes('internal://midi-fx/velocity') || normalized.includes('midivelocity')) effectType = 'midiVelocity';
-            else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
-            else if (normalized.includes('arpeggiator')) effectType = 'midiRandom';
-            else if (normalized.includes('chord')) effectType = 'midiScale';
-            else if (normalized.includes('note length') || normalized.includes('cc control') || normalized.includes('expression control')) effectType = 'midiVelocity';
-            else if (selectedTrack.instrument?.id === id && !isVst) effectType = 'instrument';
+            if (mappedInternalType) {
+                effectType = mappedInternalType;
+            } else if (!isVst) {
+                if (normalized.includes('sampler')) effectType = 'sampler';
+                else if (
+                    normalized.includes('eq')
+                    || normalized.includes('channel eq')
+                    || normalized.includes('band eq')
+                ) effectType = 'eq';
+                else if (
+                    normalized.includes('compressor')
+                    || normalized.includes('transient shaper')
+                    || normalized.includes('multiband dynamics')
+                ) effectType = 'compressor';
+                else if (
+                    normalized.includes('delay')
+                    || normalized.includes('echo')
+                    || normalized.includes('beat repeat')
+                    || normalized.includes('looper')
+                    || normalized.includes('spectral time')
+                ) effectType = 'delay';
+                else if (
+                    normalized.includes('reverb')
+                    || normalized.includes('corpus')
+                    || normalized.includes('resonators')
+                    || normalized.includes('spectral resonator')
+                ) effectType = 'reverb';
+                else if (normalized.includes('chorus')) effectType = 'chorus';
+                else if (normalized.includes('saturator') || normalized.includes('drum buss') || normalized.includes('dynamic tube')) effectType = 'saturator';
+                else if (normalized.includes('limiter')) effectType = 'limiter';
+                else if (normalized.includes('gate')) effectType = 'gate';
+                else if (normalized.includes('auto pan') || normalized.includes('auto-pan') || normalized.includes('autopan')) effectType = 'autoPan';
+                else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter') || normalized.includes('vocoder')) effectType = 'autoFilter';
+                else if (normalized.includes('phaser') || normalized.includes('phaser-flanger')) effectType = 'phaser';
+                else if (normalized.includes('flanger')) effectType = 'flanger';
+                else if (
+                    normalized.includes('distortion')
+                    || normalized.includes('amp')
+                    || normalized.includes('cabinet')
+                    || normalized.includes('overdrive')
+                    || normalized.includes('pedal')
+                    || normalized.includes('roar')
+                ) effectType = 'distortion';
+                else if (normalized.includes('bitcrusher') || normalized.includes('bit-crusher')) effectType = 'bitcrusher';
+                else if (normalized.includes('noise-machine') || normalized.includes('noise machine') || normalized.includes('noisemachine')) effectType = 'noiseMachine';
+                else if (normalized.includes('spectrum')) effectType = 'spectrum';
+                else if (normalized.includes('internal://midi-fx/pitch') || normalized.includes('midipitch')) effectType = 'midiPitch';
+                else if (normalized.includes('internal://midi-fx/scale') || normalized.includes('midiscale')) effectType = 'midiScale';
+                else if (normalized.includes('internal://midi-fx/velocity') || normalized.includes('midivelocity')) effectType = 'midiVelocity';
+                else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
+                else if (normalized.includes('arpeggiator')) effectType = 'midiRandom';
+                else if (normalized.includes('chord')) effectType = 'midiScale';
+                else if (normalized.includes('note length') || normalized.includes('cc control') || normalized.includes('expression control')) effectType = 'midiVelocity';
+                else if (selectedTrack.instrument?.id === id) effectType = 'instrument';
+            }
 
             const guiMode = internalDef?.id || effectType;
 

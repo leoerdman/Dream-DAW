@@ -253,6 +253,8 @@ export const TransportBar = ({
 
     useEffect(() => {
         let unlisten: UnlistenFn | null = null;
+        let cancelled = false;
+
         void listen<Record<string, unknown>>('midi_event_received', () => {
             const led = midiLedRef.current;
             if (!led) return;
@@ -264,12 +266,13 @@ export const TransportBar = ({
                 if (midiLedRef.current) midiLedRef.current.style.opacity = '0.35';
             }, 50);
         }).then((fn) => {
-            unlisten = fn;
+            if (cancelled) fn(); else unlisten = fn;
         }).catch((err) => {
             console.error('[TransportBar] midi_event_received listener failed:', err);
         });
 
         return () => {
+            cancelled = true;
             if (midiLedTimerRef.current !== null) {
                 window.clearTimeout(midiLedTimerRef.current);
                 midiLedTimerRef.current = null;

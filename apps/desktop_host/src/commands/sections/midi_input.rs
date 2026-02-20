@@ -85,23 +85,27 @@ fn connect_midi_input(
                 let engine_handle: tauri::State<'_, AudioEngineHandle> = app_for_cb.state();
                 match status {
                     0x90 if velocity > 0 => {
-                        let _ = push_command(
+                        if let Err(e) = push_command(
                             &engine_handle,
                             EngineCommand::SamplerNoteOn {
                                 track_index: target_track as u16,
                                 pitch: note,
                                 velocity,
                             },
-                        );
+                        ) {
+                            log::error!("[MIDI] Failed to push SamplerNoteOn for track {}: {}", target_track, e);
+                        }
                     }
                     0x80 | 0x90 => {
-                        let _ = push_command(
+                        if let Err(e) = push_command(
                             &engine_handle,
                             EngineCommand::SamplerNoteOff {
                                 track_index: target_track as u16,
                                 pitch: note,
                             },
-                        );
+                        ) {
+                            log::error!("[MIDI] Failed to push SamplerNoteOff for track {}: {}", target_track, e);
+                        }
                     }
                     _ => {}
                 }

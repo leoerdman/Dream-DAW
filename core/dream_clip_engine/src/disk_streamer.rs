@@ -103,23 +103,18 @@ impl StreamingWindow {
     ///
     /// If a chunk with the same start_frame already exists, it is replaced.
     pub fn push_chunk(&mut self, chunk: StreamChunk) {
-        // Find insertion point (sorted by start_frame)
+        // BUG-048 FIX: Binary search instead of O(n) linear search.
         let pos = self
             .chunks
-            .iter()
-            .position(|c| c.start_frame >= chunk.start_frame);
+            .binary_search_by_key(&chunk.start_frame, |c| c.start_frame);
 
         match pos {
-            Some(idx) => {
-                if self.chunks[idx].start_frame == chunk.start_frame {
-                    // Replace existing chunk at same position
-                    self.chunks[idx] = chunk;
-                } else {
-                    self.chunks.insert(idx, chunk);
-                }
+            Ok(idx) => {
+                // Replace existing chunk at same position
+                self.chunks[idx] = chunk;
             }
-            None => {
-                self.chunks.push_back(chunk);
+            Err(idx) => {
+                self.chunks.insert(idx, chunk);
             }
         }
 
@@ -567,6 +562,7 @@ fn disk_io_thread(
     let mut needs_seek = false;
     let mut consecutive_errors = 0u32;
     let mut pending_chunk: Option<StreamChunk> = None;
+    let mut pending_retries = 0u32;
     // BUG-051 FIX: Pre-allocate SampleBuffer outside the loop to avoid
     // allocating a new one for every decoded packet. Lazily initialized
     // because we need the AudioSpec from the first decoded packet.
@@ -588,8 +584,16 @@ fn disk_io_thread(
             match producer.push(chunk) {
                 Ok(()) => {
                     // Successfully delivered; continue with normal prefetch.
+                    pending_retries = 0;
                 }
                 Err(rtrb::PushError::Full(chunk)) => {
+                    pending_retries += 1;
+                    if pending_retries > 2000 {
+                        log::warn!("DiskIO: dropping pending chunk after 2s of back-pressure");
+                        pending_retries = 0;
+                        // Chunk is dropped
+                        continue;
+                    }
                     pending_chunk = Some(chunk);
                     thread::sleep(std::time::Duration::from_millis(1));
                     continue;
@@ -745,7 +749,9 @@ fn disk_io_thread(
             Err(rtrb::PushError::Full(chunk)) => {
                 // Ring buffer full — preserve the already decoded chunk and retry
                 // on the next loop iteration instead of decoding it again.
+                // BUG-050 FIX: Cap retry limit to avoid infinite loop.
                 pending_chunk = Some(chunk);
+                pending_retries = 1;
                 thread::sleep(std::time::Duration::from_millis(1));
             }
         }

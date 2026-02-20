@@ -154,33 +154,52 @@ impl OfflineBouncer {
         render_ctx: &mut RenderContext,
         routing: &[Option<usize>],
     ) {
-        let any_solo = project.tracks.iter().any(|t| t.is_solo);
+        let num_tracks = project.tracks.len();
+        let mut is_explicit_solo = vec![false; num_tracks];
+        let mut is_explicit_mute = vec![false; num_tracks];
 
-        // ── Phase 1: Determine per-track enabled state ──────────────
-        let track_enabled: Vec<bool> = project
-            .tracks
-            .iter()
-            .map(|track| !track.is_mute && (!any_solo || track.is_solo))
-            .collect();
+        for (i, track) in project.tracks.iter().enumerate() {
+            is_explicit_solo[i] = track.is_solo;
+            is_explicit_mute[i] = track.is_mute;
+        }
 
-        // ── Phase 2: Propagate group mute/solo to children ──────────
-        // BUG-21 FIX: Use transitive closure instead of single pass.
-        // If group A→B→C and C is muted, both B and A must be disabled.
-        // Iterate until no changes occur (convergence in O(depth) passes).
-        let mut effective_enabled = track_enabled.clone();
+        let any_solo = is_explicit_solo.iter().any(|&s| s);
+
+        let mut effective_mute = is_explicit_mute.clone();
+        let mut effective_solo = is_explicit_solo.clone();
+
+        // ── BUG-076 FIX: Topology-aware implicit mute/solo propagation ──
+        
+        // 1. Propagate DOWN: If parent muted → child muted. If parent soloed → child soloed.
         loop {
             let mut changed = false;
-            for (src_idx, dest) in routing.iter().enumerate() {
-                if let Some(group_idx) = dest {
-                    if effective_enabled[src_idx] && !effective_enabled[*group_idx] {
-                        effective_enabled[src_idx] = false;
+            for i in 0..num_tracks {
+                if let Some(parent_idx) = routing[i] {
+                    if effective_mute[parent_idx] && !effective_mute[i] {
+                        effective_mute[i] = true;
+                        changed = true;
+                    }
+                    if effective_solo[parent_idx] && !effective_solo[i] {
+                        effective_solo[i] = true;
                         changed = true;
                     }
                 }
             }
-            if !changed {
-                break;
+            if !changed { break; }
+        }
+
+        // 2. Propagate UP: If child soloed → parent implicitly soloed (safe-solo)
+        loop {
+            let mut changed = false;
+            for i in 0..num_tracks {
+                if let Some(parent_idx) = routing[i] {
+                    if effective_solo[i] && !effective_solo[parent_idx] {
+                        effective_solo[parent_idx] = true;
+                        changed = true;
+                    }
+                }
             }
+            if !changed { break; }
         }
 
         for (idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
@@ -195,7 +214,9 @@ impl OfflineBouncer {
             slot.strip.set_volume(track.volume.clamp(0.0, 2.0) as f32);
             slot.strip.set_pan(track.pan.clamp(-1.0, 1.0) as f32);
 
-            let enabled = effective_enabled.get(idx).copied().unwrap_or(false);
+            let enabled = !effective_mute.get(idx).copied().unwrap_or(false)
+                && (!any_solo || effective_solo.get(idx).copied().unwrap_or(false));
+
             slot.strip
                 .set_effective_gain(if enabled { 1.0 } else { 0.0 });
             slot.strip.set_output_enabled(enabled);

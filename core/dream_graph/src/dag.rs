@@ -366,12 +366,6 @@ impl GraphBuilder {
             master_idx,
         })
     }
-
-    /// Finds the petgraph NodeIndex for a given stable NodeId.
-    /// GR-001 FIX: O(1) via HashMap (was O(n) linear scan).
-    fn find_index(&self, id: NodeId) -> Result<NodeIndex, GraphError> {
-        self.id_map.get(&id).copied().ok_or(GraphError::NodeNotFound(id))
-    }
 }
 
 impl Default for GraphBuilder {

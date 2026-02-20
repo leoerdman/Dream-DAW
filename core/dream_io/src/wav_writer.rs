@@ -45,6 +45,33 @@ impl From<hound::Error> for WavWriterError {
     }
 }
 
+/// Simple XorShift PRNG for Triangular Probability Density Function (TPDF) dithering.
+struct TpdfDither {
+    state: u32,
+}
+
+impl TpdfDither {
+    fn new() -> Self {
+        Self { state: 0x82f63b78 } // Arbitrary non-zero seed
+    }
+
+    #[inline(always)]
+    fn next_f32(&mut self) -> f32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.state = x;
+        (x as f32) / (u32::MAX as f32)
+    }
+
+    /// Returns a TPDF random value in the range [-1.0, 1.0].
+    #[inline(always)]
+    fn dither(&mut self) -> f32 {
+        self.next_f32() - self.next_f32()
+    }
+}
+
 /// WAV file writer for audio export.
 pub struct WavWriter;
 
@@ -61,6 +88,8 @@ pub struct StreamingWavWriter {
     sample_rate: u32,
     bit_depth: u16,
     frames_written: usize,
+    /// BUG-073 FIX: State for PRNG used for TPDF dithering across chunks.
+    dither: TpdfDither,
 }
 
 /// BUG-069 FIX: Finalize WAV header on drop to prevent corrupted files.
@@ -113,6 +142,7 @@ impl WavWriter {
             sample_rate,
             bit_depth,
             frames_written: 0,
+            dither: TpdfDither::new(),
         })
     }
 
@@ -147,18 +177,20 @@ impl WavWriter {
 
         match bit_depth {
             16 => {
+                let mut dither = TpdfDither::new();
                 for &sample in samples {
-                    let clamped = sample.clamp(-1.0, 1.0);
-                    let int_sample = (clamped * i16::MAX as f32) as i16;
+                    let val = (sample * 32767.0) + dither.dither();
+                    let int_sample = val.clamp(i16::MIN as f32, i16::MAX as f32).round() as i16;
                     writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
             }
             24 => {
+                let mut dither = TpdfDither::new();
                 for &sample in samples {
-                    let clamped = sample.clamp(-1.0, 1.0);
-                    let int_sample = (clamped * 8_388_607.0) as i32; // 2^23 - 1
+                    let val = (sample * 8_388_607.0) + dither.dither();
+                    let int_sample = val.clamp(-8_388_608.0, 8_388_607.0).round() as i32;
                     writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
@@ -260,8 +292,8 @@ impl StreamingWavWriter {
         match self.bit_depth {
             16 => {
                 for &sample in samples {
-                    let clamped = sample.clamp(-1.0, 1.0);
-                    let int_sample = (clamped * i16::MAX as f32) as i16;
+                    let val = (sample * 32767.0) + self.dither.dither();
+                    let int_sample = val.clamp(i16::MIN as f32, i16::MAX as f32).round() as i16;
                     writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
@@ -269,8 +301,8 @@ impl StreamingWavWriter {
             }
             24 => {
                 for &sample in samples {
-                    let clamped = sample.clamp(-1.0, 1.0);
-                    let int_sample = (clamped * 8_388_607.0) as i32;
+                    let val = (sample * 8_388_607.0) + self.dither.dither();
+                    let int_sample = val.clamp(-8_388_608.0, 8_388_607.0).round() as i32;
                     writer
                         .write_sample(int_sample)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;

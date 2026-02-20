@@ -163,6 +163,7 @@ async fn delete_track_cmd(
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
+    clip_pool_state.evict_unused_clips(&project_state);
     log::info!("[IPC] delete_track_cmd: index={} name='{}' (now {} tracks)", index, removed_name, track_count);
     Ok(())
 }

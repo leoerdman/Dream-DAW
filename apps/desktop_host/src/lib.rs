@@ -2606,6 +2606,57 @@ impl ClipPoolState {
         // Push to the audio thread's lock-free ArcSwap
         self.sync_pool_to_arc();
     }
+
+    /// Evicts clips from the pool that are NO LONGER referenced by the current project
+    /// OR the undo/redo history stacks. This prevents memory leaks on clip deletion,
+    /// while preserving audio data so Undo works instantly without glitches.
+    pub fn evict_unused_clips(&self, project_state: &ProjectState) {
+        let mut referenced_paths = std::collections::HashSet::new();
+
+        // 1. Scan current project
+        if let Ok(project) = project_state.project.lock() {
+            for track in &project.tracks {
+                for clip in &track.clips {
+                    if !clip.file_path.trim().is_empty() && !clip.file_path.starts_with("internal://") {
+                        referenced_paths.insert(clip.file_path.clone());
+                    }
+                }
+                if let Some(sampler) = &track.sampler {
+                    if !sampler.sample_path.trim().is_empty() && !sampler.sample_path.starts_with("internal://") {
+                        referenced_paths.insert(sampler.sample_path.clone());
+                    }
+                }
+            }
+        }
+
+        // 2. Scan undo/redo history
+        if let Ok(undo) = project_state.undo.lock() {
+            for snapshot in undo.undo_stack.iter().chain(undo.redo_stack.iter()) {
+                let p = snapshot.to_project();
+                for track in &p.tracks {
+                    for clip in &track.clips {
+                        if !clip.file_path.trim().is_empty() && !clip.file_path.starts_with("internal://") {
+                            referenced_paths.insert(clip.file_path.clone());
+                        }
+                    }
+                    if let Some(sampler) = &track.sampler {
+                        if !sampler.sample_path.trim().is_empty() && !sampler.sample_path.starts_with("internal://") {
+                            referenced_paths.insert(sampler.sample_path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Evict from pool
+        if let Ok(mut pool) = self.pool.lock() {
+            let (evicted, freed) = pool.evict_unreferenced(&referenced_paths);
+            if evicted > 0 {
+                log::info!("[ClipPool] Evicted {} unused clips ({:.1} MB freed)", evicted, freed as f64 / 1_048_576.0);
+            }
+        }
+        self.sync_pool_to_arc();
+    }
 }
 
 /// Runtime state for live recording sessions.

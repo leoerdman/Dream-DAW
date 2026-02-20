@@ -365,10 +365,11 @@ export const DawShell = () => {
     // Event-driven audio failover: when backend reports stream errors
     // (device unplugged / backend failure), auto-switch to pinned fallback.
     useEffect(() => {
-        let unlisten: (() => void) | undefined;
+        let unlisten: (() => void) | null = null;
+        let cancelled = false;
 
         const setup = async () => {
-            unlisten = await listen<{ error?: string }>('audio_stream_error', async (event) => {
+            const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
                 const now = Date.now();
                 if (recoveringAudioRef.current) return;
                 if (now - lastAudioRecoverAtRef.current < 3000) return;
@@ -399,10 +400,12 @@ export const DawShell = () => {
                     recoveringAudioRef.current = false;
                 }
             });
+            if (cancelled) fn(); else unlisten = fn;
         };
 
         void setup();
         return () => {
+            cancelled = true;
             if (unlisten) unlisten();
         };
     }, []);
@@ -1659,33 +1662,38 @@ export const DawShell = () => {
             </div>
 
             {/* ═══ SETTINGS MODAL ═══ */}
-            <Suspense fallback={null}>
-                <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-            </Suspense>
+            <ErrorBoundary module="Settings">
+                <Suspense fallback={null}>
+                    <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+                </Suspense>
+            </ErrorBoundary>
 
-            <Suspense fallback={null}>
-                <MissingAssetsPanel isOpen={missingAssetsOpen && missingMediaSummary.total > 0} onClose={() => setMissingAssetsOpen(false)} />
-            </Suspense>
+            <ErrorBoundary module="Resolver">
+                <Suspense fallback={null}>
+                    <MissingAssetsPanel isOpen={missingAssetsOpen && missingMediaSummary.total > 0} onClose={() => setMissingAssetsOpen(false)} />
+                </Suspense>
+            </ErrorBoundary>
 
             {/* Drop overlay removed — asset drops handled directly by Timeline/AssetBrowser */}
             {/* ── Export Modal ── */}
-            <Suspense fallback={null}>
-                <ExportModal
-                    isOpen={exportOpen}
-                    onClose={() => setExportOpen(false)}
-                    projectName={
-                        projectFilePath
-                            ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled'
-                            : 'Untitled'
-                    }
-                    selectedClipIds={selectedClipIds}
-                    allClips={timelineClipsForView}
-                    bpm={projectBpm || transportBpm || 120}
-                    sampleRate={projectSampleRate}
-                    loopStartBeat={loopStartBeat}
-                    loopEndBeat={loopEndBeat}
-                />
-            </Suspense>
+            <ErrorBoundary module="Export">
+                <Suspense fallback={null}>
+                    <ExportModal
+                        isOpen={exportOpen}
+                        onClose={() => setExportOpen(false)}
+                        projectName={
+                            projectFilePath
+                                ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled'
+                                : 'Untitled'
+                        }
+                        selectedClipIds={selectedClipIds}
+                        allClips={timelineClipsForView}
+                        bpm={projectBpm || transportBpm || 120}
+                        sampleRate={projectSampleRate}
+                        loopEndBeat={loopEndBeat}
+                    />
+                </Suspense>
+            </ErrorBoundary>
 
             <Suspense fallback={null}>
                 <BlockingJobPopup />

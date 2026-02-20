@@ -3122,13 +3122,15 @@ fn set_slot_bypass_cmd(
     // so the internal sampler stops producing audio immediately.
     if is_instrument {
         if let Some(ti) = track_index {
-            let _ = push_command(
+            if let Err(e) = push_command(
                 &handle,
                 EngineCommand::BypassInstrument {
                     track_index: ti as u16,
                     bypassed,
                 },
-            );
+            ) {
+                log::error!("[IPC] Failed to push BypassInstrument command for track {}: {}", ti, e);
+            }
         }
     }
 
@@ -3375,11 +3377,13 @@ fn paste_device_to_track_cmd(
     // Send AddDevice engine command for internal effects.
     if let Some((tid, slot_index, effect_type)) = runtime_add {
         if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == tid) {
-            let _ = push_command(&handle, EngineCommand::AddDevice {
+            if let Err(e) = push_command(&handle, EngineCommand::AddDevice {
                 track_index: runtime_track_index as u16,
                 slot_index,
                 effect_type,
-            });
+            }) {
+                log::error!("[IPC] Failed to push AddDevice command for track {}: {}", runtime_track_index, e);
+            }
         }
     }
 

@@ -810,6 +810,8 @@ async fn delete_clip_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
+    clip_pool_state.evict_unused_clips(&project_state);
+
     Ok(())
 }
 

@@ -324,6 +324,16 @@ fn set_loop(
             end: end_frames,
         })?;
         push_command(&handle, EngineCommand::SetLoopEnabled(true))?;
+
+        // BUG-061 FIX: Auto-seek to loop start when enabled during playback outside the region.
+        let is_playing = {
+            let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            state.is_playing
+        };
+        let pos = handle.master_clock.position();
+        if is_playing && (pos < start_frames || pos >= end_frames) {
+            push_command(&handle, EngineCommand::Seek(start_frames))?;
+        }
     } else {
         push_command(&handle, EngineCommand::SetLoopEnabled(false))?;
     }

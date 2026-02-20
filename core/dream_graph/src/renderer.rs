@@ -28,7 +28,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dag::{AudioDag, AudioNode, EdgeDelayCompensation, ExecutionPlan, NodeKind};
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, NodeIndexable};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -324,8 +324,8 @@ pub struct GraphRenderer {
     /// Pre-allocated per-node audio buffers, indexed by NodeIndex.
     node_buffers: Vec<NodeBuffer>,
 
-    /// PDC delay lines, one per node.
-    pdc_delays: Vec<PdcDelayLine>,
+    // GR-028 FIX: Removed node-level PDC to prevent double-compensation.
+    // Edge-Level PDC handles all alignment and routing completely.
 
     /// Edge-level PDC delay lines.
     edge_pdc_delays: Vec<EdgeDelayRuntime>,
@@ -359,15 +359,12 @@ impl GraphRenderer {
         let frame_count = max_frames.min(MAX_BUFFER_FRAMES);
 
         let mut node_buffers = Vec::with_capacity(node_count);
-        let mut pdc_delays = Vec::with_capacity(node_count);
         for _ in 0..node_count {
             node_buffers.push(NodeBuffer::new(frame_count));
-            pdc_delays.push(PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES));
         }
 
         Self {
             node_buffers,
-            pdc_delays,
             edge_pdc_delays: Vec::new(),
             edge_inputs_by_dst: vec![Vec::new(); node_count.max(1)],
             edge_scratch: NodeBuffer::new(frame_count),
@@ -384,41 +381,20 @@ impl GraphRenderer {
     /// # NOT Real-Time Safe
     /// May resize internal structures if needed.
     pub fn update_plan(&mut self, plan: &ExecutionPlan, dag: &AudioDag) {
-        self.active_node_count = if !plan.processing_order.is_empty() {
-            plan.processing_order.len()
-        } else {
-            plan.parallel_stages.iter().map(|s| s.len()).sum()
-        };
+        // GR-026 FIX: active_node_count must encompass the max node index.
+        // Otherwise petgraph sparse indices cause OOB when mapped down.
+        self.active_node_count = dag.graph().node_bound();
 
         // Ensure we have enough buffers
         while self.node_buffers.len() < self.active_node_count {
             self.node_buffers.push(NodeBuffer::new(self.max_frames));
-            self.pdc_delays
-                .push(PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES));
         }
 
         while self.edge_inputs_by_dst.len() < self.node_buffers.len() {
             self.edge_inputs_by_dst.push(Vec::new());
         }
 
-        // Update PDC delay values
-        if !plan.processing_order.is_empty() {
-            for &node_idx in &plan.processing_order {
-                let idx = node_idx.index();
-                if idx < plan.delay_compensation.len() && idx < self.pdc_delays.len() {
-                    self.pdc_delays[idx].set_delay(plan.delay_compensation[idx] as usize);
-                }
-            }
-        } else {
-            for stage in &plan.parallel_stages {
-                for &node_idx in stage {
-                    let idx = node_idx.index();
-                    if idx < plan.delay_compensation.len() && idx < self.pdc_delays.len() {
-                        self.pdc_delays[idx].set_delay(plan.delay_compensation[idx] as usize);
-                    }
-                }
-            }
-        }
+        // GR-028 FIX: Removed double-delay computation. Node PDC is ignored here.
 
         self.configure_edge_pdc(&plan.edge_delay_compensation, dag);
 
@@ -428,7 +404,7 @@ impl GraphRenderer {
 
         // Log the plan for diagnostics
         log::info!(
-            "[GraphRenderer] Plan updated: {} nodes, {} stages, {} node-PDC, {} edge-PDC",
+            "[GraphRenderer] Plan updated: {} bounded nodes, {} stages, {} node-PDC (ignored), {} edge-PDC",
             self.active_node_count,
             plan.parallel_stages.len(),
             plan.delay_compensation.iter().filter(|&&d| d > 0).count(),
@@ -615,14 +591,7 @@ impl GraphRenderer {
             NodeKind::MasterOutput => {}
         }
 
-        // c) Apply PDC delay compensation on node output.
-        if idx < self.pdc_delays.len() {
-            self.pdc_delays[idx].process(
-                &mut buf.left[..frame_count],
-                &mut buf.right[..frame_count],
-                frame_count,
-            );
-        }
+        // GR-028 FIX: Apply Node PDC block removed. Edge PDC handles alignment automatically.
 
         // d) Master node copies to final output.
         if matches!(&node.kind, NodeKind::MasterOutput) {
@@ -723,9 +692,6 @@ impl GraphRenderer {
     pub fn reset(&mut self) {
         for buf in &mut self.node_buffers {
             buf.clear(self.max_frames);
-        }
-        for delay in &mut self.pdc_delays {
-            delay.reset();
         }
         for edge in &mut self.edge_pdc_delays {
             edge.delay.reset();
@@ -844,50 +810,6 @@ mod tests {
         assert_eq!(out_l[255], 1.0);
     }
 
-    #[test]
-    fn renderer_applies_track_output_pdc() {
-        let dag = build_simple_dag();
-        let order = dag.topological_order().unwrap();
-        let mut compensation = vec![0u32; dag.graph().node_count()];
-        let track_idx = dag
-            .graph()
-            .node_indices()
-            .find(|&i| matches!(dag.node(i).kind, NodeKind::Track { .. }))
-            .unwrap();
-        compensation[track_idx.index()] = 2;
-        let plan = ExecutionPlan {
-            processing_order: order.clone(),
-            delay_compensation: compensation,
-            edge_delay_compensation: Vec::new(),
-            parallel_stages: dag.parallel_stages_from_order(&order),
-            parallelism_metrics: dag.parallelism_metrics_from_order(&order),
-        };
-
-        let mut renderer = GraphRenderer::new(16, 16);
-        renderer.update_plan(&plan, &dag);
-
-        let mut out_l = vec![0.0f32; 8];
-        let mut out_r = vec![0.0f32; 8];
-
-        renderer.render(
-            &plan,
-            &dag,
-            8,
-            &mut out_l,
-            &mut out_r,
-            |_node, left, right, n| {
-                for i in 0..n {
-                    left[i] = 1.0;
-                    right[i] = 1.0;
-                }
-            },
-            |_node, _left, _right, _n| {},
-        );
-
-        assert_eq!(out_l[0], 0.0);
-        assert_eq!(out_l[1], 0.0);
-        assert_eq!(out_l[2], 1.0);
-    }
 
     #[test]
     fn renderer_processes_effect_chain() {

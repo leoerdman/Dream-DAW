@@ -923,6 +923,18 @@ impl ProjectState {
     }
 }
 
+/// BUG-063 FIX: Macro for best-effort command pushes that logs failures
+/// instead of silently dropping them with `let _ =`.
+/// Use this in restore/rebuild functions where individual parameter
+/// failures should not abort the entire operation.
+macro_rules! push_command_or_log {
+    ($handle:expr, $cmd:expr, $context:expr) => {
+        if let Err(err) = push_command($handle, $cmd) {
+            log::warn!("[Engine] BUG-063: Failed to push command ({}): {}", $context, err);
+        }
+    };
+}
+
 /// Snapshots the current project state onto the undo stack.
 ///
 /// Must be called BEFORE any mutation. Clears the redo stack
@@ -981,13 +993,19 @@ fn push_undo_coalesced(project_state: &ProjectState) -> Result<(), String> {
         // Coalesce: replace the top of the undo stack instead of pushing a new entry.
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
         let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
-        if let Some(top) = undo.undo_stack.back_mut() {
-            let previous = if undo.undo_stack.len() >= 2 {
-                undo.undo_stack.get(undo.undo_stack.len() - 2)
+        let stack_len = undo.undo_stack.len();
+        if stack_len > 0 {
+            // Compute snapshot first using the second-to-last entry as delta base.
+            let previous = if stack_len >= 2 {
+                undo.undo_stack.get(stack_len - 2)
             } else {
                 None
             };
-            *top = SharedProjectSnapshot::from_project(&project, previous);
+            let new_snapshot = SharedProjectSnapshot::from_project(&project, previous);
+            // Now replace the top entry.
+            if let Some(top) = undo.undo_stack.back_mut() {
+                *top = new_snapshot;
+            }
         }
         // Update timestamp but don't push a new entry.
         LAST_UNDO_PUSH_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
@@ -3875,18 +3893,6 @@ fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), St
 
     handle.rt_debug_stats.record_queue_full_reject();
     Err("Command queue full — audio thread overloaded".to_string())
-}
-
-/// BUG-063 FIX: Macro for best-effort command pushes that logs failures
-/// instead of silently dropping them with `let _ =`.
-/// Use this in restore/rebuild functions where individual parameter
-/// failures should not abort the entire operation.
-macro_rules! push_command_or_log {
-    ($handle:expr, $cmd:expr, $context:expr) => {
-        if let Err(err) = push_command($handle, $cmd) {
-            log::warn!("[Engine] BUG-063: Failed to push command ({}): {}", $context, err);
-        }
-    };
 }
 
 fn read_meter(level: &dream_ipc::metering::LockFreeLevel) -> MeterReading {

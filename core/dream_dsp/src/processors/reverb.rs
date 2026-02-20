@@ -108,7 +108,15 @@ impl AllpassFilter {
     fn process(&mut self, input: f32) -> f32 {
         let buf_out = self.buffer[self.index];
         let output = -input + buf_out;
-        self.buffer[self.index] = input + buf_out * Self::AP_FEEDBACK;
+        let mut new_val = input + buf_out * Self::AP_FEEDBACK;
+        // AUD-111 FIX: Flush denormals in allpass feedback path.
+        // The serial allpass chain propagates denormals from stage to stage,
+        // causing the same 100x CPU slowdown as the comb filters.
+        // The comb filter had this fix but allpass was missing it.
+        if new_val.abs() < 1.0e-20 {
+            new_val = 0.0;
+        }
+        self.buffer[self.index] = new_val;
         self.index = (self.index + 1) % self.buf_size;
         output
     }
@@ -124,6 +132,10 @@ const COMB_SIZES_L: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617
 const COMB_SPREAD: usize = 23;
 const AP_SIZES: [usize; 4] = [556, 441, 341, 225];
 const REF_SAMPLE_RATE: f32 = 44100.0;
+/// Maximum sample rate we pre-allocate for — covers 192kHz studio setups.
+/// AUD-113 FIX: Buffers are allocated once at this ceiling and never resized
+/// at runtime, guaranteeing zero heap allocations on the audio thread.
+const MAX_SUPPORTED_RATE: f32 = 192_000.0;
 
 // ── Pre-delay buffer ────────────────────────────────────────────────────
 /// 200ms at up to 192kHz. Covers all standard DAW sample rates.
@@ -159,24 +171,28 @@ pub struct ReverbProcessor {
 
 impl ReverbProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let ratio = sample_rate / REF_SAMPLE_RATE;
-        let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
+        // AUD-113 FIX: Pre-allocate ALL comb and allpass buffers at MAX_SUPPORTED_RATE
+        // so that sync_sample_rate() never needs to resize (= zero heap allocs on RT thread).
+        // Logical buf_size is adjusted on SR change; physical capacity stays fixed.
+        let max_ratio = MAX_SUPPORTED_RATE / REF_SAMPLE_RATE;
+        let max_scale = |s: usize| ((s as f32 * max_ratio) as usize).max(1);
 
+        // Allocate at maximum capacity
         let combs_l: Vec<CombFilter> = COMB_SIZES_L
             .iter()
-            .map(|&s| CombFilter::new(scale(s)))
+            .map(|&s| CombFilter::new(max_scale(s)))
             .collect();
         let combs_r: Vec<CombFilter> = COMB_SIZES_L
             .iter()
-            .map(|&s| CombFilter::new(scale(s + COMB_SPREAD)))
+            .map(|&s| CombFilter::new(max_scale(s + COMB_SPREAD)))
             .collect();
         let allpasses_l: Vec<AllpassFilter> = AP_SIZES
             .iter()
-            .map(|&s| AllpassFilter::new(scale(s)))
+            .map(|&s| AllpassFilter::new(max_scale(s)))
             .collect();
         let allpasses_r: Vec<AllpassFilter> = AP_SIZES
             .iter()
-            .map(|&s| AllpassFilter::new(scale(s + COMB_SPREAD)))
+            .map(|&s| AllpassFilter::new(max_scale(s + COMB_SPREAD)))
             .collect();
 
         let mut proc = Self {
@@ -202,9 +218,42 @@ impl ReverbProcessor {
             low_cut_r: 0.0,
             sample_rate,
         };
+        // Set logical buf_size for the actual sample rate (within max capacity)
+        proc.rescale_logical_sizes(sample_rate);
         proc.update_combs();
         proc.update_predelay();
         proc
+    }
+
+    /// AUD-113 FIX: Rescale logical buffer sizes WITHOUT reallocation.
+    /// Physical Vec capacity was pre-allocated at MAX_SUPPORTED_RATE.
+    /// This only adjusts buf_size and clamps index — zero allocs.
+    fn rescale_logical_sizes(&mut self, sample_rate: f32) {
+        let ratio = sample_rate / REF_SAMPLE_RATE;
+        let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
+
+        for (idx, c) in self.combs_l.iter_mut().enumerate() {
+            let new_size = scale(COMB_SIZES_L[idx]).min(c.buffer.len());
+            c.buf_size = new_size;
+            c.index = c.index % new_size;
+            c.filter_store = 0.0;
+        }
+        for (idx, c) in self.combs_r.iter_mut().enumerate() {
+            let new_size = scale(COMB_SIZES_L[idx] + COMB_SPREAD).min(c.buffer.len());
+            c.buf_size = new_size;
+            c.index = c.index % new_size;
+            c.filter_store = 0.0;
+        }
+        for (idx, a) in self.allpasses_l.iter_mut().enumerate() {
+            let new_size = scale(AP_SIZES[idx]).min(a.buffer.len());
+            a.buf_size = new_size;
+            a.index = a.index % new_size;
+        }
+        for (idx, a) in self.allpasses_r.iter_mut().enumerate() {
+            let new_size = scale(AP_SIZES[idx] + COMB_SPREAD).min(a.buffer.len());
+            a.buf_size = new_size;
+            a.index = a.index % new_size;
+        }
     }
 
     fn update_combs(&mut self) {
@@ -240,38 +289,10 @@ impl ReverbProcessor {
         {
             self.sample_rate = sample_rate;
 
-            // BUG-10 FIX: Rebuild comb and allpass filter sizes for the new SR.
-            // The Freeverb topology's delay lengths are tuned to 44100 Hz —
-            // they must be rescaled proportionally for correct room character.
-            let ratio = sample_rate / REF_SAMPLE_RATE;
-            let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
-
-            for (idx, c) in self.combs_l.iter_mut().enumerate() {
-                let new_size = scale(COMB_SIZES_L[idx]);
-                c.buffer.resize(new_size, 0.0);
-                c.buf_size = new_size;
-                c.index = c.index % new_size;
-                c.filter_store = 0.0;
-            }
-            for (idx, c) in self.combs_r.iter_mut().enumerate() {
-                let new_size = scale(COMB_SIZES_L[idx] + COMB_SPREAD);
-                c.buffer.resize(new_size, 0.0);
-                c.buf_size = new_size;
-                c.index = c.index % new_size;
-                c.filter_store = 0.0;
-            }
-            for (idx, a) in self.allpasses_l.iter_mut().enumerate() {
-                let new_size = scale(AP_SIZES[idx]);
-                a.buffer.resize(new_size, 0.0);
-                a.buf_size = new_size;
-                a.index = a.index % new_size;
-            }
-            for (idx, a) in self.allpasses_r.iter_mut().enumerate() {
-                let new_size = scale(AP_SIZES[idx] + COMB_SPREAD);
-                a.buffer.resize(new_size, 0.0);
-                a.buf_size = new_size;
-                a.index = a.index % new_size;
-            }
+            // AUD-113 FIX: Rescale logical sizes WITHOUT reallocation.
+            // Physical Vec capacity was pre-allocated at MAX_SUPPORTED_RATE in new().
+            // Previous code called resize() which could allocate on the RT thread.
+            self.rescale_logical_sizes(sample_rate);
 
             self.update_combs();
             self.update_predelay();
@@ -315,18 +336,29 @@ impl DspProcessor for ReverbProcessor {
             let input_l = pd_l;
             let input_r = pd_r;
 
-            // BUG-034 FIX: Fast Bhaskara sin approximation (~4x faster than sin()).
-            // Max error < 0.2%, adequate for a subtle modulation LFO.
-            let phase = self.lfo_phase as f32;
-            // Normalize to [0, 1) and compute sin approximation via parabolic curve
-            let x = phase.fract();
-            let x2 = x * (1.0 - x);
-            let fast_sin = (16.0 * x2) / (5.0 - x2 * 4.0) * if x < 0.5 { 1.0 } else { -1.0 };
+            // AUD-110 FIX: Correct Bhaskara sin approximation (~4x faster than sin()).
+            // Previous version treated the FULL [0,1) phase as one parabola, placing
+            // the peak at x=0.5 instead of x=0.25, and creating a massive
+            // discontinuity from +1.0 to -1.0 at the midpoint — a click/pop artifact.
+            //
+            // Correct approach: split into two half-periods [0,0.5) and [0.5,1.0),
+            // rescale each to [0,1), and apply the Bhaskara formula independently.
+            // sin(θ) ≈ 16t(1-t) / (5 - 4t(1-t))  where t ∈ [0,1] maps to [0,π].
+            let phase = (self.lfo_phase as f32).fract();
+            let (t, sign) = if phase < 0.5 {
+                (phase * 2.0, 1.0f32)       // positive half: [0, π)
+            } else {
+                ((phase - 0.5) * 2.0, -1.0) // negative half: [π, 2π)
+            };
+            let t2 = t * (1.0 - t);
+            let fast_sin = sign * (16.0 * t2) / (5.0 - 4.0 * t2);
             let lfo = fast_sin * self.mod_depth * 0.01;
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
+            // AUD-109 FIX: Use fract() for safe phase wrapping.
+            // Previous `if >= 1.0 { -= 1.0 }` fails when lfo_inc > 1.0
+            // (high mod_rate at low sample rates), causing phase to exceed 1.0
+            // and produce aliased modulation artifacts.
+            self.lfo_phase = self.lfo_phase.fract();
 
             let input_l_mod = input_l * (1.0 + lfo);
             let input_r_mod = input_r * (1.0 + lfo);
@@ -356,6 +388,15 @@ impl DspProcessor for ReverbProcessor {
             // Low-frequency damping (HP filter in the reverb tail)
             self.low_cut_l += low_damp_coeff * (out_l - self.low_cut_l);
             self.low_cut_r += low_damp_coeff * (out_r - self.low_cut_r);
+            // AUD-112 FIX: Flush denormals in low-damp HP filter states.
+            // These one-pole states go denormal on long silent tails,
+            // causing the same 100x CPU slowdown as comb/allpass denormals.
+            if self.low_cut_l.abs() < 1.0e-20 {
+                self.low_cut_l = 0.0;
+            }
+            if self.low_cut_r.abs() < 1.0e-20 {
+                self.low_cut_r = 0.0;
+            }
             out_l -= self.low_cut_l;
             out_r -= self.low_cut_r;
 

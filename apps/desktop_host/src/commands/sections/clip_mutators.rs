@@ -619,8 +619,10 @@ async fn move_clip_cmd(
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
 
-    // Snapshot for undo BEFORE mutation
-    push_undo(&project_state)?;
+    // Snapshot for undo BEFORE mutation.
+    // Use coalesced undo to prevent stack bloat and reduce lock
+    // contention during rapid sequential move operations (drag/multi-select).
+    push_undo_coalesced(&project_state)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
@@ -706,7 +708,10 @@ async fn resize_clip_cmd(
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
 
-    push_undo(&project_state)?;
+    // Use coalesced undo — resize operations can be rapid
+    // (e.g., trackpad gestures) and should not create a new
+    // undo entry for every intermediate position.
+    push_undo_coalesced(&project_state)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 

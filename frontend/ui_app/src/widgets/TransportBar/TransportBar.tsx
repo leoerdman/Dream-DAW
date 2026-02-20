@@ -18,6 +18,7 @@ import {
     RefreshCw,
     X,
     Pencil,
+    Bot,
 } from 'lucide-react';
 
 const PDC_PANEL_POS_KEY = 'dream_daw.pdc_panel_pos.v1';
@@ -42,6 +43,8 @@ interface TransportBarProps {
     onAutomationToggle?: () => void;
     onFitTimelineHorizontally?: () => void;
     onResetTrackHeights?: () => void;
+    assistantOpen?: boolean;
+    onAssistantToggle?: () => void;
 }
 
 export const TransportBar = ({
@@ -54,6 +57,8 @@ export const TransportBar = ({
     onAutomationToggle,
     onFitTimelineHorizontally,
     onResetTrackHeights,
+    assistantOpen = false,
+    onAssistantToggle,
 }: TransportBarProps) => {
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
@@ -561,6 +566,28 @@ export const TransportBar = ({
                             }}
                         >
                             {pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
+                            onClick={() => onAssistantToggle?.()}
+                            title="AI Assistant"
+                            style={{
+                                width: 24,
+                                height: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: assistantOpen
+                                    ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)'
+                                    : 'transparent',
+                                border: 'none',
+                                borderRadius: 'var(--radius-xs)',
+                                color: assistantOpen
+                                    ? 'var(--color-accent-primary)'
+                                    : 'var(--color-text-secondary)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <Bot size={15} />
                         </button>
                         <button
                             onClick={onSettingsClick}

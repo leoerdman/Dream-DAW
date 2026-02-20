@@ -3,7 +3,7 @@ import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 export type TimelineCommand =
     | { type: 'seek'; beat: number }
     | { type: 'edit-cursor'; beat: number; trackIndex: number }
-    | { type: 'clip-select'; clipId: string; additive: boolean }
+    | { type: 'clip-select'; clipId: string; isShift: boolean; isCtrl: boolean }
     | { type: 'clip-selection'; clipIds: string[] }
     | { type: 'clip-move'; clipId: string; beat: number; trackIndex: number }
     | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number }

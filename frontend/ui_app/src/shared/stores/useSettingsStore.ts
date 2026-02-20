@@ -59,7 +59,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     vst2Path: '/Library/Audio/Plug-Ins/VST',
     vst3Path: '/Library/Audio/Plug-Ins/VST3',
     openRouterApiKey: '',
-    openRouterModel: 'openai/gpt-4o-mini',
+    openRouterModel: 'anthropic/claude-sonnet-4-5',
     browserShowSizeColumn: true,
     browserShowTypeColumn: false,
     browserLeftPaneWidth: 92,

@@ -1062,6 +1062,7 @@ async fn set_clip_warp_cmd(
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_bpm = project.pulse_map.initial_bpm().clamp(20.0, 999.0);
+    let project_sr = project.sample_rate.max(1.0); // BUG-W1: captured before mutable borrow
     let mut updated = false;
 
     for track in &mut project.tracks {
@@ -1109,7 +1110,7 @@ async fn set_clip_warp_cmd(
 
                 // BUG-H4 FIX: Initialize default warp markers if empty
                 if clip.warp_markers.is_empty() {
-                    let sr = 44100.0_f64; // default SR for beat → sec conversion
+                    let sr = project_sr; // BUG-W1 FIX: use actual project SR (was hardcoded 44100)
                     let source_dur_sec = clip.warp_source_duration_frames as f64 / sr;
                     let source_beats = source_dur_sec * (base_bpm / 60.0);
                     clip.warp_markers.push(dream_models::project::WarpMarkerPoint {

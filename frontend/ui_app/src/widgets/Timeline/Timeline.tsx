@@ -189,7 +189,41 @@ export const Timeline = (props: TimelineProps) => {
                     callbacksRef.current.onEditCursorChange?.(command.beat, command.trackIndex, command.trackIndex);
                     break;
                 case 'clip-select':
-                    if (command.additive) {
+                    if (command.isShift) {
+                        const prev = selectedClipIdsRef.current;
+                        const currentClips = propsRef.current.clips ?? [];
+                        const targetClip = currentClips.find((c) => c.id === command.clipId);
+                        if (!targetClip) break;
+
+                        if (prev.length === 0) {
+                            callbacksRef.current.onClipSelect?.(command.clipId);
+                        } else {
+                            const anchorId = prev[0];
+                            const anchorClip = currentClips.find((c) => c.id === anchorId);
+                            if (!anchorClip) {
+                                callbacksRef.current.onClipSelect?.(command.clipId);
+                                break;
+                            }
+
+                            const minBeat = Math.min(anchorClip.startBeat, targetClip.startBeat);
+                            const maxBeat = Math.max(
+                                anchorClip.startBeat + anchorClip.durationBeats,
+                                targetClip.startBeat + targetClip.durationBeats
+                            );
+                            const minTrack = Math.min(anchorClip.trackIndex, targetClip.trackIndex);
+                            const maxTrack = Math.max(anchorClip.trackIndex, targetClip.trackIndex);
+
+                            const next = currentClips
+                                .filter((c) => {
+                                    if (c.trackIndex < minTrack || c.trackIndex > maxTrack) return false;
+                                    const cEnd = c.startBeat + c.durationBeats;
+                                    return cEnd > minBeat && c.startBeat < maxBeat;
+                                })
+                                .map((c) => c.id);
+
+                            callbacksRef.current.onClipSelectionChange?.(next);
+                        }
+                    } else if (command.isCtrl) {
                         const prev = selectedClipIdsRef.current;
                         const next = prev.includes(command.clipId)
                             ? prev.filter((id) => id !== command.clipId)
@@ -249,8 +283,8 @@ export const Timeline = (props: TimelineProps) => {
         engine.onEditCursorChange = (beat, trackStart, trackEnd) => {
             callbacksRef.current.onEditCursorChange?.(beat, trackStart, trackEnd);
         };
-        engine.onClipClick = (clipId, addToSelection) => {
-            commandBusRef.current.emit({ type: 'clip-select', clipId, additive: addToSelection });
+        engine.onClipClick = (clipId, isShift, isCtrl) => {
+            commandBusRef.current.emit({ type: 'clip-select', clipId, isShift, isCtrl });
         };
 
         engine.onClipMove = (clipId, newBeat, newTrack) => {

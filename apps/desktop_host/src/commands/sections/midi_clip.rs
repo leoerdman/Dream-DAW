@@ -269,13 +269,16 @@ async fn generate_midi_variation_cmd(
         return Err("OpenRouter API key is empty. Set it in Settings → MIDI.".to_string());
     }
 
+    // Use the model from the request, then from settings, then hard-default to
+    // Claude Sonnet 4.5 via OpenRouter (same model as the chat assistant panel).
     let model = request
         .model
         .as_deref()
         .map(str::trim)
         .filter(|m| !m.is_empty())
-        .or_else(|| (!default_model.is_empty()).then_some(default_model.as_str()))
-        .unwrap_or("openai/gpt-4o-mini");
+        .map(|m| m.to_string())
+        .or_else(|| (!default_model.is_empty()).then_some(default_model.clone()))
+        .unwrap_or_else(|| "anthropic/claude-sonnet-4-5".to_string());
 
     let clip_duration_beats = request.clip_duration_beats.max(0.125);
     let seed_notes: Vec<serde_json::Value> = request
@@ -291,46 +294,55 @@ async fn generate_midi_variation_cmd(
         })
         .collect();
 
-    let user_payload = serde_json::json!({
-        "task": "Generate a variation of this MIDI clip while preserving musical intent and clip length.",
-        "output_format": {
-            "description": "Return strictly JSON with notes. No markdown.",
-            "example": {
-                "notes": [
-                    { "pitch": 60, "velocity": 100, "startBeat": 0.0, "durationBeats": 0.5 }
-                ]
-            }
-        },
-        "context": {
-            "bpm": request.bpm,
-            "beatsPerBar": request.beats_per_bar.max(1),
-            "clipName": request.clip_name,
-            "clipDurationBeats": clip_duration_beats,
-            "track": request.track_context,
-        },
-        "source_clip_mdc": {
-            "notes": seed_notes,
-        },
-        "rules": [
-            "Keep notes inside clip boundaries.",
-            "Use valid MIDI ranges: pitch 0-127, velocity 1-127.",
-            "Keep rhythmic coherence and avoid random noise patterns.",
-            "Return at least one note."
-        ]
-    });
+    let bars = (clip_duration_beats / request.beats_per_bar.max(1) as f64).ceil() as u32;
+    let instrument_hint = request.track_context.instrument_name
+        .as_deref()
+        .unwrap_or("unknown instrument");
+    let track_name_hint = request.track_context.track_name.as_str();
+    let sampler_hint = request.track_context.sampler_sample_path
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!(" (sampler: {})", s.split('/').last().unwrap_or(s)))
+        .unwrap_or_default();
+
+    let system_prompt = "You are an expert music composer and MIDI programmer embedded in a professional DAW.\n\
+        Your task: given a MIDI clip, produce a creative but musically coherent variation.\n\
+        IMPORTANT: respond with ONLY a raw JSON object — no markdown, no code fences, no explanation.\n\
+        The JSON must have exactly one key \"notes\" containing an array of note objects.\n\
+        Each note object must have: pitch (int 0-127), velocity (int 1-127), startBeat (float ≥ 0), durationBeats (float > 0).\n\
+        All notes must fit within clipDurationBeats. Do not exceed clip length.";
+
+    let user_prompt = format!(
+        "Generate a musical variation of this {bars}-bar MIDI clip.\n\
+        Track: \"{track_name_hint}\"{sampler_hint}, instrument: {instrument_hint}\n\
+        BPM: {bpm}, beatsPerBar: {beats_per_bar}, clipDurationBeats: {dur:.3}\n\n\
+        Source notes ({n} notes):\n{notes_json}\n\n\
+        Rules:\n\
+        - Preserve the general feel, tempo and style\n\
+        - Vary rhythm, pitch or velocity creatively — not a copy\n\
+        - All startBeat values must be in [0, {dur:.3})\n\
+        - All startBeat + durationBeats must be ≤ {dur:.3}\n\
+        - Return at least 1 note, at most {max_notes} notes\n\n\
+        Respond with ONLY the JSON object, example: {{\"notes\":[{{\"pitch\":60,\"velocity\":100,\"startBeat\":0.0,\"durationBeats\":0.5}}]}}",
+        bars = bars,
+        track_name_hint = track_name_hint,
+        sampler_hint = sampler_hint,
+        instrument_hint = instrument_hint,
+        bpm = request.bpm,
+        beats_per_bar = request.beats_per_bar.max(1),
+        dur = clip_duration_beats,
+        n = seed_notes.len(),
+        notes_json = serde_json::to_string(&seed_notes).unwrap_or_default(),
+        max_notes = (seed_notes.len() * 3).max(32),
+    );
 
     let req_payload = serde_json::json!({
         "model": model,
-        "temperature": 0.8,
+        "temperature": 0.85,
+        "max_tokens": 2048,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are an expert MIDI variation generator for a DAW. Reply with JSON only."
-            },
-            {
-                "role": "user",
-                "content": user_payload.to_string()
-            }
+            { "role": "system", "content": system_prompt },
+            { "role": "user",   "content": user_prompt }
         ]
     });
 

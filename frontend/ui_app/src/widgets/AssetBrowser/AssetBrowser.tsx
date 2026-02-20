@@ -90,6 +90,12 @@ interface BrowserItem {
     durationSeconds?: number;
     sizeBytes?: number;
     pluginSource?: 'internal' | 'vst2' | 'vst3' | 'au' | 'external';
+    /** Tree depth for indentation (0 = root level). */
+    _depth?: number;
+    /** Whether this folder is currently expanded in tree view. */
+    _expanded?: boolean;
+    /** Whether children are currently being loaded. */
+    _loading?: boolean;
 }
 
 // ── Static Categories ────────────────────────────────────
@@ -391,8 +397,12 @@ export const AssetBrowser = () => {
     // ── User folders (PLACES section) ──
     const [userFolders, setUserFolders] = useState<string[]>([]);
 
-    // ── Folder navigation stack (for browsing into subfolders) ──
-    const [folderStack, setFolderStack] = useState<string[]>([]);
+    // ── Tree-based folder expansion (enterprise expandable tree view) ──
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+    const [folderChildrenCache, setFolderChildrenCache] = useState<Map<string, BrowserItem[]>>(new Map());
+    const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
+    // Legacy compat — kept as empty for code that checks folderStack.length
+    const folderStack: string[] = [];
 
     const searchRef = useRef<HTMLInputElement>(null);
     const fileListRef = useRef<HTMLDivElement>(null);
@@ -463,7 +473,8 @@ export const AssetBrowser = () => {
             const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
             if (detail?.categoryId) {
                 setSelectedCategoryId(detail.categoryId);
-                setFolderStack([]);
+                setExpandedFolders(new Set());
+                setFolderChildrenCache(new Map());
             }
             searchRef.current?.focus();
             searchRef.current?.select();
@@ -472,7 +483,8 @@ export const AssetBrowser = () => {
             const detail = (evt as CustomEvent<{ query?: string; categoryId?: string }>).detail;
             if (detail?.categoryId) {
                 setSelectedCategoryId(detail.categoryId);
-                setFolderStack([]);
+                setExpandedFolders(new Set());
+                setFolderChildrenCache(new Map());
             }
             if (typeof detail?.query === 'string') {
                 setSearchQuery(detail.query);
@@ -682,13 +694,11 @@ export const AssetBrowser = () => {
 
     const activeCategory = categories.find(c => c.id === selectedCategoryId);
     const userLibraryFolder = settings.userFolderPath?.trim() || null;
-    const activeFolderPath = folderStack.length > 0
-        ? folderStack[folderStack.length - 1]
-        : selectedCategoryId === 'currentProject'
-            ? currentProjectFolder
-            : selectedCategoryId === 'userLibrary'
-                ? userLibraryFolder
-                : activeCategory?.folderPath || null;
+    const activeFolderPath = selectedCategoryId === 'currentProject'
+        ? currentProjectFolder
+        : selectedCategoryId === 'userLibrary'
+            ? userLibraryFolder
+            : activeCategory?.folderPath || null;
 
     useEffect(() => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
@@ -712,7 +722,9 @@ export const AssetBrowser = () => {
     // Reset folder state when category changes
     useEffect(() => {
         Promise.resolve().then(() => {
-            setFolderStack([]);
+            setExpandedFolders(new Set());
+            setFolderChildrenCache(new Map());
+            setLoadingFolders(new Set());
             setFolderScanPath(null);
             setFolderItems([]);
         });
@@ -752,9 +764,10 @@ export const AssetBrowser = () => {
         }));
     }, [pluginFiles]);
 
-    // Convert folder scan to BrowserItems
+    // Convert folder scan to BrowserItems — with expandable tree structure
     const folderBrowserItems: BrowserItem[] = useMemo(() => {
-        return folderItems.map((f, i) => {
+        // Convert raw folder entries to BrowserItems (root level, depth=0)
+        const rootItems: BrowserItem[] = folderItems.map((f, i) => {
             const sizeKb = Math.round(f.size_bytes / 1024);
             const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
             const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
@@ -768,9 +781,33 @@ export const AssetBrowser = () => {
                 isDirectory: f.is_directory,
                 durationSeconds: f.duration_seconds ?? undefined,
                 sizeBytes: f.size_bytes,
+                _depth: 0,
             };
         });
-    }, [folderItems]);
+
+        // Build flat tree: for each expanded folder, recursively insert its cached children
+        const result: BrowserItem[] = [];
+        const insertWithChildren = (items: BrowserItem[], depth: number) => {
+            for (const item of items) {
+                const isExp = item.isDirectory && item.path ? expandedFolders.has(item.path) : false;
+                const isLoad = item.isDirectory && item.path ? loadingFolders.has(item.path) : false;
+                result.push({
+                    ...item,
+                    _depth: depth,
+                    _expanded: isExp,
+                    _loading: isLoad,
+                });
+                if (isExp && item.path) {
+                    const children = folderChildrenCache.get(item.path);
+                    if (children) {
+                        insertWithChildren(children, depth + 1);
+                    }
+                }
+            }
+        };
+        insertWithChildren(rootItems, 0);
+        return result;
+    }, [folderItems, expandedFolders, folderChildrenCache, loadingFolders]);
 
     // Get items based on selected category
     const items = useMemo(() => {
@@ -1034,15 +1071,62 @@ export const AssetBrowser = () => {
     }, []);
 
     // ── Navigate into subfolder ──
-    const navigateInto = useCallback((path: string) => {
-        setFolderStack(prev => [...prev, path]);
-        setFolderScanPath(null); // Force re-scan
-    }, []);
+    // ── Tree view: toggle folder expand/collapse with lazy-load + caching ──
+    const toggleFolderExpand = useCallback(async (path: string) => {
+        const isExpanded = expandedFolders.has(path);
+        setExpandedFolders(prev => {
+            const next = new Set(prev);
+            if (isExpanded) {
+                // Collapse: also collapse all children beneath this folder
+                for (const p of next) {
+                    if (p.startsWith(path + '/') || p === path) next.delete(p);
+                }
+            } else {
+                next.add(path);
+            }
+            return next;
+        });
 
-    // ── Navigate back to parent ──
+        // Lazy-load: only scan if expanding AND not cached
+        if (!isExpanded && !folderChildrenCache.has(path)) {
+            setLoadingFolders(prev => new Set(prev).add(path));
+            try {
+                const files = await engineApi.scanFolderAll(path);
+                const children: BrowserItem[] = files.map((f, i) => {
+                    const sizeKb = Math.round(f.size_bytes / 1024);
+                    const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
+                    const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
+                    return {
+                        id: `tree-${path}-${i}`,
+                        name: f.name,
+                        type: fileTypeToItemType(f.file_type),
+                        format: f.extension || undefined,
+                        meta: f.is_directory ? 'Folder' : sizeLabel,
+                        path: f.path,
+                        isDirectory: f.is_directory,
+                        durationSeconds: f.duration_seconds ?? undefined,
+                        sizeBytes: f.size_bytes,
+                    };
+                });
+                setFolderChildrenCache(prev => new Map(prev).set(path, children));
+            } catch (err) {
+                console.warn('[Browser] Tree scan failed for', path, err);
+            } finally {
+                setLoadingFolders(prev => {
+                    const n = new Set(prev);
+                    n.delete(path);
+                    return n;
+                });
+            }
+        }
+    }, [expandedFolders, folderChildrenCache]);
+
+    // Legacy shim for old navigateInto / navigateBack usage in JSX
+    const navigateInto = useCallback((path: string) => {
+        void toggleFolderExpand(path);
+    }, [toggleFolderExpand]);
     const navigateBack = useCallback(() => {
-        setFolderStack(prev => prev.slice(0, -1));
-        setFolderScanPath(null); // Force re-scan
+        // No-op in tree mode — collapse via clicking the folder
     }, []);
 
     const resolveSelectedTrack = useCallback(() => {
@@ -1951,6 +2035,7 @@ export const AssetBrowser = () => {
                                                 alignItems: 'center',
                                                 gap: 8,
                                                 padding: '4px 8px',
+                                                paddingLeft: 8 + (item._depth ?? 0) * 16,
                                                 cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
                                                 background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                                 borderBottom: '1px solid var(--color-divider-light)',
@@ -1963,7 +2048,12 @@ export const AssetBrowser = () => {
                                             }}
                                         >
                                             {item.isDirectory ? (
-                                                <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                                <span style={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', gap: 3 }}>
+                                                    {item._loading ? (
+                                                        <BrowserGlyph name="hourglass" size={9} />
+                                                    ) : (
+                                                        <BrowserGlyph name={item._expanded ? 'chevron-down' : 'chevron-right'} size={9} />
+                                                    )}
                                                     <BrowserGlyph name="folder" size={11} />
                                                 </span>
                                             ) : (

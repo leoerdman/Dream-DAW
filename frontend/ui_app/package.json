@@ -1,7 +1,7 @@
 {
   "name": "ui_app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "sync:bindings": "bash ../../scripts/sync_bindings.sh",

@@ -6,7 +6,9 @@ import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
+import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
@@ -16,6 +18,7 @@ import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore, type ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
@@ -113,6 +116,7 @@ export const DawShell = () => {
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
     const [_isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
+    const [assistantOpen, setAssistantOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
     const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
     const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
@@ -729,14 +733,23 @@ export const DawShell = () => {
         const notes = midiNotesByClip[clip.id] ?? [];
         const track = projectTracks[clip.trackIndex];
         const bpm = projectBpm || transportBpm || 120;
-        const beatsPerBar = 4;
+        // Use actual time signature from project, not hardcoded 4
+        const beatsPerBar = useEngineStore.getState().transport as unknown as { beats_per_bar?: number };
+        const beatsPerBarVal = (beatsPerBar as { beats_per_bar?: number }).beats_per_bar ?? 4;
         const sampleRate = projectSampleRate;
+
+        // Use the same model as the chat panel — claude-sonnet-4-5 via OpenRouter.
+        // Falls back to the user's configured openRouterModel if set.
+        const settingsModel = useSettingsStore.getState().settings.openRouterModel;
+        const variationModel = (settingsModel && settingsModel !== 'openai/gpt-4o-mini')
+            ? settingsModel
+            : 'anthropic/claude-sonnet-4-5';
 
         setAiVariationBusy(true);
         try {
             const variedNotes = await engineApi.generateMidiVariation({
                 bpm,
-                beatsPerBar,
+                beatsPerBar: beatsPerBarVal,
                 clipName: clip.name,
                 clipDurationBeats: clip.durationBeats,
                 notes,
@@ -747,6 +760,7 @@ export const DawShell = () => {
                     effectNames: (track?.effects ?? []).map((e) => e.name),
                     samplerSamplePath: track?.sampler?.sample_path ?? null,
                 },
+                model: variationModel,
             });
 
             const normalizedForUi: MidiNote[] = variedNotes.map((n, idx) => ({
@@ -1328,6 +1342,8 @@ export const DawShell = () => {
                             onAutomationToggle={toggleAutomation}
                             onFitTimelineHorizontally={handleFitTimelineHorizontally}
                             onResetTrackHeights={handleResetTrackHeights}
+                            assistantOpen={assistantOpen}
+                            onAssistantToggle={() => setAssistantOpen((v) => !v)}
                         />
                     </ErrorBoundary>
                 </header>
@@ -1667,6 +1683,13 @@ export const DawShell = () => {
                     <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
                 </Suspense>
             </ErrorBoundary>
+
+            {/* ═══ AI ASSISTANT CHAT ═══ */}
+            <AssistantChat
+                open={assistantOpen}
+                onClose={() => setAssistantOpen(false)}
+                onSelectClips={setSelectedClipIds}
+            />
 
             <ErrorBoundary module="Resolver">
                 <Suspense fallback={null}>
@@ -2025,23 +2048,7 @@ const EmptyClipEditor = () => (
 const SampleClipEditor = ({
     clip,
 }: {
-    clip: {
-        id: string;
-        name: string;
-        durationBeats: number;
-        filePath?: string;
-        durationSamples?: number;
-        isWarped?: boolean;
-        warpMode?: number | null;
-        warpBaseBpm?: number;
-        warpSourceDurationFrames?: number;
-        sourceOffset?: number;
-        fadeIn?: number;
-        fadeOut?: number;
-        fadeInCurve?: number;
-        fadeOutCurve?: number;
-        isOffline?: boolean;
-    };
+    clip: TimelineClip;
 }) => {
     const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);

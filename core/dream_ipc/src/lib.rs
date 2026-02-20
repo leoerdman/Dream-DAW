@@ -263,8 +263,10 @@ impl MasterClock {
 ///
 /// At 48kHz / 512-sample buffers, callback fires ~94 times/sec.
 /// At 144fps UI with 10 commands/frame = 1440 commands/sec.
-/// 1024 slots per callback cycle is more than sufficient.
-pub const COMMAND_QUEUE_CAPACITY: usize = 1024;
+// MEGA-08 FIX: Increased from 1024 to 8192 to accommodate O(N) burst IPC
+// syncing logic, such as `sync_track_mix_state_from_project` which instantly
+// fires 4 * N commands when adding/deleting/moving a track.
+pub const COMMAND_QUEUE_CAPACITY: usize = 8192;
 
 /// Creates a new lock-free command queue, returning the split halves.
 ///

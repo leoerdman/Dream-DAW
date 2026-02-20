@@ -211,7 +211,7 @@ export class TimelineEngine {
     private _prefetchTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     // ── Callbacks (to React shell) ────────────────────────────────────
-    onClipClick?: (clipId: string, addToSelection: boolean) => void;
+    onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
@@ -967,7 +967,7 @@ export class TimelineEngine {
 
                 // ── Fade Curve Handle (highest priority) ──
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
-                    this.onClipClick?.(hit.clipId, false);
+                    this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: hit.fadeCurveHandle === 'in' ? DragMode.ClipFadeInCurve : DragMode.ClipFadeOutCurve,
                         clipId: hit.clipId,
@@ -988,7 +988,7 @@ export class TimelineEngine {
 
                 // ── Fade Handle ──
                 if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
-                    this.onClipClick?.(hit.clipId, false);
+                    this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: hit.fadeHandle === 'in' ? DragMode.ClipFadeIn : DragMode.ClipFadeOut,
                         clipId: hit.clipId,
@@ -1007,7 +1007,7 @@ export class TimelineEngine {
 
                 // ── Edge Resize (left / right) ──
                 if (hit.edge === 'left') {
-                    this.onClipClick?.(hit.clipId, false);
+                    this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -1027,7 +1027,7 @@ export class TimelineEngine {
                     break;
                 }
                 if (hit.edge === 'right') {
-                    this.onClipClick?.(hit.clipId, false);
+                    this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,
@@ -1051,7 +1051,9 @@ export class TimelineEngine {
                 // Clicking the waveform/note area positions the cursor, NOT select the clip.
                 // This matches industry-standard DAW behavior (Logic, Ableton, Pro Tools).
                 // Shift/Cmd click on body still does additive selection for power users.
-                const isAdditive = e.shiftKey || e.metaKey;
+                const isShift = e.shiftKey;
+                const isCtrl = e.metaKey || e.ctrlKey;
+                const isAdditive = isShift || isCtrl;
 
                 if (hit.region === 'body' && !isAdditive) {
                     // Body click: move edit cursor to click position (snapped)
@@ -1077,7 +1079,7 @@ export class TimelineEngine {
 
                 if (!preserveMultiSelect) {
                     // Single clip click or additive toggle — update selection now.
-                    this.onClipClick?.(hit.clipId, isAdditive);
+                    this.onClipClick?.(hit.clipId, isShift, isCtrl);
                 }
 
                 // Move edit cursor to clip start so the cursor line hides on selection.
@@ -1114,13 +1116,40 @@ export class TimelineEngine {
             case 'track': {
                 // Empty area -> potential marquee box selection (grid-snapped).
                 const snappedBeat = this._snapBeat(hit.beat);
-                if (e.shiftKey && this._editCursorBeat >= 0) {
-                    const anchorBeat = this._snapBeat(Math.max(0, this._editCursorBeat));
-                    const anchorTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, this._editCursorTrack));
-                    this.onMarqueeSelectionStart?.();
-                    this._selectClipsWithinMarquee(anchorBeat, snappedBeat, anchorTrack, hit.trackIndex);
-                    break;
+
+                if (e.shiftKey) {
+                    const selectedClips = this._clips.filter((c) => c.selected);
+                    if (selectedClips.length > 0) {
+                        const anchorClip = selectedClips[0];
+                        const anchorBeat = anchorClip.startBeat;
+                        const anchorTrack = anchorClip.trackIndex;
+
+                        this.onMarqueeSelectionStart?.();
+                        this._drag = {
+                            mode: DragMode.MarqueeSelect,
+                            clipId: null,
+                            startBeat: anchorBeat,
+                            startTrack: anchorTrack,
+                            currentBeat: snappedBeat,
+                            currentTrack: hit.trackIndex,
+                            clipOriginalBeat: 0,
+                            clipOriginalTrack: 0,
+                            clipOriginalDuration: 0,
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                        };
+
+                        // Immediately do one selection pass and draw the box
+                        const minBeat = Math.min(anchorBeat, snappedBeat);
+                        const maxBeat = Math.max(anchorBeat, snappedBeat);
+                        const minTrack = Math.min(anchorTrack, hit.trackIndex);
+                        const maxTrack = Math.max(anchorTrack, hit.trackIndex);
+                        this._setMarquee({ startBeat: minBeat, endBeat: maxBeat, startTrack: minTrack, endTrack: maxTrack }, false);
+                        this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
+                        break;
+                    }
                 }
+
                 this.onMarqueeSelectionStart?.();
                 this._drag = {
                     mode: DragMode.MultiCursorSelect,
@@ -1268,7 +1297,20 @@ export class TimelineEngine {
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 const maxNewStart = clipEnd - 0.25;
-                const newStart = this._snapBeat(Math.max(0, Math.min(maxNewStart, rawNewStart)));
+
+                // ── Neighbor-aware left clamp ──
+                // Find the nearest clip to the LEFT on the same track.
+                // The new start cannot go before the end of the left neighbor.
+                const clipTrack = this._clips.find(c => c.id === this._drag.clipId)?.trackIndex ?? -1;
+                let leftBound = 0;
+                for (const c of this._clips) {
+                    if (c.id === this._drag.clipId || c.trackIndex !== clipTrack) continue;
+                    const cEnd = c.startBeat + c.durationBeats;
+                    if (cEnd <= this._drag.clipOriginalBeat + 0.001 && cEnd > leftBound) {
+                        leftBound = cEnd;
+                    }
+                }
+                const newStart = this._snapBeat(Math.max(leftBound, Math.min(maxNewStart, rawNewStart)));
                 const newDuration = Math.max(0.25, clipEnd - newStart);
                 this._trimPreview = { clipId: this._drag.clipId, startBeat: newStart, durationBeats: newDuration };
                 this._requestRedraw();
@@ -1279,8 +1321,24 @@ export class TimelineEngine {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
-                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, rawNewEnd));
-                const newDuration = Math.max(0.25, snappedEnd - this._drag.clipOriginalBeat);
+
+                // ── Neighbor-aware right clamp ──
+                // Find the nearest clip to the RIGHT on the same track.
+                // The new end cannot go past the start of the right neighbor.
+                const rClipTrack = this._clips.find(c => c.id === this._drag.clipId)?.trackIndex ?? -1;
+                const originalEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
+                let rightBound = Infinity;
+                for (const c of this._clips) {
+                    if (c.id === this._drag.clipId || c.trackIndex !== rClipTrack) continue;
+                    if (c.startBeat >= originalEnd - 0.001 && c.startBeat < rightBound) {
+                        rightBound = c.startBeat;
+                    }
+                }
+                const clampedEnd = Math.min(rightBound, rawNewEnd);
+                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, clampedEnd));
+                // Final safety: ensure snapped end doesn't exceed right bound
+                const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
+                const newDuration = Math.max(0.25, finalEnd - this._drag.clipOriginalBeat);
                 this._trimPreview = { clipId: this._drag.clipId, startBeat: this._drag.clipOriginalBeat, durationBeats: newDuration };
                 this._requestRedraw();
                 break;
@@ -1422,7 +1480,7 @@ export class TimelineEngine {
                 // was true on mousedown), the selection was preserved for potential drag.
                 // Since no drag happened, NOW we deselect to single (deferred deselection).
                 if (this._drag.clipId && this._drag.coMoverOrigins && this._drag.coMoverOrigins.size > 0) {
-                    this.onClipClick?.(this._drag.clipId, false);
+                    this.onClipClick?.(this._drag.clipId, false, false);
                 }
                 break;
             }

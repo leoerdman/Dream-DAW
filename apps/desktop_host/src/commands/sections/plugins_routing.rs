@@ -482,19 +482,31 @@ fn open_plugin_window(
     {
         existing
     } else {
+        // MEGA-07 FIX: Do not hold the `host` lock while attempting to acquire the `project` lock.
+        // Doing so causes a deadly embrace deadlock with commands that hold `project` while
+        // acquiring `host` (like `replace_missing_plugin_slot_cmd`), entirely freezing the DAW.
+        // Fetch the plugin slot clone first under a brief isolated project lock.
+        let slot_clone = {
+            if let Ok(project) = project_state.project.lock() {
+                find_project_plugin_slot(&project, &plugin_id)
+            } else {
+                None
+            }
+        };
+
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
         let loaded = host
             .load_vst3(descriptor.clone())
             .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
-        if let Ok(project) = project_state.project.lock()
-            && let Some(slot) = find_project_plugin_slot(&project, &plugin_id)
-            && let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot)
-        {
-            log::warn!(
-                "[PluginState] Could not restore imported state for '{}': {}",
-                slot.name,
-                err
-            );
+        
+        if let Some(slot) = slot_clone {
+            if let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot) {
+                log::warn!(
+                    "[PluginState] Could not restore imported state for '{}': {}",
+                    slot.name,
+                    err
+                );
+            }
         }
         drop(host);
 

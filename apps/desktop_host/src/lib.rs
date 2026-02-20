@@ -3419,7 +3419,7 @@ fn default_vst3_path() -> String {
     "/Library/Audio/Plug-Ins/VST3".into()
 }
 fn default_open_router_model() -> String {
-    "openai/gpt-4o-mini".into()
+    "anthropic/claude-sonnet-4-5".into()
 }
 fn default_browser_left_pane_width() -> u32 {
     92

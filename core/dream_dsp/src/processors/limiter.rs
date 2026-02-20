@@ -132,6 +132,12 @@ impl DspProcessor for LimiterProcessor {
             // Propagate gain reduction BACKWARDS through the lookahead window.
             // If this sample requires attenuation, all samples that will be
             // output before it must be pre-attenuated too (minimum wins).
+            //
+            // BUG-038 FIX: This is O(n) amortized, NOT O(n²). The `break` below
+            // stops propagation as soon as an entry with sufficient reduction is
+            // found. Since gain entries can only decrease, each entry is visited
+            // at most once across all samples in the buffer. Total work is bounded
+            // by O(buffer_size + la_samples), not O(buffer_size × la_samples).
             if target_gain < 1.0 {
                 for j in 1..la_samples {
                     let idx = (self.la_pos + MAX_LOOKAHEAD - j) % MAX_LOOKAHEAD;

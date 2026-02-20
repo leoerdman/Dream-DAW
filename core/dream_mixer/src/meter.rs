@@ -94,7 +94,10 @@ impl VuMeter {
             sum_sq += sample * sample;
         }
 
-        let block_rms = (sum_sq / buffer.len() as f32).sqrt();
+        // BUG-037 FIX: Fast-path for silence (skip sqrt on zero).
+        // For non-zero signals, LLVM optimizes sqrt to a single FSQRT instruction.
+        let mean_sq = sum_sq / buffer.len() as f32;
+        let block_rms = if mean_sq > 0.0 { mean_sq.sqrt() } else { 0.0 };
 
         // Apply ballistics to peak
         if block_peak >= self.peak_level {

@@ -243,6 +243,11 @@ impl DspProcessor for CompressorProcessor {
                 release
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
+            // BUG-AUD-103 FIX: Flush denormals in envelope/RMS state to prevent
+            // CPU stalls during long silence on x86 without DAZ/FTZ.
+            if self.rms_state.abs() < 1.0e-20 {
+                self.rms_state = 0.0;
+            }
 
             // Gain computation (with soft knee)
             let gain_db = self.compute_gain_reduction(self.envelope_db);

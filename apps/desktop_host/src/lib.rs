@@ -960,6 +960,45 @@ fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     Ok(())
 }
 
+/// Coalesced undo for rapid sequential operations (move/resize/drag).
+///
+/// If the last undo snapshot was pushed within `COALESCE_WINDOW_MS`,
+/// replaces it instead of pushing a new one. This prevents undo stack bloat
+/// when the user rapidly operates on clips and reduces lock contention
+/// that contributes to audio stutter during playback.
+const COALESCE_WINDOW_MS: u128 = 300;
+static LAST_UNDO_PUSH_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[track_caller]
+fn push_undo_coalesced(project_state: &ProjectState) -> Result<(), String> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last_ms = LAST_UNDO_PUSH_MS.load(std::sync::atomic::Ordering::Relaxed);
+
+    if last_ms > 0 && (now_ms.saturating_sub(last_ms) as u128) < COALESCE_WINDOW_MS {
+        // Coalesce: replace the top of the undo stack instead of pushing a new entry.
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+        if let Some(top) = undo.undo_stack.back_mut() {
+            let previous = if undo.undo_stack.len() >= 2 {
+                undo.undo_stack.get(undo.undo_stack.len() - 2)
+            } else {
+                None
+            };
+            *top = SharedProjectSnapshot::from_project(&project, previous);
+        }
+        // Update timestamp but don't push a new entry.
+        LAST_UNDO_PUSH_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+        return Ok(());
+    }
+
+    // First operation in a new coalesce window — push normally.
+    LAST_UNDO_PUSH_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+    push_undo(project_state)
+}
+
 /// BUG-009 FIX: Cache seen file paths to avoid redundant `Path::exists()` syscalls.
 /// With 100 clips sharing 10 unique files, this reduces I/O from 100 to 10 calls.
 fn refresh_offline_flags(project: &mut Project) {
@@ -1300,83 +1339,52 @@ fn rebuild_sampler_snapshot_from_project(
                 err
             );
         }
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerOsc2Waveform {
-                track_index: track_idx as u16,
-                waveform: osc2,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerOscMix {
-                track_index: track_idx as u16,
-                mix,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerDetuneCents {
-                track_index: track_idx as u16,
-                cents: detune,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerSubLevel {
-                track_index: track_idx as u16,
-                level: sub,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerFilterCutoff {
-                track_index: track_idx as u16,
-                cutoff: f_cutoff,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerFilterResonance {
-                track_index: track_idx as u16,
-                resonance: f_res,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerFilterType {
-                track_index: track_idx as u16,
-                filter_type: f_type,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerLfoRate {
-                track_index: track_idx as u16,
-                rate: lfo_r,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerLfoDepth {
-                track_index: track_idx as u16,
-                depth: lfo_d,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerLfoTarget {
-                track_index: track_idx as u16,
-                target: lfo_t,
-            },
-        );
-        let _ = push_command(
-            handle,
-            EngineCommand::SetSamplerPulseWidth {
-                track_index: track_idx as u16,
-                width: pw,
-            },
-        );
+        // BUG-063 FIX: Use push_command_or_log! instead of `let _ =` to ensure
+        // queue-full conditions are visible in logs during sampler state restore.
+        push_command_or_log!(handle, EngineCommand::SetSamplerOsc2Waveform {
+            track_index: track_idx as u16,
+            waveform: osc2,
+        }, "sampler osc2 waveform");
+        push_command_or_log!(handle, EngineCommand::SetSamplerOscMix {
+            track_index: track_idx as u16,
+            mix,
+        }, "sampler osc mix");
+        push_command_or_log!(handle, EngineCommand::SetSamplerDetuneCents {
+            track_index: track_idx as u16,
+            cents: detune,
+        }, "sampler detune");
+        push_command_or_log!(handle, EngineCommand::SetSamplerSubLevel {
+            track_index: track_idx as u16,
+            level: sub,
+        }, "sampler sub level");
+        push_command_or_log!(handle, EngineCommand::SetSamplerFilterCutoff {
+            track_index: track_idx as u16,
+            cutoff: f_cutoff,
+        }, "sampler filter cutoff");
+        push_command_or_log!(handle, EngineCommand::SetSamplerFilterResonance {
+            track_index: track_idx as u16,
+            resonance: f_res,
+        }, "sampler filter resonance");
+        push_command_or_log!(handle, EngineCommand::SetSamplerFilterType {
+            track_index: track_idx as u16,
+            filter_type: f_type,
+        }, "sampler filter type");
+        push_command_or_log!(handle, EngineCommand::SetSamplerLfoRate {
+            track_index: track_idx as u16,
+            rate: lfo_r,
+        }, "sampler lfo rate");
+        push_command_or_log!(handle, EngineCommand::SetSamplerLfoDepth {
+            track_index: track_idx as u16,
+            depth: lfo_d,
+        }, "sampler lfo depth");
+        push_command_or_log!(handle, EngineCommand::SetSamplerLfoTarget {
+            track_index: track_idx as u16,
+            target: lfo_t,
+        }, "sampler lfo target");
+        push_command_or_log!(handle, EngineCommand::SetSamplerPulseWidth {
+            track_index: track_idx as u16,
+            width: pw,
+        }, "sampler pulse width");
     }
 }
 
@@ -3867,6 +3875,18 @@ fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), St
 
     handle.rt_debug_stats.record_queue_full_reject();
     Err("Command queue full — audio thread overloaded".to_string())
+}
+
+/// BUG-063 FIX: Macro for best-effort command pushes that logs failures
+/// instead of silently dropping them with `let _ =`.
+/// Use this in restore/rebuild functions where individual parameter
+/// failures should not abort the entire operation.
+macro_rules! push_command_or_log {
+    ($handle:expr, $cmd:expr, $context:expr) => {
+        if let Err(err) = push_command($handle, $cmd) {
+            log::warn!("[Engine] BUG-063: Failed to push command ({}): {}", $context, err);
+        }
+    };
 }
 
 fn read_meter(level: &dream_ipc::metering::LockFreeLevel) -> MeterReading {

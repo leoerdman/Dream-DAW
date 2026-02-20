@@ -180,6 +180,14 @@ impl DspProcessor for FlangerProcessor {
             // Write with damped feedback
             self.damp_state_l += dc * (self.fb_l - self.damp_state_l);
             self.damp_state_r += dc * (self.fb_r - self.damp_state_r);
+            // BUG-AUD-102 FIX: Flush denormals in feedback damping filter to
+            // prevent 50-100x CPU slowdown on x86 CPUs during quiet passages.
+            if self.damp_state_l.abs() < 1.0e-20 {
+                self.damp_state_l = 0.0;
+            }
+            if self.damp_state_r.abs() < 1.0e-20 {
+                self.damp_state_r = 0.0;
+            }
             self.buf_l[self.write_pos] = dry_l + self.damp_state_l * self.feedback;
             self.buf_r[self.write_pos] = dry_r + self.damp_state_r * self.feedback;
 

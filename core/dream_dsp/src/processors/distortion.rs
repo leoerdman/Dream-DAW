@@ -182,6 +182,21 @@ impl DspProcessor for DistortionProcessor {
             // BUG-5 FIX: Output gain + mix with safety clamp
             left[i] = (dry_l * (1.0 - mix) + wet_l * out * mix).clamp(-8.0, 8.0);
             right[i] = (dry_r * (1.0 - mix) + wet_r * out * mix).clamp(-8.0, 8.0);
+
+            // BUG-AUD-108 FIX: Flush denormals in HP/tone/cab filter states
+            // to prevent CPU stalls on x86 during prolonged silence.
+            if self.hp_state_l.abs() < 1.0e-20 {
+                self.hp_state_l = 0.0;
+            }
+            if self.hp_state_r.abs() < 1.0e-20 {
+                self.hp_state_r = 0.0;
+            }
+            if self.tone_state_l.abs() < 1.0e-20 {
+                self.tone_state_l = 0.0;
+            }
+            if self.tone_state_r.abs() < 1.0e-20 {
+                self.tone_state_r = 0.0;
+            }
         }
     }
 

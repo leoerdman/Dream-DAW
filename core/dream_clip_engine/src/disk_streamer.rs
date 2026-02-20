@@ -567,6 +567,10 @@ fn disk_io_thread(
     let mut needs_seek = false;
     let mut consecutive_errors = 0u32;
     let mut pending_chunk: Option<StreamChunk> = None;
+    // BUG-051 FIX: Pre-allocate SampleBuffer outside the loop to avoid
+    // allocating a new one for every decoded packet. Lazily initialized
+    // because we need the AudioSpec from the first decoded packet.
+    let mut reusable_sample_buf: Option<SampleBuffer<f32>> = None;
 
     log::info!("DiskIO: thread started for '{}'", path.display());
 
@@ -699,7 +703,16 @@ fn disk_io_thread(
 
             let spec = *decoded.spec();
             let duration = decoded.capacity();
-            let mut sample_buf = SampleBuffer::<f32>::new(duration as u64, spec);
+            // BUG-051 FIX: Reuse SampleBuffer across packets. Re-create only
+            // when the current buffer is too small (rare — codec packets are
+            // typically a fixed size like 1024 or 2048 frames).
+            let sample_buf = reusable_sample_buf.get_or_insert_with(|| {
+                SampleBuffer::<f32>::new(duration as u64, spec)
+            });
+            // If capacity is insufficient (variable-length codec), replace.
+            if sample_buf.capacity() < duration {
+                *sample_buf = SampleBuffer::<f32>::new(duration as u64, spec);
+            }
             sample_buf.copy_interleaved_ref(decoded);
             let samples = sample_buf.samples();
             let ch = spec.channels.count().max(1);

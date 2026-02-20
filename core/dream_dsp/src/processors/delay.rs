@@ -194,6 +194,14 @@ impl DspProcessor for DelayProcessor {
             // One-pole LP in feedback loop
             self.fb_filter_l += fc * (fb_l_raw - self.fb_filter_l);
             self.fb_filter_r += fc * (fb_r_raw - self.fb_filter_r);
+            // BUG-AUD-101 FIX: Flush denormals in feedback filter to prevent
+            // 50-100x CPU slowdown on x86 CPUs during long quiet tails.
+            if self.fb_filter_l.abs() < 1.0e-20 {
+                self.fb_filter_l = 0.0;
+            }
+            if self.fb_filter_r.abs() < 1.0e-20 {
+                self.fb_filter_r = 0.0;
+            }
 
             // Write to buffer: input + filtered feedback
             self.buf_l[self.write_pos] = dry_l + self.fb_filter_l * fb;

@@ -123,13 +123,23 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 onClipSelectionChanged,
             } = configRef.current;
 
-            // Ignore if user is typing in an input
+            // Ignore if user is typing in an input.
+            // Check both e.target AND document.activeElement to handle Tauri
+            // webview focus edge cases where e.target may differ from the
+            // actual focused element.
             const target = e.target as HTMLElement;
-            if (
-                target.tagName === 'INPUT' ||
-                target.tagName === 'TEXTAREA' ||
-                target.isContentEditable
-            ) {
+            const active = document.activeElement as HTMLElement | null;
+            const isTextTarget = (el: HTMLElement | null): boolean => {
+                if (!el) return false;
+                const tag = el.tagName;
+                return (
+                    tag === 'INPUT' ||
+                    tag === 'TEXTAREA' ||
+                    el.isContentEditable ||
+                    !!el.closest?.('[role="textbox"], [contenteditable="true"]')
+                );
+            };
+            if (isTextTarget(target) || isTextTarget(active)) {
                 return;
             }
 

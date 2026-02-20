@@ -247,6 +247,24 @@ impl DspProcessor for AutoFilterProcessor {
             // high resonance + drive combinations (self-oscillation guard).
             left[i] = (dry_l * (1.0 - mix) + wet_l * mix).clamp(-8.0, 8.0);
             right[i] = (dry_r * (1.0 - mix) + wet_r * mix).clamp(-8.0, 8.0);
+
+            // BUG-AUD-107 FIX: Flush denormals in SVF integrator and envelope
+            // follower states to prevent CPU stalls during silence.
+            if self.ic1eq_l.abs() < 1.0e-20 {
+                self.ic1eq_l = 0.0;
+            }
+            if self.ic2eq_l.abs() < 1.0e-20 {
+                self.ic2eq_l = 0.0;
+            }
+            if self.ic1eq_r.abs() < 1.0e-20 {
+                self.ic1eq_r = 0.0;
+            }
+            if self.ic2eq_r.abs() < 1.0e-20 {
+                self.ic2eq_r = 0.0;
+            }
+            if self.env_follower < 1.0e-20 {
+                self.env_follower = 0.0;
+            }
         }
     }
 

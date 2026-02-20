@@ -171,6 +171,14 @@ impl DspProcessor for ChorusProcessor {
                 (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-8.0, 8.0);
             self.hp_prev_l = wet_l;
             self.hp_prev_r = wet_r;
+            // BUG-AUD-105 FIX: Flush denormals in HP filter state to prevent
+            // CPU stalls on x86 during silence.
+            if self.hp_state_l.abs() < 1.0e-20 {
+                self.hp_state_l = 0.0;
+            }
+            if self.hp_state_r.abs() < 1.0e-20 {
+                self.hp_state_r = 0.0;
+            }
 
             // Mix
             left[i] = (dry_l * (1.0 - self.mix) + self.hp_state_l * self.mix).clamp(-8.0, 8.0);

@@ -255,6 +255,20 @@ impl DspProcessor for NoiseMachineProcessor {
             self.hp_state_r = hp * (self.hp_state_r + lp_out_r - self.hp_prev_in_r);
             self.hp_prev_in_l = lp_out_l;
             self.hp_prev_in_r = lp_out_r;
+            // BUG-AUD-106 FIX: Flush denormals in LP/HP filter chain to prevent
+            // CPU stalls when noise volume is very low or muted.
+            if self.lp_state_l.abs() < 1.0e-20 {
+                self.lp_state_l = 0.0;
+            }
+            if self.lp_state_r.abs() < 1.0e-20 {
+                self.lp_state_r = 0.0;
+            }
+            if self.hp_state_l.abs() < 1.0e-20 {
+                self.hp_state_l = 0.0;
+            }
+            if self.hp_state_r.abs() < 1.0e-20 {
+                self.hp_state_r = 0.0;
+            }
 
             let out_l = self.hp_state_l * vol;
             let out_r = self.hp_state_r * vol;

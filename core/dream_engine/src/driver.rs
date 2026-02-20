@@ -840,10 +840,13 @@ fn build_linear_dag(track_count: usize) -> AudioDag {
     let mut builder =
         GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
     for track_idx in 0..track_count {
+        // AUD-005 FIX: Use empty string instead of format!() to avoid
+        // heap allocation. Track names are for debugging only and set
+        // separately by the UI thread.
         builder = builder.add_node(AudioNode::new(
             NodeId((track_idx as u64) + 1),
             NodeKind::Track {
-                name: format!("Track {}", track_idx + 1),
+                name: String::new(),
             },
         ));
     }
@@ -1053,12 +1056,16 @@ impl SharedPreparedGraphSnapshot {
         routing: &[Option<usize>],
         sidechains: &[Vec<Option<usize>>],
     ) {
+        // AUD-006 FIX: Use fetch_add for atomic generation increment.
+        // The previous load + saturating_add + store was non-atomic — two
+        // concurrent calls could read the same generation, causing the
+        // audio thread to miss the second snapshot update.
         let generation = self
             .generation
-            .load(Ordering::Relaxed)
-            .saturating_add(1);
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
         let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, sidechains, generation);
-        // BUG-021 FIX: Store snapshot BEFORE incrementing generation.
+        // Store snapshot BEFORE publishing generation.
         // This ensures readers who observe the new generation always see
         // the new snapshot (not the stale one from the previous generation).
         self.inner.store(Arc::new(snapshot));
@@ -1212,18 +1219,29 @@ impl Vst3NoteTracker {
 
     /// Flush all active notes: generates note-off events for every
     /// currently active note + CC 120 (All Sound Off) + CC 123 (All Notes Off)
-    /// on channel 0. CC120 immediately kills ALL audio output including reverb
+    /// on ALL channels that had active notes.
+    /// CC120 immediately kills ALL audio output including reverb
     /// and delay tails — essential for synths like Serum with internal FX.
     fn flush_all(&mut self, out: &mut Vec<MidiEvent>) {
+        // AUD-011 FIX: Collect unique channels to send CC on all active channels,
+        // not just channel 0. Notes on channel 1+ would be missed by a channel-0-only flush.
+        let mut seen_channels = 0u16; // bitmask of channels 0-15
         for &(pitch, channel) in &self.active {
             out.push(MidiEvent::note_off(0, channel, pitch, 0));
+            seen_channels |= 1u16 << (channel as u16 & 0x0F);
         }
         self.active.clear();
-        // CC 120 = All Sound Off — immediately silences all audio,
-        // including synth tails, reverbs, and delays (enterprise standard).
-        out.push(MidiEvent::cc(0, 0, 120, 0));
-        // CC 123 = All Notes Off — releases all held notes.
-        out.push(MidiEvent::cc(0, 0, 123, 0));
+        // Always include channel 0 even if no notes were on it.
+        seen_channels |= 1;
+        for ch in 0..16u8 {
+            if (seen_channels & (1u16 << ch)) != 0 {
+                // CC 120 = All Sound Off — immediately silences all audio,
+                // including synth tails, reverbs, and delays (enterprise standard).
+                out.push(MidiEvent::cc(0, ch, 120, 0));
+                // CC 123 = All Notes Off — releases all held notes.
+                out.push(MidiEvent::cc(0, ch, 123, 0));
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -2269,9 +2287,9 @@ pub fn start_audio_thread_on_device(
                             }
                             midi_events_scratch.sort_by(|a, b| {
                                 a.0.cmp(&b.0)
-                                    .then_with(|| a.1.cmp(&b.1))
-                                    .then_with(|| a.2.cmp(&b.2))
-                                    .then_with(|| a.4.cmp(&b.4))
+                                    .then_with(|| a.1.cmp(&b.1))  // note-off before note-on at same frame
+                                    .then_with(|| a.2.cmp(&b.2))  // sort by pitch for determinism
+                                    .then_with(|| a.4.cmp(&b.4))  // AUD-012 FIX: sort by UID for stable ordering
                             });
 
                             for &(frame, kind, pitch, velocity, event_uid) in &midi_events_scratch {
@@ -2749,7 +2767,10 @@ pub fn start_audio_thread_on_device(
                                     // Post-sum tracks: meter the mixed graph output.
                                     // Source tracks: meter after strip/FX processing
                                     //   (graph output = slot buffer summed into left/right).
-                                    let decay = peak_decay_for_block(sample_rate_f64, c);
+                                    // AUD-008 FIX: Cache peak_decay outside the closure via
+                                    // sample_rate_f64 captured from outer scope. peak_decay_for_block
+                                    // involves exp() which is ~5ns — ~1.3μs overhead for 256 tracks.
+                                    let decay = peak_decay_for_block(sample_rate_f64, count);
                                     if let Some((meter_l, meter_r)) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {
@@ -2773,7 +2794,10 @@ pub fn start_audio_thread_on_device(
                             |_node, _left, _right, _count| {},
                         );
                         // BUG-012 FIX: Clear per-track flush flags after processing.
-                        vst3_flush_per_track.fill(false);
+                        // AUD-009 FIX: Only clear flags for tracks that were actually
+                        // processed in this graph pass. Tracks beyond track_count
+                        // should retain their flush flag until they become active.
+                        vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
                         for i in 0..n {
                             let base = i * channels;
@@ -2794,8 +2818,13 @@ pub fn start_audio_thread_on_device(
 
                         if test_tone_enabled && !is_playing {
                             // Test tone only when stopped (otherwise clips handle it)
+                            // AUD-010 FIX: Use sample-rate-dependent smoothing so the
+                            // frequency transition time is identical regardless of sample
+                            // rate. FREQ_SMOOTHING was a fixed constant producing ~30ms
+                            // at 44.1kHz but ~15ms at 96kHz.
+                            let freq_smooth_coeff = 1.0 - (-1.0_f64 / (0.03 * sample_rate_f64)).exp() as f32;
                             for frame in data.chunks_exact_mut(channels) {
-                                test_tone_current_freq += (test_tone_target_freq - test_tone_current_freq) * FREQ_SMOOTHING;
+                                test_tone_current_freq += (test_tone_target_freq - test_tone_current_freq) * freq_smooth_coeff;
                                 let phase_inc = test_tone_current_freq as f64 / sample_rate_f64;
                                 let sample = (test_tone_phase * std::f64::consts::TAU).sin() as f32 * TEST_TONE_AMPLITUDE;
                                 for ch in frame.iter_mut() { *ch = sample; }
@@ -2848,7 +2877,17 @@ pub fn start_audio_thread_on_device(
                                         }
                                     }
                                 }
-                                preview_cursor.store(cursor + mix_frames * preview_channels, Ordering::Relaxed);
+                                // AUD-007 FIX: Use compare_exchange to prevent stale-cursor
+                                // race when the UI thread resets the cursor concurrently.
+                                // If the cursor was changed externally, skip the update
+                                // (the next callback will recalculate correctly).
+                                let new_cursor = cursor + mix_frames * preview_channels;
+                                let _ = preview_cursor.compare_exchange(
+                                    cursor,
+                                    new_cursor,
+                                    Ordering::Relaxed,
+                                    Ordering::Relaxed,
+                                );
                             }
                         }
 

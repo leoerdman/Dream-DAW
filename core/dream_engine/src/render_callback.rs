@@ -93,8 +93,11 @@ impl TrackSlot {
     /// Clears the scratch buffers (called at the start of each buffer).
     #[inline]
     pub fn clear(&mut self, frame_count: usize) {
-        self.buf_left[..frame_count].fill(0.0);
-        self.buf_right[..frame_count].fill(0.0);
+        // AUD-001 FIX: Guard against frame_count exceeding buffer size.
+        // Prevents panic if cpal delivers a larger-than-expected buffer.
+        let n = frame_count.min(self.buf_left.len()).min(self.buf_right.len());
+        self.buf_left[..n].fill(0.0);
+        self.buf_right[..n].fill(0.0);
         self.active = false;
     }
 }
@@ -148,6 +151,10 @@ pub struct RenderContext {
     /// Keyed by source file path. If a clip's file_path is found here,
     /// audio is read from the streaming window instead of the in-memory pool.
     /// This prevents OOM for files exceeding `RAM_THRESHOLD_BYTES`.
+    ///
+    /// AUD-002 NOTE: Uses HashMap which can allocate on insert. Insertions
+    /// happen from the UI thread BEFORE the audio callback runs (via command),
+    /// so this is safe. Reads in the hot path (`.get()`) are O(1) and non-allocating.
     pub streaming_windows: std::collections::HashMap<String, StreamingWindow>,
 
     /// Reused active-clip scratch (pre-allocated, no per-buffer allocs).
@@ -441,7 +448,12 @@ impl RenderContext {
                 // ── 3a. Apply fades at clip boundaries ───────────────
                 let offset = ac.buffer_offset;
                 let read_len = ac.frames_to_read;
-                if read_len > 0 {
+                // AUD-004 FIX: Guard against offset + read_len exceeding buffer bounds.
+                // This can happen if ClipScheduler returns stale buffer offsets after
+                // a sample rate change or buffer size switch mid-stream.
+                let safe_end = (offset + read_len).min(slot.buf_left.len()).min(slot.buf_right.len());
+                let safe_read_len = safe_end.saturating_sub(offset);
+                if safe_read_len > 0 {
                     let user_fade_in = clip.fade_in_frames.max(0) as usize;
                     let user_fade_out = clip.fade_out_frames.max(0) as usize;
                     let clip_len_frames = clip.duration.sample_frame.max(1) as usize;
@@ -451,7 +463,7 @@ impl RenderContext {
 
                     let has_user_fades = user_fade_in > 0 || user_fade_out > 0;
                     if has_user_fades {
-                        for i in 0..read_len {
+                        for i in 0..safe_read_len {
                             let clip_frame = clip_local_start + i;
                             let mut g = 1.0f32;
 
@@ -478,8 +490,8 @@ impl RenderContext {
                         }
                     } else {
                         let fade_len = self.fade_cache.fade_length;
-                        if ac.is_clip_head && read_len >= fade_len {
-                            let len = fade_len.min(read_len);
+                        if ac.is_clip_head && safe_read_len >= fade_len {
+                            let len = fade_len.min(safe_read_len);
                             for i in 0..len {
                                 let gain = self.fade_cache.fade_in[i];
                                 slot.buf_left[offset + i] *= gain;
@@ -487,8 +499,8 @@ impl RenderContext {
                             }
                         }
 
-                        if ac.is_clip_tail && read_len >= fade_len {
-                            let tail_start = offset + read_len - fade_len;
+                        if ac.is_clip_tail && safe_read_len >= fade_len {
+                            let tail_start = offset + safe_read_len - fade_len;
                             for i in 0..fade_len {
                                 let gain = self.fade_cache.fade_out[i];
                                 slot.buf_left[tail_start + i] *= gain;
@@ -510,6 +522,10 @@ impl RenderContext {
 
         // ── 4. Process channel strips (gain + pan) per track ────────
         let sr = self.sample_rate as f32;
+        // AUD-003 FIX: Cache peak_decay once per render call. Previously
+        // computed inside the per-track loop — exp() is ~5ns × 256 tracks
+        // = 1.3μs wasted per buffer.
+        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
         for (track_idx, slot) in self.track_slots.iter_mut().enumerate() {
             if !slot.active {
                 continue;
@@ -548,12 +564,11 @@ impl RenderContext {
                 let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
                 let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
                 let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
-                let decay = peak_decay_for_block(self.sample_rate, frame_count);
 
                 meter_l.store_rms(rms_l);
                 meter_r.store_rms(rms_r);
-                meter_l.store_peak_decay(peak_l, decay);
-                meter_r.store_peak_decay(peak_r, decay);
+                meter_l.store_peak_decay(peak_l, track_decay);
+                meter_r.store_peak_decay(peak_r, track_decay);
             }
         }
 

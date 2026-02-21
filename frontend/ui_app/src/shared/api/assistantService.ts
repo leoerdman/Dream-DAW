@@ -890,7 +890,319 @@ const TOOLS = [
             }
         }
     },
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PHASE 5: Deep Music Production Tools (20 new)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ── MIDI Inspection (Piano Roll Read) ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_midi_clip_notes',
+            description: 'Read all MIDI notes from a clip. Returns pitch, startBeat, durationBeats, velocity for every note. Use this to see pattern contents, analyze existing MIDI, or check what the agent previously wrote.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string', description: 'Clip UUID' },
+                },
+                required: ['clipId'],
+            }
+        }
+    },
+
+    // ── Clip Editing: Resize, Warp, Source Offset ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'resize_clip',
+            description: 'Resize a clip to a new start position and duration (in beats). Useful for trimming, extending, or adjusting clip boundaries.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    newStartBeat: { type: 'number', description: 'New start position in beats' },
+                    newDurationBeats: { type: 'number', description: 'New duration in beats' },
+                },
+                required: ['clipId', 'newStartBeat', 'newDurationBeats'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clip_warp',
+            description: 'Enable/disable time-stretching (warp) on a clip. Set warp mode and base BPM for tempo-synced playback.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    isWarped: { type: 'boolean', description: 'Enable warp (time-stretch to project BPM)' },
+                    warpBaseBpm: { type: 'number', description: 'Original BPM of the sample (used to calculate stretch ratio)' },
+                },
+                required: ['clipId', 'isWarped'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clip_source_offset',
+            description: 'Slip-edit a clip: shift the waveform inside the clip frame without moving the clip. Useful for finding the perfect loop point.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    offsetBeats: { type: 'number', description: 'Source offset in beats' },
+                },
+                required: ['clipId', 'offsetBeats'],
+            }
+        }
+    },
+
+    // ── Audio Preview (Audition) ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'preview_audio_file',
+            description: 'Play an audio file through the system output for auditioning. Use search_browser first to find the file path, then preview it before committing to the arrangement.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute path to the audio file' },
+                },
+                required: ['path'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'stop_preview',
+            description: 'Stop the currently playing audio preview.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_audio_file_duration',
+            description: 'Get the exact duration in seconds of an audio file. Useful for calculating how many beats a sample spans at the current BPM.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute path to the audio file' },
+                },
+                required: ['path'],
+            }
+        }
+    },
+
+    // ── Project Settings ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_arrangement_grid',
+            description: 'Set the arrangement/editor grid size (e.g. 1/4, 1/8, 1/16 notes). Also controls snap-to-grid.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    numerator: { type: 'number', description: 'Grid numerator (e.g. 1)' },
+                    denominator: { type: 'number', description: 'Grid denominator (e.g. 4 for quarter, 8 for eighth, 16 for sixteenth)' },
+                    snapToGrid: { type: 'boolean', description: 'Enable snap-to-grid' },
+                },
+                required: ['numerator', 'denominator'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_key_signature',
+            description: 'Set the project key signature. Helps constrain MIDI generation to correct pitches.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    enabled: { type: 'boolean', description: 'Enable key signature display' },
+                    tonic: { type: 'string', description: 'Root note: C, C#, D, D#, E, F, F#, G, G#, A, A#, B' },
+                    mode: { type: 'string', description: 'Scale mode: major, minor, dorian, mixolydian, phrygian, lydian, locrian' },
+                },
+                required: ['tonic', 'mode'],
+            }
+        }
+    },
+
+    // ── Track Operations ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'duplicate_tracks',
+            description: 'Duplicate one or more tracks with all their clips, effects, and settings.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndices: { type: 'array', items: { type: 'number' }, description: 'Array of 0-based track indices to duplicate' },
+                },
+                required: ['trackIndices'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'move_track',
+            description: 'Move a track to a new position in the track list.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: 'Current 0-based track index' },
+                    targetIndex: { type: 'number', description: 'New 0-based position' },
+                },
+                required: ['trackIndex', 'targetIndex'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_routing',
+            description: 'Route a track\'s audio output to another track (bus) or master. Use "master" to route to the master bus.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based track index' },
+                    target: { type: 'string', description: '"master" or track name/index for bus routing' },
+                },
+                required: ['trackIndex', 'target'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'arm_track',
+            description: 'Arm a track for recording. When armed, the track will record audio input on play.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    armed: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'armed'],
+            }
+        }
+    },
+
+    // ── Sampler Extended ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_pad_solo',
+            description: 'Solo a pad in the drum rack. Only the soloed pad will sound.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    padIndex: { type: 'number' },
+                    soloed: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'padIndex', 'soloed'],
+            }
+        }
+    },
+
+    // ── Batch Clip Operations ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clips_muted_batch',
+            description: 'Mute or unmute multiple clips at once in an undo-safe batch.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipIds: { type: 'array', items: { type: 'string' } },
+                    muted: { type: 'boolean' },
+                },
+                required: ['clipIds', 'muted'],
+            }
+        }
+    },
+
+    // ── Bounce / Export ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'bounce_track',
+            description: 'Bounce a track (with all its effects) to a new audio track. Useful for freezing CPU-heavy instruments or committing effects.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based track index to bounce' },
+                },
+                required: ['trackIndex'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'export_mix',
+            description: 'Export/bounce the full project or loop region to an audio file (WAV/MP3).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    outputPath: { type: 'string', description: 'Full path for the output file' },
+                    format: { type: 'string', description: '"wav" or "mp3"' },
+                    sampleRate: { type: 'number', description: '44100, 48000, or 96000' },
+                    bitDepth: { type: 'number', description: '16, 24, or 32' },
+                    range: { type: 'string', description: '"full" (entire project) or "loop" (loop region only)' },
+                    normalize: { type: 'boolean', description: 'Normalize to 0dBFS' },
+                },
+                required: ['outputPath'],
+            }
+        }
+    },
+
+    // ── Automation ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_automation_points',
+            description: 'Write automation breakpoints for a track parameter. Enables complex evolving mixes (volume fades, filter sweeps, pan movements).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    paramId: { type: 'string', description: 'Parameter ID: "volume", "pan", or effect parameter name' },
+                    points: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                beat: { type: 'number' },
+                                value: { type: 'number', description: 'Parameter value (0.0-1.0 for volume/pan)' },
+                                curveType: { type: 'string', description: '"linear", "step", or "bezier"' },
+                            },
+                            required: ['beat', 'value'],
+                        }
+                    },
+                },
+                required: ['trackIndex', 'paramId', 'points'],
+            }
+        }
+    },
+
+    // ── Arrangement Overview (Read) ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_arrangement_overview',
+            description: 'Get a high-level overview of the entire arrangement: all tracks with their clips, positions, durations, and MIDI note counts. Shows the full "bird\'s eye view" of the song structure.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        }
+    },
 ];
+
 
 
 
@@ -911,7 +1223,8 @@ const READ_ONLY_TOOLS = new Set([
     'get_project_overview', 'get_track_clips', 'get_clip_details',
     'get_transport_state', 'select_clips', 'select_all_clips_on_track',
     'generate_chord', 'generate_scale', 'suggest_arrangement', 'get_metering',
-    'generate_beat_pattern',
+    'generate_beat_pattern', 'get_midi_clip_notes', 'get_audio_file_duration',
+    'get_arrangement_overview', 'preview_audio_file', 'stop_preview',
 ]);
 
 async function executeTool(
@@ -1748,6 +2061,225 @@ async function executeToolInner(
             });
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 5: Deep Music Production Tools (20 implementations)
+        // ═══════════════════════════════════════════════════════════════════
+
+        case 'get_midi_clip_notes': {
+            const clipId = args.clipId as string;
+            const clip = clips.find(c => c.id === clipId);
+            if (!clip) return JSON.stringify({ error: `Clip ${clipId} not found` });
+            if (clip.type !== 'midi') return JSON.stringify({ error: `Clip ${clipId} is not a MIDI clip (type: ${clip.type})` });
+            const notes = (clip as any).midiNotes ?? [];
+            return JSON.stringify({
+                clipId,
+                clipName: clip.name,
+                noteCount: notes.length,
+                notes: notes.map((n: any) => ({
+                    pitch: n.pitch,
+                    noteName: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][n.pitch % 12] + (Math.floor(n.pitch / 12) - 1),
+                    startBeat: n.startBeat,
+                    durationBeats: n.durationBeats,
+                    velocity: n.velocity,
+                })),
+            });
+        }
+
+        case 'resize_clip': {
+            const st = useEngineStore.getState();
+            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const srVal = st.projectSampleRate || 44100;
+            const fpb = (60.0 / bpmVal) * srVal;
+            const newPosFrames = Math.round((args.newStartBeat as number) * fpb);
+            const newDurFrames = Math.round((args.newDurationBeats as number) * fpb);
+            await engineApi.resizeClip(args.clipId as string, newPosFrames, newDurFrames);
+            return JSON.stringify({ success: true, clipId: args.clipId, newStartBeat: args.newStartBeat, newDurationBeats: args.newDurationBeats });
+        }
+
+        case 'set_clip_warp': {
+            await engineApi.setClipWarp({
+                clipId: args.clipId as string,
+                isWarped: args.isWarped as boolean,
+                warpBaseBpm: (args.warpBaseBpm as number) ?? null,
+            });
+            return JSON.stringify({ success: true, clipId: args.clipId, isWarped: args.isWarped, warpBaseBpm: args.warpBaseBpm ?? null });
+        }
+
+        case 'set_clip_source_offset': {
+            const st = useEngineStore.getState();
+            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const srVal = st.projectSampleRate || 44100;
+            const fpb = (60.0 / bpmVal) * srVal;
+            const offsetFrames = Math.round((args.offsetBeats as number) * fpb);
+            await engineApi.setClipSourceOffset(args.clipId as string, offsetFrames);
+            return JSON.stringify({ success: true, clipId: args.clipId, offsetBeats: args.offsetBeats });
+        }
+
+        case 'preview_audio_file': {
+            await engineApi.previewAudioFile(args.path as string);
+            return JSON.stringify({ success: true, previewing: args.path });
+        }
+
+        case 'stop_preview': {
+            await engineApi.stopPreview();
+            return JSON.stringify({ success: true, stopped: true });
+        }
+
+        case 'get_audio_file_duration': {
+            const duration = await engineApi.getAudioFileDuration(args.path as string);
+            const st = useEngineStore.getState();
+            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const beatsPerSecond = bpmVal / 60.0;
+            return JSON.stringify({
+                path: args.path,
+                durationSeconds: duration,
+                durationBeats: parseFloat((duration * beatsPerSecond).toFixed(2)),
+                durationBars: parseFloat((duration * beatsPerSecond / 4).toFixed(2)),
+            });
+        }
+
+        case 'set_arrangement_grid': {
+            await engineApi.setArrangementGrid(
+                args.numerator as number,
+                args.denominator as number,
+                1, // ntoles (default no tuplets)
+                (args.snapToGrid as boolean) ?? true,
+                false, // not fixed
+            );
+            return JSON.stringify({ success: true, grid: `${args.numerator}/${args.denominator}`, snapToGrid: args.snapToGrid ?? true });
+        }
+
+        case 'set_key_signature': {
+            await engineApi.setKeySignature(
+                (args.enabled as boolean) ?? true,
+                args.tonic as string,
+                args.mode as string,
+            );
+            return JSON.stringify({ success: true, key: `${args.tonic} ${args.mode}` });
+        }
+
+        case 'duplicate_tracks': {
+            const indices = args.trackIndices as number[];
+            const trackIds = indices.map(i => tracks[i]?.id).filter(Boolean);
+            if (trackIds.length === 0) return JSON.stringify({ error: 'No valid tracks to duplicate' });
+            await engineApi.duplicateTracks(trackIds);
+            return JSON.stringify({ success: true, duplicated: indices.length });
+        }
+
+        case 'move_track': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
+            await engineApi.moveTrackToIndex(trackId, args.targetIndex as number);
+            return JSON.stringify({ success: true, from: args.trackIndex, to: args.targetIndex });
+        }
+
+        case 'set_track_routing': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
+            const target = args.target as string;
+            let targetId = 'master';
+            if (target !== 'master') {
+                const tIdx = resolveTrackIndex(target);
+                if (tIdx >= 0 && tracks[tIdx]) targetId = tracks[tIdx].id;
+            }
+            await engineApi.setTrackRouting(trackId, targetId);
+            return JSON.stringify({ success: true, trackIndex: args.trackIndex, routedTo: target });
+        }
+
+        case 'arm_track': {
+            await engineApi.armTrack(args.trackIndex as number, args.armed as boolean);
+            return JSON.stringify({ success: true, trackIndex: args.trackIndex, armed: args.armed });
+        }
+
+        case 'set_pad_solo': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
+            await engineApi.setSampleRackPadSoloCmd(trackId, args.padIndex as number, args.soloed as boolean);
+            return JSON.stringify({ success: true, padIndex: args.padIndex, soloed: args.soloed });
+        }
+
+        case 'set_clips_muted_batch': {
+            const clipIds = args.clipIds as string[];
+            const muted = args.muted as boolean;
+            const result = await engineApi.setClipsMuted(clipIds, muted);
+            return JSON.stringify({ success: true, muted, applied: result });
+        }
+
+        case 'bounce_track': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
+            await engineApi.bounceTrack(trackId);
+            return JSON.stringify({ success: true, bounced: args.trackIndex });
+        }
+
+        case 'export_mix': {
+            const settings: Record<string, unknown> = {
+                outputPath: args.outputPath as string,
+                format: (args.format as string) || 'wav',
+                sampleRate: (args.sampleRate as number) || 44100,
+                bitDepth: (args.bitDepth as number) || 24,
+                range: (args.range as string) || 'full',
+                normalize: (args.normalize as boolean) ?? false,
+                tailMs: 500,
+            };
+            await engineApi.exportMix(settings as any);
+            return JSON.stringify({ success: true, outputPath: settings.outputPath, format: settings.format });
+        }
+
+        case 'set_automation_points': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
+            const rawPoints = args.points as Array<{ beat: number; value: number; curveType?: string }>;
+            const points = rawPoints.map(p => ({
+                beat: p.beat,
+                value: p.value,
+                curveType: (p.curveType || 'linear') as 'linear' | 'bezier' | 'step',
+            }));
+            await engineApi.setAutomationPoints(trackId, args.paramId as string, points);
+            return JSON.stringify({ success: true, trackIndex: args.trackIndex, paramId: args.paramId, pointsWritten: points.length });
+        }
+
+        case 'get_arrangement_overview': {
+            const st = useEngineStore.getState();
+            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const totalBeats = clips.reduce((max, c) => Math.max(max, c.startBeat + c.durationBeats), 0);
+            const totalBars = Math.ceil(totalBeats / 4);
+            const tracksOverview = tracks.map((t, i) => {
+                const trackClips = clips.filter(c => c.trackIndex === i);
+                return {
+                    index: i,
+                    name: t.name,
+                    type: t.track_type,
+                    color: t.color,
+                    muted: t.is_mute,
+                    soloed: t.is_solo,
+                    volume: Math.round(t.volume * 100),
+                    clipCount: trackClips.length,
+                    clips: trackClips.map(c => ({
+                        id: c.id,
+                        name: c.name,
+                        type: c.type,
+                        startBeat: c.startBeat,
+                        startBar: Math.floor(c.startBeat / 4) + 1,
+                        durationBeats: c.durationBeats,
+                        durationBars: parseFloat((c.durationBeats / 4).toFixed(2)),
+                        muted: c.muted,
+                        noteCount: (c as any).midiNotes?.length ?? 0,
+                    })),
+                    fx: (t.effects ?? []).map(e => e.name),
+                    instrument: t.instrument?.name ?? null,
+                };
+            });
+            return JSON.stringify({
+                bpm: bpmVal,
+                totalBars,
+                totalBeats: parseFloat(totalBeats.toFixed(1)),
+                totalTracks: tracks.length,
+                totalClips: clips.length,
+                tracks: tracksOverview,
+            });
+        }
+
         default:
             return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1803,16 +2335,19 @@ ${trackList || '  (no tracks)'}
 ## Your Tools (${TOOLS.length} available)
 | Category | Tools |
 |----------|-------|
-| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering |
-| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, set_clip_notes, search_browser, add_sample_to_rack, add_audio_clip, generate_beat_pattern |
-| 🎹 Music Theory | generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
-| 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_adsr, set_pad_filter_cutoff, preview_note |
-| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group |
-| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade |
+| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering, get_arrangement_overview |
+| 🎹 Piano Roll | get_midi_clip_notes, set_clip_notes, generate_beat_pattern, generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
+| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
+| 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_solo, set_pad_adsr, set_pad_filter_cutoff, preview_note |
+| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group, duplicate_tracks, move_track, set_track_routing, arm_track |
+| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, resize_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade, set_clip_warp, set_clip_source_offset |
 | 🔊 Transport & Mix | transport_play, transport_stop, set_bpm, seek_to_beat, set_master_volume, set_loop_region, undo, redo |
 | 🧩 Effects | add_effect, remove_effect, set_effect_parameter, bypass_effect |
-| 🤖 AI Mixing | auto_gain_stage, auto_cleanup_mix |
+| 🤖 AI Mixing | auto_gain_stage, auto_cleanup_mix, bounce_track, export_mix |
+| 📐 Project | set_arrangement_grid, set_key_signature |
 | 🎼 Arrangement | suggest_arrangement |
+| 📈 Automation | set_automation_points |
+| ⚡ Batch | add_audio_clips_batch, delete_clips_batch, delete_all_clips_on_track, set_clips_muted_batch |
 
 ## Behavior Rules & Execution Patterns
 

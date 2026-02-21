@@ -57,7 +57,6 @@ const TOOL_META: Record<string, ToolMeta> = {
     set_clip_muted: { icon: ToggleLeft, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `${a.muted ? 'Mute' : 'Unmute'} clip` },
     add_audio_clip: { icon: FileAudio, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Add audio "${(a.samplePath as string)?.split('/').pop() || ''}" at beat ${a.startBeat}` },
     move_clip: { icon: MousePointer, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Move clip to beat ${a.newStartBeat}` },
-    resize_clip: { icon: SlidersHorizontal, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Resize clip to ${a.newDurationBeats} beats` },
     duplicate_clip: { icon: Plus, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Duplicate clip at beat ${a.newPositionBeats}` },
     split_clip: { icon: Scissors, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Split clip at beat ${a.splitBeat}` },
     merge_clips: { icon: Merge, category: 'Clip', categoryColor: '#a855f7', describe: () => 'Merge clips' },
@@ -110,6 +109,27 @@ const TOOL_META: Record<string, ToolMeta> = {
     // Phase 4: Arrangement
     suggest_arrangement: { icon: Wand2, category: 'Arrange', categoryColor: '#ec4899', describe: (a) => `Suggest ${a.genre} arrangement` },
     generate_beat_pattern: { icon: Music, category: 'Pattern', categoryColor: '#ec4899', describe: (a) => `Generate ${a.genre} pattern (${a.bars || 4} bars)` },
+    get_arrangement_overview: { icon: Eye, category: 'Arrange', categoryColor: '#ec4899', describe: () => 'Bird\'s-eye arrangement view' },
+
+    // Phase 5: Deep tools
+    get_midi_clip_notes: { icon: Eye, category: 'MIDI', categoryColor: '#f43f5e', describe: () => 'Read MIDI clip notes' },
+    resize_clip: { icon: SlidersHorizontal, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Resize clip to ${a.newDurationBeats} beats` },
+    set_clip_warp: { icon: Zap, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `${a.isWarped ? 'Enable' : 'Disable'} warp` },
+    set_clip_source_offset: { icon: SlidersHorizontal, category: 'Clip', categoryColor: '#a855f7', describe: (a) => `Slip-edit offset ${a.offsetBeats} beats` },
+    preview_audio_file: { icon: Play, category: 'Browser', categoryColor: '#14b8a6', describe: () => 'Preview audio file' },
+    stop_preview: { icon: Square, category: 'Browser', categoryColor: '#14b8a6', describe: () => 'Stop preview' },
+    get_audio_file_duration: { icon: Eye, category: 'Browser', categoryColor: '#14b8a6', describe: () => 'Get file duration' },
+    set_arrangement_grid: { icon: SlidersHorizontal, category: 'Project', categoryColor: '#06b6d4', describe: (a) => `Grid ${a.numerator}/${a.denominator}` },
+    set_key_signature: { icon: Music, category: 'Project', categoryColor: '#06b6d4', describe: (a) => `Key: ${a.tonic} ${a.mode}` },
+    duplicate_tracks: { icon: Plus, category: 'Track', categoryColor: '#3b82f6', describe: (a) => `Duplicate ${(a.trackIndices as unknown[])?.length || 0} tracks` },
+    move_track: { icon: MousePointer, category: 'Track', categoryColor: '#3b82f6', describe: (a) => `Move track ${a.trackIndex} → ${a.targetIndex}` },
+    set_track_routing: { icon: Zap, category: 'Track', categoryColor: '#3b82f6', describe: (a) => `Route track ${a.trackIndex} → ${a.target}` },
+    arm_track: { icon: ToggleRight, category: 'Track', categoryColor: '#ef4444', describe: (a) => `${a.armed ? 'Arm' : 'Disarm'} track ${a.trackIndex}` },
+    set_pad_solo: { icon: ToggleRight, category: 'Sample', categoryColor: '#f43f5e', describe: (a) => `${a.soloed ? 'Solo' : 'Unsolo'} pad ${a.padIndex}` },
+    set_clips_muted_batch: { icon: ToggleLeft, category: 'Batch', categoryColor: '#10b981', describe: (a) => `${a.muted ? 'Mute' : 'Unmute'} ${(a.clipIds as unknown[])?.length || 0} clips` },
+    bounce_track: { icon: Zap, category: 'Mix', categoryColor: '#f97316', describe: (a) => `Bounce track ${a.trackIndex}` },
+    export_mix: { icon: Gauge, category: 'Mix', categoryColor: '#f97316', describe: (a) => `Export ${a.format || 'wav'}` },
+    set_automation_points: { icon: SlidersHorizontal, category: 'Mix', categoryColor: '#f97316', describe: (a) => `Automate ${a.paramId} (${(a.points as unknown[])?.length || 0} pts)` },
 
     // Inspect
     get_project_overview: { icon: Eye, category: 'Inspect', categoryColor: '#06b6d4', describe: () => 'Get project overview' },

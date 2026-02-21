@@ -380,19 +380,13 @@ function renderHighlightedMatch(name: string, query: string) {
 const AssetSearchInput = memo(function AssetSearchInput({
     debouncedQuery,
     setDebouncedQuery,
-    selectedCategoryId,
-    setSelectedCategoryId,
     searchRef,
     handleBrowserKeyDown,
-    fileListRef,
 }: {
     debouncedQuery: string;
     setDebouncedQuery: (q: string) => void;
-    selectedCategoryId: string;
-    setSelectedCategoryId: (val: string) => void;
     searchRef: React.RefObject<HTMLInputElement>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
-    fileListRef: React.RefObject<HTMLDivElement>;
 }) {
     const [localQuery, setLocalQuery] = useState(debouncedQuery);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -413,7 +407,7 @@ const AssetSearchInput = memo(function AssetSearchInput({
         // BUG-3 FIX: Do NOT force the tab to 'all' when the user types.
         // This was resetting the active tab (e.g. Plug-Ins) every keystroke.
         // The search now operates within the currently selected category.
-    }, [setDebouncedQuery, selectedCategoryId, setSelectedCategoryId, fileListRef]);
+    }, [setDebouncedQuery]);
 
     return (
         <input
@@ -1092,8 +1086,6 @@ export const AssetBrowser = () => {
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
     const [folderChildrenCache, setFolderChildrenCache] = useState<Map<string, BrowserItem[]>>(new Map());
     const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
-    // Legacy compat — kept as empty for code that checks folderStack.length
-    const folderStack: string[] = [];
 
     const searchRef = useRef<HTMLInputElement>(null);
     const fileListRef = useRef<HTMLDivElement>(null);
@@ -1528,7 +1520,7 @@ export const AssetBrowser = () => {
         const pluginSearchMode = selectedCategoryId === 'plugins' && debouncedQuery.trim().length > 0;
 
         // Check if this is a user-folder category
-        if (activeCategory?.folderPath || folderStack.length > 0) {
+        if (activeCategory?.folderPath) {
             base = folderBrowserItems;
         } else {
             switch (selectedCategoryId) {
@@ -1869,9 +1861,6 @@ export const AssetBrowser = () => {
     const navigateInto = useCallback((path: string) => {
         void toggleFolderExpand(path);
     }, [toggleFolderExpand]);
-    const navigateBack = useCallback(() => {
-        // No-op in tree mode — collapse via clicking the folder
-    }, []);
 
     const resolveSelectedTrack = useCallback(() => {
         const selected = window.__dreamSelectedTrackId;
@@ -2157,11 +2146,8 @@ export const AssetBrowser = () => {
                 <AssetSearchInput
                     debouncedQuery={debouncedQuery}
                     setDebouncedQuery={setDebouncedQuery}
-                    selectedCategoryId={selectedCategoryId}
-                    setSelectedCategoryId={setSelectedCategoryId}
                     searchRef={searchRef as any}
                     handleBrowserKeyDown={handleBrowserKeyDown}
-                    fileListRef={fileListRef as any}
                 />
             </div>
 
@@ -2378,101 +2364,78 @@ export const AssetBrowser = () => {
                         borderBottom: '1px solid var(--color-divider)',
                         background: 'var(--color-bg-header)',
                     }}>
-                        {/* Breadcrumb for folder navigation */}
-                        {folderStack.length > 0 ? (
-                            <button
-                                onClick={navigateBack}
-                                style={{
-                                    background: 'var(--color-accent-primary-dim)',
-                                    color: 'var(--color-accent-primary)',
-                                    border: 'none',
-                                    borderRadius: 'var(--radius-xs)',
-                                    padding: '2px 6px',
-                                    fontSize: 'var(--font-size-2xs)',
-                                    cursor: 'pointer',
-                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                                }}
-                            >
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <BrowserGlyph name="arrow-left" size={10} />
-                                    Back
-                                </span>
-                            </button>
+                        {/* Filter pills for non-folder categories */}
+                        {selectedCategoryId === 'plugins' ? (
+                            <>
+                                <FilterPill
+                                    options={[
+                                        'Source: All',
+                                        'Source: Internal',
+                                        'Source: VST3',
+                                        'Source: VST2',
+                                        'Source: AU',
+                                        'Source: External',
+                                    ]}
+                                    value={{ all: 0, internal: 1, vst3: 2, vst2: 3, au: 4, external: 5 }[pluginSourceFilter]}
+                                    onChange={(idx) => {
+                                        const next = (['all', 'internal', 'vst3', 'vst2', 'au', 'external'] as const)[idx] ?? 'all';
+                                        setPluginSourceFilter(next);
+                                    }}
+                                />
+                                <button
+                                    onClick={triggerPluginScan}
+                                    style={pluginActionButtonStyle}
+                                    title="Rescan installed plugins"
+                                >
+                                    Rescan
+                                </button>
+                                <button
+                                    onClick={() => { void handleSetPluginFolder('vst2Path'); }}
+                                    style={pluginActionButtonStyle}
+                                    title="Select VST2 folder"
+                                >
+                                    Import VST2 Folder
+                                </button>
+                                <button
+                                    onClick={() => { void handleSetPluginFolder('vst3Path'); }}
+                                    style={pluginActionButtonStyle}
+                                    title="Select VST3 folder"
+                                >
+                                    Import VST3 Folder
+                                </button>
+                            </>
                         ) : (
                             <>
-                                {selectedCategoryId === 'plugins' ? (
-                                    <>
-                                        <FilterPill
-                                            options={[
-                                                'Source: All',
-                                                'Source: Internal',
-                                                'Source: VST3',
-                                                'Source: VST2',
-                                                'Source: AU',
-                                                'Source: External',
-                                            ]}
-                                            value={{ all: 0, internal: 1, vst3: 2, vst2: 3, au: 4, external: 5 }[pluginSourceFilter]}
-                                            onChange={(idx) => {
-                                                const next = (['all', 'internal', 'vst3', 'vst2', 'au', 'external'] as const)[idx] ?? 'all';
-                                                setPluginSourceFilter(next);
-                                            }}
-                                        />
-                                        <button
-                                            onClick={triggerPluginScan}
-                                            style={pluginActionButtonStyle}
-                                            title="Rescan installed plugins"
-                                        >
-                                            Rescan
-                                        </button>
-                                        <button
-                                            onClick={() => { void handleSetPluginFolder('vst2Path'); }}
-                                            style={pluginActionButtonStyle}
-                                            title="Select VST2 folder"
-                                        >
-                                            Import VST2 Folder
-                                        </button>
-                                        <button
-                                            onClick={() => { void handleSetPluginFolder('vst3Path'); }}
-                                            style={pluginActionButtonStyle}
-                                            title="Select VST3 folder"
-                                        >
-                                            Import VST3 Folder
-                                        </button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <FilterPill
-                                            options={SOURCE_FILTERS as unknown as string[]}
-                                            value={sourceFilter}
-                                            onChange={setSourceFilter}
-                                        />
-                                        <FilterPill
-                                            options={FORMAT_FILTERS as unknown as string[]}
-                                            value={formatFilter}
-                                            onChange={setFormatFilter}
-                                        />
-                                        <FilterPill
-                                            options={AUDIO_FILTERS as unknown as string[]}
-                                            value={audioFilter}
-                                            onChange={setAudioFilter}
-                                        />
-                                    </>
-                                )}
                                 <FilterPill
-                                    options={SORT_FILTERS as unknown as string[]}
-                                    value={sortFilter}
-                                    onChange={setSortFilter}
+                                    options={SOURCE_FILTERS as unknown as string[]}
+                                    value={sourceFilter}
+                                    onChange={setSourceFilter}
                                 />
                                 <FilterPill
-                                    options={SIZE_FILTERS as unknown as string[]}
-                                    value={sizeFilter}
-                                    onChange={setSizeFilter}
+                                    options={FORMAT_FILTERS as unknown as string[]}
+                                    value={formatFilter}
+                                    onChange={setFormatFilter}
+                                />
+                                <FilterPill
+                                    options={AUDIO_FILTERS as unknown as string[]}
+                                    value={audioFilter}
+                                    onChange={setAudioFilter}
                                 />
                             </>
                         )}
+                        <FilterPill
+                            options={SORT_FILTERS as unknown as string[]}
+                            value={sortFilter}
+                            onChange={setSortFilter}
+                        />
+                        <FilterPill
+                            options={SIZE_FILTERS as unknown as string[]}
+                            value={sizeFilter}
+                            onChange={setSizeFilter}
+                        />
                     </div>
 
-                    {selectedCategoryId === 'plugins' && folderStack.length === 0 && (
+                    {selectedCategoryId === 'plugins' && (
                         <div style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -2495,7 +2458,7 @@ export const AssetBrowser = () => {
                         </div>
                     )}
 
-                    {selectedCategoryId === 'plugins' && folderStack.length === 0 && pluginLetterAnchors.letters.length > 0 && (
+                    {selectedCategoryId === 'plugins' && pluginLetterAnchors.letters.length > 0 && (
                         <div style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -2535,24 +2498,6 @@ export const AssetBrowser = () => {
                         </div>
                     )}
 
-                    {/* Folder path indicator */}
-                    {folderStack.length > 0 && (
-                        <div style={{
-                            padding: '2px 6px',
-                            fontSize: 'var(--font-size-2xs)',
-                            color: 'var(--color-text-tertiary)',
-                            borderBottom: '1px solid var(--color-divider-light)',
-                            fontFamily: 'var(--font-mono)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                        }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                <BrowserGlyph name="folder" size={10} />
-                                {folderStack[folderStack.length - 1]?.split('/').pop()}
-                            </span>
-                        </div>
-                    )}
 
                     {/* File List */}
                     <VirtualFileList
@@ -2620,13 +2565,17 @@ export const AssetBrowser = () => {
                                     const next = !previewEnabled;
                                     setPreviewEnabled(next);
                                     if (!next) {
+                                        // Turning preview OFF — stop any playing preview
+                                        isPreviewPlayingRef.current = false;
                                         engineApi.stopPreview().catch((err) => {
                                             console.warn('[AssetBrowser] stopPreview(toggle) failed:', err);
                                         });
                                         return;
                                     }
+                                    // Turning preview ON — auto-play the currently selected audio item
                                     const selected = items.find(i => i.id === selectedItemId);
                                     if (selected?.type === 'audio' && selected.path) {
+                                        isPreviewPlayingRef.current = true;
                                         engineApi.previewAudioFile(selected.path).catch((err) => {
                                             console.warn('[AssetBrowser] previewAudioFile(toggle) failed:', err);
                                         });
@@ -2656,114 +2605,118 @@ export const AssetBrowser = () => {
                 </div>
             </div>
 
-            {columnMenuPos && (
-                <div
-                    ref={columnMenuRef}
-                    style={{
-                        position: 'fixed',
-                        left: Math.max(8, columnMenuPos.x - 140),
-                        top: Math.max(8, columnMenuPos.y),
-                        width: 150,
-                        background: 'var(--surface-2)',
-                        border: '1px solid var(--color-border-subtle)',
-                        borderRadius: 'var(--radius-xl)',
-                        boxShadow: 'var(--shadow-panel)',
-                        padding: 6,
-                        zIndex: 'var(--z-drag-overlay)' as unknown as number,
-                    }}
-                >
-                    <button
-                        onClick={toggleSizeColumn}
-                        style={columnMenuItemStyle}
+            {
+                columnMenuPos && (
+                    <div
+                        ref={columnMenuRef}
+                        style={{
+                            position: 'fixed',
+                            left: Math.max(8, columnMenuPos.x - 140),
+                            top: Math.max(8, columnMenuPos.y),
+                            width: 150,
+                            background: 'var(--surface-2)',
+                            border: '1px solid var(--color-border-subtle)',
+                            borderRadius: 'var(--radius-xl)',
+                            boxShadow: 'var(--shadow-panel)',
+                            padding: 6,
+                            zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                        }}
                     >
-                        <span style={columnMenuCheckStyle}>{showSizeColumn ? '✓' : ''}</span>
-                        Size
-                    </button>
-                    <button
-                        onClick={toggleTypeColumn}
-                        style={columnMenuItemStyle}
-                    >
-                        <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>
-                        Type
-                    </button>
-                </div>
-            )}
+                        <button
+                            onClick={toggleSizeColumn}
+                            style={columnMenuItemStyle}
+                        >
+                            <span style={columnMenuCheckStyle}>{showSizeColumn ? '✓' : ''}</span>
+                            Size
+                        </button>
+                        <button
+                            onClick={toggleTypeColumn}
+                            style={columnMenuItemStyle}
+                        >
+                            <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>
+                            Type
+                        </button>
+                    </div>
+                )
+            }
 
             {/* ── Context Menu for Collections ────────── */}
-            {contextMenu && contextMenu.item.path && (
-                <div
-                    ref={contextMenuRef}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                        position: 'fixed',
-                        left: contextMenu.x,
-                        top: contextMenu.y,
-                        background: 'var(--color-bg-elevated)',
-                        border: '1px solid var(--color-divider)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: 4,
-                        zIndex: 'var(--z-drag-overlay)' as unknown as number,
-                        minWidth: 180,
-                        boxShadow: '0 8px 24px var(--color-overlay-dark)',
-                    }}
-                >
-                    {COLLECTION_IDS.map((collId) => {
-                        const path = contextMenu.item.path!;
-                        const isInCollection = collectionItems[collId].has(path);
-                        const isInCollectionView = selectedCategoryId === collId;
-                        return (
-                            <button
-                                key={collId}
-                                onClick={() => {
-                                    setCollectionItems((prev) => {
-                                        const next = {
-                                            'collection-red': new Set(prev['collection-red']),
-                                            'collection-yellow': new Set(prev['collection-yellow']),
-                                            'collection-green': new Set(prev['collection-green']),
-                                        };
-                                        if (isInCollection) {
-                                            next[collId].delete(path);
-                                        } else {
-                                            next[collId].add(path);
-                                        }
-                                        saveCollections(next);
-                                        return next;
-                                    });
-                                    setContextMenu(null);
-                                }}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    width: '100%',
-                                    padding: '6px 10px',
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'var(--color-text-primary)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    cursor: 'pointer',
-                                    borderRadius: 'var(--radius-sm)',
-                                    textAlign: 'left',
-                                }}
-                                onMouseEnter={(e) => {
-                                    (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                                }}
-                            >
-                                <span>{COLLECTION_ICONS[collId]}</span>
-                                <span>{isInCollection
-                                    ? (isInCollectionView ? `Remove from ${COLLECTION_LABELS_DEFAULT[collId]}` : `✓ In ${COLLECTION_LABELS_DEFAULT[collId]}`)
-                                    : `Add to ${COLLECTION_LABELS_DEFAULT[collId]}`
-                                }</span>
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
+            {
+                contextMenu && contextMenu.item.path && (
+                    <div
+                        ref={contextMenuRef}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            position: 'fixed',
+                            left: contextMenu.x,
+                            top: contextMenu.y,
+                            background: 'var(--color-bg-elevated)',
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 'var(--radius-md)',
+                            padding: 4,
+                            zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                            minWidth: 180,
+                            boxShadow: '0 8px 24px var(--color-overlay-dark)',
+                        }}
+                    >
+                        {COLLECTION_IDS.map((collId) => {
+                            const path = contextMenu.item.path!;
+                            const isInCollection = collectionItems[collId].has(path);
+                            const isInCollectionView = selectedCategoryId === collId;
+                            return (
+                                <button
+                                    key={collId}
+                                    onClick={() => {
+                                        setCollectionItems((prev) => {
+                                            const next = {
+                                                'collection-red': new Set(prev['collection-red']),
+                                                'collection-yellow': new Set(prev['collection-yellow']),
+                                                'collection-green': new Set(prev['collection-green']),
+                                            };
+                                            if (isInCollection) {
+                                                next[collId].delete(path);
+                                            } else {
+                                                next[collId].add(path);
+                                            }
+                                            saveCollections(next);
+                                            return next;
+                                        });
+                                        setContextMenu(null);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        width: '100%',
+                                        padding: '6px 10px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 'var(--font-size-xs)',
+                                        cursor: 'pointer',
+                                        borderRadius: 'var(--radius-sm)',
+                                        textAlign: 'left',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                    }}
+                                >
+                                    <span>{COLLECTION_ICONS[collId]}</span>
+                                    <span>{isInCollection
+                                        ? (isInCollectionView ? `Remove from ${COLLECTION_LABELS_DEFAULT[collId]}` : `✓ In ${COLLECTION_LABELS_DEFAULT[collId]}`)
+                                        : `Add to ${COLLECTION_LABELS_DEFAULT[collId]}`
+                                    }</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )
+            }
 
-        </div>
+        </div >
     );
 };
 

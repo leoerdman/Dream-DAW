@@ -1198,7 +1198,7 @@ fn close_plugin_window(
         // removed/release) that MUST happen on the main thread.
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
         let plugin_id_clone = plugin_id.clone();
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|e| e.to_string())?;
@@ -1258,7 +1258,7 @@ fn close_plugin_window_for_slot(
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
         let track_id_log = track_id.clone();
         let slot_id_log = slot_id.clone();
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|e| e.to_string())?;

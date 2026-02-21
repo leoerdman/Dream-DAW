@@ -1437,7 +1437,7 @@ pub fn start_audio_thread_on_device(
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preferred_output_device: Option<&str>,
-    stream_error_tx: Option<std::sync::mpsc::Sender<String>>,
+    stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     // ── 1. Host & Device ────────────────────────────────────────────
     let host = cpal::default_host();

@@ -125,7 +125,7 @@ struct AudioEngineHandle {
     output_latency_frames: u32,
 
     /// Event channel for RT stream errors (device disconnect, backend failures).
-    stream_error_tx: std::sync::mpsc::Sender<String>,
+    stream_error_tx: std::sync::mpsc::SyncSender<String>,
 
     /// Global shutdown flag (BUG-14)
     pub is_shutting_down: Arc<std::sync::atomic::AtomicBool>,
@@ -4040,7 +4040,7 @@ pub fn run() {
             .filter(|v| !v.trim().is_empty())
     };
 
-    let (stream_error_tx, stream_error_rx) = std::sync::mpsc::channel::<String>();
+    let (stream_error_tx, stream_error_rx) = std::sync::mpsc::sync_channel::<String>(4);
 
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);

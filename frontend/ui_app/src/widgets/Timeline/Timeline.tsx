@@ -104,7 +104,6 @@ export const Timeline = (props: TimelineProps) => {
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
         onClipResize,
-        followPlayhead = false,
         fitHorizontalToken = 0,
     } = props;
 

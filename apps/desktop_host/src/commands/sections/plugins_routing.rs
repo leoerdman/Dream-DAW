@@ -421,7 +421,7 @@ fn open_plugin_window(
             bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
         }
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|e| e.to_string())?;
@@ -526,7 +526,7 @@ fn open_plugin_window(
         loaded
     };
     let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
     app.run_on_main_thread(move || {
         let result = (|| {
             let mut host = host_arc.lock().map_err(|e| e.to_string())?;
@@ -635,7 +635,7 @@ fn open_plugin_window_for_slot(
     let mut first_open_err: Option<String> = None;
     {
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
             let result = (|| {
                 let mut host = host_arc.lock().map_err(|e| e.to_string())?;
@@ -733,7 +733,7 @@ fn open_plugin_window_for_slot(
 
         {
             let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-            let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
             app.run_on_main_thread(move || {
                 let result = (|| {
                     let mut host = host_arc.lock().map_err(|e| e.to_string())?;

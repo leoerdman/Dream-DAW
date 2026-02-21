@@ -877,20 +877,12 @@ fn build_linear_dag(track_count: usize) -> AudioDag {
                     "[Graph] linear edge build failed ({}), fallback to master-only",
                     err
                 );
-                return GraphBuilder::new()
-                    .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-                    .build()
-                    .expect("master-only graph must be valid");
+                return dream_graph::dag::AudioDag::empty();
             }
         };
     }
 
-    builder.build().unwrap_or_else(|_| {
-        GraphBuilder::new()
-            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-            .build()
-            .expect("master-only graph must be valid")
-    })
+    builder.build().unwrap_or_else(|_| dream_graph::dag::AudioDag::empty())
 }
 
 fn build_dag_for_tracks(
@@ -1000,10 +992,7 @@ fn build_dag_for_tracks(
 }
 
 fn build_master_only_dag() -> AudioDag {
-    GraphBuilder::new()
-        .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-        .build()
-        .expect("master-only graph must be valid")
+    dream_graph::dag::AudioDag::empty()
 }
 
 #[derive(Debug, Clone)]

@@ -114,6 +114,15 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         if (!open) return;
         let cancelled = false;
 
+        // Reset active stream states when project conceptually changes
+        if (historyLoadedForId !== null && historyLoadedForId !== projectId) {
+            abortRef.current?.abort();
+            abortRef.current = null;
+            setIsStreaming(false);
+            setStreamText('');
+            setLiveAgent(null);
+        }
+
         void loadChatHistory().then((history) => {
             if (!cancelled) {
                 if (history.length > 0) {

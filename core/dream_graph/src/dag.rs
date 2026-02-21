@@ -377,6 +377,13 @@ impl Default for GraphBuilder {
 // ── AudioDag Methods ────────────────────────────────────────────────────
 
 impl AudioDag {
+    /// Creates an infallible empty graph containing only a MasterOutput node.
+    pub fn empty() -> Self {
+        let mut graph = DiGraph::new();
+        let master_idx = graph.add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
+        Self { graph, master_idx }
+    }
+
     /// Returns the underlying petgraph for read-only inspection.
     pub fn graph(&self) -> &DiGraph<AudioNode, AudioEdge> {
         &self.graph

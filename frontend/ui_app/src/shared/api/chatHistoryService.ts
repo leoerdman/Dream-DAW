@@ -36,7 +36,13 @@ function hashPath(path: string): string {
 }
 
 // Generate a unique session ID for unsaved projects so they don't share history
-const sessionUntitledId = `untitled-${crypto.randomUUID()}`;
+const generateSafeId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+const sessionUntitledId = `untitled-${generateSafeId()}`;
 
 /** Get the current project file path from the engine (async). */
 async function getCurrentProjectPath(): Promise<string> {

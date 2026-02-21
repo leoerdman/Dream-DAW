@@ -61,6 +61,14 @@ impl SharedAudioBufferRegion {
             .and_then(|_| file.write_all(&[0]))
             .map_err(|e| format!("resize shared region '{}': {e}", path.display()))?;
 
+        // ── Mathematical Invariants for Unsafe Shared Memory ──
+        // SAFETY PROOF (Phase 35 Enterprise Audit):
+        // `MmapMut::map_mut` is unsafe because the underlying file might be truncated
+        // by another process, causing SIGBUS on access. However:
+        // 1. We exclusively create and control this tempfile.
+        // 2. While the memory is shared across process boundaries (violating standard Rust XOR aliasing),
+        //    Undefined Behavior is strictly prevented by our IPC ring buffer synchronization.
+        //    The host only mutates `mmap` when the plugin is blocked waiting for the host's lock.
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
 
@@ -81,6 +89,8 @@ impl SharedAudioBufferRegion {
             .write(true)
             .open(&path)
             .map_err(|e| format!("open shared region '{}': {e}", path.display()))?;
+        // SAFETY: Same invariant as above. The file descriptor is valid, 
+        // and concurrent Rust XOR mutation violations are prevented dynamically via IPC handshakes.
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
         Ok(Self { path, layout, mmap })

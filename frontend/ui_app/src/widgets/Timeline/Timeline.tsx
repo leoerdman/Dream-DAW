@@ -4,7 +4,7 @@
  * Thin React shell around the TimelineEngine canvas.
  */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import { beatToFrame, secondsToBeat } from '@/shared/lib/audioMath';
@@ -393,7 +393,9 @@ export const Timeline = (props: TimelineProps) => {
     }, []);
 
     // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
-    const trackMuteStates = useEngineStore(s => s.projectTracks.map(t => t.is_mute));
+    // Stable string key prevents new array reference on every store tick.
+    const _trackMuteKey = useEngineStore(s => s.projectTracks.map(t => t.is_mute ? '1' : '0').join(''));
+    const trackMuteStates = useMemo(() => _trackMuteKey.split('').map(c => c === '1'), [_trackMuteKey]);
 
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {

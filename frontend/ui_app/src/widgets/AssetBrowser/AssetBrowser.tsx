@@ -337,21 +337,41 @@ function renderHighlightedMatch(name: string, query: string) {
     let ni = 0;
     for (let qi = 0; qi < lowerQuery.length; qi += 1) {
         const ch = lowerQuery[qi];
+        if (ch === ' ') continue; // Skip spaces to keep highlight clean
         const pos = lowerName.indexOf(ch, ni);
-        if (pos < 0) return name;
+        if (pos < 0) continue; // Skip missing characters to try and highlight remaining matches
         hitPositions.add(pos);
         ni = pos + 1;
     }
 
-    return (
-        <>
-            {name.split('').map((ch, idx) => (
-                hitPositions.has(idx)
-                    ? <span key={`${ch}-${idx}`} style={{ color: 'var(--color-accent-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>{ch}</span>
-                    : <span key={`${ch}-${idx}`}>{ch}</span>
-            ))}
-        </>
-    );
+    if (hitPositions.size === 0) return name;
+
+    const parts: React.ReactNode[] = [];
+    let currentIsHit = hitPositions.has(0);
+    let currentChunk = name[0] || '';
+
+    for (let i = 1; i < name.length; i++) {
+        const isHit = hitPositions.has(i);
+        if (isHit === currentIsHit) {
+            currentChunk += name[i];
+        } else {
+            if (currentIsHit) {
+                parts.push(<span key={i} style={{ color: 'var(--color-accent-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>{currentChunk}</span>);
+            } else {
+                parts.push(currentChunk);
+            }
+            currentIsHit = isHit;
+            currentChunk = name[i];
+        }
+    }
+
+    if (currentIsHit) {
+        parts.push(<span key="last" style={{ color: 'var(--color-accent-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>{currentChunk}</span>);
+    } else {
+        parts.push(currentChunk);
+    }
+
+    return <>{parts}</>;
 }
 
 // ── Component ──────────────────────────────────────────
@@ -1201,16 +1221,24 @@ export const AssetBrowser = () => {
         }
     }, [resolveSelectedTrack, projectTracks]);
 
+    const previewRequestToken = useRef<number>(0);
+
     const syncPreviewForItem = useCallback((item: BrowserItem | null) => {
+        const token = ++previewRequestToken.current;
         if (item?.type === 'audio' && item.path) {
             engineApi.getWaveformPeaks(item.path)
                 .then(peaks => {
+                    if (previewRequestToken.current !== token) return;
                     setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
                     if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
                         audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
                     }
                 })
-                .catch(() => setPreviewPeaks(null));
+                .catch(() => {
+                    if (previewRequestToken.current === token) {
+                        setPreviewPeaks(null);
+                    }
+                });
 
             if (previewEnabled) {
                 engineApi.previewAudioFile(item.path)
@@ -1228,7 +1256,9 @@ export const AssetBrowser = () => {
         engineApi.stopPreview().catch((err) => {
             console.warn('[AssetBrowser] stopPreview(reset) failed:', err);
         });
-        setPreviewPeaks(null);
+        if (previewRequestToken.current === token) {
+            setPreviewPeaks(null);
+        }
     }, [previewEnabled]);
 
     const jumpToPluginLetter = useCallback((letter: string) => {

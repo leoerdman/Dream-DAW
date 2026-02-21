@@ -195,6 +195,7 @@ struct SharedTrackSnapshot {
     is_expanded: bool,
     midi_clips: Vec<MidiClip>,
     sampler: Option<SamplerConfig>,
+    sample_rack: Option<SampleRackConfig>,
     automation_lanes: Vec<dream_models::project::AutomationLane>,
 }
 
@@ -235,6 +236,7 @@ impl SharedTrackSnapshot {
             is_expanded: track.is_expanded,
             midi_clips: track.midi_clips.clone(),
             sampler: track.sampler.clone(),
+            sample_rack: track.sample_rack.clone(),
             automation_lanes: track.automation_lanes.clone(),
         }
     }
@@ -261,6 +263,7 @@ impl SharedTrackSnapshot {
             && self.is_expanded == track.is_expanded
             && self.midi_clips == track.midi_clips
             && self.sampler == track.sampler
+            && self.sample_rack == track.sample_rack
             && self.automation_lanes == track.automation_lanes
             && self.clips.len() == track.clips.len()
             && self
@@ -294,6 +297,7 @@ impl SharedTrackSnapshot {
             is_expanded: self.is_expanded,
             midi_clips: self.midi_clips.clone(),
             sampler: self.sampler.clone(),
+            sample_rack: self.sample_rack.clone(),
             automation_lanes: self.automation_lanes.clone(),
         }
     }

@@ -442,6 +442,109 @@ fn default_sampler_osc_mix() -> f64 {
     0.35
 }
 
+// ── Sample Rack Configuration ──────────────────────────────────────────
+
+/// Configuration for a single pad within a 16-pad Sample Rack.
+///
+/// Inherits basic playback fields from `SamplerConfig` but focuses on
+/// per-pad mixing (volume, pan, mute, solo) and assumes original pitch (no root note mapping).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SampleRackPadConfig {
+    /// Path to the loaded sample file (relative to project dir). Empty if no sample loaded.
+    pub sample_path: String,
+
+    /// Name or label for this pad (e.g. "Kick 1", "Snare").
+    pub name: String,
+
+    /// Volume gain for this specific pad (0.0–2.0, 1.0 = unity).
+    #[serde(default = "default_rack_pad_volume")]
+    pub volume: f64,
+
+    /// Pan position for this specific pad (-1.0 to 1.0, 0.0 = center).
+    #[serde(default)]
+    pub pan: f64,
+
+    /// Whether this pad is muted.
+    #[serde(default)]
+    pub is_muted: bool,
+
+    /// Whether this pad is soloed.
+    #[serde(default)]
+    pub is_soloed: bool,
+
+    /// ADSR envelope — attack time in seconds.
+    #[serde(default = "default_rack_pad_attack")]
+    pub attack: f64,
+
+    /// ADSR envelope — decay time in seconds.
+    #[serde(default = "default_rack_pad_decay")]
+    pub decay: f64,
+
+    /// ADSR envelope — sustain level (0.0–1.0).
+    #[serde(default = "default_rack_pad_sustain")]
+    pub sustain: f64,
+    
+    /// ADSR envelope — release time in seconds.
+    #[serde(default = "default_rack_pad_release")]
+    pub release: f64,
+
+    /// Filter cutoff frequency in Hz (20..20000).
+    #[serde(default = "default_filter_cutoff")]
+    pub filter_cutoff: f64,
+}
+
+impl Default for SampleRackPadConfig {
+    fn default() -> Self {
+        Self {
+            sample_path: String::new(),
+            name: String::new(),
+            volume: default_rack_pad_volume(),
+            pan: 0.0,
+            is_muted: false,
+            is_soloed: false,
+            attack: default_rack_pad_attack(),
+            decay: default_rack_pad_decay(),
+            sustain: default_rack_pad_sustain(),
+            release: default_rack_pad_release(),
+            filter_cutoff: default_filter_cutoff(),
+        }
+    }
+}
+
+impl SampleRackPadConfig {
+    /// Whether a sample is loaded in this pad.
+    pub fn has_sample(&self) -> bool {
+        !self.sample_path.is_empty()
+    }
+}
+
+fn default_rack_pad_volume() -> f64 { 1.0 }
+fn default_rack_pad_attack() -> f64 { 0.005 }
+fn default_rack_pad_decay() -> f64 { 0.1 }
+fn default_rack_pad_sustain() -> f64 { 1.0 }
+fn default_rack_pad_release() -> f64 { 0.1 }
+
+
+/// Configuration for a 16-pad Drum Rack / Sample Rack instrument.
+///
+/// Contains an array of 16 pads, mapped from C1 (MIDI 36) upwards.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SampleRackConfig {
+    /// The 16 drum pads.
+    pub pads: Vec<SampleRackPadConfig>,
+}
+
+impl Default for SampleRackConfig {
+    fn default() -> Self {
+        Self {
+            // Pre-allocate exactly 16 pads
+            pads: vec![SampleRackPadConfig::default(); 16],
+        }
+    }
+}
+
 fn default_filter_cutoff() -> f64 {
     20000.0
 }

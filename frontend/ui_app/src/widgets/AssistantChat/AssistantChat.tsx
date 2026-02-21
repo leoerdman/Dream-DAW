@@ -460,17 +460,6 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         <div
             className="assistant-chat-overlay"
             data-keyboard-scope="text-input"
-            onKeyDown={(e) => e.stopPropagation()}
-            onKeyDownCapture={(e) => {
-                // Prevent DAW global shortcuts (Space=play, Delete=delete clip, etc.)
-                // from firing while the user is typing in the AI chat.
-                // This must be in the CAPTURE phase because useKeyboardShortcuts
-                // also listens in capture phase ({ capture: true }).
-                const tag = (e.target as HTMLElement)?.tagName;
-                if (tag === 'TEXTAREA' || tag === 'INPUT') {
-                    e.stopPropagation();
-                }
-            }}
         >
             {/* ── Header ── */}
             <div className="assistant-header">

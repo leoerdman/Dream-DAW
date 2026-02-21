@@ -3,6 +3,7 @@ import type { AudioClip } from "./AudioClip";
 import type { AutomationLane } from "./AutomationLane";
 import type { DeviceNode } from "./DeviceNode";
 import type { MidiClip } from "./MidiClip";
+import type { SampleRackConfig } from "./SampleRackConfig";
 import type { SamplerConfig } from "./SamplerConfig";
 import type { TrackColor } from "./TrackColor";
 import type { TrackType } from "./TrackType";
@@ -111,6 +112,10 @@ midi_clips: Array<MidiClip>,
  * Sampler instrument configuration (for MIDI tracks).
  */
 sampler: SamplerConfig | null, 
+/**
+ * 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
+ */
+sample_rack: SampleRackConfig | null, 
 /**
  * Automation lanes for this track (volume/pan/plugin params).
  */

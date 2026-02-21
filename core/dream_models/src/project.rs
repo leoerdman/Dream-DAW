@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::midi::{MidiClip, SamplerConfig};
+use crate::midi::{MidiClip, SamplerConfig, SampleRackConfig};
 use crate::pulse_map::PulseMap;
 use crate::time::AbsoluteTime;
 
@@ -1174,6 +1174,9 @@ pub struct Track {
     /// Sampler instrument configuration (for MIDI tracks).
     pub sampler: Option<SamplerConfig>,
 
+    /// 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
+    pub sample_rack: Option<SampleRackConfig>,
+
     // ── Automation ────────────────────────────────────────────────────
     /// Automation lanes for this track (volume/pan/plugin params).
     #[serde(default)]
@@ -1206,6 +1209,7 @@ impl Track {
             is_expanded: true,
             midi_clips: Vec::new(),
             sampler: None,
+            sample_rack: None,
             automation_lanes: Vec::new(),
         }
     }

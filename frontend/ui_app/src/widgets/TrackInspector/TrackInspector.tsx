@@ -8,6 +8,7 @@ import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { vuNorm } from '@/shared/lib/audioMath';
 import { scrollSync } from '@/shared/lib/useScrollSync';
+import { isTrackActive } from '@/shared/utils/routing';
 
 // ── BUG-P4 FIX: Debounced project refresh ──────────────────────────────
 // Every context-menu action (color, bounce, stems, reorder) was calling
@@ -172,6 +173,9 @@ export const TrackInspector = ({
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: TrackInspectorProps) => {
     const projectTracks = useEngineStore((s) => s.projectTracks);
+    const trackActiveStates = useMemo(() => {
+        return projectTracks.map((_t, i, arr) => isTrackActive(i, arr));
+    }, [projectTracks]);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
@@ -1328,6 +1332,7 @@ export const TrackInspector = ({
                                 isSelected={selectedTrackIdSet.has(track.id)}
                                 isPrimarySelected={selectedTrackId === track.id}
                                 isCollapsed={isCollapsed}
+                                isActive={trackActiveStates[trackIndex] ?? true}
                                 depth={depth}
                                 isRenaming={renamingTrackId === track.id}
                                 renameValue={renameValue}
@@ -2360,6 +2365,7 @@ const TrackRow = ({
     isResizing = false,
     onResizeStart,
     isMasterFixed, mixerFocusMode = false,
+    isActive = true,
 }: {
     track: TrackData;
     allTracks: TrackData[];
@@ -2392,6 +2398,7 @@ const TrackRow = ({
     onResizeStart?: (startY: number) => void;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
+    isActive?: boolean;
 }) => {
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
@@ -2422,8 +2429,8 @@ const TrackRow = ({
     const showRoutingExpanded = !isMasterFixed;
     const showRoutingCompact = false;
 
-    // Track row dims only on mute (not solo)
-    const isEnabled = !track.isMuted;
+    // Track row dims when either explicitly muted or implicitly muted (due to solos)
+    const isEnabled = isActive;
     // Meter dims on both mute AND solo (non-soloed tracks get grey meters)
     const anySoloed = allTracks.some(t => t.isSoloed);
     const isMeterActive = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');

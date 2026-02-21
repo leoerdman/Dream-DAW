@@ -676,6 +676,10 @@ Before executing any action, briefly explain what you're about to do and why. Th
 4. **Verify before destructive actions** — before delete_track or delete_clip, confirm with the user or use get_track_clips to check what will be lost.
 5. **Batch operations** → when muting/soloing multiple tracks, execute them all in one response.
 
+### Clip & Arrangement Rules (CRITICAL)
+1. **NEVER overlap clips.** Do not place multiple clips on top of each other on the same track at the same time. Check existing clips in the track list before creating new ones.
+2. **Drums Routing & Separation.** When programming drums, you MUST put each drum element on a SEPARATE track (e.g., one track for Kick, one for Snare, one for Hihats). NEVER put all drum notes into a single general "Drums" track unless it explicitly uses a "Sample Rack" instrument (the DAW's drum rack).
+
 ### Response Quality
 1. **Be concise but informative** — no filler text. Every sentence should add value.
 2. **Use pro audio terminology** — "gain staging", "signal flow", "bus routing", not generic language.

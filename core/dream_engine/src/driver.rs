@@ -2132,29 +2132,21 @@ pub fn start_audio_thread_on_device(
                             let active_track_count = render_ctx.track_slots.len().min(MAX_TRACKS);
 
                             // ── GROUP-AWARE SOLO PROPAGATION ──
-                            // Enterprise DAW behavior: when a child track inside a group
-                            // is soloed, all parent groups up the routing chain must be
-                            // implicitly enabled. Otherwise the group's output gate
-                            // silences the child's audio (Child → Group → Master path).
-                            //
-                            // Algorithm:
-                            // 1. Start with explicit solo flags from UI.
-                            // 2. For each soloed child, walk up parent chain via
-                            //    routing_snapshot and mark parents as "implicitly soloed".
-                            // 3. Use effective_soloed (explicit OR implicit) for the
-                            //    output_enabled calculation.
+                            // Enterprise DAW behavior:
+                            // 1. UP PROPAGATION: When a child track inside a group is soloed,
+                            //    all parent groups up the routing chain must be implicitly enabled.
+                            // 2. DOWN PROPAGATION: When a group track is soloed, all its children
+                            //    must be implicitly enabled so the group produces sound.
                             let mut effective_soloed = [false; MAX_TRACKS];
                             effective_soloed[..MAX_TRACKS].copy_from_slice(&track_soloed[..MAX_TRACKS]);
 
                             let routing_now = routing_snapshot.load();
+                            
+                            // Pass 1: UP Propagation (Explicit child -> Implicit parents)
                             for child_idx in 0..active_track_count {
                                 if !track_soloed[child_idx] {
                                     continue;
                                 }
-                                // BUG-S1-04 FIX: Walk up the parent chain with visited bitmask
-                                // to detect routing cycles. Previous depth-limited loop (MAX_TRACKS
-                                // iterations) would spin 256 times on a cycle instead of stopping
-                                // immediately. Uses a u64x4 bitmask — 256 bits, zero-alloc.
                                 let mut visited = [0u64; 4]; // 256-bit bitmask
                                 let mut current = child_idx;
                                 loop {
@@ -2170,6 +2162,33 @@ pub fn start_audio_thread_on_device(
                                             current = *parent_idx;
                                         }
                                         _ => break, // Reached master or out-of-bounds
+                                    }
+                                }
+                            }
+
+                            // Pass 2: DOWN Propagation (Explicit parent -> Implicit children)
+                            for descendant_idx in 0..active_track_count {
+                                if effective_soloed[descendant_idx] {
+                                    continue;
+                                }
+                                let mut visited = [0u64; 4];
+                                let mut current = descendant_idx;
+                                loop {
+                                    let word = current / 64;
+                                    let bit = current % 64;
+                                    if word >= 4 || (visited[word] & (1u64 << bit)) != 0 {
+                                        break;
+                                    }
+                                    visited[word] |= 1u64 << bit;
+                                    match routing_now.get(current) {
+                                        Some(Some(parent_idx)) if *parent_idx < active_track_count => {
+                                            if track_soloed[*parent_idx] {
+                                                effective_soloed[descendant_idx] = true;
+                                                break;
+                                            }
+                                            current = *parent_idx;
+                                        }
+                                        _ => break,
                                     }
                                 }
                             }

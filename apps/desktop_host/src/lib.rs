@@ -4360,6 +4360,20 @@ pub fn run() {
                             let keycode: u16 = msg_send![event, keyCode];
                             // keyCode 49 = Space bar on macOS
                             if keycode == 49 {
+                                let window: *mut Object = msg_send![event, window];
+                                if !window.is_null() {
+                                    let first_responder: *mut Object = msg_send![window, firstResponder];
+                                    if !first_responder.is_null() {
+                                        let class_ptr: *const Class = msg_send![first_responder, class];
+                                        let c_name = objc::runtime::class_getName(class_ptr);
+                                        let name = std::ffi::CStr::from_ptr(c_name).to_string_lossy();
+                                        if name.contains("WebView") {
+                                            // Let the frontend JS handle it (which has proper text input guards)
+                                            return event;
+                                        }
+                                    }
+                                }
+
                                 let is_repeat: BOOL = msg_send![event, isARepeat];
                                 if is_repeat != YES {
                                     let app_ref = Arc::clone(&transport_app_clone);

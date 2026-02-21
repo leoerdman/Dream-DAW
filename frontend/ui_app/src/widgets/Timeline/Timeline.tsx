@@ -17,6 +17,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
+import { isTrackActive } from '@/shared/utils/routing';
 import { AutomationOverlay } from './AutomationOverlay';
 
 interface TimelineProps {
@@ -394,8 +395,8 @@ export const Timeline = (props: TimelineProps) => {
 
     // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
     // Stable string key prevents new array reference on every store tick.
-    const _trackMuteKey = useEngineStore(s => s.projectTracks.map(t => t.is_mute ? '1' : '0').join(''));
-    const trackMuteStates = useMemo(() => _trackMuteKey.split('').map(c => c === '1'), [_trackMuteKey]);
+    const _trackActiveKey = useEngineStore(s => s.projectTracks.map((_t, i, arr) => isTrackActive(i, arr) ? '1' : '0').join(''));
+    const trackActiveStates = useMemo(() => _trackActiveKey.split('').map(c => c === '1'), [_trackActiveKey]);
 
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {
@@ -424,8 +425,8 @@ export const Timeline = (props: TimelineProps) => {
             fadeOutCurve: c.fadeOutCurve,
             isOffline: c.isOffline,
             muted: c.muted,
-            // Clips on muted tracks render darker (reactive via trackMuteStates dep)
-            trackMuted: trackMuteStates[c.trackIndex] === true,
+            // Clips on inactive tracks render darker (reactive via trackActiveStates dep)
+            trackMuted: !trackActiveStates[c.trackIndex],
             midiNotes: c.midiNotes,
         }));
 
@@ -434,7 +435,7 @@ export const Timeline = (props: TimelineProps) => {
         // deselection on fetchProject. setClips resets all clip.selected flags to false,
         // so we must re-apply the selection atomically within the same effect.
         engine.setClipSelection(selectedClipIdsRef.current);
-    }, [clips, engineRef, trackMuteStates]);
+    }, [clips, engineRef, trackActiveStates]);
 
     useEffect(() => {
         const engine = engineRef.current;

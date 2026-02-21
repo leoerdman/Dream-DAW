@@ -31,6 +31,7 @@ import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
+import { isTrackActive } from '@/shared/utils/routing';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
@@ -1951,12 +1952,13 @@ const SessionWorkspace = ({
                         const trackMeterR = dbToMeterNorm(peakDbR);
                         const peakDb = Math.max(peakDbL, peakDbR);
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
-                        // Solo dimming — non-soloed tracks dim when any track is soloed
-                        const anySoloed = tracks.some(t => t.is_solo);
-                        const isSoloDimmed = anySoloed && !track.is_solo;
+                        const isActive = isTrackActive(trackIndex, tracks);
                         return (
                             <div key={`mix-${track.id}`} style={{
                                 width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6,
+                                opacity: isActive ? 1 : 0.35,
+                                filter: isActive ? 'none' : 'grayscale(0.9)',
+                                transition: 'opacity 0.15s ease, filter 0.15s ease',
                             }}>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
                                     {track.track_type}
@@ -1985,10 +1987,6 @@ const SessionWorkspace = ({
                                         background: '#171717',
                                         position: 'relative',
                                         overflow: 'hidden',
-                                        // Solo dimming — only the meter goes grey
-                                        opacity: isSoloDimmed ? 0.45 : 1,
-                                        filter: isSoloDimmed ? 'grayscale(0.8)' : 'none',
-                                        transition: 'opacity 0.15s ease, filter 0.15s ease',
                                     }}>
                                         {/* Stereo meter: unified MeterStrip */}
                                         <MeterStrip

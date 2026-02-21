@@ -4190,6 +4190,7 @@ pub fn run() {
             if let Err(err) = std::thread::Builder::new()
                 .name("telemetry-push".into())
                 .spawn(move || {
+                    let mut telemetry_tick_count: u64 = 0;
                     loop {
                         // BUG-14: Graceful shutdown check
                         {
@@ -4200,6 +4201,11 @@ pub fn run() {
                             }
                         }
                         std::thread::sleep(Duration::from_millis(33)); // ~30fps
+                        telemetry_tick_count += 1;
+                        // Heartbeat log every ~5s for diagnostics
+                        if telemetry_tick_count % 150 == 0 {
+                            log::debug!("[Telemetry] heartbeat tick={}", telemetry_tick_count);
+                        }
 
                         // Access managed state via cloned AppHandle
                         let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();

@@ -1236,6 +1236,15 @@ impl Vst3NoteTracker {
             None
         }
         // Push is done by the caller after sending the note-on.
+        // BUG-S1-06 FIX: Caller must check capacity via can_push() before pushing.
+    }
+
+    /// BUG-S1-06 FIX: Guard against unbounded growth. 256 simultaneous
+    /// notes per track is already beyond any legitimate polyphony.
+    /// Without this, a stuck VST3 or rapid seek could leak entries forever.
+    #[inline]
+    fn can_push(&self) -> bool {
+        self.active.len() < 256
     }
 
     /// Register a note-off — remove from active tracking.
@@ -1860,7 +1869,9 @@ pub fn start_audio_thread_on_device(
                                     }
                                     // Also queue for VST3 instruments on this track.
                                     // The graph pass will drain this into vst3_midi_scratch.
-                                    if idx < vst3_rt_midi_queue.len() {
+                                    // BUG-S1-02 FIX: Bounded push — drop events beyond 256 per
+                                    // buffer to prevent unbounded Vec growth from MIDI storms.
+                                    if idx < vst3_rt_midi_queue.len() && vst3_rt_midi_queue[idx].len() < 256 {
                                         vst3_rt_midi_queue[idx].push(
                                             MidiEvent::note_on(0, 0, pitch, velocity),
                                         );
@@ -1872,7 +1883,8 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].note_off(pitch);
                                     }
                                     // Also queue for VST3 instruments on this track.
-                                    if idx < vst3_rt_midi_queue.len() {
+                                    // BUG-S1-02 FIX: Same bounded push guard as note-on above.
+                                    if idx < vst3_rt_midi_queue.len() && vst3_rt_midi_queue[idx].len() < 256 {
                                         vst3_rt_midi_queue[idx].push(
                                             MidiEvent::note_off(0, 0, pitch, 0),
                                         );
@@ -2139,9 +2151,19 @@ pub fn start_audio_thread_on_device(
                                 if !track_soloed[child_idx] {
                                     continue;
                                 }
-                                // Walk up the parent chain (depth-limited to prevent cycles).
+                                // BUG-S1-04 FIX: Walk up the parent chain with visited bitmask
+                                // to detect routing cycles. Previous depth-limited loop (MAX_TRACKS
+                                // iterations) would spin 256 times on a cycle instead of stopping
+                                // immediately. Uses a u64x4 bitmask — 256 bits, zero-alloc.
+                                let mut visited = [0u64; 4]; // 256-bit bitmask
                                 let mut current = child_idx;
-                                for _ in 0..MAX_TRACKS {
+                                loop {
+                                    let word = current / 64;
+                                    let bit = current % 64;
+                                    if word >= 4 || (visited[word] & (1u64 << bit)) != 0 {
+                                        break; // Cycle detected or out-of-bounds
+                                    }
+                                    visited[word] |= 1u64 << bit;
                                     match routing_now.get(current) {
                                         Some(Some(parent_idx)) if *parent_idx < active_track_count => {
                                             effective_soloed[*parent_idx] = true;
@@ -2785,7 +2807,10 @@ pub fn start_audio_thread_on_device(
                                                                         ));
                                                                         let _ = dup_off; // already handled via note_on return
                                                                     }
-                                                                    t.active.push((mapped_pitch, 0));
+                                                                    // BUG-S1-06 FIX: Guard against unbounded active note growth.
+                                                                    if t.can_push() {
+                                                                        t.active.push((mapped_pitch, 0));
+                                                                    }
                                                                 }
 
                                                                 vst3_midi_scratch.push(
@@ -3085,10 +3110,13 @@ pub fn start_audio_thread_on_device(
                                 // If the cursor was changed externally, skip the update
                                 // (the next callback will recalculate correctly).
                                 let new_cursor = cursor + mix_frames * preview_channels;
+                                // BUG-S1-03 FIX: Use Release on success so subsequent loads
+                                // (including from the UI thread checking playback progress)
+                                // see a consistent cursor value, not a stale partial update.
                                 let _ = preview_cursor.compare_exchange(
                                     cursor,
                                     new_cursor,
-                                    Ordering::Relaxed,
+                                    Ordering::Release,
                                     Ordering::Relaxed,
                                 );
                             }

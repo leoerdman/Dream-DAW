@@ -17,10 +17,18 @@ fi
 mkdir -p "$DST_DIR"
 mkdir -p "$LEGACY_DST_DIR"
 # Remove stale generated files first, then copy fresh generated types.
-find "$DST_DIR" -maxdepth 1 -type f -name '*.ts' -delete
-find "$LEGACY_DST_DIR" -maxdepth 1 -type f -name '*.ts' -delete
-cp "$SRC_DIR"/*.ts "$DST_DIR"/
-cp "$SRC_DIR"/*.ts "$LEGACY_DST_DIR"/
+# Use || true for cleanup — files may already be absent from a previous run
+# or race condition with concurrent invocations.
+find "$DST_DIR" -maxdepth 1 -type f -name '*.ts' -delete 2>/dev/null || true
+find "$LEGACY_DST_DIR" -maxdepth 1 -type f -name '*.ts' -delete 2>/dev/null || true
+
+# Verify source directory has generated bindings before copying.
+if compgen -G "$SRC_DIR"/*.ts > /dev/null; then
+    cp "$SRC_DIR"/*.ts "$DST_DIR"/
+    cp "$SRC_DIR"/*.ts "$LEGACY_DST_DIR"/
+else
+    echo "[sync_bindings] WARNING: No .ts files found in $SRC_DIR — skipping copy" >&2
+fi
 
 COUNT="$(find "$DST_DIR" -maxdepth 1 -type f -name '*.ts' | wc -l | tr -d ' ')"
 echo "[sync_bindings] Copied $COUNT files to:"

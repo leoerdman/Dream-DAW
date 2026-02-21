@@ -129,10 +129,28 @@ let projectFetchSeq = 0;
 /** Re-entry guard: prevents recursive fetchProject calls triggered by
  *  synchronous React re-renders inside zustand's set() → useSyncExternalStore. */
 let _isFetchingProject = false;
+/** Module-level guard for startTelemetryLoop. Prevents re-entry from
+ *  synchronous React re-renders triggered by zustand set() inside the call.
+ *  The store-level `telemetryRunning` flag races with set() — React fires
+ *  forceStoreRerender BEFORE zustand updates the state, so get().telemetryRunning
+ *  still reads false on re-entry. This module-level flag is set BEFORE set(). */
+let _telemetryStarted = false;
 /** Timestamp (ms) until which telemetry BPM updates are suppressed (BUG-3 fix). */
 let _bpmPendingUntil = 0;
 const PROJECT_HISTORY_WINDOW = 256;
 const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
+/** PERF-FIX: Only push meter data to React state every N ticks.
+ *  At 30fps telemetry, N=5 gives ~6fps meter re-renders — smooth enough
+ *  for VU meters while preventing catastrophic re-render storms.
+ *  Raw 30fps data is always available via _latestMeters. */
+const METER_STATE_UPDATE_EVERY_TICKS = 5;
+let _meterFrameCounter = 0;
+/** Latest raw meter snapshot (30fps), bypasses React state for perf. */
+let _latestMeters: MeteringSnapshot | null = null;
+/** Get the latest meter snapshot without causing React re-renders. */
+export function getMetersRef(): MeteringSnapshot {
+    return _latestMeters ?? useEngineStore.getState().meters;
+}
 const DEBUG_PROJECT_FETCH =
     (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
     || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);
@@ -963,7 +981,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // ── Telemetry Loop ─────────────────────────────────────────────────
 
     startTelemetryLoop: () => {
-        if (get().telemetryRunning) return;
+        // CRITICAL FIX: Module-level guard prevents infinite re-entry.
+        // set({ telemetryRunning: true }) triggers synchronous React re-render →
+        // DawShell/SplashScreen useEffect fires → startTelemetryLoop() called again →
+        // get().telemetryRunning is STILL false (set hasn't committed yet) →
+        // "Maximum update depth exceeded". _telemetryStarted breaks this cycle.
+        if (_telemetryStarted || get().telemetryRunning) return;
+        _telemetryStarted = true;
         set({ telemetryRunning: true });
         let tickCounter = 0;
 
@@ -1006,34 +1030,18 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         prev.loop_start !== effectiveTransport.loop_start ||
                         prev.loop_end !== effectiveTransport.loop_end;
 
-                    // BUG-P2 FIX: O(n) scalar comparison of meter arrays to prevent
-                    // 30fps redundant React re-renders on the main DawShell component.
-                    const prevMeters = get().meters;
-                    let metersChanged = false;
+                    // PERF-FIX: Always store latest meters in module-level ref
+                    // for high-frequency access, but throttle React state updates
+                    // to ~6fps to prevent catastrophic re-render storms.
+                    _latestMeters = nextMeters;
+                    _meterFrameCounter++;
+                    const shouldUpdateMeterState = _meterFrameCounter % METER_STATE_UPDATE_EVERY_TICKS === 0;
 
-                    const isMeterReadingEqual = (a: { rms: number; peak: number; clipping: boolean }, b: { rms: number; peak: number; clipping: boolean }) =>
-                        a.rms === b.rms && a.peak === b.peak && a.clipping === b.clipping;
-
-                    if (!isMeterReadingEqual(prevMeters.master_left, nextMeters.master_left) ||
-                        !isMeterReadingEqual(prevMeters.master_right, nextMeters.master_right) ||
-                        prevMeters.tracks.length !== nextMeters.tracks.length) {
-                        metersChanged = true;
-                    } else {
-                        for (let i = 0; i < prevMeters.tracks.length; i++) {
-                            const [pl, pr] = prevMeters.tracks[i];
-                            const [nl, nr] = nextMeters.tracks[i];
-                            if (!isMeterReadingEqual(pl, nl) || !isMeterReadingEqual(pr, nr)) {
-                                metersChanged = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (transportChanged && metersChanged) {
+                    if (transportChanged && shouldUpdateMeterState) {
                         set({ transport: effectiveTransport, meters: nextMeters, connected: true, lastError: null });
                     } else if (transportChanged) {
                         set({ transport: effectiveTransport, connected: true, lastError: null });
-                    } else if (metersChanged) {
+                    } else if (shouldUpdateMeterState) {
                         if (!get().connected) {
                             set({ meters: nextMeters, connected: true, lastError: null });
                         } else {
@@ -1059,6 +1067,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     },
 
     stopTelemetryLoop: () => {
+        _telemetryStarted = false;
         set({ telemetryRunning: false });
         if (_telemetryUnlisten) {
             _telemetryUnlisten();

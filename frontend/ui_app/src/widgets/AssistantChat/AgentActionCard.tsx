@@ -301,7 +301,7 @@ interface AgentActionCardProps {
 }
 
 export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(true);
 
     const summary = useMemo(() => {
         if (group.actions.length === 0) return 'No actions';

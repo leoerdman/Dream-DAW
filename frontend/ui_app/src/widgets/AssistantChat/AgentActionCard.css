@@ -114,7 +114,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .agent-log-scroll {
-    max-height: 160px;
+    max-height: 240px;
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;

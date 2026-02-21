@@ -1,15 +1,12 @@
-/* ─────────────── Essence Synth — Premium Block-Based UI ─────────────── */
+/* ─────────────── Essence Synth — Bitwig-Style Flat UI ─────────────── */
 
 .essence {
     display: grid;
     grid-template-rows: auto 1fr auto;
     height: 100%;
     gap: 0;
-    border: 1px solid rgba(92, 224, 166, 0.12);
-    border-radius: var(--radius-lg);
-    background: linear-gradient(180deg,
-            color-mix(in srgb, var(--surface-2) 84%, #0d2419) 0%,
-            color-mix(in srgb, var(--surface-1) 90%, #080f0d) 100%);
+    border-radius: 0;
+    background: transparent;
     overflow: hidden;
     font-family: var(--font-mono);
 }
@@ -20,74 +17,73 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 10px;
-    border-bottom: 1px solid rgba(92, 224, 166, 0.08);
-    background: rgba(6, 16, 12, 0.35);
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(0, 0, 0, 0.12);
 }
 
 .essence__title {
     font-size: var(--font-size-xs);
-    font-weight: 700;
-    color: #d3efe3;
-    letter-spacing: 0.06em;
+    font-weight: 800;
+    color: #b8c4be;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
 }
 
 .essence__presets {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
 }
 
 .essence__preset-btn {
-    border: 1px solid rgba(92, 224, 166, 0.2);
-    border-radius: var(--radius-sm);
-    background: rgba(20, 40, 32, 0.7);
-    color: #a8d6c0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: #8a8a8a;
     font-size: 9px;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     cursor: pointer;
-    padding: 2px 6px;
+    padding: 2px 7px;
     transition: all 0.12s ease;
     font-family: var(--font-mono);
 }
 
 .essence__preset-btn:hover {
-    background: rgba(92, 224, 166, 0.14);
-    color: #d9ffee;
-    border-color: rgba(92, 224, 166, 0.35);
+    background: rgba(255, 255, 255, 0.1);
+    color: #c8c8c8;
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .essence__preset-btn--active {
-    background: rgba(92, 224, 166, 0.18);
-    color: #d9ffee;
-    border-color: #5ce0a6;
+    background: rgba(92, 224, 166, 0.15);
+    color: #c0ecd4;
+    border-color: rgba(92, 224, 166, 0.3);
 }
 
 .essence__random-btn {
-    border: 1px solid rgba(92, 224, 166, 0.25);
-    border-radius: var(--radius-sm);
-    background: rgba(92, 224, 166, 0.08);
-    color: #c9f7df;
-    font-size: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-xs);
+    background: rgba(255, 255, 255, 0.04);
+    color: #aaa;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.03em;
     cursor: pointer;
-    padding: 2px 7px;
+    padding: 2px 6px;
     font-family: var(--font-mono);
     transition: all 0.12s ease;
 }
 
 .essence__random-btn:hover {
-    background: rgba(92, 224, 166, 0.2);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 /* ── Main Body (Block Grid) ──────────────────────────────────── */
 
 .essence__body {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1.2fr 1fr 0.8fr;
     gap: 0;
     min-height: 0;
     overflow: hidden;
@@ -97,9 +93,9 @@
 .essence__section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 6px 8px;
-    border-right: 1px solid rgba(92, 224, 166, 0.06);
+    gap: 3px;
+    padding: 6px 8px 4px;
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
     min-width: 0;
 }
 
@@ -110,10 +106,10 @@
 .essence__section-label {
     font-size: 8px;
     font-weight: 700;
-    color: rgba(180, 220, 200, 0.5);
-    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.3);
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
 }
 
 /* ── OSC Section ──────────────────────────────────────────── */
@@ -121,7 +117,7 @@
 .essence__osc-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: 8px;
 }
 
 .essence__osc-block {
@@ -137,18 +133,18 @@
 }
 
 .essence__osc-label--1 {
-    color: #8fd6b4;
+    color: #6cbb8e;
 }
 
 .essence__osc-label--2 {
-    color: #9bc6ff;
+    color: #7ab0e0;
 }
 
 .essence__wave-display {
     width: 100%;
-    height: 22px;
-    border-radius: var(--radius-sm);
-    background: rgba(8, 17, 14, 0.6);
+    height: 28px;
+    border-radius: var(--radius-xs);
+    background: rgba(0, 0, 0, 0.25);
     overflow: hidden;
 }
 
@@ -159,10 +155,10 @@
 }
 
 .essence__wave-btn {
-    border: 1px solid rgba(92, 224, 166, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-xs);
-    background: rgba(24, 44, 37, 0.6);
-    color: #9ac4b2;
+    background: rgba(255, 255, 255, 0.03);
+    color: #777;
     font-size: 8px;
     font-weight: 600;
     cursor: pointer;
@@ -173,19 +169,20 @@
 }
 
 .essence__wave-btn:hover {
-    background: rgba(92, 224, 166, 0.12);
+    background: rgba(255, 255, 255, 0.08);
+    color: #aaa;
 }
 
 .essence__wave-btn--active-1 {
     border-color: #5ce0a6;
-    background: rgba(92, 224, 166, 0.18);
-    color: #d9ffee;
+    background: rgba(92, 224, 166, 0.15);
+    color: #b8ecd2;
 }
 
 .essence__wave-btn--active-2 {
     border-color: #7abfff;
-    background: rgba(122, 191, 255, 0.18);
-    color: #e2f0ff;
+    background: rgba(122, 191, 255, 0.15);
+    color: #c4dfff;
 }
 
 /* ── Filter Section ───────────────────────────────────────── */
@@ -197,10 +194,10 @@
 }
 
 .essence__filt-btn {
-    border: 1px solid rgba(255, 200, 80, 0.15);
+    border: 1px solid rgba(255, 200, 80, 0.1);
     border-radius: var(--radius-xs);
-    background: rgba(40, 32, 16, 0.5);
-    color: #c4a870;
+    background: rgba(255, 200, 80, 0.04);
+    color: #9a8560;
     font-size: 8px;
     font-weight: 700;
     cursor: pointer;
@@ -211,22 +208,23 @@
 }
 
 .essence__filt-btn:hover {
-    background: rgba(255, 200, 80, 0.12);
+    background: rgba(255, 200, 80, 0.1);
+    color: #c4a870;
 }
 
 .essence__filt-btn--active {
-    border-color: #f0c430;
-    background: rgba(240, 196, 48, 0.18);
-    color: #fff5d6;
+    border-color: #e0b430;
+    background: rgba(224, 180, 48, 0.15);
+    color: #e8d098;
 }
 
 /* ── ADSR Visual ──────────────────────────────────────────── */
 
 .essence__adsr-graph {
     width: 100%;
-    height: 28px;
-    border-radius: var(--radius-sm);
-    background: rgba(8, 14, 20, 0.55);
+    height: 32px;
+    border-radius: var(--radius-xs);
+    background: rgba(0, 0, 0, 0.25);
     overflow: hidden;
 }
 
@@ -239,10 +237,10 @@
 }
 
 .essence__lfo-btn {
-    border: 1px solid rgba(180, 120, 255, 0.15);
+    border: 1px solid rgba(160, 120, 230, 0.1);
     border-radius: var(--radius-xs);
-    background: rgba(32, 20, 48, 0.5);
-    color: #b090d0;
+    background: rgba(160, 120, 230, 0.04);
+    color: #8a70a8;
     font-size: 8px;
     font-weight: 700;
     cursor: pointer;
@@ -253,24 +251,25 @@
 }
 
 .essence__lfo-btn:hover {
-    background: rgba(180, 120, 255, 0.12);
+    background: rgba(160, 120, 230, 0.1);
+    color: #a890c8;
 }
 
 .essence__lfo-btn--active {
-    border-color: #b478ff;
-    background: rgba(180, 120, 255, 0.2);
-    color: #e8d6ff;
+    border-color: #a078e0;
+    background: rgba(160, 120, 230, 0.15);
+    color: #c8b0e8;
 }
 
 /* ── Bottom Knob Strip ────────────────────────────────────── */
 
 .essence__knobs {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
-    gap: 4px;
-    padding: 4px 8px 6px;
-    border-top: 1px solid rgba(92, 224, 166, 0.06);
-    background: rgba(6, 12, 10, 0.3);
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+    gap: 2px;
+    padding: 4px 6px 5px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(0, 0, 0, 0.1);
 }
 
 /* ── Param row in section ─────────────────────────────────── */
@@ -280,11 +279,12 @@
     align-items: center;
     justify-content: space-between;
     gap: 4px;
+    padding: 0 1px;
 }
 
 .essence__param-label {
     font-size: 8px;
-    color: rgba(180, 220, 200, 0.45);
+    color: rgba(255, 255, 255, 0.3);
     font-weight: 600;
     white-space: nowrap;
     min-width: 0;
@@ -292,7 +292,7 @@
 
 .essence__param-value {
     font-size: 9px;
-    color: #c4e0d2;
+    color: #a8a8a8;
     font-weight: 600;
     text-align: right;
     white-space: nowrap;
@@ -304,9 +304,10 @@
     width: 100%;
     height: 3px;
     border-radius: 2px;
-    background: rgba(8, 17, 14, 0.5);
+    background: rgba(0, 0, 0, 0.3);
     position: relative;
     overflow: hidden;
+    margin: 1px 0;
 }
 
 .essence__blend-fill {
@@ -319,11 +320,11 @@
 }
 
 .essence__blend-fill--1 {
-    background: linear-gradient(90deg, #5ce0a6, rgba(92, 224, 166, 0.3));
+    background: linear-gradient(90deg, rgba(92, 224, 166, 0.6), rgba(92, 224, 166, 0.15));
 }
 
 .essence__blend-fill--2 {
     right: 0;
     left: auto;
-    background: linear-gradient(270deg, #76baff, rgba(118, 186, 255, 0.3));
+    background: linear-gradient(270deg, rgba(118, 186, 255, 0.6), rgba(118, 186, 255, 0.15));
 }

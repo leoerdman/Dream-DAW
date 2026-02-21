@@ -81,8 +81,8 @@ export const PluginKnob = ({
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
-    const size = compact ? 36 : 46;
-    const markerHeight = compact ? 11 : 14;
+    const size = compact ? 30 : 38;
+    const markerHeight = compact ? 9 : 12;
     const markerTopOffset = compact ? '-84%' : '-88%';
     const [isDragging, setIsDragging] = useState(false);
     const [isEditingValue, setIsEditingValue] = useState(false);
@@ -274,7 +274,7 @@ const knobLabelStyle = (compact: boolean): CSSProperties => ({
     alignItems: 'center',
     justifyContent: 'flex-start',
     gap: compact ? 'var(--space-0-5)' : 'var(--space-1)',
-    minWidth: compact ? 58 : 92,
+    minWidth: compact ? 48 : 76,
 });
 
 const knobParamNameStyle: CSSProperties = {

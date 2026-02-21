@@ -2126,10 +2126,10 @@ const DeviceNode = ({
                 minWidth: rackWidth,
                 width: rackWidth,
                 display: 'flex',
-                flexDirection: 'column',
-                background: 'var(--color-bg-node)',
+                flexDirection: 'row',
+                background: '#2c2c2c',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? '2px solid #ffffff' : '2px solid var(--color-bg-header)',
+                border: isSelected ? '1px solid rgba(255,255,255,0.7)' : '1px solid #3a3a3a',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
@@ -2152,11 +2152,10 @@ const DeviceNode = ({
                 }
             }}
         >
-            {/* ── Unified Header: Enable → UI → Wrench → Name → Format ── */}
+            {/* ── Vertical Left Header Strip (Bitwig-style) ── */}
             <div
                 draggable
                 onDragStart={(e) => {
-                    // Prevent drag when clicking interactive elements (buttons, inputs)
                     const target = e.target as HTMLElement;
                     if (target.closest('button, input, select, [data-no-drag]')) {
                         e.preventDefault();
@@ -2178,16 +2177,20 @@ const DeviceNode = ({
                 }}
                 style={{
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     gap: 5,
-                    padding: '3px 6px',
-                    borderBottom: '1px solid var(--color-divider)',
-                    background: 'var(--color-bg-header)',
+                    padding: '6px 3px',
+                    borderRight: '1px solid rgba(255,255,255,0.04)',
+                    background: '#252525',
                     cursor: 'grab',
+                    width: 22,
+                    minWidth: 22,
+                    flexShrink: 0,
                 }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
             >
-                {/* ● Enable toggle */}
+                {/* ● Bypass — round power dot */}
                 <button
                     draggable={false}
                     onClick={onToggle}
@@ -2195,13 +2198,22 @@ const DeviceNode = ({
                     style={{
                         width: 11, height: 11,
                         borderRadius: '50%',
-                        background: device.isEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        border: 'none',
+                        background: device.isEnabled ? 'var(--color-accent-primary)' : '#3a3a3a',
+                        border: device.isEnabled ? '1px solid color-mix(in srgb, var(--color-accent-primary) 80%, white)' : '1px solid #555',
                         cursor: 'pointer',
                         flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: 0,
+                        boxShadow: device.isEnabled ? '0 0 3px rgba(74, 158, 255, 0.3)' : 'none',
+                        transition: 'all 0.15s',
                     }}
-                />
-                {/* UI button — only for plugins with a native editor */}
+                >
+                    <svg width="6" height="6" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 1v6" stroke={device.isEnabled ? '#fff' : '#888'} strokeWidth="2.5" strokeLinecap="round" />
+                        <path d="M4.5 3.5a5.5 5.5 0 107 0" stroke={device.isEnabled ? '#fff' : '#888'} strokeWidth="2" strokeLinecap="round" fill="none" />
+                    </svg>
+                </button>
+                {/* 👁 UI button — green round with eye icon */}
                 {showUiButton && (
                     <button
                         draggable={false}
@@ -2209,9 +2221,32 @@ const DeviceNode = ({
                         title={editorSupported === false
                             ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
                             : 'Open Native Plugin UI'}
-                        style={headerIconBtnStyle(false, showSettings || nativeEditorOpen)}
+                        style={{
+                            width: 11, height: 11,
+                            borderRadius: '50%',
+                            background: (showSettings || nativeEditorOpen)
+                                ? 'rgba(72, 210, 130, 0.85)'
+                                : 'rgba(72, 210, 130, 0.25)',
+                            border: (showSettings || nativeEditorOpen)
+                                ? '1px solid rgba(72, 210, 130, 0.9)'
+                                : '1px solid rgba(72, 210, 130, 0.4)',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0,
+                            boxShadow: (showSettings || nativeEditorOpen)
+                                ? '0 0 4px rgba(72, 210, 130, 0.4)'
+                                : 'none',
+                            transition: 'all 0.15s',
+                        }}
                     >
-                        UI
+                        <svg width="7" height="7" viewBox="0 0 16 16" fill="none">
+                            <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
+                                stroke={(showSettings || nativeEditorOpen) ? '#fff' : '#48d282'}
+                                strokeWidth="1.5" fill="none" />
+                            <circle cx="8" cy="8" r="2"
+                                fill={(showSettings || nativeEditorOpen) ? '#fff' : '#48d282'} />
+                        </svg>
                     </button>
                 )}
                 {/* Fix button — only when plugin runtime is dead */}
@@ -2220,57 +2255,92 @@ const DeviceNode = ({
                         draggable={false}
                         onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
                         title="Recover plugin runtime"
-                        style={headerIconBtnStyle(false)}
+                        style={{
+                            width: 11, height: 11,
+                            borderRadius: '50%',
+                            background: 'rgba(255, 100, 100, 0.25)',
+                            border: '1px solid rgba(255, 100, 100, 0.5)',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0,
+                            fontSize: 6, fontWeight: 800, color: '#ff6464',
+                            transition: 'all 0.15s',
+                        }}
                     >
-                        Fix
+                        !
                     </button>
                 )}
-                {/* 🔧 Wrench — settings / params panel */}
+                {/* 🔧 Wrench — grey round with wrench SVG */}
                 {supportsSettingsToggle && (
                     <button
                         draggable={false}
                         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                         title="Plugin Settings / Automatable Params"
-                        style={headerIconBtnStyle(false, showSettings)}
+                        style={{
+                            width: 11, height: 11,
+                            borderRadius: '50%',
+                            background: showSettings
+                                ? 'rgba(180, 180, 200, 0.45)'
+                                : 'rgba(120, 120, 140, 0.2)',
+                            border: showSettings
+                                ? '1px solid rgba(180, 180, 200, 0.6)'
+                                : '1px solid rgba(120, 120, 140, 0.35)',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0,
+                            boxShadow: showSettings ? '0 0 3px rgba(180, 180, 200, 0.2)' : 'none',
+                            transition: 'all 0.15s',
+                        }}
                     >
-                        🔧
+                        <svg width="7" height="7" viewBox="0 0 16 16" fill="none">
+                            <path d="M10.5 2a3.5 3.5 0 00-3.22 4.87L2.5 11.65a1.2 1.2 0 001.7 1.7l4.78-4.78A3.5 3.5 0 0010.5 2z"
+                                stroke={showSettings ? '#e0e0e8' : '#8888a0'}
+                                strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                        </svg>
                     </button>
                 )}
-                {/* Name — fills remaining space */}
+                {/* Rotated device name — fills remaining vertical space */}
                 <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                    color: 'var(--color-text-primary)',
+                    writingMode: 'vertical-lr',
+                    transform: 'rotate(180deg)',
+                    fontSize: 'var(--font-size-micro)',
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    color: '#808080',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
                     flex: 1,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    textAlign: 'center',
+                    lineHeight: 1,
                 }}>
                     {device.name}
                 </span>
-                {/* Format badge */}
+                {/* Format badge at bottom */}
                 <span style={{
-                    fontSize: 'var(--font-size-micro)',
+                    fontSize: 6,
                     color: formatBadgeColor(pluginFormat),
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                    minWidth: 28,
-                    textAlign: 'right',
                     flexShrink: 0,
+                    opacity: 0.6,
                 }}>
                     {pluginFormat}
                 </span>
             </div>
 
+            {/* ── Body — fills remaining horizontal space ── */}
             {device.source === 'internal' ? (
                 <div
                     style={{
-                        padding: 6,
+                        padding: 4,
                         flex: 1,
+                        minWidth: 0,
                         minHeight: 0,
                         display: 'grid',
-                        gridTemplateRows: showSettings && supportsSettingsToggle ? 'minmax(170px, 1fr) auto' : 'minmax(170px, 1fr)',
-                        gap: 6,
+                        gridTemplateRows: showSettings && supportsSettingsToggle ? '1fr auto' : '1fr',
+                        gap: 4,
                         overflow: 'hidden',
                     }}
                 >
@@ -2291,9 +2361,9 @@ const DeviceNode = ({
                             style={{
                                 maxHeight: 230,
                                 overflow: 'auto',
-                                border: '1px solid var(--color-divider)',
+                                border: '1px solid rgba(255,255,255,0.04)',
                                 borderRadius: 'var(--radius-sm)',
-                                background: 'var(--color-bg-elevated)',
+                                background: 'rgba(0,0,0,0.15)',
                                 padding: 6,
                             }}
                         >
@@ -2321,7 +2391,7 @@ const DeviceNode = ({
                     )}
                 </div>
             ) : showSettings && supportsSettingsToggle ? (
-                <div style={{ padding: 6, flex: 1, minHeight: 0, overflow: 'auto' }}>
+                <div style={{ padding: 6, flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
                     <PluginSettingsPanel
                         device={device}
                         onParamChange={onParamChange}
@@ -2347,6 +2417,7 @@ const DeviceNode = ({
                 <div style={{
                     padding: device.source === 'vst' ? 8 : 0,
                     flex: 1,
+                    minWidth: 0,
                     minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
@@ -2376,7 +2447,7 @@ const DeviceNode = ({
                                 style={{
                                     border: '1px solid var(--color-divider)',
                                     borderRadius: 'var(--radius-md)',
-                                    background: 'var(--color-bg-header)',
+                                    background: '#252525',
                                     color: 'var(--color-text-primary)',
                                     fontSize: 'var(--font-size-2xs)',
                                     padding: '4px 6px',
@@ -2398,29 +2469,6 @@ const DeviceNode = ({
     );
 };
 
-const headerIconBtnStyle = (disabled: boolean, active = false) =>
-    ({
-        minWidth: 24,
-        height: 18,
-        padding: '0 6px',
-        borderRadius: 'var(--radius-md)',
-        border: active ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-divider)',
-        background: disabled
-            ? 'color-mix(in srgb, var(--color-text-tertiary) 25%, transparent)'
-            : active
-                ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-bg-elevated))'
-                : 'var(--color-bg-elevated)',
-        color: disabled
-            ? 'var(--color-text-tertiary)'
-            : active
-                ? 'var(--color-accent-primary)'
-                : 'var(--color-text-secondary)',
-        fontSize: 'var(--font-size-2xs)',
-        fontWeight: 'var(--font-weight-bold)' as unknown as number,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.65 : 1,
-        transition: 'all var(--transition-fast)',
-    }) as const;
 
 const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',

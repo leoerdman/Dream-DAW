@@ -774,7 +774,7 @@ export const DawShell = () => {
         const settingsModel = useSettingsStore.getState().settings.openRouterModel;
         const variationModel = (settingsModel && settingsModel !== 'openai/gpt-4o-mini')
             ? settingsModel
-            : 'anthropic/claude-sonnet-4-5';
+            : 'minimax/minimax-m2.5';
 
         setAiVariationBusy(true);
         try {

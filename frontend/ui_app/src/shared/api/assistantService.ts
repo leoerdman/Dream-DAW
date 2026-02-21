@@ -340,6 +340,22 @@ const TOOLS = [
     {
         type: 'function' as const,
         function: {
+            name: 'set_synth_param',
+            description: 'Set a parameter on the Essence synth (or sampler). Use after set_track_instrument to shape the sound. Common params: "synth.osc1.wave" (0-7), "synth.osc2.wave" (0-7), "synth.osc.mix" (0-1), "synth.filter.cutoff" (0-1), "synth.filter.resonance" (0-1), "synth.filter.type" (0=LP,1=HP,2=BP,3=Notch), "synth.attack" (0.001-5), "synth.decay" (0.01-5), "synth.sustain" (0-1), "synth.release" (0.01-10), "synth.lfo.rate" (0.01-20), "synth.lfo.depth" (0-1), "synth.lfo.target" (0=filter,1=pitch,2=volume), "synth.pulse_width" (0.05-0.95), "synth.detune" (-100 to 100 cents), "synth.sub_level" (0-1).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based track index' },
+                    paramId: { type: 'string', description: 'Parameter ID (e.g. "synth.filter.cutoff")' },
+                    value: { type: 'number', description: 'Parameter value' },
+                },
+                required: ['trackIndex', 'paramId', 'value'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
             name: 'create_midi_clip',
             description: 'Create an empty MIDI clip on a track. Position and duration are in BEATS (will be converted to frames automatically). Returns the clip_id to use with set_clip_notes.',
             parameters: {
@@ -1378,13 +1394,19 @@ async function executeToolInner(
             await engineApi.seekToBeat(args.beat as number);
             return JSON.stringify({ seekedTo: args.beat });
 
-        case 'set_track_volume':
-            await engineApi.setTrackVolume(args.trackIndex as number, args.volume as number);
-            return JSON.stringify({ trackIndex: args.trackIndex, volume: args.volume });
+        case 'set_track_volume': {
+            // BUG-13 FIX: Clamp volume to valid range
+            const vol = Math.max(0, Math.min(1, args.volume as number));
+            await engineApi.setTrackVolume(args.trackIndex as number, vol);
+            return JSON.stringify({ trackIndex: args.trackIndex, volume: vol });
+        }
 
-        case 'set_track_pan':
-            await engineApi.setTrackPan(args.trackIndex as number, args.pan as number);
-            return JSON.stringify({ trackIndex: args.trackIndex, pan: args.pan });
+        case 'set_track_pan': {
+            // BUG-13 FIX: Clamp pan to valid range
+            const pan = Math.max(-1, Math.min(1, args.pan as number));
+            await engineApi.setTrackPan(args.trackIndex as number, pan);
+            return JSON.stringify({ trackIndex: args.trackIndex, pan: pan });
+        }
 
         case 'set_track_mute':
             await engineApi.setTrackMute(args.trackIndex as number, args.muted as boolean);
@@ -1419,13 +1441,27 @@ async function executeToolInner(
             const bpmBatch = stBatch.projectBpm || stBatch.transport.bpm || 120;
             const srBatch = stBatch.projectSampleRate || 44100;
             const fpbBatch = (60.0 / bpmBatch) * srBatch;
+
+            // BUG-7 FIX: Pre-delete overlapping clips for the entire batch
+            let batchOverlapsRemoved = 0;
+            for (const def of clipDefs) {
+                const existing = clips.filter(c =>
+                    c.trackIndex === def.trackIndex &&
+                    c.startBeat <= def.startBeat &&
+                    (c.startBeat + c.durationBeats) > def.startBeat
+                );
+                for (const oc of existing) {
+                    try { await engineApi.deleteClip(oc.id); batchOverlapsRemoved++; } catch { /* skip */ }
+                }
+            }
+
             const results: { clipId: string; clipName: string; startBeat: number }[] = [];
             for (const def of clipDefs) {
                 const startFrames = Math.round(def.startBeat * fpbBatch);
                 const r = await engineApi.importAudioFile(def.samplePath, def.trackIndex, startFrames);
                 results.push({ clipId: r.clip_id, clipName: r.clip_name, startBeat: def.startBeat });
             }
-            return JSON.stringify({ success: true, clipsCreated: results.length, clips: results });
+            return JSON.stringify({ success: true, clipsCreated: results.length, clips: results, overlapsRemoved: batchOverlapsRemoved });
         }
 
         case 'delete_clips_batch': {
@@ -1504,6 +1540,20 @@ async function executeToolInner(
             if (!siEntry) return JSON.stringify({ error: `Unknown instrument: ${siInstrument}. Use "essence" or "sampler".` });
             await engineApi.addPluginToTrack(siTrackId, siEntry.pluginId, siEntry.displayName, 'instrument');
             return JSON.stringify({ success: true, trackIndex: siTrackIdx, instrument: siEntry.displayName });
+        }
+
+        case 'set_synth_param': {
+            const spTrackIdx = args.trackIndex as number;
+            const spTrackId = tracks[spTrackIdx]?.id;
+            if (!spTrackId) return JSON.stringify({ error: `Track ${spTrackIdx} not found` });
+            const spParamId = args.paramId as string;
+            const spValue = args.value as number;
+            // Find the instrument slot ID on the track
+            const spTrack = tracks[spTrackIdx];
+            const instrumentSlotId = spTrack.instrument?.id;
+            if (!instrumentSlotId) return JSON.stringify({ error: `Track ${spTrackIdx} has no instrument assigned. Use set_track_instrument first.` });
+            await engineApi.setInternalPluginParam(spTrackId, instrumentSlotId, spParamId, spValue);
+            return JSON.stringify({ success: true, trackIndex: spTrackIdx, paramId: spParamId, value: spValue });
         }
 
         case 'create_midi_clip': {
@@ -1591,6 +1641,16 @@ async function executeToolInner(
             const samplePath = args.samplePath as string;
             const startBeat = args.startBeat as number;
 
+            // OVERLAP GUARD (BUG-4): auto-delete clips at the same position
+            const overlapping = clips.filter(c =>
+                c.trackIndex === trackIndex &&
+                c.startBeat <= startBeat &&
+                (c.startBeat + c.durationBeats) > startBeat
+            );
+            for (const oc of overlapping) {
+                try { await engineApi.deleteClip(oc.id); } catch { /* skip missing */ }
+            }
+
             const st3 = useEngineStore.getState();
             const bpm3 = st3.projectBpm || st3.transport.bpm || 120;
             const sr3 = st3.projectSampleRate || 44100;
@@ -1598,7 +1658,7 @@ async function executeToolInner(
             const startFrames = Math.round(startBeat * fpb3);
 
             const result = await engineApi.importAudioFile(samplePath, trackIndex, startFrames);
-            return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat });
+            return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat, overlapsRemoved: overlapping.length });
         }
 
         // ── Phase 1: Core Operations ──
@@ -1612,7 +1672,7 @@ async function executeToolInner(
             const posFrames = Math.round(newPositionBeats * fpbMove);
 
             await engineApi.moveClip(clipId, newTrackIndex, posFrames);
-            return JSON.stringify({ success: true, cliId: clipId, newTrackIndex, newPositionBeats });
+            return JSON.stringify({ success: true, clipId, newTrackIndex, newPositionBeats });
         }
 
         case 'duplicate_clip': {
@@ -1808,7 +1868,9 @@ async function executeToolInner(
                 melodic_minor: [0, 2, 3, 5, 7, 9, 11], whole_tone: [0, 2, 4, 6, 8, 10],
                 chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             };
-            const intervals = SCALES[scaleType] || SCALES.major;
+            // BUG-8 FIX: Return error instead of silently falling back to major
+            const intervals = SCALES[scaleType];
+            if (!intervals) return JSON.stringify({ error: `Unknown scale type: "${scaleType}". Valid types: ${Object.keys(SCALES).join(', ')}` });
             const pitches: number[] = [];
             for (let n = lo; n <= hi; n++) {
                 if (intervals.includes((n - (root % 12) + 12) % 12)) pitches.push(n);
@@ -1867,8 +1929,12 @@ async function executeToolInner(
             const vel = (args.velocity as number) || 100;
             const tIdx = args.trackIndex as number;
             await engineApi.previewSamplerNoteOn(tIdx, pitch, vel);
-            // Auto note-off after 500ms
-            setTimeout(() => { engineApi.previewSamplerNoteOff(tIdx, pitch).catch(() => { }); }, 500);
+            // BUG-6 FIX: Cancel previous preview timer to prevent leaked note-offs
+            if ((globalThis as any).__dreamPreviewTimer) clearTimeout((globalThis as any).__dreamPreviewTimer);
+            (globalThis as any).__dreamPreviewTimer = setTimeout(() => {
+                engineApi.previewSamplerNoteOff(tIdx, pitch).catch(() => { });
+                (globalThis as any).__dreamPreviewTimer = null;
+            }, 500);
             return JSON.stringify({ success: true, pitch, velocity: vel });
         }
 
@@ -1895,8 +1961,8 @@ async function executeToolInner(
                     name.includes('ride') || name.includes('cymbal') || name.includes('fx') ||
                     name.includes('pad') || name.includes('syn') || name.includes('lead')) {
                     try {
-                        // Add AutoFilter (type 9) with high-pass settings
-                        await engineApi.addDevice(i, 0, 9 as engineApi.BuiltinEffectType);
+                        // BUG-5 FIX: Use named constant instead of magic number
+                        await engineApi.addDevice(i, 0, engineApi.BuiltinEffectType.AutoFilter);
                         cleaned++;
                     } catch { /* slot may be occupied */ }
                 }
@@ -2141,7 +2207,11 @@ async function executeToolInner(
 
         case 'get_midi_clip_notes': {
             const clipId = args.clipId as string;
-            const clip = clips.find(c => c.id === clipId);
+            // BUG-2 FIX: Force fresh fetch to avoid stale store data
+            try { await useEngineStore.getState().fetchProject('agent-tool:get_midi_clip_notes'); } catch { /* continue with stale */ }
+            const freshState = useEngineStore.getState();
+            const freshClips = freshState.timelineClips;
+            const clip = freshClips.find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: `Clip ${clipId} not found` });
             if (clip.type !== 'midi') return JSON.stringify({ error: `Clip ${clipId} is not a MIDI clip (type: ${clip.type})` });
             const notes = (clip as any).midiNotes ?? [];
@@ -2416,7 +2486,7 @@ ${trackList || '  (no tracks)'}
 |----------|-------|
 | 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering, get_arrangement_overview |
 | 🎹 Piano Roll | get_midi_clip_notes, set_clip_notes, generate_beat_pattern, generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
-| 🎵 MIDI & Audio | add_midi_track, set_track_instrument, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
+| 🎵 MIDI & Audio | add_midi_track, set_track_instrument, set_synth_param, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
 | 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_solo, set_pad_adsr, set_pad_filter_cutoff, preview_note |
 | 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group, duplicate_tracks, move_track, set_track_routing, arm_track |
 | ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, resize_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade, set_clip_warp, set_clip_source_offset |
@@ -2441,14 +2511,15 @@ Before executing any action, briefly explain what you're about to do and why bas
    - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
 2. **Beat Patterns**: Use \\\`generate_beat_pattern\\\` for instant genre-correct rhythm patterns (house, techno, dnb, hiphop, trap, lofi). Feed the returned notes into \\\`set_clip_notes\\\`.
 3. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
-3. **NEVER overlap clips** on the same track at the same time. The system will auto-delete overlapped clips, but you MUST still use the correct track index. **Check existing tracks and their clips before creating new ones.** Each musical element (kick, bass, melody, chords) should be on its OWN separate track.
-4. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
+4. **NEVER overlap clips** on the same track at the same time. The system will auto-delete overlapped clips, but you MUST still use the correct track index. **Check existing tracks and their clips before creating new ones.** Each musical element (kick, bass, melody, chords) should be on its OWN separate track.
+5. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
 
 ### Instrument Assignment (CRITICAL)
 1. **For melodic tracks** (bass, lead, pad, chord, melody, arp): ALWAYS use \\\`add_midi_track({ instrument: 'essence' })\\\` or call \\\`set_track_instrument({ trackIndex, instrument: 'essence' })\\\` to assign the Essence synth.
-2. **For drum tracks**: Use \\\`add_midi_track\\\` WITHOUT instrument, then load samples into drum rack pads.
-3. **NEVER write melodic notes to a drum rack track.** Always create a DEDICATED track with Essence synth for melodies.
-4. **Track isolation**: Each musical role (kick, snare/clap, hats, bass, melody, chords, pads) should be on its OWN separate track with the right instrument.
+2. **Sound Design**: After assigning Essence, use \\\`set_synth_param\\\` to shape the sound. Key params: \\\`synth.osc1.wave\\\` (0-7), \\\`synth.filter.cutoff\\\` (0-1), \\\`synth.attack\\\`/\\\`synth.decay\\\`/\\\`synth.sustain\\\`/\\\`synth.release\\\`, \\\`synth.lfo.rate\\\`/\\\`synth.lfo.depth\\\`.
+3. **For drum tracks**: Use \\\`add_midi_track\\\` WITHOUT instrument, then load samples into drum rack pads.
+4. **NEVER write melodic notes to a drum rack track.** Always create a DEDICATED track with Essence synth for melodies.
+5. **Track isolation**: Each musical role (kick, snare/clap, hats, bass, melody, chords, pads) should be on its OWN separate track with the right instrument.
 
 ### Music Theory Engine
 1. **Chords**: Use \\\`generate_chord\\\` to compute exact MIDI pitches. Example: \\\`generate_chord(48, "min7")\\\` returns [48, 51, 55, 58].
@@ -2535,7 +2606,7 @@ export async function streamChat(
     onSelectClips?: (ids: string[]) => void,
     signal?: AbortSignal,
 ): Promise<ChatMessage[]> {
-    const MAX_TOOL_DEPTH = 15;
+    const MAX_TOOL_DEPTH = 25; // BUG-14 FIX: Raised from 15 for complex multi-track sessions
     let depth = 0;
     let conversation = [...messages];
     let globalToolIndex = 0;
@@ -2560,7 +2631,7 @@ export async function streamChat(
                 tools: TOOLS,
                 tool_choice: 'auto',
                 stream: true,
-                max_tokens: 8192,
+                max_tokens: 4096,
             }),
             signal,
         });
@@ -2699,6 +2770,12 @@ export async function streamChat(
             });
 
             globalToolIndex++;
+
+            // BUG-15 FIX: Check abort signal between tool calls
+            if (signal?.aborted) {
+                onEvent({ type: 'done', conversation });
+                return conversation;
+            }
         }
 
         // Reset for next loop iteration

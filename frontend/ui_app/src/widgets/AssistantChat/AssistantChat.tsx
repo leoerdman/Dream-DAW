@@ -19,8 +19,9 @@ import './AssistantChat.css';
 // ── Supported models ────────────────────────────────────────────────────────
 
 const MODELS = [
-    { id: 'anthropic/claude-sonnet-4', label: 'Claude' },
-    { id: 'google/gemini-3-flash-preview', label: 'Gemini' },
+    { id: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+    { id: 'minimax/minimax-m2.5', label: 'MiniMax M2.5' },
+    { id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
 ];
 
 // ── Live streaming state types ───────────────────────────────────────────────
@@ -124,8 +125,8 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
     const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
-        // Don't drag if clicking buttons inside the header
-        if ((e.target as HTMLElement).closest('button')) return;
+        // Don't drag if clicking interactive elements inside the header
+        if ((e.target as HTMLElement).closest('button, select, input')) return;
         e.preventDefault();
         const overlay = (e.currentTarget as HTMLElement).closest('.assistant-chat-overlay') as HTMLElement;
         if (!overlay) return;
@@ -569,17 +570,17 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                 </div>
 
                 <div className="assistant-header-actions">
-                    <div className="model-selector">
+                    <select
+                        className="model-selector-dropdown"
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                    >
                         {MODELS.map((m) => (
-                            <button
-                                key={m.id}
-                                className={`model-selector-btn ${model === m.id ? 'active' : ''}`}
-                                onClick={() => setModel(m.id)}
-                            >
+                            <option key={m.id} value={m.id}>
                                 {m.label}
-                            </button>
+                            </option>
                         ))}
-                    </div>
+                    </select>
                     <button className="assistant-mini-btn" onClick={() => {
                         setMessages([]);
                         lastSavedRef.current = '';

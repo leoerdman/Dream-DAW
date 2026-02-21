@@ -3371,7 +3371,7 @@ fn default_language() -> String {
     "English".into()
 }
 fn default_startup_behavior() -> String {
-    "new".into()
+    "last".into()
 }
 fn default_waveform_style() -> String {
     "colored".into()
@@ -3431,7 +3431,7 @@ impl Default for AppSettings {
         let music_dir = home.join("Music").join("Dream DAW");
         Self {
             language: "English".into(),
-            startup_behavior: "new".into(),
+            startup_behavior: "last".into(),
             waveform_style: "colored".into(),
             driver_type: "CoreAudio".into(),
             output_device: "Default Output".into(),

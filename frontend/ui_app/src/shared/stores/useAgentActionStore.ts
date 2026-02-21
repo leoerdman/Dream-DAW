@@ -71,6 +71,9 @@ const TOOL_LABELS: Record<string, string> = {
     undo: '↩️ Undo',
     redo: '↪️ Redo',
     set_master_volume: '🔊 Master volume set',
+    add_midi_track: '🎹 MIDI track added',
+    create_midi_clip: '🎼 MIDI clip created',
+    set_clip_notes: '🎵 Notes written',
 };
 
 /** Get human-readable label for a tool action. */

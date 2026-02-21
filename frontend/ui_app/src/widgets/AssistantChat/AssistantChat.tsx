@@ -283,14 +283,17 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
             intentionalStopRef.current = false;
 
             // ── Step 1: Ensure microphone permission via getUserMedia ──
-            // On macOS WKWebView (Tauri), SpeechRecognition silently fails without
-            // an explicit getUserMedia call first. Once the user grants permission,
-            // we cache it in localStorage so we don't re-prompt.
-            // NOTE: navigator.mediaDevices may be undefined in WKWebView — skip if so.
+            // CRITICAL: In Tauri WKWebView (macOS), calling getUserMedia
+            // causes a NATIVE-level crash (webview process dies before JS
+            // Promise rejects). This happens because dev builds lack the
+            // signed bundle entitlements required for media capture.
+            // Solution: detect Tauri and skip getUserMedia entirely.
+            // SpeechRecognition handles its own permissions gracefully.
+            const isTauri = !!(window as unknown as Record<string, unknown>).__TAURI__;
             const micPermCacheKey = 'dream-ai-mic-permission';
             const cachedPermission = localStorage.getItem(micPermCacheKey);
 
-            if (cachedPermission !== 'granted' && navigator.mediaDevices?.getUserMedia) {
+            if (!isTauri && cachedPermission !== 'granted' && navigator.mediaDevices?.getUserMedia) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     // Release the stream immediately — we just needed the permission prompt.

@@ -375,7 +375,11 @@ function resolveTrackIndex(track: string): number {
     return found >= 0 ? found : -1;
 }
 
-// ─── Execute tool ───────────────────────────────────────────────────────────
+// ─── Read-only tools (no fetchProject needed) ───────────────────────────────────
+const READ_ONLY_TOOLS = new Set([
+    'get_project_overview', 'get_track_clips', 'get_clip_details',
+    'get_transport_state', 'select_clips', 'select_all_clips_on_track',
+]);
 
 async function executeTool(
     name: string,
@@ -385,6 +389,27 @@ async function executeTool(
     // Show visual feedback for every action
     useAgentActionStore.getState().showAction(getToolLabel(name));
 
+    const result = await executeToolInner(name, args, onSelectClips);
+
+    // CRITICAL: Refresh frontend store after any mutation so UI shows
+    // updated BPM, tracks, clips, etc. Without this, the Zustand store
+    // stays stale and the timeline doesn't show newly created clips.
+    if (!READ_ONLY_TOOLS.has(name)) {
+        try {
+            await useEngineStore.getState().fetchProject(`agent-tool:${name}`);
+        } catch (e) {
+            console.warn('[Agent] fetchProject after tool failed:', e);
+        }
+    }
+
+    return result;
+}
+
+async function executeToolInner(
+    name: string,
+    args: Record<string, unknown>,
+    onSelectClips?: (ids: string[]) => void,
+): Promise<string> {
     const state = useEngineStore.getState();
     const tracks = state.projectTracks;
     const clips = state.timelineClips;

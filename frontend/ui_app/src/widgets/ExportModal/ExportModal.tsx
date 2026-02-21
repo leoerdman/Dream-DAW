@@ -88,6 +88,48 @@ function beatsToBar(beats: number): number {
     return Math.floor(beats / 4) + 1;
 }
 
+// ── Preferences Storage Key ──────────────────────────────────────────
+
+const EXPORT_PREFS_KEY = 'dream_daw_export_prefs';
+
+interface ExportPrefs {
+    format: ExportFormat;
+    sampleRate: SampleRate;
+    bitDepth: BitDepth;
+    normalize: boolean;
+    tailMs: number;
+}
+
+/** Load saved export preferences from localStorage, with type-safe defaults. */
+function loadExportPrefs(): ExportPrefs {
+    try {
+        const raw = localStorage.getItem(EXPORT_PREFS_KEY);
+        if (!raw) return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+        const parsed = JSON.parse(raw) as Partial<ExportPrefs>;
+        return {
+            format: (['wav', 'mp3'] as ExportFormat[]).includes(parsed.format as ExportFormat)
+                ? (parsed.format as ExportFormat) : 'wav',
+            sampleRate: ([44100, 48000, 96000] as SampleRate[]).includes(parsed.sampleRate as SampleRate)
+                ? (parsed.sampleRate as SampleRate) : 48000,
+            bitDepth: ([16, 24, 32] as BitDepth[]).includes(parsed.bitDepth as BitDepth)
+                ? (parsed.bitDepth as BitDepth) : 24,
+            normalize: typeof parsed.normalize === 'boolean' ? parsed.normalize : false,
+            tailMs: typeof parsed.tailMs === 'number' ? Math.max(0, Math.min(5000, parsed.tailMs)) : 0,
+        };
+    } catch {
+        return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+    }
+}
+
+/** Persist export preferences to localStorage. */
+function saveExportPrefs(prefs: ExportPrefs): void {
+    try {
+        localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+        // Silently ignore storage quota errors.
+    }
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export const ExportModal = ({
@@ -101,17 +143,22 @@ export const ExportModal = ({
     loopStartBeat = 0,
     loopEndBeat = 0,
 }: ExportModalProps) => {
-    // ── Settings State ───────────────────────────────────────────────
-    const [format, setFormat] = useState<ExportFormat>('wav');
-    const [exportSampleRate, setExportSampleRate] = useState<SampleRate>(48000);
-    const [bitDepth, setBitDepth] = useState<BitDepth>(24);
+    // ── Settings State (restored from saved preferences) ─────────────
+    const [format, setFormat] = useState<ExportFormat>(() => loadExportPrefs().format);
+    const [exportSampleRate, setExportSampleRate] = useState<SampleRate>(() => loadExportPrefs().sampleRate);
+    const [bitDepth, setBitDepth] = useState<BitDepth>(() => loadExportPrefs().bitDepth);
     const [exportRange, setExportRange] = useState<ExportRange>('full');
-    const [normalize, setNormalize] = useState(false);
-    const [tailMs, setTailMs] = useState(0);
+    const [normalize, setNormalize] = useState(() => loadExportPrefs().normalize);
+    const [tailMs, setTailMs] = useState(() => loadExportPrefs().tailMs);
 
     // ── Submit State ─────────────────────────────────────────────────
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [bounceError, setBounceError] = useState<string | null>(null);
+
+    // ── Persist preferences on change (excludes range — set by selection) ──
+    useEffect(() => {
+        saveExportPrefs({ format, sampleRate: exportSampleRate, bitDepth, normalize, tailMs });
+    }, [format, exportSampleRate, bitDepth, normalize, tailMs]);
 
     // ── Reset state when modal opens ─────────────────────────────────
     useEffect(() => {

@@ -1804,9 +1804,10 @@ async fn export_mix_cmd(
                         continue;
                     }
 
-                    // Skip tracks WITH a sampler config — those are handled
-                    // by OfflineBouncer::pre_render_midi_tracks().
-                    if track.sampler.is_some() {
+                    // FIX-1: Skip tracks WITH a sampler config ONLY if they
+                    // do NOT also have a VST3 instrument (e.g. Serum). ALS imports
+                    // may populate both fields — prefer VST3 instrument when present.
+                    if track.sampler.is_some() && track.instrument.is_none() {
                         continue;
                     }
 
@@ -1942,6 +1943,84 @@ async fn export_mix_cmd(
 
                         frames_done += chunk_frames;
                         playhead += chunk_frames as i64;
+                    }
+
+                    // ── FIX-2: Apply track insert FX chain to pre-rendered audio ──
+                    // The instrument pre-render above produced raw Serum output.
+                    // Now run it through all non-bypassed insert FX slots so
+                    // reverb/EQ/compressor etc. appear in the export, matching
+                    // what the user hears from the master in real-time.
+                    {
+                        let track_effects = project.tracks[track_idx].effects.clone();
+                        let fx_slots: Vec<_> = track_effects.iter()
+                            .flat_map(|node| node.collect_plugin_slots())
+                            .filter(|slot| !slot.is_bypassed)
+                            .collect();
+
+                        for fx_slot in &fx_slots {
+                            let Some(fx_instance_id) = slot_instance_map.get(&fx_slot.id).copied() else {
+                                log::debug!(
+                                    "[Export/VST3-FX] Track '{}': FX slot '{}' ({}) not bound — skipping",
+                                    track_name, fx_slot.name, fx_slot.id
+                                );
+                                continue;
+                            };
+
+                            log::info!(
+                                "[Export/VST3-FX] Track '{}': applying FX '{}' (instance={})",
+                                track_name, fx_slot.name, fx_instance_id
+                            );
+
+                            // Process the entire pre-rendered buffer through this FX in chunks.
+                            let mut fx_offset = 0usize;
+                            while fx_offset < total_frames {
+                                let remaining = total_frames - fx_offset;
+                                let chunk = remaining.min(CHUNK_FRAMES);
+
+                                let mut fx_out_l = vec![0.0f32; chunk];
+                                let mut fx_out_r = vec![0.0f32; chunk];
+
+                                let in_l = &out_left[fx_offset..fx_offset + chunk];
+                                let in_r = &out_right[fx_offset..fx_offset + chunk];
+                                let inputs: [&[f32]; 2] = [in_l, in_r];
+                                let mut outputs: [&mut [f32]; 2] = [&mut fx_out_l, &mut fx_out_r];
+
+                                match plugin_host_arc.lock() {
+                                    Ok(mut host) => {
+                                        let empty_midi: Vec<PluginMidiEvent> = Vec::new();
+                                        if let Err(e) = host.process_with_sidechain(
+                                            fx_instance_id,
+                                            &inputs,
+                                            None,
+                                            &mut outputs,
+                                            chunk,
+                                            &empty_midi,
+                                        ) {
+                                            log::warn!(
+                                                "[Export/VST3-FX] FX '{}' process failed: {}",
+                                                fx_slot.name, e
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("[Export/VST3-FX] PluginHost lock poisoned: {}", e);
+                                        break;
+                                    }
+                                }
+
+                                // Write FX output back into the pre-render buffers.
+                                out_left[fx_offset..fx_offset + chunk].copy_from_slice(&fx_out_l);
+                                out_right[fx_offset..fx_offset + chunk].copy_from_slice(&fx_out_r);
+                                fx_offset += chunk;
+                            }
+                        }
+
+                        if !fx_slots.is_empty() {
+                            log::info!(
+                                "[Export/VST3-FX] Track '{}': applied {} insert FX slot(s)",
+                                track_name, fx_slots.len()
+                            );
+                        }
                     }
 
                     // ── Check if anything was rendered ──────────

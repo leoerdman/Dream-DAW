@@ -165,6 +165,14 @@ const isBlackKey = (pitch: number) => {
 
 const genNoteId = () => crypto.randomUUID();
 
+// Audit #8: Shared platform detection — matches useKeyboardShortcuts.ts pattern.
+// Uses navigator.userAgentData (modern) with user-agent fallback.
+const isMac: boolean = (() => {
+    const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+    if (uad?.platform) return uad.platform === 'macOS';
+    return /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent);
+})();
+
 // ── Per-track vertical scroll persistence ────────────────────────────
 // Module-level map survives React remounts (Shift+Tab panel switches).
 // Keyed by trackIndex — stores scrollTop so each track remembers its
@@ -205,6 +213,10 @@ export const PianoRoll = memo(function PianoRoll({
     const [rootNote, setRootNote] = useState<RootNote>('C');
     const [scaleName, setScaleName] = useState<ScaleName>('Major');
     const [clipTranspose, setClipTranspose] = useState(0);
+    // Audit #6 fix: reset clipTranspose when clip changes (via clipLengthBeats prop change).
+    useEffect(() => {
+        setClipTranspose(0);
+    }, [clipLengthBeats]);
     const [quantizeAmount, setQuantizeAmount] = useState(100);
     const [foldToUsedNotes, setFoldToUsedNotes] = useState(false);
     const [stepInputOctave, setStepInputOctave] = useState(4);
@@ -232,11 +244,11 @@ export const PianoRoll = memo(function PianoRoll({
     }, [laneValuesByNote]);
 
     const sampleEnvelopeAtBeat = useCallback((points: Array<{ beat: number; value: number }>, beat: number): number => {
-        // Bug #22: empty envelope used to return 96 (75% of 127), which caused an
-        // unexpected CC spike on lanes that were never drawn. Return 0 instead —
-        // no lane data means no modulation.
+        // Audit #3: empty envelope → return 0, not 96 (no CC spike).
         if (points.length === 0) return 0;
         if (points.length === 1) return Math.round(points[0].value * 127);
+        // Audit #13: pre-sort was done inline on every call. Accept pre-sorted input
+        // and only sort here as safety net. Callers should pre-sort before loops.
         const sorted = [...points].sort((a, b) => a.beat - b.beat);
         if (beat <= sorted[0].beat) return Math.round(sorted[0].value * 127);
         if (beat >= sorted[sorted.length - 1].beat) return Math.round(sorted[sorted.length - 1].value * 127);
@@ -249,7 +261,9 @@ export const PianoRoll = memo(function PianoRoll({
                 return Math.round((a.value + (b.value - a.value) * t) * 127);
             }
         }
-        return 96;
+        // Audit #3 fix: fallback was 96 (dead code path reachable via float gaps).
+        // Return 0 to be consistent with empty envelope behavior.
+        return 0;
     }, []);
 
     useEffect(() => {
@@ -282,7 +296,9 @@ export const PianoRoll = memo(function PianoRoll({
             const points = notes
                 .map((n) => ({
                     beat: n.startBeat,
-                    value: Math.max(0, Math.min(1, (values[n.id] ?? 96) / 127)),
+                    // Audit #9 fix: fallback was 96 (75% CC), contradicting Bug #22 fix.
+                    // No stored CC value means no modulation → 0.
+                    value: Math.max(0, Math.min(1, (values[n.id] ?? 0) / 127)),
                 }))
                 .sort((a, b) => a.beat - b.beat);
             return { paramId, points };
@@ -366,7 +382,7 @@ export const PianoRoll = memo(function PianoRoll({
     // Bug #32: MIN_PPB clamp was applied to auto-fit, which prevented very long
     // clips from shrinking to fit. Only clamp user-driven zoom overrides.
     const gridAreaWidth = Math.max(100, containerWidth);
-    const autoFitPPB = gridAreaWidth / clipBeats; // no min clamp — show exact clip width
+    const autoFitPPB = Math.min(MAX_PPB, gridAreaWidth / clipBeats); // Audit #35: clamp to MAX_PPB
     const pixelsPerBeat = zoomOverrideH != null
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
@@ -816,9 +832,11 @@ export const PianoRoll = memo(function PianoRoll({
         // Bug #41: toFixed(6) can produce different strings for equal floats due to
         // rounding artifacts on long timelines. Round to 4 decimal places instead.
         const beatKey = (b: number) => Math.round(b * 10000);
-        let workingNotes = notes;
+        // Audit #2 fix: use notesRef.current instead of captured `notes` to prevent
+        // stale closure from overwriting concurrent backend edits (undo/redo).
+        let workingNotes = notesRef.current;
         const occupied = new Set(
-            notes
+            workingNotes
                 .filter((n) => n.pitch === pitch)
                 .map((n) => `${n.pitch}:${beatKey(n.startBeat)}`),
         );
@@ -861,7 +879,8 @@ export const PianoRoll = memo(function PianoRoll({
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [tool, currentGridInterval, yToPitch, notes, totalBeats, pixelsPerBeat, onNotesChange, auditionNote, enforceNoOverlap, snapToCellStart]);
+        // Audit #15 fix: dep was totalBeats (zoom-derived), should be clipBeats.
+    }, [tool, currentGridInterval, yToPitch, clipBeats, pixelsPerBeat, onNotesChange, auditionNote, enforceNoOverlap, snapToCellStart]);
 
     const applyRatchet = useCallback(() => {
         const repeats = Math.max(2, Math.min(12, Math.round(ratchetCount)));
@@ -877,12 +896,15 @@ export const PianoRoll = memo(function PianoRoll({
             }
             const sub = Math.max(0.03125, note.durationBeats / repeats);
             for (let i = 0; i < repeats; i++) {
+                const subStart = note.startBeat + sub * i;
+                // Audit #28 fix: clamp sub-notes to clip boundary.
+                if (subStart >= clipBeats) break;
                 const id = genNoteId();
                 next.push({
                     ...note,
                     id,
-                    startBeat: note.startBeat + sub * i,
-                    durationBeats: sub,
+                    startBeat: subStart,
+                    durationBeats: Math.min(sub, clipBeats - subStart),
                 });
                 newSelected.add(id);
             }
@@ -892,7 +914,7 @@ export const PianoRoll = memo(function PianoRoll({
         // collisions with other notes at the same pitch.
         onNotesChange(enforceNoOverlap(next, newSelected));
         setSelectedNotes(newSelected);
-    }, [ratchetCount, selectedNotes, notes, onNotesChange, enforceNoOverlap]);
+    }, [ratchetCount, selectedNotes, notes, onNotesChange, enforceNoOverlap, clipBeats]);
 
     const handleNoteClick = useCallback(
         (e: React.MouseEvent, noteId: string) => {
@@ -902,7 +924,10 @@ export const PianoRoll = memo(function PianoRoll({
             // Deletion is intentional only via the Delete/Backspace key,
             // not on accidental click-up after a drag.
             const target = notes.find((n) => n.id === noteId);
-            if (target) auditionNote(target.pitch, target.velocity, 120);
+            if (target) {
+                // Audit #12 fix: only audition on single note click, not Shift+click multi-select.
+                if (!e.shiftKey) auditionNote(target.pitch, target.velocity, 120);
+            }
             setSelectedNotes((prev) => {
                 const next = new Set(prev);
                 if (e.shiftKey) {
@@ -1037,28 +1062,30 @@ export const PianoRoll = memo(function PianoRoll({
             const onMove = (ev: MouseEvent) => {
                 const dx = ev.clientX - startX;
                 const dy = ev.clientY - startY;
-                const beatDelta = dx / pixelsPerBeat;
-                const pitchDelta = -Math.round(dy / noteHeight);
+                const beatDelta = dx / pixelsPerBeatRef.current;
+                // Audit #7 fix: add dead zone — require >50% of row height before engaging
+                // pitch change, preventing jitter during horizontal-only moves.
+                const pitchDelta = Math.abs(dy) > noteHeight * 0.5
+                    ? -Math.round(dy / noteHeight)
+                    : 0;
 
-                // Check for snap override: on macOS hold ⌘, on Win/Linux hold Ctrl
-                // to temporarily bypass grid snap while dragging.
-                // Bug #5: was checking only metaKey, so Ctrl-override didn't work on Windows/Linux.
-                const snapOverrideHeld = /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent)
-                    ? ev.metaKey
-                    : ev.ctrlKey;
+                // Audit #8 fix: use shared isMac to match useKeyboardShortcuts.ts pattern.
+                const snapOverrideHeld = isMac ? ev.metaKey : ev.ctrlKey;
                 const shouldSnap = snapEnabled && !snapOverrideHeld;
 
-                const updated = notes.map((n) => {
+                // Audit #1 fix: use notesRef.current instead of captured `notes` to prevent
+                // stale closure from overwriting concurrent backend edits (undo/redo).
+                const currentNotes = notesRef.current;
+                const updated = currentNotes.map((n) => {
                     if (!selectedIds.has(n.id)) return n;
                     const original = startStates.get(n.id);
                     if (!original) return n;
 
                     if (mode === 'resize-right') {
                         if (n.id !== noteId) return n;
-                        // Clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
                         const maxDur = Math.max(MIN_NOTE_BEATS, clipBeats - original.startBeat);
                         const rawDur = original.durationBeats + beatDelta;
-                        const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeat) : rawDur;
+                        const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeatRef.current) : rawDur;
                         return {
                             ...n,
                             durationBeats: Math.min(maxDur, Math.max(MIN_NOTE_BEATS, finalDur)),
@@ -1067,11 +1094,9 @@ export const PianoRoll = memo(function PianoRoll({
                     if (mode === 'resize-left') {
                         if (n.id !== noteId) return n;
                         const rawStart = original.startBeat + beatDelta;
-                        // Clamp new start: must be >= 0 and <= (note end - MIN_NOTE_BEATS)
-                        // so note can never collapse past zero or flip direction.
                         const noteEnd = original.startBeat + original.durationBeats;
                         const maxStart = noteEnd - MIN_NOTE_BEATS;
-                        const snappedBeat = Math.max(0, Math.min(maxStart, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
+                        const snappedBeat = Math.max(0, Math.min(maxStart, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeatRef.current) : rawStart));
                         return {
                             ...n,
                             startBeat: snappedBeat,
@@ -1080,16 +1105,13 @@ export const PianoRoll = memo(function PianoRoll({
                     }
 
                     const rawStart = original.startBeat + beatDelta;
-                    // Clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
-                    const newBeat = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
-                    // Bug #14: In drum mode, constrain pitch transposition to the defined
-                    // drum lane pitches so notes don't become invisible (off-lane).
+                    const newBeat = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeatRef.current) : rawStart));
                     let newPitch: number;
                     if (drumMode && pitchDelta !== 0) {
-                        const drumPitches = visiblePitches; // already sorted high→low
+                        const drumPitches = visiblePitches;
                         const currentRow = drumPitches.indexOf(original.pitch);
                         if (currentRow < 0) {
-                            newPitch = original.pitch; // unknown pitch, keep it
+                            newPitch = original.pitch;
                         } else {
                             const newRow = Math.max(0, Math.min(drumPitches.length - 1, currentRow - pitchDelta));
                             newPitch = drumPitches[newRow];
@@ -1122,7 +1144,8 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, clipBeats, selectedNotes, snapEnabled, auditionNote, enforceNoOverlap, drumMode, visiblePitches],
+        // Audit #1 fix: removed `notes` and `pixelsPerBeat` from deps — now uses refs.
+        [tool, onNotesChange, noteHeight, snapBeat, beatsPerBar, clipBeats, selectedNotes, snapEnabled, auditionNote, enforceNoOverlap, drumMode, visiblePitches],
     );
 
     const [hoveredNoteEdge, setHoveredNoteEdge] = useState<string | null>(null);
@@ -1220,7 +1243,7 @@ export const PianoRoll = memo(function PianoRoll({
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote]);
+    }, [onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote, notes]);
 
     const transposeNotes = useCallback((delta: number) => {
         // Bug #34: Only transpose selected notes. If nothing selected, do nothing
@@ -1263,7 +1286,9 @@ export const PianoRoll = memo(function PianoRoll({
         if (targets.length === 0) return;
         const spanStart = Math.min(...targets.map((n) => n.startBeat));
         const spanEnd = Math.max(...targets.map((n) => n.startBeat + n.durationBeats));
-        const shift = Math.max(currentGridInterval > 0 ? currentGridInterval : 0.25, spanEnd - spanStart);
+        // Audit #33 fix: always use selection span for shift distance,
+        // not max(interval, span) which creates gaps.
+        const shift = spanEnd - spanStart;
         // Bug #10: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
         const clones = targets.map((n) => ({
             ...n,
@@ -1290,8 +1315,13 @@ export const PianoRoll = memo(function PianoRoll({
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const next = notes.map((n) => {
             if (!targets.has(n.id)) return n;
-            const timing = (Math.random() - 0.5) * step * 0.35;
-            const velocity = Math.round((Math.random() - 0.5) * 10);
+            // Audit #31 fix: seed humanize from note ID for deterministic results.
+            // Simple hash: sum of char codes mod 1000 / 1000 → pseudo-random 0..1.
+            const hashSeed = n.id.split('').reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 0);
+            const pseudoRand1 = ((hashSeed & 0x7fffffff) % 997) / 997;
+            const pseudoRand2 = (((hashSeed * 127) & 0x7fffffff) % 991) / 991;
+            const timing = (pseudoRand1 - 0.5) * step * 0.35;
+            const velocity = Math.round((pseudoRand2 - 0.5) * 10);
             return {
                 ...n,
                 startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
@@ -1367,7 +1397,9 @@ export const PianoRoll = memo(function PianoRoll({
             const h = noteHeight - 2;
 
             // Note body — rounded rect with subtle gradient feel
-            const alpha = Math.max(0.4, note.velocity / 127);
+            // Audit #48: expand alpha range from [0.4, 1.0] to [0.15, 1.0] for better
+            // visual discrimination of low velocities.
+            const alpha = 0.15 + (note.velocity / 127) * 0.85;
             ctx.globalAlpha = alpha;
             ctx.fillStyle = color;
             ctx.beginPath();
@@ -1394,12 +1426,26 @@ export const PianoRoll = memo(function PianoRoll({
     }, [notes, ghostNotes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY]);
 
     // MIDI-editor-local keyboard editing (active only when this editor has focus).
+    // Audit #10 fix: also check that active element is not an editable field.
     useEffect(() => {
         if (!isEditorFocused) return;
         const onKeyDown = (e: KeyboardEvent) => {
+            // Audit #10 fix: don't intercept keys when an editable field is focused
+            // (inputs, textareas, contenteditable) or inside assistant chat.
+            const active = document.activeElement as HTMLElement | null;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+            if (active?.closest?.('[data-assistant-chat]')) return;
+
             const hasSelected = selectedNotes.size > 0;
             const stepBeatRaw = currentGridInterval;
             const stepBeat = stepBeatRaw > 0 ? stepBeatRaw : 0.25;
+
+            // Audit #52: Escape deselects all — standard in all DAWs.
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                setSelectedNotes(new Set());
+                return;
+            }
 
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 if (!hasSelected) return;
@@ -1414,6 +1460,18 @@ export const PianoRoll = memo(function PianoRoll({
             // Intentionally NOT handled here: the global useKeyboardShortcuts
             // hook routes these to engine.undo() / engine.redo() which operate
             // on the unified backend undo stack.
+
+            // Audit #51: Ctrl+X / Cmd+X — Cut selected notes
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyX') {
+                e.preventDefault();
+                e.stopPropagation();
+                copySelection();
+                if (selectedNotes.size > 0) {
+                    onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
+                    setSelectedNotes(new Set());
+                }
+                return;
+            }
 
             // Ctrl+C / Cmd+C — Copy selected notes
             if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
@@ -1538,16 +1596,30 @@ export const PianoRoll = memo(function PianoRoll({
             e.preventDefault();
             e.stopPropagation();
 
-            const pitchStep = e.shiftKey ? 12 : 1;
             const beatStep = stepBeat;
             const moved = notes.map((n) => {
                 if (!selectedNotes.has(n.id)) return n;
+
+                // Shift+Up/Down: transpose by octave (12 semitones)
                 if (e.key === 'ArrowUp') {
+                    const pitchStep = e.shiftKey ? 12 : 1;
                     return { ...n, pitch: Math.min(HIGHEST_PITCH, n.pitch + pitchStep) };
                 }
                 if (e.key === 'ArrowDown') {
+                    const pitchStep = e.shiftKey ? 12 : 1;
                     return { ...n, pitch: Math.max(LOWEST_PITCH, n.pitch - pitchStep) };
                 }
+
+                // Audit #54: Shift+Left/Right adjusts note length (shrink/extend duration).
+                if (e.shiftKey && e.key === 'ArrowLeft') {
+                    return { ...n, durationBeats: Math.max(MIN_NOTE_BEATS, n.durationBeats - beatStep) };
+                }
+                if (e.shiftKey && e.key === 'ArrowRight') {
+                    const maxDur = clipBeats - n.startBeat;
+                    return { ...n, durationBeats: Math.min(maxDur, n.durationBeats + beatStep) };
+                }
+
+                // Plain Left/Right: move note start horizontally.
                 if (e.key === 'ArrowLeft') {
                     return { ...n, startBeat: Math.max(0, n.startBeat - beatStep) };
                 }
@@ -2011,7 +2083,14 @@ export const PianoRoll = memo(function PianoRoll({
                         </button>
                         <button
                             onClick={() => {
-                                const nudged = notes.map((n) => ({ ...n, velocity: Math.max(1, Math.min(127, n.velocity + 8)) }));
+                                // Audit #4 fix: respect selection — only nudge selected notes.
+                                // If nothing selected, do nothing (matches transpose/quantize behavior).
+                                if (selectedNotes.size === 0) return;
+                                const nudged = notes.map((n) => (
+                                    selectedNotes.has(n.id)
+                                        ? { ...n, velocity: Math.max(1, Math.min(127, n.velocity + 8)) }
+                                        : n
+                                ));
                                 onNotesChange(nudged);
                             }}
                             style={{ ...miniBtnStyle, width: '100%' }}

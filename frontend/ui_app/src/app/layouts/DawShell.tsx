@@ -1590,15 +1590,11 @@ export const DawShell = () => {
                             {selectedTimelineClip?.type === 'midi' ? (
                                 <Suspense fallback={null}>
                                     <PianoRoll
-                                        key={[
-                                            selectedTimelineClip.id,
-                                            Math.max(0, Math.round(selectedTimelineClip.fadeIn ?? 0)),
-                                            Math.max(0, Math.round(selectedTimelineClip.fadeOut ?? 0)),
-                                            selectedTimelineClip.fadeInCurve ?? 0.5,
-                                            selectedTimelineClip.fadeOutCurve ?? 0.5,
-                                        ].join(':')}
+                                        // Audit #97 fix: removed fade params from key to prevent
+                                        // full remount (losing selection, scroll, zoom) on fade changes.
+                                        key={selectedTimelineClip.id}
                                         notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
-                                        ghostNotes={[]}
+                                        ghostNotes={[]} // TODO: wire up ghost notes from adjacent clips
                                         midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
                                         trackIndex={selectedTimelineClip.trackIndex}
                                         onNotesChange={(notes) => {
@@ -1728,6 +1724,10 @@ export const DawShell = () => {
                 onClose={() => {
                     setAssistantOpen(false);
                     try { localStorage.setItem('dream-daw:assistant-open', '0'); } catch { /* quota */ }
+                }}
+                onOpen={() => {
+                    setAssistantOpen(true);
+                    try { localStorage.setItem('dream-daw:assistant-open', '1'); } catch { /* quota */ }
                 }}
                 onSelectClips={setSelectedClipIds}
             />

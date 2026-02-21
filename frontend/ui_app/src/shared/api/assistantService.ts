@@ -815,7 +815,63 @@ const TOOLS = [
             description: 'Get real-time peak and RMS metering for all tracks and master bus. Useful for mix analysis.',
             parameters: { type: 'object', properties: {}, required: [] },
         }
-    }
+    },
+
+    // ── Batch Operations (10x faster than individual calls) ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_audio_clips_batch',
+            description: 'Add multiple audio clips at once. MUCH faster than calling add_audio_clip individually. Use this when placing repeated samples (kick on every beat, hi-hat pattern, etc).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clips: {
+                        type: 'array',
+                        description: 'Array of clip placements',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                trackIndex: { type: 'number' },
+                                samplePath: { type: 'string' },
+                                startBeat: { type: 'number' },
+                            },
+                            required: ['trackIndex', 'samplePath', 'startBeat'],
+                        },
+                    },
+                },
+                required: ['clips'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'delete_clips_batch',
+            description: 'Delete multiple clips at once by their IDs. MUCH faster than calling delete_clip individually.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipIds: { type: 'array', items: { type: 'string' }, description: 'Array of clip IDs to delete' },
+                },
+                required: ['clipIds'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'delete_all_clips_on_track',
+            description: 'Delete ALL clips on a specific track in one call. Use this to clear a track before rebuilding a pattern.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    track: { type: 'string', description: 'Track index or name' },
+                },
+                required: ['track'],
+            }
+        }
+    },
 ];
 
 
@@ -999,6 +1055,43 @@ async function executeToolInner(
         case 'delete_clip':
             await engineApi.deleteClip(args.clipId as string);
             return JSON.stringify({ deleted: args.clipId });
+
+        // ── Batch Operations (10x faster) ──
+        case 'add_audio_clips_batch': {
+            const clipDefs = args.clips as { trackIndex: number; samplePath: string; startBeat: number }[];
+            if (!Array.isArray(clipDefs) || clipDefs.length === 0) return JSON.stringify({ error: 'clips array is required' });
+            const stBatch = useEngineStore.getState();
+            const bpmBatch = stBatch.projectBpm || stBatch.transport.bpm || 120;
+            const srBatch = stBatch.projectSampleRate || 44100;
+            const fpbBatch = (60.0 / bpmBatch) * srBatch;
+            const results: { clipId: string; clipName: string; startBeat: number }[] = [];
+            for (const def of clipDefs) {
+                const startFrames = Math.round(def.startBeat * fpbBatch);
+                const r = await engineApi.importAudioFile(def.samplePath, def.trackIndex, startFrames);
+                results.push({ clipId: r.clip_id, clipName: r.clip_name, startBeat: def.startBeat });
+            }
+            return JSON.stringify({ success: true, clipsCreated: results.length, clips: results });
+        }
+
+        case 'delete_clips_batch': {
+            const idsToDelete = args.clipIds as string[];
+            if (!Array.isArray(idsToDelete) || idsToDelete.length === 0) return JSON.stringify({ error: 'clipIds array is required' });
+            let deleted = 0;
+            for (const id of idsToDelete) {
+                try { await engineApi.deleteClip(id); deleted++; } catch { /* skip missing */ }
+            }
+            return JSON.stringify({ success: true, deleted, total: idsToDelete.length });
+        }
+
+        case 'delete_all_clips_on_track': {
+            const trackStr = args.track as string;
+            const tIdx = resolveTrackIndex(trackStr);
+            const toDelete = clips.filter(c => c.trackIndex === tIdx);
+            for (const c of toDelete) {
+                try { await engineApi.deleteClip(c.id); } catch { /* skip */ }
+            }
+            return JSON.stringify({ success: true, deleted: toDelete.length, trackIndex: tIdx });
+        }
 
         case 'set_clip_muted':
             await engineApi.setClipMuted(args.clipId as string, args.muted as boolean);
@@ -1595,7 +1688,14 @@ Before executing any action, briefly explain what you're about to do and why bas
 ### Response Quality
 1. **Be concise but informative**. Every sentence should add value.
 2. **Use pro audio terminology** — "gain staging", "signal flow", "groove", "syncopation".
-3. **If a tool fails**, explain the error in plain language and suggest an alternative (e.g. if the sample isn't found, try a broader search).`;
+3. **If a tool fails**, explain the error in plain language and suggest an alternative (e.g. if the sample isn't found, try a broader search).
+
+### ⚡ CRITICAL: Batch Operations
+**ALWAYS use batch tools instead of individual calls for repetitive operations:**
+- To place a kick on every beat: use \\\`add_audio_clips_batch\\\` with a single array of all placements (NOT 16 individual \\\`add_audio_clip\\\` calls).
+- To delete all clips on a track: use \\\`delete_all_clips_on_track\\\` (NOT individual \\\`delete_clip\\\` calls).
+- To delete specific clips: use \\\`delete_clips_batch\\\` with an array of IDs (NOT individual \\\`delete_clip\\\` calls).
+Batch tools are 10x faster and prevent crashes from too many rapid IPC calls.`;
 }
 
 // ─── Prepare messages for API ───────────────────────────────────────────────

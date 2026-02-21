@@ -475,7 +475,7 @@ impl RenderContext {
                             + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
                         window.read_into_rate(
                             source_start,
-                            playback_rate * source_to_timeline_rate,
+                            playback_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,

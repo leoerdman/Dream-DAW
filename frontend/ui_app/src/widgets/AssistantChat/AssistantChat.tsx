@@ -6,7 +6,7 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2, Copy, Check } from 'lucide-react';
+import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2, Copy, Check, GripVertical } from 'lucide-react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
@@ -19,8 +19,8 @@ import './AssistantChat.css';
 // ── Supported models ────────────────────────────────────────────────────────
 
 const MODELS = [
-    { id: 'google/gemini-2.5-pro-preview-06-05', label: 'Gemini' },
     { id: 'anthropic/claude-sonnet-4', label: 'Claude' },
+    { id: 'google/gemini-3-flash-preview', label: 'Gemini' },
 ];
 
 // ── Live streaming state types ───────────────────────────────────────────────
@@ -45,6 +45,7 @@ export interface LiveAgentState {
 interface AssistantChatProps {
     open: boolean;
     onClose: () => void;
+    onOpen: () => void;
     onSelectClips?: (ids: string[]) => void;
 }
 
@@ -95,7 +96,7 @@ const CopyButton = ({ text }: { text: string }) => {
     );
 };
 
-export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatProps) => {
+export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: AssistantChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
@@ -113,6 +114,38 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
     const intentionalStopRef = useRef(false);
+
+    // ── Draggable window position ──
+    const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+    const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+    const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {
+        // Don't drag if clicking buttons inside the header
+        if ((e.target as HTMLElement).closest('button')) return;
+        e.preventDefault();
+        const overlay = (e.currentTarget as HTMLElement).closest('.assistant-chat-overlay') as HTMLElement;
+        if (!overlay) return;
+        const rect = overlay.getBoundingClientRect();
+        const origX = dragPos?.x ?? rect.left;
+        const origY = dragPos?.y ?? rect.top;
+        dragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY };
+
+        const onMove = (me: MouseEvent) => {
+            if (!dragRef.current) return;
+            const dx = me.clientX - dragRef.current.startX;
+            const dy = me.clientY - dragRef.current.startY;
+            const newX = Math.max(0, Math.min(window.innerWidth - 200, dragRef.current.origX + dx));
+            const newY = Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.origY + dy));
+            setDragPos({ x: newX, y: newY });
+        };
+        const onUp = () => {
+            dragRef.current = null;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [dragPos]);
 
     const apiKey = useSettingsStore((s) => s.settings.openRouterApiKey);
 
@@ -303,7 +336,11 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
 
     // ── Agent Bridge: receive remote messages from external tools ──
     useAgentBridge({
-        onRemoteMessage: sendMessage,
+        onRemoteMessage: (text) => {
+            // Auto-open the chat panel if closed
+            if (!open) onOpen();
+            sendMessage(text);
+        },
         isStreaming,
     });
 
@@ -462,8 +499,8 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         }
     }, [handleSend]);
 
-    // ── Don't render when closed ──
-    if (!open) return null;
+    // ── Hide when closed (but keep mounted so bridge hook still runs) ──
+    if (!open) return <div style={{ display: 'none' }} />;
 
     // ── Render ──────────────────────────────────────────────────────────────
 
@@ -479,10 +516,18 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         <div
             className="assistant-chat-overlay"
             data-keyboard-scope="text-input"
+            style={dragPos ? {
+                position: 'fixed',
+                left: dragPos.x,
+                top: dragPos.y,
+                right: 'auto',
+                bottom: 'auto',
+            } : undefined}
         >
-            {/* ── Header ── */}
-            <div className="assistant-header">
+            {/* ── Header (draggable) ── */}
+            <div className="assistant-header" onMouseDown={handleHeaderMouseDown}>
                 <div className="assistant-header-left">
+                    <GripVertical size={14} style={{ color: 'var(--color-text-tertiary)', marginRight: -4 }} />
                     <div className="assistant-header-icon">
                         <Sparkles size={14} />
                     </div>
@@ -576,7 +621,7 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                 <textarea
                     ref={inputRef}
                     className="assistant-input"
-                    placeholder="Спроси Dream AI… (Ctrl+Enter — отправить)"
+                    placeholder=""
                     value={input}
                     onChange={(e) => {
                         setInput(e.target.value);

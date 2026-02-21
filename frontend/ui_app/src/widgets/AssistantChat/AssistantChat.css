@@ -29,6 +29,7 @@
     border-bottom: 1px solid var(--color-divider);
     user-select: none;
     background: var(--color-bg-panel);
+    cursor: grab;
 }
 
 .assistant-header-left {
@@ -131,7 +132,7 @@
 .msg-bubble {
     padding: 8px 12px;
     border-radius: 14px;
-    font-size: var(--font-size-sm);
+    font-size: 15px;
     line-height: 1.5;
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -324,7 +325,7 @@
     border: 1px solid var(--color-divider);
     border-radius: var(--radius-md);
     padding: 8px 12px;
-    font-size: var(--font-size-sm);
+    font-size: 14px;
     color: var(--color-text-primary);
     resize: none;
     outline: none;

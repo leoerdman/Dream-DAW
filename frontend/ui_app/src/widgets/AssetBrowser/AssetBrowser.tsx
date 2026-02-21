@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, memo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
@@ -377,7 +377,7 @@ function renderHighlightedMatch(name: string, query: string) {
 // ── Component ──────────────────────────────────────────
 
 
-const AssetSearchInput = React.memo(function AssetSearchInput({
+const AssetSearchInput = memo(function AssetSearchInput({
     debouncedQuery,
     setDebouncedQuery,
     selectedCategoryId,
@@ -410,9 +410,9 @@ const AssetSearchInput = React.memo(function AssetSearchInput({
             setDebouncedQuery(nextQuery);
         }, 150);
 
-        if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
-            setSelectedCategoryId('all');
-        }
+        // BUG-3 FIX: Do NOT force the tab to 'all' when the user types.
+        // This was resetting the active tab (e.g. Plug-Ins) every keystroke.
+        // The search now operates within the currently selected category.
     }, [setDebouncedQuery, selectedCategoryId, setSelectedCategoryId, fileListRef]);
 
     return (
@@ -438,12 +438,13 @@ const AssetSearchInput = React.memo(function AssetSearchInput({
     );
 });
 
-const VirtualFileList = React.memo(function VirtualFileList({
+const VirtualFileList = memo(function VirtualFileList({
     items,
     selectedCategoryId,
     selectedItemId,
     setSelectedItemId,
     syncPreviewForItem,
+    isPreviewPlayingRef,
     setContextMenu,
     navigateInto,
     showTypeColumn,
@@ -464,6 +465,7 @@ const VirtualFileList = React.memo(function VirtualFileList({
     selectedItemId: string | null;
     setSelectedItemId: (id: string | null) => void;
     syncPreviewForItem: (item: BrowserItem | null) => void;
+    isPreviewPlayingRef: React.MutableRefObject<boolean>;
     setContextMenu: React.Dispatch<React.SetStateAction<any>>;
     navigateInto: (path: string) => void;
     showTypeColumn: boolean;
@@ -507,503 +509,529 @@ const VirtualFileList = React.memo(function VirtualFileList({
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
 
     return (
-        {/* File List */ }
-        < div
-                        ref = { fileListRef }
-    className = "scrollbar-hide"
-    onScroll = { handleFileListScroll }
-    onKeyDown = { handleBrowserKeyDown }
-    tabIndex = { 0}
-    style = {{
-        flex: 1,
-            minHeight: 0,
-                overflowY: 'auto',
-                    overflowX: 'hidden',
-                        outline: 'none',
-                        }
-} >
-    <div
-        onContextMenu={(e) => {
-            e.preventDefault();
-            setColumnMenuPos({ x: e.clientX, y: e.clientY });
-        }}
-        style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '3px 8px',
-            borderBottom: '1px solid var(--color-divider-light)',
-            background: 'var(--color-bg-header)',
-            color: 'var(--color-text-tertiary)',
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 'var(--font-weight-bold)' as unknown as number,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            position: 'sticky',
-            top: 0,
-            zIndex: 'var(--z-local-raised)' as unknown as number,
-        }}>
-        <button
-            onClick={(e) => {
-                const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                setColumnMenuPos((prev) => prev
-                    ? null
-                    : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
-            }}
+        <div
+            ref={fileListRef}
+            className="scrollbar-hide"
+            onScroll={handleFileListScroll}
+            onKeyDown={handleBrowserKeyDown}
+            tabIndex={0}
             style={{
-                width: 14,
-                minWidth: 14,
-                background: 'transparent',
-                color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                border: 'none',
-                borderRadius: 'var(--radius-xs)',
-                padding: 0,
-                fontSize: 'var(--font-size-xs)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                outline: 'none',
             }}
-            title="Columns"
         >
-            <BrowserGlyph name="settings" size={10} />
-        </button>
-        <span style={{ flex: 1, minWidth: 0 }}>Name</span>
-        {showTypeColumn && (
-            <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
-        )}
-        {showSizeColumn && (
-            <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
-        )}
-    </div>
-                        {/* Scan Status */ }
-                        { scanLoading && (
-        <div style={{
-            padding: '12px 10px',
-            textAlign: 'center',
-            color: 'var(--color-text-tertiary)',
-            fontSize: 'var(--font-size-xs)',
-            animation: 'pulse 1.5s ease-in-out infinite',
-        }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <BrowserGlyph name="hourglass" size={11} />
-                Scanning…
-            </span>
-        </div>
-    )}
-{
-    scanError && !scanLoading && (
-        <div style={{
-            padding: '8px 10px',
-            color: 'var(--color-status-error)',
-            fontSize: 'var(--font-size-xs)',
-            lineHeight: 1.4,
-        }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                <BrowserGlyph name="triangle-alert" size={11} />
-                {selectedCategoryId === 'plugins' ? 'Could not scan plug-ins' : 'Could not scan folder'}
-            </span>
-            <br />
-            <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
-        </div>
-    )
-}
-{/* Virtual scroll container */ }
-{
-    selectedCategoryId !== 'plugins' ? (
-        <div style={{ height: totalHeight + 20, position: 'relative' }}>
-            {visibleItems.map((item, vi) => {
-                const absIdx = startIdx + vi;
-                const isSelected = selectedItemId === item.id;
-                const isAudio = item.type === 'audio';
-                const isPlugin = item.type === 'plugin';
-                const isDraggable = isAudio || isPlugin;
-                const pluginTypeLabel = item.pluginSource === 'internal'
-                    ? 'Internal'
-                    : item.pluginSource === 'vst3'
-                        ? 'VST3'
-                        : item.pluginSource === 'vst2'
-                            ? 'VST2'
-                            : item.pluginSource === 'au'
-                                ? 'AU'
-                                : (item.format || 'Plugin');
-                const typeLabel = item.isDirectory
-                    ? 'Folder'
-                    : (item.type === 'audio'
-                        ? (item.format || 'Audio').toUpperCase()
-                        : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-                const sizeLabel = item.sizeBytes && !item.isDirectory
-                    ? (item.sizeBytes >= 1024 * 1024
-                        ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                        : `${Math.round(item.sizeBytes / 1024)} KB`)
-                    : '';
-
-                return (
-                    <div
-                        key={item.id}
-                        ref={(el) => {
-                            itemRowRefs.current[item.id] = el;
-                        }}
-                        onClick={() => {
-                            setContextMenu(null);
-                            if (item.isDirectory && item.path) {
-                                navigateInto(item.path);
-                                return;
-                            }
-
-                            const nextId = selectedItemId === item.id ? null : item.id;
-                            setSelectedItemId(nextId);
-                            syncPreviewForItem(nextId ? item : null);
-                        }}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            if (item.path) {
-                                setContextMenu({ x: e.clientX, y: e.clientY, item });
-                            }
-                        }}
-                        onMouseDown={(e) => {
-                            if (!isDraggable || !item.path || e.button !== 0) return;
-
-                            const startX = e.clientX;
-                            const startY = e.clientY;
-                            const DRAG_THRESHOLD = 5;
-                            let dragStarted = false;
-                            let cancelled = false;
-
-                            const onMove = (me: MouseEvent) => {
-                                const dx = me.clientX - startX;
-                                const dy = me.clientY - startY;
-                                if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                    dragStarted = true;
-                                    // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
-                                    if (fileListRef.current) {
-                                        fileListRef.current.style.pointerEvents = 'none';
-                                        fileListRef.current.style.overflow = 'hidden';
-                                    }
-                                    const knownDuration = isAudio
-                                        ? item.durationSeconds
-                                        ?? audioDurationSecRef.current[item.path!]
-                                        ?? undefined
-                                        : undefined;
-                                    useDragStore.getState().startDrag({
-                                        id: item.id,
-                                        name: item.name,
-                                        type: isPlugin ? 'plugin' : 'audio',
-                                        path: item.path!,
-                                        slotHint: item.slotHint ?? 'auto',
-                                        durationSeconds: knownDuration,
-                                    }, me.clientX, me.clientY);
-
-                                    if (isAudio && knownDuration === undefined) {
-                                        void engineApi.getAudioFileDuration(item.path!)
-                                            .then((durationSeconds) => {
-                                                audioDurationSecRef.current[item.path!] = durationSeconds;
-                                                if (cancelled) return;
-                                                useDragStore.getState().updateDraggingItem({ durationSeconds });
-                                            })
-                                            .catch(() => {
-                                                // Keep drag active even if duration probe fails.
-                                            });
-                                    }
-                                }
-                            };
-                            const onUp = () => {
-                                cancelled = true;
-                                // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                                if (fileListRef.current) {
-                                    fileListRef.current.style.pointerEvents = '';
-                                    fileListRef.current.style.overflow = '';
-                                }
-                                window.removeEventListener('mousemove', onMove);
-                                window.removeEventListener('mouseup', onUp);
-                            };
-                            window.addEventListener('mousemove', onMove);
-                            window.addEventListener('mouseup', onUp);
-                        }}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '4px 8px',
-                            paddingLeft: 8 + (item._depth ?? 0) * 16,
-                            cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
-                            background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                            borderBottom: '1px solid var(--color-divider-light)',
-                            position: 'absolute',
-                            top: absIdx * ROW_HEIGHT,
-                            left: 0,
-                            right: 0,
-                            height: ROW_HEIGHT,
-                            boxSizing: 'border-box',
-                        }}
-                    >
-                        {item.isDirectory ? (
-                            <span style={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', gap: 3 }}>
-                                {item._loading ? (
-                                    <BrowserGlyph name="hourglass" size={9} />
-                                ) : (
-                                    <BrowserGlyph name={item._expanded ? 'chevron-down' : 'chevron-right'} size={9} />
-                                )}
-                                <BrowserGlyph name="folder" size={11} />
-                            </span>
-                        ) : (
-                            <TypeIcon type={item.type} item={item} />
-                        )}
-                        <span style={{
-                            color: 'var(--color-text-primary)',
-                            fontSize: 'var(--font-size-base)',
-                            fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            flex: 1,
-                            minWidth: 0,
-                        }}>
-                            {debouncedQuery.trim()
-                                ? renderHighlightedMatch(item.name, debouncedQuery)
-                                : item.name}
-                        </span>
-                        {showTypeColumn && (
-                            <span style={{
-                                minWidth: 52,
-                                maxWidth: 74,
-                                color: 'var(--color-text-secondary)',
-                                fontSize: 'var(--font-size-xs)',
-                                textAlign: 'left',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                flexShrink: 0,
-                            }}>
-                                {typeLabel}
-                            </span>
-                        )}
-                        {showSizeColumn && (
-                            <span style={{
-                                minWidth: 44,
-                                maxWidth: 56,
-                                color: 'var(--color-text-secondary)',
-                                fontSize: 'var(--font-size-xs)',
-                                textAlign: 'right',
-                                whiteSpace: 'nowrap',
-                                flexShrink: 0,
-                            }}>
-                                {sizeLabel}
-                            </span>
-                        )}
-                        {item.isDirectory && (
-                            <span style={{
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 'var(--font-size-2xs)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                marginLeft: 2,
-                                flexShrink: 0,
-                            }}>
-                                <BrowserGlyph name="chevron-right" size={10} />
-                            </span>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    ) : (
-    <div>
-        {pluginGroupedRows.map((row) => {
-            if (row.kind === 'header') {
-                return (
-                    <div
-                        key={row.id}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            padding: '4px 8px',
-                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
-                            borderBottom: '1px solid var(--color-divider-light)',
-                            borderTop: '1px solid var(--color-divider-light)',
-                            position: 'sticky',
-                            top: 24,
-                            zIndex: 'var(--z-local)' as unknown as number,
-                        }}
-                    >
-                        <span style={{
-                            color: 'var(--color-text-primary)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em',
-                        }}>
-                            {row.title}
-                        </span>
-                        <span style={{
-                            color: 'var(--color-text-tertiary)',
-                            fontSize: 'var(--font-size-2xs)',
-                            fontFamily: 'var(--font-mono)',
-                        }}>
-                            {row.count}
-                        </span>
-                    </div>
-                );
-            }
-
-            const item = row.item;
-            const isSelected = selectedItemId === item.id;
-            const isAudio = item.type === 'audio';
-            const isPlugin = item.type === 'plugin';
-            const isDraggable = isAudio || isPlugin;
-            const pluginTypeLabel = item.pluginSource === 'internal'
-                ? 'Internal'
-                : item.pluginSource === 'vst3'
-                    ? 'VST3'
-                    : item.pluginSource === 'vst2'
-                        ? 'VST2'
-                        : item.pluginSource === 'au'
-                            ? 'AU'
-                            : (item.format || 'Plugin');
-            const typeLabel = item.isDirectory
-                ? 'Folder'
-                : (item.type === 'audio'
-                    ? (item.format || 'Audio').toUpperCase()
-                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-            const sizeLabel = item.sizeBytes && !item.isDirectory
-                ? (item.sizeBytes >= 1024 * 1024
-                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                    : `${Math.round(item.sizeBytes / 1024)} KB`)
-                : '';
-
-            return (
-                <div
-                    key={row.id}
-                    ref={(el) => {
-                        itemRowRefs.current[item.id] = el;
-                    }}
-                    onClick={() => {
-                        setContextMenu(null);
-                        const nextId = selectedItemId === item.id ? null : item.id;
-                        setSelectedItemId(nextId);
-                        syncPreviewForItem(nextId ? item : null);
-                    }}
-                    onContextMenu={(e) => {
-                        e.preventDefault();
-                        if (item.path) {
-                            setContextMenu({ x: e.clientX, y: e.clientY, item });
-                        }
-                    }}
-                    onMouseDown={(e) => {
-                        if (!isDraggable || !item.path || e.button !== 0) return;
-
-                        const startX = e.clientX;
-                        const startY = e.clientY;
-                        const DRAG_THRESHOLD = 5;
-                        let dragStarted = false;
-
-                        const onMove = (me: MouseEvent) => {
-                            const dx = me.clientX - startX;
-                            const dy = me.clientY - startY;
-                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                dragStarted = true;
-                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
-                                if (fileListRef.current) {
-                                    fileListRef.current.style.pointerEvents = 'none';
-                                    fileListRef.current.style.overflow = 'hidden';
-                                }
-                                useDragStore.getState().startDrag({
-                                    id: item.id,
-                                    name: item.name,
-                                    type: isPlugin ? 'plugin' : 'audio',
-                                    path: item.path!,
-                                    slotHint: item.slotHint ?? 'auto',
-                                    durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
-                                }, me.clientX, me.clientY);
-                            }
-                        };
-                        const onUp = () => {
-                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                            if (fileListRef.current) {
-                                fileListRef.current.style.pointerEvents = '';
-                                fileListRef.current.style.overflow = '';
-                            }
-                            window.removeEventListener('mousemove', onMove);
-                            window.removeEventListener('mouseup', onUp);
-                        };
-                        window.addEventListener('mousemove', onMove);
-                        window.addEventListener('mouseup', onUp);
+            <div
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    setColumnMenuPos({ x: e.clientX, y: e.clientY });
+                }}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '3px 8px',
+                    borderBottom: '1px solid var(--color-divider-light)',
+                    background: 'var(--color-bg-header)',
+                    color: 'var(--color-text-tertiary)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 'var(--z-local-raised)' as unknown as number,
+                }}>
+                <button
+                    onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                        setColumnMenuPos((prev) => prev
+                            ? null
+                            : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
                     }}
                     style={{
-                        display: 'flex',
+                        width: 14,
+                        minWidth: 14,
+                        background: 'transparent',
+                        color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        padding: 0,
+                        fontSize: 'var(--font-size-xs)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        gap: 8,
-                        padding: '4px 8px',
-                        cursor: isDraggable ? 'grab' : 'default',
-                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                        borderBottom: '1px solid var(--color-divider-light)',
-                        height: ROW_HEIGHT,
-                        boxSizing: 'border-box',
+                        justifyContent: 'center',
+                        flexShrink: 0,
                     }}
+                    title="Columns"
                 >
-                    <TypeIcon type={item.type} item={item} />
-                    <span style={{
-                        color: 'var(--color-text-primary)',
-                        fontSize: 'var(--font-size-base)',
-                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        flex: 1,
-                        minWidth: 0,
-                    }}>
-                        {item.name}
+                    <BrowserGlyph name="settings" size={10} />
+                </button>
+                <span style={{ flex: 1, minWidth: 0 }}>Name</span>
+                {showTypeColumn && (
+                    <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
+                )}
+                {showSizeColumn && (
+                    <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
+                )}
+            </div>
+            {/* Scan Status */}
+            {scanLoading && (
+                <div style={{
+                    padding: '12px 10px',
+                    textAlign: 'center',
+                    color: 'var(--color-text-tertiary)',
+                    fontSize: 'var(--font-size-xs)',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <BrowserGlyph name="hourglass" size={11} />
+                        Scanning…
                     </span>
-                    {showTypeColumn && (
-                        <span style={{
-                            minWidth: 52,
-                            maxWidth: 74,
-                            color: 'var(--color-text-secondary)',
-                            fontSize: 'var(--font-size-xs)',
-                            textAlign: 'left',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            flexShrink: 0,
-                        }}>
-                            {typeLabel}
-                        </span>
-                    )}
-                    {showSizeColumn && (
-                        <span style={{
-                            minWidth: 44,
-                            maxWidth: 56,
-                            color: 'var(--color-text-secondary)',
-                            fontSize: 'var(--font-size-xs)',
-                            textAlign: 'right',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                        }}>
-                            {sizeLabel}
-                        </span>
-                    )}
                 </div>
-            );
-        })}
-    </div>
-)
-}
-{
-    !scanLoading && items.length === 0 && (
-        <div style={{
-            padding: '20px 12px',
-            textAlign: 'center',
-            color: 'var(--color-text-tertiary)',
-            fontSize: 'var(--font-size-xs)',
-        }}>
-            No items found
-        </div>
-    )
-}
-                    </div >
+            )}
+            {
+                scanError && !scanLoading && (
+                    <div style={{
+                        padding: '8px 10px',
+                        color: 'var(--color-status-error)',
+                        fontSize: 'var(--font-size-xs)',
+                        lineHeight: 1.4,
+                    }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                            <BrowserGlyph name="triangle-alert" size={11} />
+                            {selectedCategoryId === 'plugins' ? 'Could not scan plug-ins' : 'Could not scan folder'}
+                        </span>
+                        <br />
+                        <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
+                    </div>
+                )
+            }
+            {/* Virtual scroll container */}
+            {
+                selectedCategoryId !== 'plugins' ? (
+                    <div style={{ height: totalHeight + 20, position: 'relative' }}>
+                        {visibleItems.map((item, vi) => {
+                            const absIdx = startIdx + vi;
+                            const isSelected = selectedItemId === item.id;
+                            const isAudio = item.type === 'audio';
+                            const isPlugin = item.type === 'plugin';
+                            const isDraggable = isAudio || isPlugin;
+                            const pluginTypeLabel = item.pluginSource === 'internal'
+                                ? 'Internal'
+                                : item.pluginSource === 'vst3'
+                                    ? 'VST3'
+                                    : item.pluginSource === 'vst2'
+                                        ? 'VST2'
+                                        : item.pluginSource === 'au'
+                                            ? 'AU'
+                                            : (item.format || 'Plugin');
+                            const typeLabel = item.isDirectory
+                                ? 'Folder'
+                                : (item.type === 'audio'
+                                    ? (item.format || 'Audio').toUpperCase()
+                                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
+                            const sizeLabel = item.sizeBytes && !item.isDirectory
+                                ? (item.sizeBytes >= 1024 * 1024
+                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
+                                : '';
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    ref={(el) => {
+                                        itemRowRefs.current[item.id] = el;
+                                    }}
+                                    onClick={() => {
+                                        setContextMenu(null);
+                                        if (item.isDirectory && item.path) {
+                                            navigateInto(item.path);
+                                            return;
+                                        }
+
+                                        // BUG-5 FIX: Re-clicking the already-selected audio
+                                        // item toggles preview playback (stop/start) instead
+                                        // of deselecting the item entirely.
+                                        if (selectedItemId === item.id) {
+                                            if (item.type === 'audio' && item.path) {
+                                                // Toggle: stop if playing, start if stopped
+                                                if (isPreviewPlayingRef.current) {
+                                                    isPreviewPlayingRef.current = false;
+                                                    engineApi.stopPreview().catch(() => { });
+                                                } else {
+                                                    isPreviewPlayingRef.current = true;
+                                                    engineApi.previewAudioFile(item.path).catch(() => { });
+                                                }
+                                            }
+                                            return;
+                                        }
+                                        setSelectedItemId(item.id);
+                                        syncPreviewForItem(item);
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (item.path) {
+                                            setContextMenu({ x: e.clientX, y: e.clientY, item });
+                                        }
+                                    }}
+                                    onMouseDown={(e) => {
+                                        if (!isDraggable || !item.path || e.button !== 0) return;
+
+                                        const startX = e.clientX;
+                                        const startY = e.clientY;
+                                        const DRAG_THRESHOLD = 5;
+                                        let dragStarted = false;
+                                        let cancelled = false;
+
+                                        const onMove = (me: MouseEvent) => {
+                                            const dx = me.clientX - startX;
+                                            const dy = me.clientY - startY;
+                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                                dragStarted = true;
+                                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
+                                                if (fileListRef.current) {
+                                                    fileListRef.current.style.pointerEvents = 'none';
+                                                    fileListRef.current.style.overflow = 'hidden';
+                                                }
+                                                const knownDuration = isAudio
+                                                    ? item.durationSeconds
+                                                    ?? audioDurationSecRef.current[item.path!]
+                                                    ?? undefined
+                                                    : undefined;
+                                                useDragStore.getState().startDrag({
+                                                    id: item.id,
+                                                    name: item.name,
+                                                    type: isPlugin ? 'plugin' : 'audio',
+                                                    path: item.path!,
+                                                    slotHint: item.slotHint ?? 'auto',
+                                                    durationSeconds: knownDuration,
+                                                }, me.clientX, me.clientY);
+
+                                                if (isAudio && knownDuration === undefined) {
+                                                    void engineApi.getAudioFileDuration(item.path!)
+                                                        .then((durationSeconds) => {
+                                                            audioDurationSecRef.current[item.path!] = durationSeconds;
+                                                            if (cancelled) return;
+                                                            useDragStore.getState().updateDraggingItem({ durationSeconds });
+                                                        })
+                                                        .catch(() => {
+                                                            // Keep drag active even if duration probe fails.
+                                                        });
+                                                }
+                                            }
+                                        };
+                                        const onUp = () => {
+                                            cancelled = true;
+                                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
+                                            if (fileListRef.current) {
+                                                fileListRef.current.style.pointerEvents = '';
+                                                fileListRef.current.style.overflow = '';
+                                            }
+                                            window.removeEventListener('mousemove', onMove);
+                                            window.removeEventListener('mouseup', onUp);
+                                        };
+                                        window.addEventListener('mousemove', onMove);
+                                        window.addEventListener('mouseup', onUp);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        padding: '4px 8px',
+                                        paddingLeft: 8 + (item._depth ?? 0) * 16,
+                                        cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
+                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                                        borderBottom: '1px solid var(--color-divider-light)',
+                                        position: 'absolute',
+                                        top: absIdx * ROW_HEIGHT,
+                                        left: 0,
+                                        right: 0,
+                                        height: ROW_HEIGHT,
+                                        boxSizing: 'border-box',
+                                    }}
+                                >
+                                    {item.isDirectory ? (
+                                        <span style={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', gap: 3 }}>
+                                            {item._loading ? (
+                                                <BrowserGlyph name="hourglass" size={9} />
+                                            ) : (
+                                                <BrowserGlyph name={item._expanded ? 'chevron-down' : 'chevron-right'} size={9} />
+                                            )}
+                                            <BrowserGlyph name="folder" size={11} />
+                                        </span>
+                                    ) : (
+                                        <TypeIcon type={item.type} item={item} />
+                                    )}
+                                    <span style={{
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 'var(--font-size-base)',
+                                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        flex: 1,
+                                        minWidth: 0,
+                                    }}>
+                                        {debouncedQuery.trim()
+                                            ? renderHighlightedMatch(item.name, debouncedQuery)
+                                            : item.name}
+                                    </span>
+                                    {showTypeColumn && (
+                                        <span style={{
+                                            minWidth: 52,
+                                            maxWidth: 74,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            textAlign: 'left',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            flexShrink: 0,
+                                        }}>
+                                            {typeLabel}
+                                        </span>
+                                    )}
+                                    {showSizeColumn && (
+                                        <span style={{
+                                            minWidth: 44,
+                                            maxWidth: 56,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            textAlign: 'right',
+                                            whiteSpace: 'nowrap',
+                                            flexShrink: 0,
+                                        }}>
+                                            {sizeLabel}
+                                        </span>
+                                    )}
+                                    {item.isDirectory && (
+                                        <span style={{
+                                            color: 'var(--color-text-tertiary)',
+                                            fontSize: 'var(--font-size-2xs)',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            marginLeft: 2,
+                                            flexShrink: 0,
+                                        }}>
+                                            <BrowserGlyph name="chevron-right" size={10} />
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div>
+                        {pluginGroupedRows.map((row) => {
+                            if (row.kind === 'header') {
+                                return (
+                                    <div
+                                        key={row.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 8,
+                                            padding: '4px 8px',
+                                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
+                                            borderBottom: '1px solid var(--color-divider-light)',
+                                            borderTop: '1px solid var(--color-divider-light)',
+                                            position: 'sticky',
+                                            top: 24,
+                                            zIndex: 'var(--z-local)' as unknown as number,
+                                        }}
+                                    >
+                                        <span style={{
+                                            color: 'var(--color-text-primary)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.04em',
+                                        }}>
+                                            {row.title}
+                                        </span>
+                                        <span style={{
+                                            color: 'var(--color-text-tertiary)',
+                                            fontSize: 'var(--font-size-2xs)',
+                                            fontFamily: 'var(--font-mono)',
+                                        }}>
+                                            {row.count}
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            const item = row.item;
+                            const isSelected = selectedItemId === item.id;
+                            const isAudio = item.type === 'audio';
+                            const isPlugin = item.type === 'plugin';
+                            const isDraggable = isAudio || isPlugin;
+                            const pluginTypeLabel = item.pluginSource === 'internal'
+                                ? 'Internal'
+                                : item.pluginSource === 'vst3'
+                                    ? 'VST3'
+                                    : item.pluginSource === 'vst2'
+                                        ? 'VST2'
+                                        : item.pluginSource === 'au'
+                                            ? 'AU'
+                                            : (item.format || 'Plugin');
+                            const typeLabel = item.isDirectory
+                                ? 'Folder'
+                                : (item.type === 'audio'
+                                    ? (item.format || 'Audio').toUpperCase()
+                                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
+                            const sizeLabel = item.sizeBytes && !item.isDirectory
+                                ? (item.sizeBytes >= 1024 * 1024
+                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
+                                : '';
+
+                            return (
+                                <div
+                                    key={row.id}
+                                    ref={(el) => {
+                                        itemRowRefs.current[item.id] = el;
+                                    }}
+                                    onClick={() => {
+                                        setContextMenu(null);
+                                        // BUG-5 FIX: Same toggle logic for plugin grouped list
+                                        if (selectedItemId === item.id) {
+                                            if (item.type === 'audio' && item.path) {
+                                                if (isPreviewPlayingRef.current) {
+                                                    isPreviewPlayingRef.current = false;
+                                                    engineApi.stopPreview().catch(() => { });
+                                                } else {
+                                                    isPreviewPlayingRef.current = true;
+                                                    engineApi.previewAudioFile(item.path).catch(() => { });
+                                                }
+                                            }
+                                            return;
+                                        }
+                                        setSelectedItemId(item.id);
+                                        syncPreviewForItem(item);
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (item.path) {
+                                            setContextMenu({ x: e.clientX, y: e.clientY, item });
+                                        }
+                                    }}
+                                    onMouseDown={(e) => {
+                                        if (!isDraggable || !item.path || e.button !== 0) return;
+
+                                        const startX = e.clientX;
+                                        const startY = e.clientY;
+                                        const DRAG_THRESHOLD = 5;
+                                        let dragStarted = false;
+
+                                        const onMove = (me: MouseEvent) => {
+                                            const dx = me.clientX - startX;
+                                            const dy = me.clientY - startY;
+                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                                dragStarted = true;
+                                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
+                                                if (fileListRef.current) {
+                                                    fileListRef.current.style.pointerEvents = 'none';
+                                                    fileListRef.current.style.overflow = 'hidden';
+                                                }
+                                                useDragStore.getState().startDrag({
+                                                    id: item.id,
+                                                    name: item.name,
+                                                    type: isPlugin ? 'plugin' : 'audio',
+                                                    path: item.path!,
+                                                    slotHint: item.slotHint ?? 'auto',
+                                                    durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
+                                                }, me.clientX, me.clientY);
+                                            }
+                                        };
+                                        const onUp = () => {
+                                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
+                                            if (fileListRef.current) {
+                                                fileListRef.current.style.pointerEvents = '';
+                                                fileListRef.current.style.overflow = '';
+                                            }
+                                            window.removeEventListener('mousemove', onMove);
+                                            window.removeEventListener('mouseup', onUp);
+                                        };
+                                        window.addEventListener('mousemove', onMove);
+                                        window.addEventListener('mouseup', onUp);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        padding: '4px 8px',
+                                        cursor: isDraggable ? 'grab' : 'default',
+                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                                        borderBottom: '1px solid var(--color-divider-light)',
+                                        height: ROW_HEIGHT,
+                                        boxSizing: 'border-box',
+                                    }}
+                                >
+                                    <TypeIcon type={item.type} item={item} />
+                                    <span style={{
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 'var(--font-size-base)',
+                                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        flex: 1,
+                                        minWidth: 0,
+                                    }}>
+                                        {item.name}
+                                    </span>
+                                    {showTypeColumn && (
+                                        <span style={{
+                                            minWidth: 52,
+                                            maxWidth: 74,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            textAlign: 'left',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            flexShrink: 0,
+                                        }}>
+                                            {typeLabel}
+                                        </span>
+                                    )}
+                                    {showSizeColumn && (
+                                        <span style={{
+                                            minWidth: 44,
+                                            maxWidth: 56,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            textAlign: 'right',
+                                            whiteSpace: 'nowrap',
+                                            flexShrink: 0,
+                                        }}>
+                                            {sizeLabel}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
+            }
+            {
+                !scanLoading && items.length === 0 && (
+                    <div style={{
+                        padding: '20px 12px',
+                        textAlign: 'center',
+                        color: 'var(--color-text-tertiary)',
+                        fontSize: 'var(--font-size-xs)',
+                    }}>
+                        No items found
+                    </div>
+                )
+            }
+        </div >
     );
 });
 
@@ -1136,7 +1164,6 @@ export const AssetBrowser = () => {
                 setFolderChildrenCache(new Map());
             }
             if (typeof detail?.query === 'string') {
-                setSearchQuery(detail.query);
                 setDebouncedQuery(detail.query);
             }
             searchRef.current?.focus();
@@ -1351,33 +1378,52 @@ export const AssetBrowser = () => {
 
     useEffect(() => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
+        let cancelled = false;
+
         Promise.resolve().then(() => {
+            if (cancelled) return;
             setFolderScanPath(activeFolderPath);
             setScanLoading(true);
         });
 
         engineApi.scanFolderAll(activeFolderPath)
             .then(files => {
+                if (cancelled) return;
                 setFolderItems(files);
                 setScanLoading(false);
             })
             .catch(err => {
+                if (cancelled) return;
                 console.warn('[Browser] Folder scan failed:', err);
                 setScanError(String(err));
                 setScanLoading(false);
             });
+
+        return () => {
+            cancelled = true;
+        };
     }, [activeFolderPath, folderScanPath]);
 
-    // Reset folder state when category changes
+    // BUG-4 FIX: Reset folder tree state when category changes, but
+    // clear folderScanPath ONLY when activeFolderPath actually changes.
+    // Previously, wiping folderScanPath + folderItems on every category
+    // switch caused user-folder tabs to appear empty because the scan
+    // comparison guard (activeFolderPath === folderScanPath) rejected
+    // the re-scan.
+    const prevActiveFolderRef = useRef<string | null>(null);
     useEffect(() => {
+        const changed = activeFolderPath !== prevActiveFolderRef.current;
+        prevActiveFolderRef.current = activeFolderPath;
         Promise.resolve().then(() => {
             setExpandedFolders(new Set());
             setFolderChildrenCache(new Map());
             setLoadingFolders(new Set());
-            setFolderScanPath(null);
-            setFolderItems([]);
+            if (changed) {
+                setFolderScanPath(null);
+                setFolderItems([]);
+            }
         });
-    }, [selectedCategoryId]);
+    }, [selectedCategoryId, activeFolderPath]);
 
     // Convert real audio files to BrowserItems
     const realBrowserItems: BrowserItem[] = useMemo(() => {
@@ -1549,14 +1595,28 @@ export const AssetBrowser = () => {
             return base;
         }
 
-        if (sortFilter === 0) {
-            base = [...base].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-        } else if (sortFilter === 1) {
-            base = [...base].sort((a, b) => b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
-        } else if (sortFilter === 2) {
-            base = [...base].sort((a, b) => (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0));
-        } else {
-            base = [...base].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
+        // Only apply the default alphabetical sort if we are NOT searching.
+        // If we ARE searching, the relevance sort applied above will be preserved.
+        const isSearchActive = !!debouncedQuery.trim();
+
+        // BUG-7 FIX: Wrap every sort with a folder-first comparator.
+        // Directories always appear before files, then secondary sort applies.
+        const folderFirst = (a: BrowserItem, b: BrowserItem): number => {
+            const aDir = a.isDirectory ? 1 : 0;
+            const bDir = b.isDirectory ? 1 : 0;
+            return bDir - aDir; // directories first
+        };
+
+        if (!isSearchActive || sortFilter !== 0) {
+            if (sortFilter === 0) {
+                base = [...base].sort((a, b) => folderFirst(a, b) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+            } else if (sortFilter === 1) {
+                base = [...base].sort((a, b) => folderFirst(a, b) || b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
+            } else if (sortFilter === 2) {
+                base = [...base].sort((a, b) => folderFirst(a, b) || (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0));
+            } else {
+                base = [...base].sort((a, b) => folderFirst(a, b) || (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
+            }
         }
 
         return base;
@@ -1730,6 +1790,13 @@ export const AssetBrowser = () => {
                         sizeBytes: f.size_bytes,
                     };
                 });
+                // BUG-6 FIX: Sort tree children with folders first, then alphabetical.
+                children.sort((a, b) => {
+                    const aDir = a.isDirectory ? 1 : 0;
+                    const bDir = b.isDirectory ? 1 : 0;
+                    if (aDir !== bDir) return bDir - aDir;
+                    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+                });
                 setFolderChildrenCache(prev => new Map(prev).set(path, children));
             } catch (err) {
                 console.warn('[Browser] Tree scan failed for', path, err);
@@ -1824,6 +1891,7 @@ export const AssetBrowser = () => {
     }, [resolveSelectedTrack, projectTracks]);
 
     const previewRequestToken = useRef<number>(0);
+    const isPreviewPlayingRef = useRef(false);
 
     const syncPreviewForItem = useCallback((item: BrowserItem | null) => {
         const token = ++previewRequestToken.current;
@@ -1843,11 +1911,13 @@ export const AssetBrowser = () => {
                 });
 
             if (previewEnabled) {
+                isPreviewPlayingRef.current = true;
                 engineApi.previewAudioFile(item.path)
                     .catch(err => {
                         console.warn('[Preview]', err);
                     });
             } else {
+                isPreviewPlayingRef.current = false;
                 engineApi.stopPreview().catch((err) => {
                     console.warn('[AssetBrowser] stopPreview failed:', err);
                 });
@@ -1902,6 +1972,7 @@ export const AssetBrowser = () => {
             });
             return;
         }
+        const ROW_HEIGHT = 28;
         // Scroll into view for virtual scrolling
         const el = fileListRef.current;
         if (el) {
@@ -1924,11 +1995,11 @@ export const AssetBrowser = () => {
     const handleBrowserKeyDown = useCallback((e: React.KeyboardEvent) => {
         const activeEl = document.activeElement;
         if (e.key === 'Escape') {
-            if (activeEl === searchRef.current && searchRef.current.value.length > 0) {
+            if (activeEl === searchRef.current && (searchRef.current?.value.length ?? 0) > 0) {
                 e.preventDefault();
                 e.stopPropagation();
                 setDebouncedQuery('');
-                if (fileListRef.current) fileListRef.current.value = '';
+                if (searchRef.current) searchRef.current.value = '';
                 if (fileListRef.current) fileListRef.current.scrollTop = 0;
             }
             return;
@@ -1962,7 +2033,7 @@ export const AssetBrowser = () => {
         if (e.key !== 'Enter') return;
 
         e.preventDefault();
-        const selected = items.find((it) => it.id === selectedItemId) ?? visibleItems[0] ?? null;
+        const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;
         if (!selected) return;
 
         if (activeEl === searchRef.current) {
@@ -1971,7 +2042,7 @@ export const AssetBrowser = () => {
             return;
         }
         void handleItemEnter(selected);
-    }, [focusResults, handleItemEnter, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, searchQuery.length, selectedCategoryId, selectedItemId, visibleItems]);
+    }, [focusResults, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, selectedCategoryId, selectedItemId]);
 
     const beginSplitResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -2033,9 +2104,9 @@ export const AssetBrowser = () => {
                     setDebouncedQuery={setDebouncedQuery}
                     selectedCategoryId={selectedCategoryId}
                     setSelectedCategoryId={setSelectedCategoryId}
-                    searchRef={searchRef}
+                    searchRef={searchRef as any}
                     handleBrowserKeyDown={handleBrowserKeyDown}
-                    fileListRef={fileListRef}
+                    fileListRef={fileListRef as any}
                 />
             </div>
 
@@ -2435,6 +2506,7 @@ export const AssetBrowser = () => {
                         selectedItemId={selectedItemId}
                         setSelectedItemId={setSelectedItemId}
                         syncPreviewForItem={syncPreviewForItem}
+                        isPreviewPlayingRef={isPreviewPlayingRef}
                         setContextMenu={setContextMenu}
                         navigateInto={navigateInto}
                         showTypeColumn={showTypeColumn}
@@ -2442,7 +2514,7 @@ export const AssetBrowser = () => {
                         debouncedQuery={debouncedQuery}
                         audioDurationSecRef={audioDurationSecRef}
                         itemRowRefs={itemRowRefs}
-                        fileListRef={fileListRef}
+                        fileListRef={fileListRef as any}
                         handleBrowserKeyDown={handleBrowserKeyDown}
                         pluginGroupedRows={pluginGroupedRows}
                         scanLoading={scanLoading}

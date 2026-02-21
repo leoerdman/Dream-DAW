@@ -1131,6 +1131,21 @@ export const setSampleRackPadSample = (
         trackId, padIndex, samplePath
     });
 
+export const setSampleRackPadVolumeCmd = (trackId: string, padIndex: number, volume: number) =>
+    invoke<void>('set_sample_rack_pad_volume_cmd', { trackId, padIndex, volume });
+
+export const setSampleRackPadMuteCmd = (trackId: string, padIndex: number, muted: boolean) =>
+    invoke<void>('set_sample_rack_pad_mute_cmd', { trackId, padIndex, muted });
+
+export const setSampleRackPadSoloCmd = (trackId: string, padIndex: number, soloed: boolean) =>
+    invoke<void>('set_sample_rack_pad_solo_cmd', { trackId, padIndex, soloed });
+
+export const setSampleRackPadAdsrCmd = (trackId: string, padIndex: number, attack: number, decay: number, sustain: number, release: number) =>
+    invoke<void>('set_sample_rack_pad_adsr_cmd', { trackId, padIndex, attack, decay, sustain, release });
+
+export const setSampleRackPadFilterCutoffCmd = (trackId: string, padIndex: number, cutoff: number) =>
+    invoke<void>('set_sample_rack_pad_filter_cutoff_cmd', { trackId, padIndex, cutoff });
+
 // ── Clip Fades ──────────────────────────────────────────────────────────
 
 /** Set fade-in and fade-out durations for a clip (in sample frames). */

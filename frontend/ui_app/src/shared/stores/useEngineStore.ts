@@ -17,6 +17,7 @@ import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
 import { frameToBeat } from '@/shared/lib/audioMath';
+import type { SampleRackConfig } from '@/shared/types/SampleRackConfig';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -78,6 +79,8 @@ export interface ProjectTrack {
         detune_cents?: number;
         sub_level?: number;
     } | null;
+    /** 16-Pad Sample Rack (Drum Rack) instrument. */
+    sample_rack?: SampleRackConfig | null;
     /** Automation lanes carrying persisted param values (volume, pan, internal plugin params). */
     automation_lanes: Array<{
         param_id: string;
@@ -817,6 +820,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     effects: track.effects ?? [],
                     instrument: track.instrument ?? null,
                     sampler: ((track as Record<string, unknown>).sampler as ProjectTrack['sampler']) ?? null,
+                    sample_rack: ((track as Record<string, unknown>).sample_rack as ProjectTrack['sample_rack']) ?? null,
                     automation_lanes: (Array.isArray((track as Record<string, unknown>).automation_lanes)
                         ? (track as Record<string, unknown>).automation_lanes as ProjectTrack['automation_lanes']
                         : []),

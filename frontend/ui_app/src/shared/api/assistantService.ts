@@ -405,6 +405,416 @@ const TOOLS = [
                 required: ['trackIndex', 'samplePath', 'startBeat'],
             },
         },
+    },
+    // ── Phase 1: Core Operations ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'move_clip',
+            description: 'Move an existing clip to a new track or position (in beats).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    newTrackIndex: { type: 'number' },
+                    newPositionBeats: { type: 'number' },
+                },
+                required: ['clipId', 'newTrackIndex', 'newPositionBeats'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'duplicate_clip',
+            description: 'Duplicate a clip. Optionally specify a new position in beats.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    newPositionBeats: { type: 'number' },
+                },
+                required: ['clipId'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'split_clip',
+            description: 'Split a clip at a specific beat position.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    splitBeat: { type: 'number' },
+                },
+                required: ['clipId', 'splitBeat'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clip_fade',
+            description: 'Set fade-in and fade-out durations (in beats) for an audio clip.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    fadeInBeats: { type: 'number' },
+                    fadeOutBeats: { type: 'number' },
+                },
+                required: ['clipId', 'fadeInBeats', 'fadeOutBeats'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'merge_clips',
+            description: 'Consolidate multiple clips on the same track into one continuous clip.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipIds: { type: 'array', items: { type: 'string' } },
+                },
+                required: ['clipIds'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_effect',
+            description: 'Add a builtin effect plugin to a track slot. effectType can be: eq, compressor, reverb, delay, distortion, chorus, flanger, phaser, limiter, utility, filter, saturation, stereo_imager, tremolo, vibrato, auto_pan, bit_crusher, ring_modulator, vocoder, gater, pitch_shifter.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    slotIndex: { type: 'number', description: '0-based effect slot index (e.g. 0 for first)' },
+                    effectType: { type: 'string' },
+                },
+                required: ['trackIndex', 'slotIndex', 'effectType'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'remove_effect',
+            description: 'Remove an effect plugin from a track slot.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    slotId: { type: 'string', description: 'The UUID of the plugin slot to remove' },
+                },
+                required: ['trackIndex', 'slotId'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_effect_parameter',
+            description: 'Set a specific parameter on an effect plugin.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    slotId: { type: 'string', description: 'The UUID of the plugin slot' },
+                    paramId: { type: 'string', description: 'Internal parameter name (e.g. "cutoff", "gain", "threshold", "ratio")' },
+                    value: { type: 'number' },
+                },
+                required: ['trackIndex', 'slotId', 'paramId', 'value'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'create_track_group',
+            description: 'Group multiple tracks into a new bus track for collective processing.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndices: { type: 'array', items: { type: 'number' } },
+                    groupName: { type: 'string' },
+                },
+                required: ['trackIndices', 'groupName'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_loop_region',
+            description: 'Enable loop and set start and end positions (in beats).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    enabled: { type: 'boolean' },
+                    startBeat: { type: 'number' },
+                    endBeat: { type: 'number' },
+                },
+                required: ['enabled', 'startBeat', 'endBeat'],
+            }
+        }
+    },
+    // ── Phase 2: Music Theory & MIDI ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'quantize_notes',
+            description: 'Quantize MIDI notes in a clip to the nearest grid. Grid can be: 1 (whole), 0.5 (half), 0.25 (quarter), 0.125 (8th), 0.0625 (16th). Strength 0-100% controls how far notes snap toward the grid.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    gridBeats: { type: 'number', description: 'Grid resolution in beats (e.g. 0.25 for quarter-note)' },
+                    strength: { type: 'number', description: 'Quantize strength 0-100 (100=full snap)' },
+                },
+                required: ['clipId', 'gridBeats'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'humanize_velocity',
+            description: 'Add humanization to MIDI note velocities in a clip. Adds random variation within a range around each note\'s current velocity to make it sound less robotic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string' },
+                    range: { type: 'number', description: 'Max random deviation from current velocity (e.g. 15 means ±15)' },
+                },
+                required: ['clipId', 'range'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'generate_chord',
+            description: 'Generate MIDI notes for a specific chord. Returns pitch array. Root is MIDI note number (e.g. 60=C4). Quality: major, minor, dim, aug, dom7, maj7, min7, sus2, sus4, add9, min9, maj9.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    root: { type: 'number', description: 'MIDI root note (e.g. 60=C4, 48=C3)' },
+                    quality: { type: 'string', description: 'Chord quality: major, minor, dim, aug, dom7, maj7, min7, sus2, sus4' },
+                    octaveSpread: { type: 'number', description: 'Spread notes across N octaves (default 1)' },
+                },
+                required: ['root', 'quality'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'generate_arpeggio',
+            description: 'Generate an arpeggiated MIDI pattern from chord notes. Direction: up, down, updown, random. Rate in beats (0.25=16th, 0.5=8th).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string', description: 'Target clip to write arpeggio into' },
+                    pitches: { type: 'array', items: { type: 'number' }, description: 'Array of MIDI pitches to arpeggiate' },
+                    direction: { type: 'string', description: 'up, down, updown, random' },
+                    rateBeats: { type: 'number', description: 'Note rate in beats (0.25=16th)' },
+                    durationBeats: { type: 'number', description: 'Total arpeggio duration in beats' },
+                    velocity: { type: 'number', description: 'Note velocity 1-127' },
+                    gatePercent: { type: 'number', description: 'Gate length as % of rate (50=staccato, 100=legato)' },
+                },
+                required: ['clipId', 'pitches', 'direction', 'rateBeats', 'durationBeats'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'generate_scale',
+            description: 'Returns all MIDI pitches in a given scale within a range. Useful for constraining melodies.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    root: { type: 'number', description: 'Root MIDI note (e.g. 60=C4)' },
+                    scaleType: { type: 'string', description: 'major, minor, dorian, phrygian, lydian, mixolydian, aeolian, locrian, pentatonic_major, pentatonic_minor, blues, harmonic_minor, melodic_minor, whole_tone, chromatic' },
+                    lowNote: { type: 'number', description: 'Lowest MIDI note (e.g. 36)' },
+                    highNote: { type: 'number', description: 'Highest MIDI note (e.g. 96)' },
+                },
+                required: ['root', 'scaleType'],
+            }
+        }
+    },
+    // ── Phase 2: Sample Rack Pad Controls ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_pad_volume',
+            description: 'Set volume for a specific Drum Rack pad (0.0-1.0).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    padIndex: { type: 'number', description: '0-15' },
+                    volume: { type: 'number', description: '0.0-1.0' },
+                },
+                required: ['trackIndex', 'padIndex', 'volume'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_pad_mute',
+            description: 'Mute/unmute a specific Drum Rack pad.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    padIndex: { type: 'number' },
+                    muted: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'padIndex', 'muted'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_pad_adsr',
+            description: 'Set ADSR envelope for a Drum Rack pad. All times in seconds.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    padIndex: { type: 'number' },
+                    attack: { type: 'number', description: 'Attack time in seconds (0.001-2.0)' },
+                    decay: { type: 'number', description: 'Decay time in seconds (0.01-5.0)' },
+                    sustain: { type: 'number', description: 'Sustain level 0.0-1.0' },
+                    release: { type: 'number', description: 'Release time in seconds (0.01-10.0)' },
+                },
+                required: ['trackIndex', 'padIndex', 'attack', 'decay', 'sustain', 'release'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_pad_filter_cutoff',
+            description: 'Set the low-pass filter cutoff on a Drum Rack pad (0.0-1.0, where 1.0 = fully open).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    padIndex: { type: 'number' },
+                    cutoff: { type: 'number', description: '0.0-1.0' },
+                },
+                required: ['trackIndex', 'padIndex', 'cutoff'],
+            }
+        }
+    },
+    // ── Phase 2/3: Track Styling, Bypass, Preview ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_color',
+            description: 'Set the color of a track. Use hex color (e.g. "#FF5733").',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    colorHex: { type: 'string' },
+                },
+                required: ['trackIndex', 'colorHex'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'bypass_effect',
+            description: 'Bypass (disable) or enable an effect slot on a track.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    slotIndex: { type: 'number' },
+                    bypassed: { type: 'boolean' },
+                },
+                required: ['trackIndex', 'slotIndex', 'bypassed'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'preview_note',
+            description: 'Play a sample/instrument preview note on a track (audition without recording). Good for testing Drum Rack pads.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number' },
+                    pitch: { type: 'number', description: 'MIDI note 0-127 (e.g. 36=C1 for kick pad)' },
+                    velocity: { type: 'number', description: '1-127 (default 100)' },
+                },
+                required: ['trackIndex', 'pitch'],
+            }
+        }
+    },
+    // ── Phase 3: Intelligent Mixing ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'auto_gain_stage',
+            description: 'Automatically normalize all track volumes to a target level. Sets all tracks to the specified volume level for a clean starting mix.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    targetVolume: { type: 'number', description: 'Target linear volume for all tracks (0.0-1.0, default 0.7 ≈ -3dB)' },
+                },
+                required: [],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'auto_cleanup_mix',
+            description: 'Automatically apply high-pass filters to tracks that typically don\'t need low-end (hats, vocals, synths). Removes mud from the mix.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    excludeTrackIndices: { type: 'array', items: { type: 'number' }, description: 'Track indices to exclude from cleanup (e.g. kick, bass tracks)' },
+                },
+                required: [],
+            }
+        }
+    },
+    // ── Phase 4: Creative Arrangement ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'suggest_arrangement',
+            description: 'Analyze current clips and suggest a full song arrangement structure. Returns a JSON plan of sections (Intro, Verse, Chorus, Bridge, Drop, Outro) with their beat positions.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    genre: { type: 'string', description: 'Target genre (house, techno, dnb, hiphop, pop, lofi, ambient)' },
+                    durationBars: { type: 'number', description: 'Target song length in bars (e.g. 64 for a 4-minute track at 128bpm)' },
+                },
+                required: ['genre'],
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'get_metering',
+            description: 'Get real-time peak and RMS metering for all tracks and master bus. Useful for mix analysis.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        }
     }
 ];
 
@@ -426,6 +836,7 @@ function resolveTrackIndex(track: string): number {
 const READ_ONLY_TOOLS = new Set([
     'get_project_overview', 'get_track_clips', 'get_clip_details',
     'get_transport_state', 'select_clips', 'select_all_clips_on_track',
+    'generate_chord', 'generate_scale', 'suggest_arrangement', 'get_metering',
 ]);
 
 async function executeTool(
@@ -691,6 +1102,403 @@ async function executeToolInner(
             return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat });
         }
 
+        // ── Phase 1: Core Operations ──
+        case 'move_clip': {
+            const clipId = args.clipId as string;
+            const newTrackIndex = args.newTrackIndex as number;
+            const newPositionBeats = args.newPositionBeats as number;
+
+            const stMove = useEngineStore.getState();
+            const fpbMove = (60.0 / (stMove.projectBpm || stMove.transport.bpm || 120)) * (stMove.projectSampleRate || 44100);
+            const posFrames = Math.round(newPositionBeats * fpbMove);
+
+            await engineApi.moveClip(clipId, newTrackIndex, posFrames);
+            return JSON.stringify({ success: true, cliId: clipId, newTrackIndex, newPositionBeats });
+        }
+
+        case 'duplicate_clip': {
+            const clipId = args.clipId as string;
+            let posFrames: number | undefined;
+            if (args.newPositionBeats !== undefined) {
+                const stDup = useEngineStore.getState();
+                const fpbDup = (60.0 / (stDup.projectBpm || stDup.transport.bpm || 120)) * (stDup.projectSampleRate || 44100);
+                posFrames = Math.round((args.newPositionBeats as number) * fpbDup);
+            }
+            const result = await engineApi.duplicateClip(clipId, posFrames);
+            return JSON.stringify({ success: true, duplicatedClipId: result.new_id });
+        }
+
+        case 'split_clip': {
+            const clipId = args.clipId as string;
+            const splitBeat = args.splitBeat as number;
+            const stSplit = useEngineStore.getState();
+            const fpbSplit = (60.0 / (stSplit.projectBpm || stSplit.transport.bpm || 120)) * (stSplit.projectSampleRate || 44100);
+            const splitFrames = Math.round(splitBeat * fpbSplit);
+            const result = await engineApi.splitClip(clipId, splitFrames);
+            return JSON.stringify({ success: true, originalClipId: clipId, leftId: result.left_id, rightId: result.right_id });
+        }
+
+        case 'set_clip_fade': {
+            const clipId = args.clipId as string;
+            const fIn = args.fadeInBeats as number;
+            const fOut = args.fadeOutBeats as number;
+            const stFade = useEngineStore.getState();
+            const fpbFade = (60.0 / (stFade.projectBpm || stFade.transport.bpm || 120)) * (stFade.projectSampleRate || 44100);
+            await engineApi.setClipFades(clipId, Math.round(fIn * fpbFade), Math.round(fOut * fpbFade));
+            return JSON.stringify({ success: true, clipId });
+        }
+
+        case 'merge_clips': {
+            const clipIds = args.clipIds as string[];
+            const result = await engineApi.mergeClips(clipIds);
+            return JSON.stringify({ success: true, newClipId: result.new_id });
+        }
+
+        case 'add_effect': {
+            const trackIndex = args.trackIndex as number;
+            const slotIndex = args.slotIndex as number;
+            const effectType = args.effectType as engineApi.BuiltinEffectType;
+            await engineApi.addDevice(trackIndex, slotIndex, effectType);
+            return JSON.stringify({ success: true, trackIndex, effectType });
+        }
+
+        case 'remove_effect': {
+            const trackIndex = args.trackIndex as number;
+            const slotId = args.slotId as string;
+            const trackId = tracks[trackIndex]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track not found` });
+            await engineApi.removePluginFromTrack(trackId, slotId);
+            return JSON.stringify({ success: true, trackIndex, slotRemoved: slotId });
+        }
+
+        case 'set_effect_parameter': {
+            const trackIndex = args.trackIndex as number;
+            const slotId = args.slotId as string;
+            const paramId = args.paramId as string;
+            const val = args.value as number;
+            const trackId = tracks[trackIndex]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track not found` });
+            await engineApi.setInternalPluginParam(trackId, slotId, paramId, val);
+            return JSON.stringify({ success: true, paramChanged: paramId, value: val });
+        }
+
+        case 'create_track_group': {
+            const tIndices = args.trackIndices as number[];
+            const name = args.groupName as string;
+            const tIds = tIndices.map(i => tracks[i]?.id).filter(id => id) as string[];
+            await engineApi.createGroup(tIds, name);
+            return JSON.stringify({ success: true, groupName: name, tracksGrouped: tIds.length });
+        }
+
+        case 'set_loop_region': {
+            const enabled = args.enabled as boolean;
+            const stL = useEngineStore.getState();
+            const fpbL = (60.0 / (stL.projectBpm || stL.transport.bpm || 120)) * (stL.projectSampleRate || 44100);
+            const startF = Math.round((args.startBeat as number) * fpbL);
+            const endF = Math.round((args.endBeat as number) * fpbL);
+            await engineApi.setLoop(enabled, startF, endF);
+            return JSON.stringify({ success: true, loopEnabled: enabled, startBeat: args.startBeat, endBeat: args.endBeat });
+        }
+
+        // ── Phase 2: Music Theory & MIDI Algorithms ──
+        case 'quantize_notes': {
+            const clipId = args.clipId as string;
+            const grid = args.gridBeats as number;
+            const strength = (args.strength as number ?? 100) / 100;
+            const clip = clips.find(c => c.id === clipId);
+            if (!clip) return JSON.stringify({ error: 'Clip not found' });
+            // Get existing notes, quantize them, write back
+            const stQ = useEngineStore.getState();
+            const bpmQ = stQ.projectBpm || stQ.transport.bpm || 120;
+            const srQ = stQ.projectSampleRate || 44100;
+            const fpbQ = (60.0 / bpmQ) * srQ;
+            const gridFrames = Math.round(grid * fpbQ);
+            if (clip.midiNotes && clip.midiNotes.length > 0) {
+                const quantized = clip.midiNotes.map(n => {
+                    const startFrames = Math.round(n.startBeat * fpbQ);
+                    const nearestGrid = Math.round(startFrames / gridFrames) * gridFrames;
+                    const newStartFrames = Math.round(startFrames + (nearestGrid - startFrames) * strength);
+                    return { pitch: n.pitch, velocity: n.velocity, startFrames: Math.max(0, newStartFrames), durationFrames: Math.round(n.durationBeats * fpbQ) };
+                });
+                await engineApi.updateMidiClip(clipId, quantized);
+                return JSON.stringify({ success: true, notesQuantized: quantized.length, gridBeats: grid });
+            }
+            return JSON.stringify({ error: 'No MIDI notes found in clip' });
+        }
+
+        case 'humanize_velocity': {
+            const clipId = args.clipId as string;
+            const range = args.range as number;
+            const clip = clips.find(c => c.id === clipId);
+            if (!clip || !clip.midiNotes) return JSON.stringify({ error: 'Clip or notes not found' });
+            const stH = useEngineStore.getState();
+            const fpbH = (60.0 / (stH.projectBpm || stH.transport.bpm || 120)) * (stH.projectSampleRate || 44100);
+            const humanized = clip.midiNotes.map(n => {
+                const delta = Math.round((Math.random() * 2 - 1) * range);
+                return { pitch: n.pitch, velocity: Math.max(1, Math.min(127, n.velocity + delta)), startFrames: Math.round(n.startBeat * fpbH), durationFrames: Math.round(n.durationBeats * fpbH) };
+            });
+            await engineApi.updateMidiClip(clipId, humanized);
+            return JSON.stringify({ success: true, notesHumanized: humanized.length });
+        }
+
+        case 'generate_chord': {
+            const root = args.root as number;
+            const quality = (args.quality as string).toLowerCase();
+            const spread = (args.octaveSpread as number) || 1;
+            const INTERVALS: Record<string, number[]> = {
+                major: [0, 4, 7], minor: [0, 3, 7], dim: [0, 3, 6], aug: [0, 4, 8],
+                dom7: [0, 4, 7, 10], maj7: [0, 4, 7, 11], min7: [0, 3, 7, 10],
+                sus2: [0, 2, 7], sus4: [0, 5, 7], add9: [0, 4, 7, 14],
+                min9: [0, 3, 7, 10, 14], maj9: [0, 4, 7, 11, 14],
+                dim7: [0, 3, 6, 9], aug7: [0, 4, 8, 10],
+                m7b5: [0, 3, 6, 10], '6': [0, 4, 7, 9], m6: [0, 3, 7, 9],
+            };
+            const intervals = INTERVALS[quality] || INTERVALS.major;
+            let pitches: number[] = [];
+            for (let oct = 0; oct < spread; oct++) {
+                pitches = pitches.concat(intervals.map(i => root + i + oct * 12));
+            }
+            pitches = pitches.filter(p => p >= 0 && p <= 127);
+            return JSON.stringify({ root, quality, pitches });
+        }
+
+        case 'generate_arpeggio': {
+            const clipId = args.clipId as string;
+            const pitches = args.pitches as number[];
+            const direction = (args.direction as string) || 'up';
+            const rate = args.rateBeats as number;
+            const dur = args.durationBeats as number;
+            const vel = (args.velocity as number) || 100;
+            const gate = ((args.gatePercent as number) || 80) / 100;
+
+            let sequence: number[] = [];
+            if (direction === 'up') sequence = [...pitches];
+            else if (direction === 'down') sequence = [...pitches].reverse();
+            else if (direction === 'updown') sequence = [...pitches, ...[...pitches].reverse().slice(1, -1)];
+            else { // random
+                sequence = [...pitches];
+                for (let i = sequence.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [sequence[i], sequence[j]] = [sequence[j], sequence[i]];
+                }
+            }
+            const totalSteps = Math.floor(dur / rate);
+            const stArp = useEngineStore.getState();
+            const fpbArp = (60.0 / (stArp.projectBpm || stArp.transport.bpm || 120)) * (stArp.projectSampleRate || 44100);
+            const notes = [];
+            for (let step = 0; step < totalSteps; step++) {
+                const pitch = sequence[step % sequence.length];
+                notes.push({ pitch, velocity: vel, startFrames: Math.round(step * rate * fpbArp), durationFrames: Math.round(rate * gate * fpbArp) });
+            }
+            await engineApi.updateMidiClip(clipId, notes);
+            return JSON.stringify({ success: true, notesGenerated: notes.length, direction, rateBeats: rate });
+        }
+
+        case 'generate_scale': {
+            const root = args.root as number;
+            const scaleType = (args.scaleType as string).toLowerCase();
+            const lo = (args.lowNote as number) || 24;
+            const hi = (args.highNote as number) || 108;
+            const SCALES: Record<string, number[]> = {
+                major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10],
+                dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10],
+                lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10],
+                aeolian: [0, 2, 3, 5, 7, 8, 10], locrian: [0, 1, 3, 5, 6, 8, 10],
+                pentatonic_major: [0, 2, 4, 7, 9], pentatonic_minor: [0, 3, 5, 7, 10],
+                blues: [0, 3, 5, 6, 7, 10], harmonic_minor: [0, 2, 3, 5, 7, 8, 11],
+                melodic_minor: [0, 2, 3, 5, 7, 9, 11], whole_tone: [0, 2, 4, 6, 8, 10],
+                chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            };
+            const intervals = SCALES[scaleType] || SCALES.major;
+            const pitches: number[] = [];
+            for (let n = lo; n <= hi; n++) {
+                if (intervals.includes((n - (root % 12) + 12) % 12)) pitches.push(n);
+            }
+            return JSON.stringify({ root, scaleType, pitches, count: pitches.length });
+        }
+
+        // ── Phase 2: Sample Rack Pad Controls ──
+        case 'set_pad_volume': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: 'Track not found' });
+            await engineApi.setSampleRackPadVolumeCmd(trackId, args.padIndex as number, args.volume as number);
+            return JSON.stringify({ success: true });
+        }
+
+        case 'set_pad_mute': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: 'Track not found' });
+            await engineApi.setSampleRackPadMuteCmd(trackId, args.padIndex as number, args.muted as boolean);
+            return JSON.stringify({ success: true });
+        }
+
+        case 'set_pad_adsr': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: 'Track not found' });
+            await engineApi.setSampleRackPadAdsrCmd(
+                trackId, args.padIndex as number,
+                args.attack as number, args.decay as number,
+                args.sustain as number, args.release as number
+            );
+            return JSON.stringify({ success: true });
+        }
+
+        case 'set_pad_filter_cutoff': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: 'Track not found' });
+            await engineApi.setSampleRackPadFilterCutoffCmd(trackId, args.padIndex as number, args.cutoff as number);
+            return JSON.stringify({ success: true });
+        }
+
+        // ── Phase 2/3: Track Styling, Bypass, Preview ──
+        case 'set_track_color': {
+            const trackId = tracks[args.trackIndex as number]?.id;
+            if (!trackId) return JSON.stringify({ error: 'Track not found' });
+            await engineApi.setTrackColor(trackId, args.colorHex as string);
+            return JSON.stringify({ success: true, color: args.colorHex });
+        }
+
+        case 'bypass_effect': {
+            await engineApi.bypassDevice(args.trackIndex as number, args.slotIndex as number, args.bypassed as boolean);
+            return JSON.stringify({ success: true });
+        }
+
+        case 'preview_note': {
+            const pitch = args.pitch as number;
+            const vel = (args.velocity as number) || 100;
+            const tIdx = args.trackIndex as number;
+            await engineApi.previewSamplerNoteOn(tIdx, pitch, vel);
+            // Auto note-off after 500ms
+            setTimeout(() => { engineApi.previewSamplerNoteOff(tIdx, pitch).catch(() => { }); }, 500);
+            return JSON.stringify({ success: true, pitch, velocity: vel });
+        }
+
+        // ── Phase 3: Intelligent Mixing ──
+        case 'auto_gain_stage': {
+            const target = (args.targetVolume as number) ?? 0.7;
+            for (let i = 0; i < tracks.length; i++) {
+                await engineApi.setTrackVolume(i, target);
+            }
+            return JSON.stringify({ success: true, tracksNormalized: tracks.length, targetVolume: target });
+        }
+
+        case 'auto_cleanup_mix': {
+            const excludes = new Set((args.excludeTrackIndices as number[]) ?? []);
+            let cleaned = 0;
+            for (let i = 0; i < tracks.length; i++) {
+                if (excludes.has(i)) continue;
+                const t = tracks[i];
+                const name = t.name.toLowerCase();
+                // Auto high-pass tracks that don't need low-end
+                if (name.includes('hat') || name.includes('hi-hat') || name.includes('hihat') ||
+                    name.includes('vocal') || name.includes('vox') || name.includes('shaker') ||
+                    name.includes('perc') || name.includes('clap') || name.includes('crash') ||
+                    name.includes('ride') || name.includes('cymbal') || name.includes('fx') ||
+                    name.includes('pad') || name.includes('syn') || name.includes('lead')) {
+                    try {
+                        // Add AutoFilter (type 9) with high-pass settings
+                        await engineApi.addDevice(i, 0, 9 as engineApi.BuiltinEffectType);
+                        cleaned++;
+                    } catch { /* slot may be occupied */ }
+                }
+            }
+            return JSON.stringify({ success: true, tracksCleaned: cleaned });
+        }
+
+        // ── Phase 4: Creative Arrangement ──
+        case 'suggest_arrangement': {
+            const genre = (args.genre as string).toLowerCase();
+            const durBars = (args.durationBars as number) || 64;
+            const beatsPerBar = 4;
+            // Genre-aware arrangement templates
+            const templates: Record<string, { name: string; startBar: number; endBar: number }[]> = {
+                house: [
+                    { name: 'Intro (Kick Only)', startBar: 0, endBar: 8 },
+                    { name: 'Build-up (Add Hats + Clap)', startBar: 8, endBar: 16 },
+                    { name: 'Breakdown (Remove Kick, Add Pads)', startBar: 16, endBar: 24 },
+                    { name: 'Build-up (Riser + Filter Sweep)', startBar: 24, endBar: 28 },
+                    { name: 'DROP (Full Energy)', startBar: 28, endBar: 44 },
+                    { name: 'Breakdown 2 (Strip Back)', startBar: 44, endBar: 52 },
+                    { name: 'DROP 2 (Full + Variation)', startBar: 52, endBar: 60 },
+                    { name: 'Outro (Fade Elements)', startBar: 60, endBar: 64 },
+                ],
+                techno: [
+                    { name: 'Intro (Ambient Textures)', startBar: 0, endBar: 8 },
+                    { name: 'Build (Add Kick)', startBar: 8, endBar: 16 },
+                    { name: 'Main Loop A', startBar: 16, endBar: 32 },
+                    { name: 'Breakdown (Filter Down)', startBar: 32, endBar: 40 },
+                    { name: 'Main Loop B (Variation)', startBar: 40, endBar: 56 },
+                    { name: 'Outro (Dissolve)', startBar: 56, endBar: 64 },
+                ],
+                dnb: [
+                    { name: 'Intro', startBar: 0, endBar: 8 },
+                    { name: 'Build-up', startBar: 8, endBar: 16 },
+                    { name: 'Drop 1', startBar: 16, endBar: 32 },
+                    { name: 'Breakdown', startBar: 32, endBar: 40 },
+                    { name: 'Drop 2', startBar: 40, endBar: 56 },
+                    { name: 'Outro', startBar: 56, endBar: 64 },
+                ],
+                hiphop: [
+                    { name: 'Intro', startBar: 0, endBar: 4 },
+                    { name: 'Verse 1', startBar: 4, endBar: 20 },
+                    { name: 'Hook/Chorus', startBar: 20, endBar: 28 },
+                    { name: 'Verse 2', startBar: 28, endBar: 44 },
+                    { name: 'Hook/Chorus', startBar: 44, endBar: 52 },
+                    { name: 'Bridge', startBar: 52, endBar: 56 },
+                    { name: 'Outro', startBar: 56, endBar: 64 },
+                ],
+                pop: [
+                    { name: 'Intro', startBar: 0, endBar: 4 },
+                    { name: 'Verse 1', startBar: 4, endBar: 12 },
+                    { name: 'Pre-Chorus', startBar: 12, endBar: 16 },
+                    { name: 'Chorus', startBar: 16, endBar: 24 },
+                    { name: 'Verse 2', startBar: 24, endBar: 32 },
+                    { name: 'Pre-Chorus 2', startBar: 32, endBar: 36 },
+                    { name: 'Chorus 2', startBar: 36, endBar: 44 },
+                    { name: 'Bridge', startBar: 44, endBar: 52 },
+                    { name: 'Final Chorus', startBar: 52, endBar: 60 },
+                    { name: 'Outro', startBar: 60, endBar: 64 },
+                ],
+            };
+            const template = templates[genre] || templates.house;
+            // Scale to target duration
+            const scaleFactor = durBars / (template[template.length - 1]?.endBar || 64);
+            const sections = template.map(s => ({
+                ...s,
+                startBar: Math.round(s.startBar * scaleFactor),
+                endBar: Math.round(s.endBar * scaleFactor),
+                startBeat: Math.round(s.startBar * scaleFactor * beatsPerBar),
+                endBeat: Math.round(s.endBar * scaleFactor * beatsPerBar),
+            }));
+            return JSON.stringify({ genre, totalBars: durBars, sections });
+        }
+
+        case 'get_metering': {
+            try {
+                const meters = await engineApi.getMeters();
+                const trackMeters = meters.tracks.map((t: [import('@/shared/api/engine').MeterReading, import('@/shared/api/engine').MeterReading], i: number) => ({
+                    index: i,
+                    name: tracks[i]?.name ?? `Track ${i}`,
+                    leftRMS: t[0].rms.toFixed(3),
+                    leftPeak: t[0].peak.toFixed(3),
+                    rightRMS: t[1].rms.toFixed(3),
+                    rightPeak: t[1].peak.toFixed(3),
+                    clipping: t[0].clipping || t[1].clipping,
+                }));
+                return JSON.stringify({
+                    master: {
+                        leftRMS: meters.master_left.rms.toFixed(3),
+                        leftPeak: meters.master_left.peak.toFixed(3),
+                        rightRMS: meters.master_right.rms.toFixed(3),
+                        rightPeak: meters.master_right.peak.toFixed(3),
+                    },
+                    tracks: trackMeters,
+                });
+            } catch {
+                return JSON.stringify({ error: 'Metering not available' });
+            }
+        }
+
         default:
             return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -746,11 +1554,16 @@ ${trackList || '  (no tracks)'}
 ## Your Tools (${TOOLS.length} available)
 | Category | Tools |
 |----------|-------|
-| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state |
+| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering |
 | 🎵 MIDI & Audio | add_midi_track, create_midi_clip, set_clip_notes, search_browser, add_sample_to_rack, add_audio_clip |
-| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo |
-| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted |
-| 🔊 Transport & Mix | transport_play, transport_stop, set_bpm, seek_to_beat, set_master_volume, undo, redo |
+| 🎹 Music Theory | generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
+| 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_adsr, set_pad_filter_cutoff, preview_note |
+| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group |
+| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade |
+| 🔊 Transport & Mix | transport_play, transport_stop, set_bpm, seek_to_beat, set_master_volume, set_loop_region, undo, redo |
+| 🧩 Effects | add_effect, remove_effect, set_effect_parameter, bypass_effect |
+| 🤖 AI Mixing | auto_gain_stage, auto_cleanup_mix |
+| 🎼 Arrangement | suggest_arrangement |
 
 ## Behavior Rules & Execution Patterns
 
@@ -759,12 +1572,25 @@ Before executing any action, briefly explain what you're about to do and why bas
 - "For a Tech House drop, we need a punchy 4/4 kick. I'll search for 'kick', load it into a drum rack on Track 0, and program notes on beats 0, 1, 2, and 3."
 
 ### Drum Programming (CRITICAL)
-1. **Sample Racks (Drum Racks)**: Use a \`midi\` track for drums. Search for samples using \`search_browser\`. Load them into Drum Rack pads using \`add_sample_to_rack\`.
+1. **Sample Racks (Drum Racks)**: Use a \\\`midi\\\` track for drums. Search for samples using \\\`search_browser\\\`. Load them into Drum Rack pads using \\\`add_sample_to_rack\\\`.
    - **Pad 0 (Pitch 36 / C1)**: Kick
    - **Pad 1 (Pitch 37 / C#1) or Pad 2**: Snare/Clap
    - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
-2. **MIDI Notes**: Use \`create_midi_clip\` followed by \`set_clip_notes\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
+2. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
 3. **NEVER overlap clips** on the same track at the same time. Check existing clips in the track list before creating new ones.
+4. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
+
+### Music Theory Engine
+1. **Chords**: Use \\\`generate_chord\\\` to compute exact MIDI pitches. Example: \\\`generate_chord(48, "min7")\\\` returns [48, 51, 55, 58].
+2. **Scales**: Use \\\`generate_scale\\\` to constrain melodies/basslines to correct pitches. Always stay in key.
+3. **Arpeggios**: Use \\\`generate_arpeggio\\\` for pulsing patterns — combine with generate_chord for instant harmonic movement.
+4. **Quantize**: After recording or AI-generated patterns, use \\\`quantize_notes\\\` to tighten timing. Use \\\`humanize_velocity\\\` to add human feel (±10-20 range).
+
+### Intelligent Mixing
+1. First \\\`auto_gain_stage\\\` to normalize all tracks to -3dB (0.7).
+2. Then \\\`auto_cleanup_mix\\\` to add high-pass filters to non-bass tracks.
+3. Use \\\`get_metering\\\` to check levels and prevent clipping.
+4. Color-code tracks (\\\`set_track_color\\\`) for visual organization.
 
 ### Response Quality
 1. **Be concise but informative**. Every sentence should add value.

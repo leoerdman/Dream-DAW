@@ -13,6 +13,7 @@ import {
 } from '@/widgets/DeviceRack/StandardPluginControls';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
+import { SampleRack } from '../SampleRack/SampleRack';
 import {
     getInternalPluginById,
     normalizeInternalPluginId,
@@ -665,6 +666,14 @@ export const DeviceRack = ({
         if (!selectedTrack) return [];
 
         const nodes = [
+            ...(selectedTrack.sample_rack ? [{
+                id: `sample-rack-${selectedTrack.id}`,
+                name: 'Sample Rack',
+                type: 'SampleRack',
+                plugin_id: 'internal://instrument/sample-rack',
+                is_bypassed: false,
+                source: 'internal',
+            } as any] : []),
             ...(selectedTrack.instrument ? [selectedTrack.instrument] : []),
             ...(selectedTrack.effects ?? []),
         ];
@@ -734,6 +743,8 @@ export const DeviceRack = ({
             const mappedInternalType = internalDef?.id ? INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[internalDef.id] : undefined;
             if (mappedInternalType) {
                 effectType = mappedInternalType;
+            } else if (pluginIdLower === 'internal://instrument/sample-rack') {
+                effectType = 'sample_rack' as any;
             } else if (!isVst) {
                 if (normalized.includes('sampler')) effectType = 'sampler';
                 else if (
@@ -3076,6 +3087,12 @@ const PluginGuiSurface = ({
                     ))}
                 </div>
             </div>
+        );
+    }
+
+    if ((device.effectType as any) === 'sample_rack' && (device as any).sampleRackConfig) {
+        return (
+            <SampleRack trackId={device.id.replace('sample-rack-', '')} rackConfig={(device as any).sampleRackConfig} />
         );
     }
 

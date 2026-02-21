@@ -183,6 +183,67 @@
     letter-spacing: 0.04em;
 }
 
+.msg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.assistant-copy-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.assistant-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text-primary);
+}
+
+.assistant-copy-btn .success {
+    color: var(--color-status-success);
+}
+
+.assistant-thinking-log {
+    font-size: 11px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.assistant-thinking-log summary {
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    user-select: none;
+    font-style: italic;
+    transition: color 0.15s;
+}
+
+.assistant-thinking-log summary:hover {
+    color: var(--color-text-primary);
+}
+
+.assistant-thinking-content {
+    margin-top: 6px;
+    white-space: pre-wrap;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.15);
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
 .thinking-bubble {
     font-style: italic;
     opacity: 0.7;

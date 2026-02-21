@@ -6,7 +6,7 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2 } from 'lucide-react';
+import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2, Copy, Check } from 'lucide-react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
@@ -77,6 +77,23 @@ function createSpeechRecognition(): SpeechRecognitionInstance | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+
+const CopyButton = ({ text }: { text: string }) => {
+    const [copied, setCopied] = useState(false);
+    return (
+        <button
+            className="assistant-copy-btn"
+            title="Copy message"
+            onClick={() => {
+                navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }}
+        >
+            {copied ? <Check size={12} className="success" /> : <Copy size={12} />}
+        </button>
+    );
+};
 
 export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -279,7 +296,9 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
 
     // ── UI send handler (reads from input field) ──
     const handleSend = useCallback(() => {
+        if (!input.trim()) return;
         sendMessage(input);
+        inputRef.current?.blur(); // CRITICAL: Release focus so spacebar playback works
     }, [input, sendMessage]);
 
     // ── Agent Bridge: receive remote messages from external tools ──
@@ -517,8 +536,21 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                     return (
                         <div key={i} className={`assistant-msg ${msg.role}`}>
                             {msg.role === 'user' && <span className="msg-label">You</span>}
-                            {msg.role === 'assistant' && <span className="msg-label">Dream AI</span>}
-                            <div className={`msg-bubble ${msg.role}`}>{msg.content}</div>
+                            {msg.role === 'assistant' && (
+                                <div className="msg-header">
+                                    <span className="msg-label">Dream AI</span>
+                                    <CopyButton text={msg.content} />
+                                </div>
+                            )}
+                            <div className={`msg-bubble ${msg.role}`}>
+                                {msg.role === 'assistant' && msg.thinking && (
+                                    <details className="assistant-thinking-log">
+                                        <summary>💭 Анализ и размышления...</summary>
+                                        <div className="assistant-thinking-content">{msg.thinking}</div>
+                                    </details>
+                                )}
+                                {msg.content}
+                            </div>
                         </div>
                     );
                 })}

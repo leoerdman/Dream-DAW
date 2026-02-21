@@ -376,14 +376,643 @@ function renderHighlightedMatch(name: string, query: string) {
 
 // ── Component ──────────────────────────────────────────
 
+
+const AssetSearchInput = React.memo(function AssetSearchInput({
+    debouncedQuery,
+    setDebouncedQuery,
+    selectedCategoryId,
+    setSelectedCategoryId,
+    searchRef,
+    handleBrowserKeyDown,
+    fileListRef,
+}: {
+    debouncedQuery: string;
+    setDebouncedQuery: (q: string) => void;
+    selectedCategoryId: string;
+    setSelectedCategoryId: (val: string) => void;
+    searchRef: React.RefObject<HTMLInputElement>;
+    handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
+    fileListRef: React.RefObject<HTMLDivElement>;
+}) {
+    const [localQuery, setLocalQuery] = useState(debouncedQuery);
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        setLocalQuery(debouncedQuery);
+    }, [debouncedQuery]);
+
+    const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const nextQuery = e.target.value;
+        setLocalQuery(nextQuery);
+
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = setTimeout(() => {
+            setDebouncedQuery(nextQuery);
+        }, 150);
+
+        if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
+            setSelectedCategoryId('all');
+        }
+    }, [setDebouncedQuery, selectedCategoryId, setSelectedCategoryId, fileListRef]);
+
+    return (
+        <input
+            ref={searchRef}
+            type="text"
+            placeholder="Search… (⌘F)"
+            value={localQuery}
+            onChange={handleChange}
+            onKeyDown={handleBrowserKeyDown}
+            style={{
+                width: '100%',
+                padding: '6px 10px',
+                background: 'var(--color-bg-input)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-xs)',
+                fontSize: 'var(--font-size-sm)',
+                fontFamily: 'var(--font-mono)',
+                outline: 'none',
+            }}
+        />
+    );
+});
+
+const VirtualFileList = React.memo(function VirtualFileList({
+    items,
+    selectedCategoryId,
+    selectedItemId,
+    setSelectedItemId,
+    syncPreviewForItem,
+    setContextMenu,
+    navigateInto,
+    showTypeColumn,
+    showSizeColumn,
+    debouncedQuery,
+    audioDurationSecRef,
+    itemRowRefs,
+    fileListRef,
+    handleBrowserKeyDown,
+    pluginGroupedRows,
+    scanLoading,
+    scanError,
+    columnMenuPos,
+    setColumnMenuPos,
+}: {
+    items: BrowserItem[];
+    selectedCategoryId: string;
+    selectedItemId: string | null;
+    setSelectedItemId: (id: string | null) => void;
+    syncPreviewForItem: (item: BrowserItem | null) => void;
+    setContextMenu: React.Dispatch<React.SetStateAction<any>>;
+    navigateInto: (path: string) => void;
+    showTypeColumn: boolean;
+    showSizeColumn: boolean;
+    debouncedQuery: string;
+    audioDurationSecRef: React.MutableRefObject<Record<string, number>>;
+    itemRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+    fileListRef: React.RefObject<HTMLDivElement>;
+    handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
+    pluginGroupedRows: any[];
+    scanLoading: boolean;
+    scanError: string | null;
+    columnMenuPos: { x: number; y: number } | null;
+    setColumnMenuPos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
+}) {
+    const ROW_HEIGHT = 28;
+    const OVERSCAN = 8;
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(400);
+
+    useEffect(() => {
+        const el = fileListRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setContainerHeight(entry.contentRect.height);
+            }
+        });
+        ro.observe(el);
+        setContainerHeight(el.clientHeight);
+        return () => ro.disconnect();
+    }, [fileListRef]);
+
+    const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        setScrollTop(e.currentTarget.scrollTop);
+    }, []);
+
+    const totalHeight = items.length * ROW_HEIGHT;
+    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+    const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
+
+    return (
+        {/* File List */ }
+        < div
+                        ref = { fileListRef }
+    className = "scrollbar-hide"
+    onScroll = { handleFileListScroll }
+    onKeyDown = { handleBrowserKeyDown }
+    tabIndex = { 0}
+    style = {{
+        flex: 1,
+            minHeight: 0,
+                overflowY: 'auto',
+                    overflowX: 'hidden',
+                        outline: 'none',
+                        }
+} >
+    <div
+        onContextMenu={(e) => {
+            e.preventDefault();
+            setColumnMenuPos({ x: e.clientX, y: e.clientY });
+        }}
+        style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '3px 8px',
+            borderBottom: '1px solid var(--color-divider-light)',
+            background: 'var(--color-bg-header)',
+            color: 'var(--color-text-tertiary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            position: 'sticky',
+            top: 0,
+            zIndex: 'var(--z-local-raised)' as unknown as number,
+        }}>
+        <button
+            onClick={(e) => {
+                const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                setColumnMenuPos((prev) => prev
+                    ? null
+                    : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
+            }}
+            style={{
+                width: 14,
+                minWidth: 14,
+                background: 'transparent',
+                color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                border: 'none',
+                borderRadius: 'var(--radius-xs)',
+                padding: 0,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+            }}
+            title="Columns"
+        >
+            <BrowserGlyph name="settings" size={10} />
+        </button>
+        <span style={{ flex: 1, minWidth: 0 }}>Name</span>
+        {showTypeColumn && (
+            <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
+        )}
+        {showSizeColumn && (
+            <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
+        )}
+    </div>
+                        {/* Scan Status */ }
+                        { scanLoading && (
+        <div style={{
+            padding: '12px 10px',
+            textAlign: 'center',
+            color: 'var(--color-text-tertiary)',
+            fontSize: 'var(--font-size-xs)',
+            animation: 'pulse 1.5s ease-in-out infinite',
+        }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <BrowserGlyph name="hourglass" size={11} />
+                Scanning…
+            </span>
+        </div>
+    )}
+{
+    scanError && !scanLoading && (
+        <div style={{
+            padding: '8px 10px',
+            color: 'var(--color-status-error)',
+            fontSize: 'var(--font-size-xs)',
+            lineHeight: 1.4,
+        }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                <BrowserGlyph name="triangle-alert" size={11} />
+                {selectedCategoryId === 'plugins' ? 'Could not scan plug-ins' : 'Could not scan folder'}
+            </span>
+            <br />
+            <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
+        </div>
+    )
+}
+{/* Virtual scroll container */ }
+{
+    selectedCategoryId !== 'plugins' ? (
+        <div style={{ height: totalHeight + 20, position: 'relative' }}>
+            {visibleItems.map((item, vi) => {
+                const absIdx = startIdx + vi;
+                const isSelected = selectedItemId === item.id;
+                const isAudio = item.type === 'audio';
+                const isPlugin = item.type === 'plugin';
+                const isDraggable = isAudio || isPlugin;
+                const pluginTypeLabel = item.pluginSource === 'internal'
+                    ? 'Internal'
+                    : item.pluginSource === 'vst3'
+                        ? 'VST3'
+                        : item.pluginSource === 'vst2'
+                            ? 'VST2'
+                            : item.pluginSource === 'au'
+                                ? 'AU'
+                                : (item.format || 'Plugin');
+                const typeLabel = item.isDirectory
+                    ? 'Folder'
+                    : (item.type === 'audio'
+                        ? (item.format || 'Audio').toUpperCase()
+                        : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
+                const sizeLabel = item.sizeBytes && !item.isDirectory
+                    ? (item.sizeBytes >= 1024 * 1024
+                        ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                        : `${Math.round(item.sizeBytes / 1024)} KB`)
+                    : '';
+
+                return (
+                    <div
+                        key={item.id}
+                        ref={(el) => {
+                            itemRowRefs.current[item.id] = el;
+                        }}
+                        onClick={() => {
+                            setContextMenu(null);
+                            if (item.isDirectory && item.path) {
+                                navigateInto(item.path);
+                                return;
+                            }
+
+                            const nextId = selectedItemId === item.id ? null : item.id;
+                            setSelectedItemId(nextId);
+                            syncPreviewForItem(nextId ? item : null);
+                        }}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            if (item.path) {
+                                setContextMenu({ x: e.clientX, y: e.clientY, item });
+                            }
+                        }}
+                        onMouseDown={(e) => {
+                            if (!isDraggable || !item.path || e.button !== 0) return;
+
+                            const startX = e.clientX;
+                            const startY = e.clientY;
+                            const DRAG_THRESHOLD = 5;
+                            let dragStarted = false;
+                            let cancelled = false;
+
+                            const onMove = (me: MouseEvent) => {
+                                const dx = me.clientX - startX;
+                                const dy = me.clientY - startY;
+                                if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                    dragStarted = true;
+                                    // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
+                                    if (fileListRef.current) {
+                                        fileListRef.current.style.pointerEvents = 'none';
+                                        fileListRef.current.style.overflow = 'hidden';
+                                    }
+                                    const knownDuration = isAudio
+                                        ? item.durationSeconds
+                                        ?? audioDurationSecRef.current[item.path!]
+                                        ?? undefined
+                                        : undefined;
+                                    useDragStore.getState().startDrag({
+                                        id: item.id,
+                                        name: item.name,
+                                        type: isPlugin ? 'plugin' : 'audio',
+                                        path: item.path!,
+                                        slotHint: item.slotHint ?? 'auto',
+                                        durationSeconds: knownDuration,
+                                    }, me.clientX, me.clientY);
+
+                                    if (isAudio && knownDuration === undefined) {
+                                        void engineApi.getAudioFileDuration(item.path!)
+                                            .then((durationSeconds) => {
+                                                audioDurationSecRef.current[item.path!] = durationSeconds;
+                                                if (cancelled) return;
+                                                useDragStore.getState().updateDraggingItem({ durationSeconds });
+                                            })
+                                            .catch(() => {
+                                                // Keep drag active even if duration probe fails.
+                                            });
+                                    }
+                                }
+                            };
+                            const onUp = () => {
+                                cancelled = true;
+                                // BUG-2 FIX: Restore pointer-events and overflow on the file list.
+                                if (fileListRef.current) {
+                                    fileListRef.current.style.pointerEvents = '';
+                                    fileListRef.current.style.overflow = '';
+                                }
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                            };
+                            window.addEventListener('mousemove', onMove);
+                            window.addEventListener('mouseup', onUp);
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '4px 8px',
+                            paddingLeft: 8 + (item._depth ?? 0) * 16,
+                            cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
+                            background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                            borderBottom: '1px solid var(--color-divider-light)',
+                            position: 'absolute',
+                            top: absIdx * ROW_HEIGHT,
+                            left: 0,
+                            right: 0,
+                            height: ROW_HEIGHT,
+                            boxSizing: 'border-box',
+                        }}
+                    >
+                        {item.isDirectory ? (
+                            <span style={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', gap: 3 }}>
+                                {item._loading ? (
+                                    <BrowserGlyph name="hourglass" size={9} />
+                                ) : (
+                                    <BrowserGlyph name={item._expanded ? 'chevron-down' : 'chevron-right'} size={9} />
+                                )}
+                                <BrowserGlyph name="folder" size={11} />
+                            </span>
+                        ) : (
+                            <TypeIcon type={item.type} item={item} />
+                        )}
+                        <span style={{
+                            color: 'var(--color-text-primary)',
+                            fontSize: 'var(--font-size-base)',
+                            fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            flex: 1,
+                            minWidth: 0,
+                        }}>
+                            {debouncedQuery.trim()
+                                ? renderHighlightedMatch(item.name, debouncedQuery)
+                                : item.name}
+                        </span>
+                        {showTypeColumn && (
+                            <span style={{
+                                minWidth: 52,
+                                maxWidth: 74,
+                                color: 'var(--color-text-secondary)',
+                                fontSize: 'var(--font-size-xs)',
+                                textAlign: 'left',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                flexShrink: 0,
+                            }}>
+                                {typeLabel}
+                            </span>
+                        )}
+                        {showSizeColumn && (
+                            <span style={{
+                                minWidth: 44,
+                                maxWidth: 56,
+                                color: 'var(--color-text-secondary)',
+                                fontSize: 'var(--font-size-xs)',
+                                textAlign: 'right',
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                            }}>
+                                {sizeLabel}
+                            </span>
+                        )}
+                        {item.isDirectory && (
+                            <span style={{
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                marginLeft: 2,
+                                flexShrink: 0,
+                            }}>
+                                <BrowserGlyph name="chevron-right" size={10} />
+                            </span>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    ) : (
+    <div>
+        {pluginGroupedRows.map((row) => {
+            if (row.kind === 'header') {
+                return (
+                    <div
+                        key={row.id}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '4px 8px',
+                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
+                            borderBottom: '1px solid var(--color-divider-light)',
+                            borderTop: '1px solid var(--color-divider-light)',
+                            position: 'sticky',
+                            top: 24,
+                            zIndex: 'var(--z-local)' as unknown as number,
+                        }}
+                    >
+                        <span style={{
+                            color: 'var(--color-text-primary)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                        }}>
+                            {row.title}
+                        </span>
+                        <span style={{
+                            color: 'var(--color-text-tertiary)',
+                            fontSize: 'var(--font-size-2xs)',
+                            fontFamily: 'var(--font-mono)',
+                        }}>
+                            {row.count}
+                        </span>
+                    </div>
+                );
+            }
+
+            const item = row.item;
+            const isSelected = selectedItemId === item.id;
+            const isAudio = item.type === 'audio';
+            const isPlugin = item.type === 'plugin';
+            const isDraggable = isAudio || isPlugin;
+            const pluginTypeLabel = item.pluginSource === 'internal'
+                ? 'Internal'
+                : item.pluginSource === 'vst3'
+                    ? 'VST3'
+                    : item.pluginSource === 'vst2'
+                        ? 'VST2'
+                        : item.pluginSource === 'au'
+                            ? 'AU'
+                            : (item.format || 'Plugin');
+            const typeLabel = item.isDirectory
+                ? 'Folder'
+                : (item.type === 'audio'
+                    ? (item.format || 'Audio').toUpperCase()
+                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
+            const sizeLabel = item.sizeBytes && !item.isDirectory
+                ? (item.sizeBytes >= 1024 * 1024
+                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                    : `${Math.round(item.sizeBytes / 1024)} KB`)
+                : '';
+
+            return (
+                <div
+                    key={row.id}
+                    ref={(el) => {
+                        itemRowRefs.current[item.id] = el;
+                    }}
+                    onClick={() => {
+                        setContextMenu(null);
+                        const nextId = selectedItemId === item.id ? null : item.id;
+                        setSelectedItemId(nextId);
+                        syncPreviewForItem(nextId ? item : null);
+                    }}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (item.path) {
+                            setContextMenu({ x: e.clientX, y: e.clientY, item });
+                        }
+                    }}
+                    onMouseDown={(e) => {
+                        if (!isDraggable || !item.path || e.button !== 0) return;
+
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        const DRAG_THRESHOLD = 5;
+                        let dragStarted = false;
+
+                        const onMove = (me: MouseEvent) => {
+                            const dx = me.clientX - startX;
+                            const dy = me.clientY - startY;
+                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                dragStarted = true;
+                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
+                                if (fileListRef.current) {
+                                    fileListRef.current.style.pointerEvents = 'none';
+                                    fileListRef.current.style.overflow = 'hidden';
+                                }
+                                useDragStore.getState().startDrag({
+                                    id: item.id,
+                                    name: item.name,
+                                    type: isPlugin ? 'plugin' : 'audio',
+                                    path: item.path!,
+                                    slotHint: item.slotHint ?? 'auto',
+                                    durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
+                                }, me.clientX, me.clientY);
+                            }
+                        };
+                        const onUp = () => {
+                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
+                            if (fileListRef.current) {
+                                fileListRef.current.style.pointerEvents = '';
+                                fileListRef.current.style.overflow = '';
+                            }
+                            window.removeEventListener('mousemove', onMove);
+                            window.removeEventListener('mouseup', onUp);
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
+                    }}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '4px 8px',
+                        cursor: isDraggable ? 'grab' : 'default',
+                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                        borderBottom: '1px solid var(--color-divider-light)',
+                        height: ROW_HEIGHT,
+                        boxSizing: 'border-box',
+                    }}
+                >
+                    <TypeIcon type={item.type} item={item} />
+                    <span style={{
+                        color: 'var(--color-text-primary)',
+                        fontSize: 'var(--font-size-base)',
+                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                        minWidth: 0,
+                    }}>
+                        {item.name}
+                    </span>
+                    {showTypeColumn && (
+                        <span style={{
+                            minWidth: 52,
+                            maxWidth: 74,
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-xs)',
+                            textAlign: 'left',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            flexShrink: 0,
+                        }}>
+                            {typeLabel}
+                        </span>
+                    )}
+                    {showSizeColumn && (
+                        <span style={{
+                            minWidth: 44,
+                            maxWidth: 56,
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-xs)',
+                            textAlign: 'right',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                        }}>
+                            {sizeLabel}
+                        </span>
+                    )}
+                </div>
+            );
+        })}
+    </div>
+)
+}
+{
+    !scanLoading && items.length === 0 && (
+        <div style={{
+            padding: '20px 12px',
+            textAlign: 'center',
+            color: 'var(--color-text-tertiary)',
+            fontSize: 'var(--font-size-xs)',
+        }}>
+            No items found
+        </div>
+    )
+}
+                    </div >
+    );
+});
+
 export const AssetBrowser = () => {
     const settings = useSettingsStore((s) => s.settings);
     const settingsLoaded = useSettingsStore((s) => s.loaded);
     const updateAllSettings = useSettingsStore((s) => s.updateAllSettings);
 
-    const [searchQuery, setSearchQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
-    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Collections (localStorage-backed) ──
     const [collectionItems, setCollectionItems] = useState<Record<CollectionId, Set<string>>>(loadCollections);
@@ -996,18 +1625,7 @@ export const AssetBrowser = () => {
         return /^[A-Z]$/.test(firstChar) ? firstChar : '#';
     }, [selectedCategoryId, selectedItemId, items]);
 
-    // ── Virtual scrolling: only render items visible in viewport ──
-    // ROW_HEIGHT must match the actual rendered row height (padding + content).
-    const ROW_HEIGHT = 28;
-    const OVERSCAN = 8; // extra rows above/below viewport for smooth scroll
-    const [scrollTop, setScrollTop] = useState(0);
-    const [containerHeight, setContainerHeight] = useState(400);
 
-    // Compute visible window
-    const totalHeight = items.length * ROW_HEIGHT;
-    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-    const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
-    const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1046,23 +1664,7 @@ export const AssetBrowser = () => {
         };
     }, []);
 
-    // Measure container height on mount and resize
-    useEffect(() => {
-        const el = fileListRef.current;
-        if (!el) return;
-        const ro = new ResizeObserver(entries => {
-            for (const entry of entries) {
-                setContainerHeight(entry.contentRect.height);
-            }
-        });
-        ro.observe(el);
-        setContainerHeight(el.clientHeight);
-        return () => ro.disconnect();
-    }, []);
 
-    const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        setScrollTop(e.currentTarget.scrollTop);
-    }, []);
 
     // ── Handle Add Folder ──
     const handleAddFolder = useCallback(() => {
@@ -1322,13 +1924,11 @@ export const AssetBrowser = () => {
     const handleBrowserKeyDown = useCallback((e: React.KeyboardEvent) => {
         const activeEl = document.activeElement;
         if (e.key === 'Escape') {
-            if (activeEl === searchRef.current && searchQuery.length > 0) {
+            if (activeEl === searchRef.current && searchRef.current.value.length > 0) {
                 e.preventDefault();
                 e.stopPropagation();
-                setSearchQuery('');
                 setDebouncedQuery('');
-                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-                setScrollTop(0);
+                if (fileListRef.current) fileListRef.current.value = '';
                 if (fileListRef.current) fileListRef.current.scrollTop = 0;
             }
             return;
@@ -1428,36 +2028,14 @@ export const AssetBrowser = () => {
                 borderBottom: '1px solid var(--color-divider)',
                 background: 'var(--color-bg-header)',
             }}>
-                <input
-                    ref={searchRef}
-                    type="text"
-                    placeholder="Search… (⌘F)"
-                    value={searchQuery}
-                    onChange={e => {
-                        const nextQuery = e.target.value;
-                        setSearchQuery(nextQuery);
-                        // Debounce the heavy filtering
-                        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-                        searchTimerRef.current = setTimeout(() => {
-                            setDebouncedQuery(nextQuery);
-                        }, 150);
-                        if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
-                            setSelectedCategoryId('all');
-                        }
-                        setScrollTop(0); if (fileListRef.current) fileListRef.current.scrollTop = 0;
-                    }}
-                    onKeyDown={handleBrowserKeyDown}
-                    style={{
-                        width: '100%',
-                        padding: '6px 10px',
-                        background: 'var(--color-bg-input)',
-                        color: 'var(--color-text-primary)',
-                        border: '1px solid var(--color-border-subtle)',
-                        borderRadius: 'var(--radius-xs)',
-                        fontSize: 'var(--font-size-sm)',
-                        fontFamily: 'var(--font-mono)',
-                        outline: 'none',
-                    }}
+                <AssetSearchInput
+                    debouncedQuery={debouncedQuery}
+                    setDebouncedQuery={setDebouncedQuery}
+                    selectedCategoryId={selectedCategoryId}
+                    setSelectedCategoryId={setSelectedCategoryId}
+                    searchRef={searchRef}
+                    handleBrowserKeyDown={handleBrowserKeyDown}
+                    fileListRef={fileListRef}
                 />
             </div>
 
@@ -1589,7 +2167,7 @@ export const AssetBrowser = () => {
                                 key={cat.id}
                                 onClick={() => {
                                     setSelectedCategoryId(cat.id);
-                                    setScrollTop(0); if (fileListRef.current) fileListRef.current.scrollTop = 0;
+                                    if (fileListRef.current) fileListRef.current.scrollTop = 0;
                                 }}
                                 onContextMenu={cat.removable ? (e) => {
                                     e.preventDefault();
@@ -1851,495 +2429,27 @@ export const AssetBrowser = () => {
                     )}
 
                     {/* File List */}
-                    <div
-                        ref={fileListRef}
-                        className="scrollbar-hide"
-                        onScroll={handleFileListScroll}
-                        onKeyDown={handleBrowserKeyDown}
-                        tabIndex={0}
-                        style={{
-                            flex: 1,
-                            minHeight: 0,
-                            overflowY: 'auto',
-                            overflowX: 'hidden',
-                            outline: 'none',
-                        }}>
-                        <div
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                setColumnMenuPos({ x: e.clientX, y: e.clientY });
-                            }}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '3px 8px',
-                                borderBottom: '1px solid var(--color-divider-light)',
-                                background: 'var(--color-bg-header)',
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
-                                position: 'sticky',
-                                top: 0,
-                                zIndex: 'var(--z-local-raised)' as unknown as number,
-                            }}>
-                            <button
-                                onClick={(e) => {
-                                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                                    setColumnMenuPos((prev) => prev
-                                        ? null
-                                        : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
-                                }}
-                                style={{
-                                    width: 14,
-                                    minWidth: 14,
-                                    background: 'transparent',
-                                    color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                                    border: 'none',
-                                    borderRadius: 'var(--radius-xs)',
-                                    padding: 0,
-                                    fontSize: 'var(--font-size-xs)',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexShrink: 0,
-                                }}
-                                title="Columns"
-                            >
-                                <BrowserGlyph name="settings" size={10} />
-                            </button>
-                            <span style={{ flex: 1, minWidth: 0 }}>Name</span>
-                            {showTypeColumn && (
-                                <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
-                            )}
-                            {showSizeColumn && (
-                                <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
-                            )}
-                        </div>
-                        {/* Scan Status */}
-                        {scanLoading && (
-                            <div style={{
-                                padding: '12px 10px',
-                                textAlign: 'center',
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 'var(--font-size-xs)',
-                                animation: 'pulse 1.5s ease-in-out infinite',
-                            }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <BrowserGlyph name="hourglass" size={11} />
-                                    Scanning…
-                                </span>
-                            </div>
-                        )}
-                        {scanError && !scanLoading && (
-                            <div style={{
-                                padding: '8px 10px',
-                                color: 'var(--color-status-error)',
-                                fontSize: 'var(--font-size-xs)',
-                                lineHeight: 1.4,
-                            }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                                    <BrowserGlyph name="triangle-alert" size={11} />
-                                    {selectedCategoryId === 'plugins' ? 'Could not scan plug-ins' : 'Could not scan folder'}
-                                </span>
-                                <br />
-                                <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
-                            </div>
-                        )}
-                        {/* Virtual scroll container */}
-                        {selectedCategoryId !== 'plugins' ? (
-                            <div style={{ height: totalHeight, position: 'relative' }}>
-                                {visibleItems.map((item, vi) => {
-                                    const absIdx = startIdx + vi;
-                                    const isSelected = selectedItemId === item.id;
-                                    const isAudio = item.type === 'audio';
-                                    const isPlugin = item.type === 'plugin';
-                                    const isDraggable = isAudio || isPlugin;
-                                    const pluginTypeLabel = item.pluginSource === 'internal'
-                                        ? 'Internal'
-                                        : item.pluginSource === 'vst3'
-                                            ? 'VST3'
-                                            : item.pluginSource === 'vst2'
-                                                ? 'VST2'
-                                                : item.pluginSource === 'au'
-                                                    ? 'AU'
-                                                    : (item.format || 'Plugin');
-                                    const typeLabel = item.isDirectory
-                                        ? 'Folder'
-                                        : (item.type === 'audio'
-                                            ? (item.format || 'Audio').toUpperCase()
-                                            : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-                                    const sizeLabel = item.sizeBytes && !item.isDirectory
-                                        ? (item.sizeBytes >= 1024 * 1024
-                                            ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                                            : `${Math.round(item.sizeBytes / 1024)} KB`)
-                                        : '';
-
-                                    return (
-                                        <div
-                                            key={item.id}
-                                            ref={(el) => {
-                                                itemRowRefs.current[item.id] = el;
-                                            }}
-                                            onClick={() => {
-                                                setContextMenu(null);
-                                                if (item.isDirectory && item.path) {
-                                                    navigateInto(item.path);
-                                                    return;
-                                                }
-
-                                                const nextId = selectedItemId === item.id ? null : item.id;
-                                                setSelectedItemId(nextId);
-                                                syncPreviewForItem(nextId ? item : null);
-                                            }}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                if (item.path) {
-                                                    setContextMenu({ x: e.clientX, y: e.clientY, item });
-                                                }
-                                            }}
-                                            onMouseDown={(e) => {
-                                                if (!isDraggable || !item.path || e.button !== 0) return;
-
-                                                const startX = e.clientX;
-                                                const startY = e.clientY;
-                                                const DRAG_THRESHOLD = 5;
-                                                let dragStarted = false;
-                                                let cancelled = false;
-
-                                                const onMove = (me: MouseEvent) => {
-                                                    const dx = me.clientX - startX;
-                                                    const dy = me.clientY - startY;
-                                                    if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                        dragStarted = true;
-                                                        // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
-                                                        if (fileListRef.current) {
-                                                            fileListRef.current.style.pointerEvents = 'none';
-                                                            fileListRef.current.style.overflow = 'hidden';
-                                                        }
-                                                        const knownDuration = isAudio
-                                                            ? item.durationSeconds
-                                                            ?? audioDurationSecRef.current[item.path!]
-                                                            ?? undefined
-                                                            : undefined;
-                                                        useDragStore.getState().startDrag({
-                                                            id: item.id,
-                                                            name: item.name,
-                                                            type: isPlugin ? 'plugin' : 'audio',
-                                                            path: item.path!,
-                                                            slotHint: item.slotHint ?? 'auto',
-                                                            durationSeconds: knownDuration,
-                                                        }, me.clientX, me.clientY);
-
-                                                        if (isAudio && knownDuration === undefined) {
-                                                            void engineApi.getAudioFileDuration(item.path!)
-                                                                .then((durationSeconds) => {
-                                                                    audioDurationSecRef.current[item.path!] = durationSeconds;
-                                                                    if (cancelled) return;
-                                                                    useDragStore.getState().updateDraggingItem({ durationSeconds });
-                                                                })
-                                                                .catch(() => {
-                                                                    // Keep drag active even if duration probe fails.
-                                                                });
-                                                        }
-                                                    }
-                                                };
-                                                const onUp = () => {
-                                                    cancelled = true;
-                                                    // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                                                    if (fileListRef.current) {
-                                                        fileListRef.current.style.pointerEvents = '';
-                                                        fileListRef.current.style.overflow = '';
-                                                    }
-                                                    window.removeEventListener('mousemove', onMove);
-                                                    window.removeEventListener('mouseup', onUp);
-                                                };
-                                                window.addEventListener('mousemove', onMove);
-                                                window.addEventListener('mouseup', onUp);
-                                            }}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8,
-                                                padding: '4px 8px',
-                                                paddingLeft: 8 + (item._depth ?? 0) * 16,
-                                                cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
-                                                background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                                borderBottom: '1px solid var(--color-divider-light)',
-                                                position: 'absolute',
-                                                top: absIdx * ROW_HEIGHT,
-                                                left: 0,
-                                                right: 0,
-                                                height: ROW_HEIGHT,
-                                                boxSizing: 'border-box',
-                                            }}
-                                        >
-                                            {item.isDirectory ? (
-                                                <span style={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', gap: 3 }}>
-                                                    {item._loading ? (
-                                                        <BrowserGlyph name="hourglass" size={9} />
-                                                    ) : (
-                                                        <BrowserGlyph name={item._expanded ? 'chevron-down' : 'chevron-right'} size={9} />
-                                                    )}
-                                                    <BrowserGlyph name="folder" size={11} />
-                                                </span>
-                                            ) : (
-                                                <TypeIcon type={item.type} item={item} />
-                                            )}
-                                            <span style={{
-                                                color: 'var(--color-text-primary)',
-                                                fontSize: 'var(--font-size-base)',
-                                                fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
-                                                flex: 1,
-                                                minWidth: 0,
-                                            }}>
-                                                {searchQuery.trim()
-                                                    ? renderHighlightedMatch(item.name, searchQuery)
-                                                    : item.name}
-                                            </span>
-                                            {showTypeColumn && (
-                                                <span style={{
-                                                    minWidth: 52,
-                                                    maxWidth: 74,
-                                                    color: 'var(--color-text-secondary)',
-                                                    fontSize: 'var(--font-size-xs)',
-                                                    textAlign: 'left',
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    {typeLabel}
-                                                </span>
-                                            )}
-                                            {showSizeColumn && (
-                                                <span style={{
-                                                    minWidth: 44,
-                                                    maxWidth: 56,
-                                                    color: 'var(--color-text-secondary)',
-                                                    fontSize: 'var(--font-size-xs)',
-                                                    textAlign: 'right',
-                                                    whiteSpace: 'nowrap',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    {sizeLabel}
-                                                </span>
-                                            )}
-                                            {item.isDirectory && (
-                                                <span style={{
-                                                    color: 'var(--color-text-tertiary)',
-                                                    fontSize: 'var(--font-size-2xs)',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    marginLeft: 2,
-                                                    flexShrink: 0,
-                                                }}>
-                                                    <BrowserGlyph name="chevron-right" size={10} />
-                                                </span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        ) : (
-                            <div>
-                                {pluginGroupedRows.map((row) => {
-                                    if (row.kind === 'header') {
-                                        return (
-                                            <div
-                                                key={row.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    gap: 8,
-                                                    padding: '4px 8px',
-                                                    background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
-                                                    borderBottom: '1px solid var(--color-divider-light)',
-                                                    borderTop: '1px solid var(--color-divider-light)',
-                                                    position: 'sticky',
-                                                    top: 24,
-                                                    zIndex: 'var(--z-local)' as unknown as number,
-                                                }}
-                                            >
-                                                <span style={{
-                                                    color: 'var(--color-text-primary)',
-                                                    fontSize: 'var(--font-size-xs)',
-                                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                                    textTransform: 'uppercase',
-                                                    letterSpacing: '0.04em',
-                                                }}>
-                                                    {row.title}
-                                                </span>
-                                                <span style={{
-                                                    color: 'var(--color-text-tertiary)',
-                                                    fontSize: 'var(--font-size-2xs)',
-                                                    fontFamily: 'var(--font-mono)',
-                                                }}>
-                                                    {row.count}
-                                                </span>
-                                            </div>
-                                        );
-                                    }
-
-                                    const item = row.item;
-                                    const isSelected = selectedItemId === item.id;
-                                    const isAudio = item.type === 'audio';
-                                    const isPlugin = item.type === 'plugin';
-                                    const isDraggable = isAudio || isPlugin;
-                                    const pluginTypeLabel = item.pluginSource === 'internal'
-                                        ? 'Internal'
-                                        : item.pluginSource === 'vst3'
-                                            ? 'VST3'
-                                            : item.pluginSource === 'vst2'
-                                                ? 'VST2'
-                                                : item.pluginSource === 'au'
-                                                    ? 'AU'
-                                                    : (item.format || 'Plugin');
-                                    const typeLabel = item.isDirectory
-                                        ? 'Folder'
-                                        : (item.type === 'audio'
-                                            ? (item.format || 'Audio').toUpperCase()
-                                            : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-                                    const sizeLabel = item.sizeBytes && !item.isDirectory
-                                        ? (item.sizeBytes >= 1024 * 1024
-                                            ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                                            : `${Math.round(item.sizeBytes / 1024)} KB`)
-                                        : '';
-
-                                    return (
-                                        <div
-                                            key={row.id}
-                                            ref={(el) => {
-                                                itemRowRefs.current[item.id] = el;
-                                            }}
-                                            onClick={() => {
-                                                setContextMenu(null);
-                                                const nextId = selectedItemId === item.id ? null : item.id;
-                                                setSelectedItemId(nextId);
-                                                syncPreviewForItem(nextId ? item : null);
-                                            }}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                if (item.path) {
-                                                    setContextMenu({ x: e.clientX, y: e.clientY, item });
-                                                }
-                                            }}
-                                            onMouseDown={(e) => {
-                                                if (!isDraggable || !item.path || e.button !== 0) return;
-
-                                                const startX = e.clientX;
-                                                const startY = e.clientY;
-                                                const DRAG_THRESHOLD = 5;
-                                                let dragStarted = false;
-
-                                                const onMove = (me: MouseEvent) => {
-                                                    const dx = me.clientX - startX;
-                                                    const dy = me.clientY - startY;
-                                                    if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                        dragStarted = true;
-                                                        // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
-                                                        if (fileListRef.current) {
-                                                            fileListRef.current.style.pointerEvents = 'none';
-                                                            fileListRef.current.style.overflow = 'hidden';
-                                                        }
-                                                        useDragStore.getState().startDrag({
-                                                            id: item.id,
-                                                            name: item.name,
-                                                            type: isPlugin ? 'plugin' : 'audio',
-                                                            path: item.path!,
-                                                            slotHint: item.slotHint ?? 'auto',
-                                                            durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
-                                                        }, me.clientX, me.clientY);
-                                                    }
-                                                };
-                                                const onUp = () => {
-                                                    // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                                                    if (fileListRef.current) {
-                                                        fileListRef.current.style.pointerEvents = '';
-                                                        fileListRef.current.style.overflow = '';
-                                                    }
-                                                    window.removeEventListener('mousemove', onMove);
-                                                    window.removeEventListener('mouseup', onUp);
-                                                };
-                                                window.addEventListener('mousemove', onMove);
-                                                window.addEventListener('mouseup', onUp);
-                                            }}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 8,
-                                                padding: '4px 8px',
-                                                cursor: isDraggable ? 'grab' : 'default',
-                                                background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                                borderBottom: '1px solid var(--color-divider-light)',
-                                                height: ROW_HEIGHT,
-                                                boxSizing: 'border-box',
-                                            }}
-                                        >
-                                            <TypeIcon type={item.type} item={item} />
-                                            <span style={{
-                                                color: 'var(--color-text-primary)',
-                                                fontSize: 'var(--font-size-base)',
-                                                fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
-                                                flex: 1,
-                                                minWidth: 0,
-                                            }}>
-                                                {item.name}
-                                            </span>
-                                            {showTypeColumn && (
-                                                <span style={{
-                                                    minWidth: 52,
-                                                    maxWidth: 74,
-                                                    color: 'var(--color-text-secondary)',
-                                                    fontSize: 'var(--font-size-xs)',
-                                                    textAlign: 'left',
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    {typeLabel}
-                                                </span>
-                                            )}
-                                            {showSizeColumn && (
-                                                <span style={{
-                                                    minWidth: 44,
-                                                    maxWidth: 56,
-                                                    color: 'var(--color-text-secondary)',
-                                                    fontSize: 'var(--font-size-xs)',
-                                                    textAlign: 'right',
-                                                    whiteSpace: 'nowrap',
-                                                    flexShrink: 0,
-                                                }}>
-                                                    {sizeLabel}
-                                                </span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {!scanLoading && items.length === 0 && (
-                            <div style={{
-                                padding: '20px 12px',
-                                textAlign: 'center',
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 'var(--font-size-xs)',
-                            }}>
-                                No items found
-                            </div>
-                        )}
-                    </div>
+                    <VirtualFileList
+                        items={items}
+                        selectedCategoryId={selectedCategoryId}
+                        selectedItemId={selectedItemId}
+                        setSelectedItemId={setSelectedItemId}
+                        syncPreviewForItem={syncPreviewForItem}
+                        setContextMenu={setContextMenu}
+                        navigateInto={navigateInto}
+                        showTypeColumn={showTypeColumn}
+                        showSizeColumn={showSizeColumn}
+                        debouncedQuery={debouncedQuery}
+                        audioDurationSecRef={audioDurationSecRef}
+                        itemRowRefs={itemRowRefs}
+                        fileListRef={fileListRef}
+                        handleBrowserKeyDown={handleBrowserKeyDown}
+                        pluginGroupedRows={pluginGroupedRows}
+                        scanLoading={scanLoading}
+                        scanError={scanError}
+                        columnMenuPos={columnMenuPos}
+                        setColumnMenuPos={setColumnMenuPos}
+                    />
 
                     {/* ── Footer: Preview Panel (RIGHT pane only) ────────── */}
                     <div style={{

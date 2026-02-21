@@ -2111,11 +2111,57 @@ pub fn start_audio_thread_on_device(
                             || pending_track_mute.iter().take(render_ctx.track_slots.len()).any(|v| v.is_some())
                         {
                             let active_track_count = render_ctx.track_slots.len().min(MAX_TRACKS);
-                            any_solo = track_soloed.iter().take(active_track_count).any(|s| *s);
-                            for i in 0..render_ctx.track_slots.len().min(MAX_TRACKS) {
-                                let enabled = !track_disabled[i] && (!any_solo || track_soloed[i]);
+
+                            // ── GROUP-AWARE SOLO PROPAGATION ──
+                            // Enterprise DAW behavior: when a child track inside a group
+                            // is soloed, all parent groups up the routing chain must be
+                            // implicitly enabled. Otherwise the group's output gate
+                            // silences the child's audio (Child → Group → Master path).
+                            //
+                            // Algorithm:
+                            // 1. Start with explicit solo flags from UI.
+                            // 2. For each soloed child, walk up parent chain via
+                            //    routing_snapshot and mark parents as "implicitly soloed".
+                            // 3. Use effective_soloed (explicit OR implicit) for the
+                            //    output_enabled calculation.
+                            let mut effective_soloed = [false; MAX_TRACKS];
+                            effective_soloed[..MAX_TRACKS].copy_from_slice(&track_soloed[..MAX_TRACKS]);
+
+                            let routing_now = routing_snapshot.load();
+                            for child_idx in 0..active_track_count {
+                                if !track_soloed[child_idx] {
+                                    continue;
+                                }
+                                // Walk up the parent chain (depth-limited to prevent cycles).
+                                let mut current = child_idx;
+                                for _ in 0..MAX_TRACKS {
+                                    match routing_now.get(current) {
+                                        Some(Some(parent_idx)) if *parent_idx < active_track_count => {
+                                            effective_soloed[*parent_idx] = true;
+                                            current = *parent_idx;
+                                        }
+                                        _ => break, // Reached master or out-of-bounds
+                                    }
+                                }
+                            }
+
+                            any_solo = effective_soloed.iter().take(active_track_count).any(|s| *s);
+                            for i in 0..active_track_count {
+                                let enabled = !track_disabled[i] && (!any_solo || effective_soloed[i]);
                                 render_ctx.track_slots[i].strip.set_output_enabled(enabled);
                             }
+                            // DEBUG: trace solo state (remove after verification)
+                            log::info!(
+                                "[SOLO-DEBUG] any_solo={} track_count={} explicit={:?} effective={:?} disabled={:?} output_enabled={:?}",
+                                any_solo,
+                                active_track_count,
+                                &track_soloed[..active_track_count],
+                                &effective_soloed[..active_track_count],
+                                &track_disabled[..active_track_count],
+                                (0..active_track_count)
+                                    .map(|i| render_ctx.track_slots[i].strip.is_output_enabled())
+                                    .collect::<Vec<_>>(),
+                            );
                         }
 
                         // Apply at most one topology mutation per callback.

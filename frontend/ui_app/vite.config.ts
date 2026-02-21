@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
+import { agentBridgePlugin } from './src/shared/plugins/agentBridgePlugin'
 
 // ── Auto-Version Plugin ─────────────────────────────────────────
 // Reads version.json and syncs tauri.conf.json + workspace Cargo.toml,
@@ -62,7 +63,6 @@ function autoVersionPlugin() {
   }
 }
 
-import { agentBridgePlugin } from './src/shared/plugins/agentBridgePlugin'
 
 // https://vite.dev/config/
 export default defineConfig({

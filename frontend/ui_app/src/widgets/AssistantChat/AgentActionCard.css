@@ -110,7 +110,7 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SCROLLABLE ACTION LOG — shared by live card and completed expanded card
-   Max ~10 lines visible (160px), auto-scrolls in live mode.
+   Max ~15 lines visible (240px), auto-scrolls in live mode.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .agent-log-scroll {

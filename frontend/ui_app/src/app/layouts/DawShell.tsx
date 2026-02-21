@@ -117,7 +117,9 @@ export const DawShell = () => {
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
     const [_isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
-    const [assistantOpen, setAssistantOpen] = useState(false);
+    const [assistantOpen, setAssistantOpen] = useState(() => {
+        try { return localStorage.getItem('dream-daw:assistant-open') === '1'; } catch { return false; }
+    });
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
     const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
     const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
@@ -338,7 +340,11 @@ export const DawShell = () => {
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
     const handleRecordingStateChange = useCallback((state: { active: boolean; trackIndex: number }) => setRecordingState(state), []);
-    const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => !v), []);
+    const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => {
+        const next = !v;
+        try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
+        return next;
+    }), []);
     const handleSelectTrack = useCallback((id: string) => {
         setSelectedTrackId(id);
         setSelectedTrackIds(id && id !== 'master' ? [id] : []);
@@ -1700,7 +1706,10 @@ export const DawShell = () => {
             {/* ═══ AI ASSISTANT CHAT ═══ */}
             <AssistantChat
                 open={assistantOpen}
-                onClose={() => setAssistantOpen(false)}
+                onClose={() => {
+                    setAssistantOpen(false);
+                    try { localStorage.setItem('dream-daw:assistant-open', '0'); } catch { /* quota */ }
+                }}
                 onSelectClips={setSelectedClipIds}
             />
 

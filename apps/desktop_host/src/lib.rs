@@ -2769,6 +2769,29 @@ impl PluginHostState {
         Ok(())
     }
 
+    /// Gracefully shuts down all loaded plugin instances.
+    ///
+    /// Must be called before the process exits to prevent SIGSEGV crashes
+    /// from third-party plugins whose C++ static destructors access
+    /// released resources during `exit()` teardown.
+    fn shutdown_all_plugins(&self) {
+        log::info!("[PluginHostState] Initiating graceful plugin shutdown...");
+        match self.host.lock() {
+            Ok(mut host) => host.shutdown_all(),
+            Err(e) => log::error!(
+                "[PluginHostState] Failed to acquire plugin host lock for shutdown: {}",
+                e
+            ),
+        }
+        // Also shut down sandbox supervisor to clean up any out-of-process
+        // plugin daemons that may be running.
+        if let Ok(mut sup) = self.sandbox_supervisor.lock() {
+            sup.set_enabled(false);
+            log::info!("[PluginHostState] Sandbox supervisor disabled");
+        }
+        log::info!("[PluginHostState] Plugin shutdown complete");
+    }
+
     fn unbind_slot_instance(&self, slot_id: Uuid) {
         let mut map = self.slot_instance_map.load_full().as_ref().clone();
         map.remove(&slot_id);
@@ -4381,9 +4404,28 @@ pub fn run() {
             );
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .unwrap_or_else(|err| {
-            log::error!("Fatal: failed to launch Dream DAW: {err}");
+            log::error!("Fatal: failed to build Dream DAW: {err}");
+            std::process::exit(1);
+        })
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // ── Graceful plugin shutdown ──────────────────────────────
+                // Third-party VST3 plugins (e.g. Slate Digital's SlateCore)
+                // register C++ static destructors / atexit handlers that
+                // try to use Objective-C objects during `exit()` teardown.
+                // If plugins are still loaded when `process::exit()` fires,
+                // their destructors hit nil ObjC pointers → SIGSEGV.
+                //
+                // By deactivating and dropping all plugin instances HERE
+                // (before the process exits), their COM release / C++
+                // destructor code runs in a safe, well-defined order.
+                log::info!("[Dream DAW] RunEvent::Exit — initiating graceful shutdown");
+                let plugin_state: tauri::State<'_, PluginHostState> = app_handle.state();
+                plugin_state.shutdown_all_plugins();
+                log::info!("[Dream DAW] Graceful shutdown complete, exiting");
+            }
         });
 }
 

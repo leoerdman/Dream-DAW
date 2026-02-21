@@ -189,6 +189,12 @@ impl DspProcessor for BitcrusherProcessor {
 
             left[i] = dry_l * (1.0 - self.mix) + self.post_state_l * self.mix;
             right[i] = dry_r * (1.0 - self.mix) + self.post_state_r * self.mix;
+
+            // AUD-132 FIX: Flush denormals in pre/post LP filter states.
+            if self.pre_state_l.abs() < 1e-20 { self.pre_state_l = 0.0; }
+            if self.pre_state_r.abs() < 1e-20 { self.pre_state_r = 0.0; }
+            if self.post_state_l.abs() < 1e-20 { self.post_state_l = 0.0; }
+            if self.post_state_r.abs() < 1e-20 { self.post_state_r = 0.0; }
         }
     }
 

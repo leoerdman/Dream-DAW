@@ -289,13 +289,19 @@ impl StreamingWindow {
 
         let mut any_hit = false;
         let mut chunk_idx_hint = 0;
+        // STAGE3-03 FIX: Hoist invariant out of per-sample loop.
+        // total_frames doesn't change during render — computing max_pos
+        // per sample wastes a saturating_sub + cast on every iteration.
+        let max_pos = (self.total_frames.saturating_sub(1)) as f64;
+        if max_pos < 0.0 {
+            return false;
+        }
 
         for i in 0..write_frames {
             let src_pos = source_start + (i as f64) * rate;
             let out_idx = out_offset + i;
 
-            let max_pos = (self.total_frames.saturating_sub(1)) as f64;
-            if !src_pos.is_finite() || max_pos < 0.0 { continue; }
+            if !src_pos.is_finite() { continue; }
             let clamped = src_pos.clamp(0.0, max_pos);
             let frame0 = clamped.floor() as i64;
             let frame1 = (frame0 + 1).min(self.total_frames.saturating_sub(1));

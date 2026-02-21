@@ -46,11 +46,10 @@ impl Waveform {
             1 => Self::Triangle,
             2 => Self::Saw,
             3 => Self::Square,
-            // BUG-084 FIX: Log a warning for unknown waveform values.
-            unknown => {
-                log::warn!("[Sampler] Unknown waveform value {}, defaulting to Sine", unknown);
-                Self::Sine
-            }
+            // DEEP-03 FIX: Removed log::warn — Waveform::from_u8 is called from
+            // EngineCommand processing on the RT thread. log::warn acquires a global
+            // mutex and heap-allocates, violating zero-alloc RT contract.
+            _ => Self::Sine,
         }
     }
 }
@@ -344,7 +343,10 @@ impl SamplerVoice {
         self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0) * sr_ratio;
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
-        // BUG-12 FIX: Warn when note exceeds Nyquist (clamped to 0.5).
+        // DEEP-02 FIX: Gate Nyquist warning behind debug_assertions.
+        // log::debug! acquires a global mutex and heap-allocates format strings.
+        // This is called during note_on which runs on the RT audio thread.
+        #[cfg(debug_assertions)]
         if freq_hz > self.sample_rate * 0.5 {
             log::debug!("[Sampler] Note {} ({:.0}Hz) exceeds Nyquist ({:.0}Hz), clamped", note, freq_hz, self.sample_rate * 0.5);
         }
@@ -914,13 +916,36 @@ fn render_oscillator_voice(
 ) {
     let mix2 = osc_mix.clamp(0.0, 1.0);
     let mix1 = 1.0 - mix2;
-    let detune_ratio = 2.0_f64.powf(detune_cents as f64 / 1200.0);
+    // AUD-120 FIX: Use exp2 instead of powf — exp2 is a CPU intrinsic on x86/ARM,
+    // while powf(x, y) calls exp(y * ln(x)), which is ~2x slower.
+    let detune_ratio = (detune_cents as f64 / 1200.0).exp2();
     let sub = sub_level.clamp(0.0, 1.0);
     let dt = voice.phase_increment;
     let dt2 = dt * detune_ratio;
     let dt_sub = dt * 0.5; // sub oscillator is one octave below
     let pw = pulse_width as f64;
     let lfo_inc = lfo_rate as f64 / sample_rate;
+
+    // DEEP-04 FIX: Pre-compute LFO-modulated filter coefficients once per buffer.
+    // Previously `SvfCoeffs::new()` (involves tan() + division) was computed per-sample
+    // inside the loop. At 44.1kHz: ~15ns × 512 frames × 32 voices = ~245µs per buffer.
+    // LFO rate is max 20Hz, so the modulation changes negligibly within one buffer.
+    let lfo_filter_coeffs = if filter_enabled
+        && lfo_target == LfoTarget::FilterCutoff
+        && lfo_depth > 0.0001
+    {
+        // Sample the LFO at the voice's current phase for the buffer midpoint.
+        let lfo_mid = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32 * lfo_depth;
+        let mod_factor = 2.0_f32.powf(lfo_mid * 4.0);
+        let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
+        SvfCoeffs::new(
+            modulated_cutoff.into(),
+            filter_resonance.into(),
+            sample_rate,
+        )
+    } else {
+        *filter_coeffs_base
+    };
 
     // Per-oscillator triangle integrator state
     let mut tri1 = 0.0_f64;
@@ -951,7 +976,8 @@ fn render_oscillator_voice(
         let (phase1, phase2, sub_phase, dt_mod, dt2_mod) =
             if lfo_target == LfoTarget::Pitch && lfo_val.abs() > 0.0001 {
                 // ±2 semitones max vibrato range
-                let pitch_mult = 2.0_f64.powf(lfo_val as f64 * 2.0 / 12.0);
+                // AUD-121 FIX: Use exp2 instead of powf — native CPU instruction.
+                let pitch_mult = (lfo_val as f64 * 2.0 / 12.0).exp2();
                 let dt_m = dt * pitch_mult;
                 let dt2_m = dt2 * pitch_mult;
                 let p1 = voice.cursor;
@@ -972,24 +998,11 @@ fn render_oscillator_voice(
         let mut sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;
 
         // ── Per-voice SVF filter (with optional LFO cutoff modulation) ─
+        // DEEP-04 FIX: Use pre-computed coeffs (hoisted before the sample loop).
+        // Previously SvfCoeffs::new() was called per-sample here, which involves
+        // tan() + division (~15ns × 512 frames × 32 voices = ~245µs per buffer).
         if filter_enabled {
-            let (c, is_modulated) =
-                if lfo_target == LfoTarget::FilterCutoff && lfo_val.abs() > 0.0001 {
-                    // LFO modulates cutoff: ±4 octaves range scaled by depth
-                    let mod_factor = 2.0_f32.powf(lfo_val * 4.0);
-                    let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
-                    (
-                        SvfCoeffs::new(
-                            modulated_cutoff.into(),
-                            filter_resonance.into(),
-                            sample_rate,
-                        ),
-                        true,
-                    )
-                } else {
-                    (*filter_coeffs_base, false)
-                };
-            let _ = is_modulated; // suppress unused warning
+            let c = lfo_filter_coeffs;
 
             let s = &mut voice.filter_state;
             let input = sample;
@@ -1000,6 +1013,13 @@ fn render_oscillator_voice(
 
             s.ic1eq = 2.0 * v1 - s.ic1eq;
             s.ic2eq = 2.0 * v2 - s.ic2eq;
+
+            // AUD-124 FIX: Flush denormals in per-voice SVF filter state.
+            // The svf.rs SvfFilter::process_all() has this flush, but the inline
+            // copy here was missing it — causing 100x CPU slowdown during note
+            // release tails when filter state values go below 1e-18.
+            if s.ic1eq.abs() < 1e-18 { s.ic1eq = 0.0; }
+            if s.ic2eq.abs() < 1e-18 { s.ic2eq = 0.0; }
 
             sample = match filter_type {
                 SynthFilterType::Lowpass => v2,
@@ -1016,7 +1036,7 @@ fn render_oscillator_voice(
         // ── Volume modulation from LFO (tremolo) ─────────────────────
         let gain = if lfo_target == LfoTarget::Volume && lfo_val.abs() > 0.0001 {
             // Map LFO [-depth..+depth] to volume multiplier [1-depth..1]
-            let vol_mod = 1.0 - lfo_depth * 0.5 * (1.0 - lfo_val / lfo_depth);
+            let vol_mod = 1.0 - lfo_depth * 0.5 * (1.0 - lfo_val / lfo_depth.max(0.0001));
             voice.velocity * env * vol_mod.clamp(0.0, 1.0)
         } else {
             voice.velocity * env

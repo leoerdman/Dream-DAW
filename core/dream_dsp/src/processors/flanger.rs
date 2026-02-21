@@ -111,7 +111,11 @@ impl FlangerProcessor {
     #[inline]
     fn lfo(&self, phase: f32, shape: u8, sh_value: f32) -> f32 {
         match shape {
-            0 | _ => {
+            1 => 1.0 - 4.0 * (phase - 0.5).abs(),
+            2 => 2.0 * phase - 1.0,
+            3 => sh_value,
+            _ => {
+                // 0 (Sine) or any unknown: Bhaskara fast sine approximation
                 let p = phase.fract();
                 let (t, sign) = if p < 0.5 {
                     (p * 2.0, 1.0f32)
@@ -121,9 +125,6 @@ impl FlangerProcessor {
                 let t2 = t * (1.0 - t);
                 sign * (16.0 * t2) / (5.0 - 4.0 * t2)
             }
-            1 => 1.0 - 4.0 * (phase - 0.5).abs(),
-            2 => 2.0 * phase - 1.0,
-            3 => sh_value,
         }
     }
 

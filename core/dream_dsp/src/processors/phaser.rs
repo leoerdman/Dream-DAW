@@ -74,16 +74,6 @@ impl PhaserProcessor {
     #[inline]
     fn lfo(phase: f32, shape: u8) -> f32 {
         match shape {
-            0 | _ => {
-                let p = phase.fract();
-                let (t, sign) = if p < 0.5 {
-                    (p * 2.0, 1.0f32)
-                } else {
-                    ((p - 0.5) * 2.0, -1.0)
-                };
-                let t2 = t * (1.0 - t);
-                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
-            }
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),
             2 => 2.0 * phase - 1.0,
             3 => {
@@ -92,6 +82,17 @@ impl PhaserProcessor {
                 } else {
                     -1.0
                 }
+            }
+            _ => {
+                // 0 (Sine) or any unknown: Bhaskara fast sine approximation
+                let p = phase.fract();
+                let (t, sign) = if p < 0.5 {
+                    (p * 2.0, 1.0f32)
+                } else {
+                    ((p - 0.5) * 2.0, -1.0)
+                };
+                let t2 = t * (1.0 - t);
+                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
             }
         }
     }
@@ -157,6 +158,13 @@ impl DspProcessor for PhaserProcessor {
             for s in 0..stages {
                 out_l = Self::allpass(out_l, &mut self.ap_state_l[s], coeff_l);
                 out_r = Self::allpass(out_r, &mut self.ap_state_r[s], coeff_r);
+            }
+
+            // AUD-130 FIX: Flush denormals in allpass states to prevent
+            // 100× CPU slowdown on x86 during quiet passages.
+            for s in 0..stages {
+                if self.ap_state_l[s].abs() < 1e-18 { self.ap_state_l[s] = 0.0; }
+                if self.ap_state_r[s].abs() < 1e-18 { self.ap_state_r[s] = 0.0; }
             }
 
             self.fb_l = if out_l.is_finite() {

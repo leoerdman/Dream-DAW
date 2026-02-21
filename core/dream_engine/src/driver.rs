@@ -313,6 +313,7 @@ pub struct SharedRtDebugStats {
     plugin_host_lock_miss_total: AtomicU64,
     queue_full_reject_total: AtomicU64,
     deferred_topology_len_last: AtomicU64,
+    topology_overflow_total: AtomicU64,
 }
 
 impl SharedRtDebugStats {
@@ -329,6 +330,7 @@ impl SharedRtDebugStats {
             plugin_host_lock_miss_total: AtomicU64::new(0),
             queue_full_reject_total: AtomicU64::new(0),
             deferred_topology_len_last: AtomicU64::new(0),
+            topology_overflow_total: AtomicU64::new(0),
         }
     }
 
@@ -381,6 +383,12 @@ impl SharedRtDebugStats {
         self.plugin_host_lock_miss_total.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// RT-SAFE topology overflow counter. Replaces log::warn! which
+    /// would acquire a global Mutex inside the audio callback.
+    fn record_topology_overflow(&self) {
+        self.topology_overflow_total.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn snapshot(&self) -> RtDebugSnapshot {
         RtDebugSnapshot {
             enabled: self.is_enabled(),
@@ -394,6 +402,7 @@ impl SharedRtDebugStats {
             plugin_host_lock_miss_total: self.plugin_host_lock_miss_total.load(Ordering::Relaxed),
             queue_full_reject_total: self.queue_full_reject_total.load(Ordering::Relaxed),
             deferred_topology_len_last: self.deferred_topology_len_last.load(Ordering::Relaxed),
+            topology_overflow_total: self.topology_overflow_total.load(Ordering::Relaxed),
         }
     }
 }
@@ -417,6 +426,7 @@ pub struct RtDebugSnapshot {
     pub plugin_host_lock_miss_total: u64,
     pub queue_full_reject_total: u64,
     pub deferred_topology_len_last: u64,
+    pub topology_overflow_total: u64,
 }
 
 // ── Shared Automation Snapshot (LOCK-FREE) ─────────────────────────────
@@ -1728,7 +1738,11 @@ pub fn start_audio_thread_on_device(
                                     if !play {
                                         for idx in 0..sampler_engines.len() {
                                             sampler_engines[idx].all_notes_off();
-                                            midi_note_states[idx] = MidiNoteMapState::default();
+                                            // DEEP-01 FIX: Reuse existing Vec allocation instead of
+                                            // constructing a new MidiNoteMapState (which heap-allocates
+                                            // Vec::with_capacity(128) and drops the old Vec on the RT thread).
+                                            midi_note_states[idx].active_notes.clear();
+                                            midi_note_states[idx].rng_state = 0xA5A5_1337;
                                         }
                                         // BUG-012 FIX: Flush all tracks on transport stop.
                                         vst3_flush_per_track.fill(true);
@@ -1751,7 +1765,9 @@ pub fn start_audio_thread_on_device(
                                     // Prevent stuck/stacked notes after timeline jumps.
                                     for idx in 0..sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
-                                        midi_note_states[idx] = MidiNoteMapState::default();
+                                        // DEEP-07 FIX: Same as DEEP-01 — reuse existing Vec allocation.
+                                        midi_note_states[idx].active_notes.clear();
+                                        midi_note_states[idx].rng_state = 0xA5A5_1337;
                                     }
                                     // BUG-012 FIX: Flush all tracks on seek.
                                     vst3_flush_per_track.fill(true);
@@ -2029,7 +2045,9 @@ pub fn start_audio_thread_on_device(
                                     effect_type,
                                 } => {
                                     if deferred_topology.len() >= 1024 {
-                                        log::warn!("[RT] deferred_topology full — dropping oldest topology command");
+                                        // RT-SAFETY: Never log from the audio callback.
+                                        // Atomic counter avoids the global Mutex in log backends.
+                                        rt_debug_stats.record_topology_overflow();
                                         let _ = deferred_topology.pop_front();
                                     }
                                     deferred_topology.push_back(DeferredTopologyCmd::Add {
@@ -2043,7 +2061,7 @@ pub fn start_audio_thread_on_device(
                                     slot_index,
                                 } => {
                                     if deferred_topology.len() >= 1024 {
-                                        log::warn!("[RT] deferred_topology full — dropping oldest topology command");
+                                        rt_debug_stats.record_topology_overflow();
                                         let _ = deferred_topology.pop_front();
                                     }
                                     deferred_topology.push_back(DeferredTopologyCmd::Remove {
@@ -2139,18 +2157,6 @@ pub fn start_audio_thread_on_device(
                                 let enabled = !track_disabled[i] && (!any_solo || effective_soloed[i]);
                                 render_ctx.track_slots[i].strip.set_output_enabled(enabled);
                             }
-                            // DEBUG: trace solo state (remove after verification)
-                            log::info!(
-                                "[SOLO-DEBUG] any_solo={} track_count={} explicit={:?} effective={:?} disabled={:?} output_enabled={:?}",
-                                any_solo,
-                                active_track_count,
-                                &track_soloed[..active_track_count],
-                                &effective_soloed[..active_track_count],
-                                &track_disabled[..active_track_count],
-                                (0..active_track_count)
-                                    .map(|i| render_ctx.track_slots[i].strip.is_output_enabled())
-                                    .collect::<Vec<_>>(),
-                            );
                         }
 
                         // Apply at most one topology mutation per callback.
@@ -2384,7 +2390,9 @@ pub fn start_audio_thread_on_device(
                                     ));
                                 }
                             }
-                            midi_events_scratch.sort_by(|a, b| {
+                            // RT-SAFETY: sort_unstable_by is zero-alloc (pdqsort).
+                            // sort_by (merge sort) allocates a temp buffer on the heap.
+                            midi_events_scratch.sort_unstable_by(|a, b| {
                                 a.0.cmp(&b.0)
                                     .then_with(|| a.1.cmp(&b.1))  // note-off before note-on at same frame
                                     .then_with(|| a.2.cmp(&b.2))  // sort by pitch for determinism
@@ -2803,11 +2811,10 @@ pub fn start_audio_thread_on_device(
                                                 // appears before a note-on at offset 0.
                                                 // Tie-break: note-off (0x80) before note-on (0x90)
                                                 // at the same offset ensures clean retrigger.
-                                                vst3_midi_scratch.sort_by(|a, b| {
+                                                // RT-SAFETY: sort_unstable_by is zero-alloc (pdqsort).
+                                                vst3_midi_scratch.sort_unstable_by(|a, b| {
                                                     a.sample_offset.cmp(&b.sample_offset)
                                                         .then_with(|| {
-                                                            // Note-off status byte (0x80) < note-on (0x90)
-                                                            // so ascending sort naturally puts off first.
                                                             a.data[0].cmp(&b.data[0])
                                                         })
                                                 });

@@ -630,15 +630,29 @@ export const PianoRoll = memo(function PianoRoll({
         if (!gridEl) return;
         const nh = noteHeightRef.current;
         requestAnimationFrame(() => {
-            // Restore saved scroll position for this track, or center on C3
+            // Restore saved scroll position for this track, or center on notes
             const saved = trackIndex != null ? _scrollTopByTrack.get(trackIndex) : undefined;
             if (saved != null) {
                 gridEl.scrollTop = saved;
                 if (kbEl) kbEl.scrollTop = saved;
             } else {
-                const focusPitch = visiblePitches.includes(DEFAULT_FOCUS_PITCH)
-                    ? DEFAULT_FOCUS_PITCH
-                    : visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
+                // AUTO-FOCUS: Compute the median pitch of existing notes
+                // so the Piano Roll opens centered on the actual note content
+                // instead of always defaulting to C3 (MIDI 60).
+                let focusPitch: number;
+                if (notes.length > 0) {
+                    const sortedPitches = notes.map(n => n.pitch).sort((a, b) => a - b);
+                    const mid = Math.floor(sortedPitches.length / 2);
+                    focusPitch = sortedPitches.length % 2 === 0
+                        ? Math.round((sortedPitches[mid - 1] + sortedPitches[mid]) / 2)
+                        : sortedPitches[mid];
+                } else {
+                    focusPitch = DEFAULT_FOCUS_PITCH;
+                }
+                // Ensure the focus pitch is in the visible set
+                if (!visiblePitches.includes(focusPitch)) {
+                    focusPitch = visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
+                }
                 const targetY = pitchToY(focusPitch);
                 if (targetY < 0) return; // pitch not visible
                 const centered = Math.max(0, targetY - gridEl.clientHeight * 0.5 + nh * 0.5);

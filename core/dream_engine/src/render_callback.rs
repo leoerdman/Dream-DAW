@@ -261,6 +261,12 @@ impl RenderContext {
         } else {
             self.sample_rate
         };
+        // PERF FIX: Skip rebuild when SR hasn't changed. toggle_playback sends
+        // SetTimelineSampleRate before every play, which previously reconstructed
+        // FadeCache (Vec allocation) on the RT thread causing a first-buffer stutter.
+        if (self.timeline_sample_rate - sr).abs() < 0.01 {
+            return;
+        }
         self.timeline_sample_rate = sr;
         self.playhead.set_sample_rate(sr);
         // AUD-087: Accumulator reset is intentional here —

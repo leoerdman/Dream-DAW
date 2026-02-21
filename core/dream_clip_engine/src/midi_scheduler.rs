@@ -245,15 +245,20 @@ impl MidiScheduler {
             let frames_to_end = (lr.end - current_playhead).max(0) as usize;
             let chunk_frames = frames_remaining.min(frames_to_end);
             
-            if chunk_frames > 0 {
-                Self::fill_active(clips, current_playhead, chunk_frames, tmp);
-                for mut note in tmp.iter().copied() {
-                    note.buffer_onset += current_buffer_offset;
-                    note.buffer_offset_end += current_buffer_offset;
-                    note.buffer_onset = note.buffer_onset.min(frame_count);
-                    note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
-                    out.push(note);
-                }
+            // STAGE3-02 FIX: Same infinite loop guard as scheduler.rs STAGE3-01.
+            // If current_playhead == lr.end, chunk_frames is 0 and the loop spins forever.
+            if chunk_frames == 0 {
+                current_playhead = lr.start;
+                continue;
+            }
+
+            Self::fill_active(clips, current_playhead, chunk_frames, tmp);
+            for mut note in tmp.iter().copied() {
+                note.buffer_onset += current_buffer_offset;
+                note.buffer_offset_end += current_buffer_offset;
+                note.buffer_onset = note.buffer_onset.min(frame_count);
+                note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
+                out.push(note);
             }
             
             frames_remaining -= chunk_frames;

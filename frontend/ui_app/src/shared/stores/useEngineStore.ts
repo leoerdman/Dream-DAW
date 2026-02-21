@@ -126,6 +126,9 @@ const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
 let projectFetchSeq = 0;
+/** Re-entry guard: prevents recursive fetchProject calls triggered by
+ *  synchronous React re-renders inside zustand's set() → useSyncExternalStore. */
+let _isFetchingProject = false;
 /** Timestamp (ms) until which telemetry BPM updates are suppressed (BUG-3 fix). */
 let _bpmPendingUntil = 0;
 const PROJECT_HISTORY_WINDOW = 256;
@@ -612,6 +615,15 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // ── Project Sync ───────────────────────────────────────────────────
 
     fetchProject: async (reason: string = 'manual') => {
+        // BUG-FIX: Re-entry guard prevents infinite loop.
+        // zustand set() → useSyncExternalStore → synchronous React re-render →
+        // Tauri IPC callback resolves → fetchProject called again → "Maximum
+        // update depth exceeded". The lock breaks this synchronous cycle.
+        if (_isFetchingProject) {
+            console.debug(`[fetchProject] BLOCKED re-entry reason="${reason}" — already in progress`);
+            return;
+        }
+        _isFetchingProject = true;
         const requestSeq = ++projectFetchSeq;
         console.debug(`[fetchProject] START #${requestSeq} reason="${reason}"`);
         if (DEBUG_PROJECT_FETCH) {
@@ -908,6 +920,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             if (DEBUG_PROJECT_FETCH) {
                 console.debug(`[ProjectFetch] error #${requestSeq} reason=${reason}`);
             }
+        } finally {
+            _isFetchingProject = false;
         }
     },
 
@@ -953,8 +967,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         set({ telemetryRunning: true });
         let tickCounter = 0;
 
-        // Fetch project once at startup
-        get().fetchProject('telemetry-startup');
+        // BUG-FIX: Defer initial fetchProject to break synchronous re-render cascade.
+        // Calling fetchProject synchronously here triggers zustand set() → React
+        // forceStoreRerender → component re-renders → Maximum update depth exceeded.
+        // queueMicrotask keeps the same initialization semantics (runs before next
+        // paint) while breaking the synchronous call stack.
+        queueMicrotask(() => {
+            void get().fetchProject('telemetry-startup');
+        });
 
         void (async () => {
             try {

@@ -138,12 +138,18 @@ impl ClipScheduler {
             let frames_to_end = (loop_region.end - current_playhead).max(0) as usize;
             let chunk_frames = frames_remaining.min(frames_to_end);
             
-            if chunk_frames > 0 {
-                Self::fill_active(clips, current_playhead, chunk_frames, tmp);
-                for mut clip in tmp.iter().copied() {
-                    clip.buffer_offset += current_buffer_offset;
-                    out.push(clip);
-                }
+            // STAGE3-01 FIX: If current_playhead is exactly at loop_region.end,
+            // frames_to_end is 0, chunk_frames is 0, and frames_remaining never
+            // decreases — causing an infinite loop on the RT thread.
+            if chunk_frames == 0 {
+                current_playhead = loop_region.start;
+                continue;
+            }
+
+            Self::fill_active(clips, current_playhead, chunk_frames, tmp);
+            for mut clip in tmp.iter().copied() {
+                clip.buffer_offset += current_buffer_offset;
+                out.push(clip);
             }
             
             frames_remaining -= chunk_frames;

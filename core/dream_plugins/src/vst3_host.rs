@@ -5278,6 +5278,48 @@ impl PluginHost {
         Ok(())
     }
 
+    /// Gracefully shuts down all loaded plugin instances.
+    ///
+    /// This method **must** be called before the process exits to prevent
+    /// SIGSEGV crashes caused by third-party C++ plugins whose static
+    /// destructors attempt to use resources that are already torn down
+    /// during `exit()` (e.g., SlateCore sending ObjC messages to nil objects).
+    ///
+    /// Each instance is closed (editor) and deactivated in reverse order.
+    /// Errors are logged but do not halt the teardown of remaining instances —
+    /// resilience is critical here since we are shutting down.
+    pub fn shutdown_all(&mut self) {
+        let count = self.instances.len();
+        if count == 0 {
+            info!("[PluginHost] shutdown_all — no instances to tear down");
+            return;
+        }
+        info!("[PluginHost] shutdown_all — tearing down {} instance(s)", count);
+
+        // Drain in reverse order — last loaded, first unloaded.
+        while let Some(mut instance) = self.instances.pop() {
+            let id = instance.id();
+            let name = instance.descriptor().name.clone();
+
+            if let Err(e) = instance.close_editor() {
+                log::warn!(
+                    "[PluginHost] shutdown_all: close_editor failed for '{}' ({}): {}",
+                    name, id, e
+                );
+            }
+            if let Err(e) = instance.deactivate() {
+                log::warn!(
+                    "[PluginHost] shutdown_all: deactivate failed for '{}' ({}): {}",
+                    name, id, e
+                );
+            }
+            info!("[PluginHost] shutdown_all: released '{}' ({})", name, id);
+        }
+
+        self.instance_index.clear();
+        info!("[PluginHost] shutdown_all — complete, all instances released");
+    }
+
     /// Returns the number of active instances.
     pub fn instance_count(&self) -> usize {
         self.instances.len()

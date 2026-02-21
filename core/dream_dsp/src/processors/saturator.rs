@@ -228,6 +228,15 @@ impl DspProcessor for SaturatorProcessor {
             let wet_r = toned_r * out;
             left[i] = dry_l * (1.0 - self.mix) + wet_l * self.mix;
             right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
+
+            // AUD-131 FIX: Flush denormals in tone LP, DC blocker, and pre-emphasis
+            // states to prevent CPU stalls on x86 during prolonged silence.
+            if self.tone_l.state.abs() < 1e-20 { self.tone_l.state = 0.0; }
+            if self.tone_r.state.abs() < 1e-20 { self.tone_r.state = 0.0; }
+            if self.dc_y_l.abs() < 1e-20 { self.dc_y_l = 0.0; }
+            if self.dc_y_r.abs() < 1e-20 { self.dc_y_r = 0.0; }
+            if self.pre_state_l.abs() < 1e-20 { self.pre_state_l = 0.0; }
+            if self.pre_state_r.abs() < 1e-20 { self.pre_state_r = 0.0; }
         }
     }
 

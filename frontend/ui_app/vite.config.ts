@@ -23,6 +23,9 @@ function autoVersionPlugin() {
       // - version.json is the single source of truth
       // - on each production build, bump patch by +1 from CURRENT stored value
       // - manual edits to major/minor/patch become the next baseline automatically
+      // Auto-increment patch on every build/serve.
+      // version.json is the SSOT — manual edits to major/minor/patch
+      // become the next baseline automatically.
       if (env.command === 'build' || env.command === 'serve') {
         ver.patch = Number.isFinite(ver.patch) ? Math.max(0, Math.floor(ver.patch)) + 1 : 1
         writeFileSync(versionPath, JSON.stringify(ver, null, 2) + '\n')

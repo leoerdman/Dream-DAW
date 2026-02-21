@@ -9,6 +9,7 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
 import * as engineApi from '@/shared/api/engine';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -298,9 +299,69 @@ const TOOLS = [
             },
         },
     },
+    // ── MIDI Composition Tools ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_midi_track',
+            description: 'Add a new MIDI track to the project. Returns the new track index. Optionally provide a name.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Track name (optional)' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'create_midi_clip',
+            description: 'Create an empty MIDI clip on a track. Position and duration are in BEATS (will be converted to frames automatically). Returns the clip_id to use with set_clip_notes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based track index' },
+                    startBeat: { type: 'number', description: 'Start position in beats (e.g. 0 for bar 1, 4 for bar 2)' },
+                    durationBeats: { type: 'number', description: 'Duration in beats (e.g. 4 for 1 bar, 8 for 2 bars)' },
+                    name: { type: 'string', description: 'Clip name (optional)' },
+                },
+                required: ['trackIndex', 'startBeat', 'durationBeats'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_clip_notes',
+            description: 'Set MIDI notes in a clip. Each note has pitch (0-127, C4=60, kick=36, snare=38, hihat=42), velocity (1-127), startBeat (beat offset within clip, 0-based), durationBeats. For DnB: use 170-180 BPM, put kick on beats 0 and 2.5, snare on 1 and 3.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    clipId: { type: 'string', description: 'Clip UUID from create_midi_clip' },
+                    notes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                pitch: { type: 'number', description: 'MIDI note 0-127 (C4=60, kick=36, snare=38, closed hihat=42, open hihat=46, ride=51, crash=49)' },
+                                velocity: { type: 'number', description: '1-127' },
+                                startBeat: { type: 'number', description: 'Beat offset within clip (0-based)' },
+                                durationBeats: { type: 'number', description: 'Note duration in beats' },
+                            },
+                            required: ['pitch', 'velocity', 'startBeat', 'durationBeats'],
+                        },
+                        description: 'Array of MIDI notes',
+                    },
+                },
+                required: ['clipId', 'notes'],
+            },
+        },
+    },
 ];
 
-import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
+
 
 // ─── Resolve track index ────────────────────────────────────────────────────
 
@@ -311,7 +372,7 @@ function resolveTrackIndex(track: string): number {
     const found = tracks.findIndex(
         (t) => t.name.toLowerCase() === track.toLowerCase(),
     );
-    return found >= 0 ? found : 0;
+    return found >= 0 ? found : -1;
 }
 
 // ─── Execute tool ───────────────────────────────────────────────────────────
@@ -471,6 +532,49 @@ async function executeTool(
         case 'set_master_volume':
             await engineApi.setMasterVolume(args.volume as number);
             return JSON.stringify({ masterVolume: args.volume });
+
+        // ── MIDI Composition Tools ──
+        case 'add_midi_track': {
+            const trackName = (args.name as string) || undefined;
+            await engineApi.addTrackAdvanced('midi', null, trackName);
+            // Return the new track's index (it's appended at the end)
+            const updatedState = useEngineStore.getState();
+            const newIdx = updatedState.projectTracks.length - 1;
+            return JSON.stringify({ added: true, trackIndex: newIdx, name: trackName || `Track ${newIdx + 1}` });
+        }
+
+        case 'create_midi_clip': {
+            const tIdx = args.trackIndex as number;
+            const startBeat = args.startBeat as number;
+            const durBeats = args.durationBeats as number;
+            const clipName = (args.name as string) || undefined;
+            // Convert beats to frames: frames = beats * 60 / BPM * sampleRate
+            const st = useEngineStore.getState();
+            const bpmVal = st.projectBpm || st.transport.bpm || 120;
+            const srVal = st.projectSampleRate || 44100;
+            const framesPerBeat = (60.0 / bpmVal) * srVal;
+            const posFrames = Math.round(startBeat * framesPerBeat);
+            const durFrames = Math.round(durBeats * framesPerBeat);
+            const result = await engineApi.createMidiClip(tIdx, posFrames, durFrames, clipName);
+            return JSON.stringify({ clipId: result.clip_id, clipName: result.clip_name, startBeat, durationBeats: durBeats });
+        }
+
+        case 'set_clip_notes': {
+            const clipId = args.clipId as string;
+            const noteArgs = args.notes as Array<{ pitch: number; velocity: number; startBeat: number; durationBeats: number }>;
+            const st2 = useEngineStore.getState();
+            const bpm2 = st2.projectBpm || st2.transport.bpm || 120;
+            const sr2 = st2.projectSampleRate || 44100;
+            const fpb2 = (60.0 / bpm2) * sr2;
+            const engineNotes = noteArgs.map(n => ({
+                pitch: n.pitch,
+                velocity: n.velocity,
+                startFrames: Math.round(n.startBeat * fpb2),
+                durationFrames: Math.round(n.durationBeats * fpb2),
+            }));
+            await engineApi.updateMidiClip(clipId, engineNotes);
+            return JSON.stringify({ clipId, notesWritten: engineNotes.length });
+        }
 
         default:
             return JSON.stringify({ error: `Unknown tool: ${name}` });

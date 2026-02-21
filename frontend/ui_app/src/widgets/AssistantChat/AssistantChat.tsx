@@ -219,7 +219,9 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                             break;
 
                         case 'delta':
-                            setStreamText(prev => prev + event.text);
+                            // FIX: Only feed LiveAgentCard — removed setStreamText
+                            // which was causing duplicate rendering (text appeared
+                            // both in the card AND as a separate message bubble).
                             setLiveAgent(prev => prev ? {
                                 ...prev,
                                 finalText: prev.finalText + event.text,

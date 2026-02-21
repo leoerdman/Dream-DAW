@@ -13,7 +13,7 @@ members = [
     "core/dream_clip_engine",
     "core/dream_automation",
     "apps/desktop_host",
-    "apps/plugin_host_daemon",
+    "apps/plugin_host_daemon", "rubato_test_project",
 ]
 resolver = "3"
 

@@ -2419,7 +2419,7 @@ export const AssetBrowser = () => {
                     minHeight: 0,
                     minWidth: 0,
                     display: 'grid',
-                    gridTemplateRows: 'auto 1fr auto',
+                    gridTemplateRows: 'auto minmax(0, 1fr) auto',
                     overflow: 'hidden',
                     background: 'var(--color-bg-secondary)',
                 }}>

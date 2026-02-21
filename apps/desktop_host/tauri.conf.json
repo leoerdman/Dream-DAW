@@ -1,6 +1,6 @@
 {
     "productName": "Dream DAW",
-    "version": "0.3.64",
+    "version": "0.3.69",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
@@ -37,11 +37,7 @@
             "icons/icon.ico"
         ],
         "macOS": {
-            "entitlements": null,
-            "infoPlist": {
-                "NSMicrophoneUsageDescription": "Dream DAW needs microphone access for voice input in the AI assistant and audio recording.",
-                "NSSpeechRecognitionUsageDescription": "Dream DAW uses speech recognition for voice commands in the AI assistant."
-            }
+            "entitlements": null
         }
     }
 }

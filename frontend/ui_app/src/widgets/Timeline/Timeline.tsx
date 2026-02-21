@@ -1,4 +1,4 @@
-д/**
+/**
  * Timeline — Canvas-based arrangement timeline.
  *
  * Thin React shell around the TimelineEngine canvas.

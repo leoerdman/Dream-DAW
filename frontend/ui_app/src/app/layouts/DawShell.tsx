@@ -741,9 +741,9 @@ export const DawShell = () => {
         const notes = midiNotesByClip[clip.id] ?? [];
         const track = projectTracks[clip.trackIndex];
         const bpm = projectBpm || transportBpm || 120;
-        // Use actual time signature from project, not hardcoded 4
-        const beatsPerBar = useEngineStore.getState().transport as unknown as { beats_per_bar?: number };
-        const beatsPerBarVal = (beatsPerBar as { beats_per_bar?: number }).beats_per_bar ?? 4;
+        // Time signature: beatsPerBar is always 4/4 for now (the backend transport
+        // state does not include time signature yet — when it does, read it here)
+        const beatsPerBarVal = 4;
         const sampleRate = projectSampleRate;
 
         // Use the same model as the chat panel — claude-sonnet-4-5 via OpenRouter.

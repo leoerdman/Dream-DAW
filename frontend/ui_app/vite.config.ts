@@ -62,10 +62,13 @@ function autoVersionPlugin() {
   }
 }
 
+import { agentBridgePlugin } from './src/shared/plugins/agentBridgePlugin'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     autoVersionPlugin(),
+    agentBridgePlugin(),
     react(),
     tailwindcss(),
   ],

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Dream DAW needs microphone access for voice input in the AI assistant and audio recording.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Dream DAW uses speech recognition for voice commands in the AI assistant.</string>
+</dict>
+</plist>

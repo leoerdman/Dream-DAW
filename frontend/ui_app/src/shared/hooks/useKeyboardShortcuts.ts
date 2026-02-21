@@ -154,7 +154,11 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             // shortcuts must be suppressed (including Space for play/pause).
             const insideAssistantChat = (el: HTMLElement | null): boolean => {
                 if (!el) return false;
-                return !!el.closest?.('.assistant-chat-overlay');
+                // Primary: check for the overlay container class
+                if (el.closest?.('.assistant-chat-overlay')) return true;
+                // Fallback: check data-keyboard-scope attribute (set on chat root)
+                if (el.closest?.('[data-keyboard-scope="text-input"]')) return true;
+                return false;
             };
 
             // Also check window selection — when typing in a textarea/input,

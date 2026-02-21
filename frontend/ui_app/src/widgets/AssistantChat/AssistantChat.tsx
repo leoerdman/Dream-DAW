@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
 import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup } from './AgentActionCard';
+import { useAgentBridge, sendBridgeResponse } from '@/shared/hooks/useAgentBridge';
 import './AgentActionCard.css';
 import './AssistantChat.css';
 
@@ -154,21 +155,20 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         setIsStreaming(false);
     }, []);
 
-    // ── Send message ──
-    const handleSend = useCallback(async () => {
-        const text = input.trim();
-        if (!text || isStreaming) return;
+    // ── Send message (core function — accepts text directly) ──
+    const sendMessage = useCallback(async (text: string) => {
+        if (!text.trim() || isStreaming) return;
         if (!apiKey) {
             setMessages((prev) => [
                 ...prev,
                 { role: 'user', content: text },
                 { role: 'assistant', content: '⚠️ No API key configured. Go to **Settings → AI** and enter your OpenRouter API key.' },
             ]);
-            setInput('');
+            sendBridgeResponse({ type: 'error', message: 'No API key configured' });
             return;
         }
 
-        const userMsg: ChatMessage = { role: 'user', content: text };
+        const userMsg: ChatMessage = { role: 'user', content: text.trim() };
         const newMessages = [...messages, userMsg];
         setMessages(newMessages);
         setInput('');
@@ -183,9 +183,11 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
             const result = await streamChat(
                 newMessages, apiKey, model,
                 (event) => {
+                    // Relay all events to bridge clients (Antigravity)
+                    sendBridgeResponse(event as unknown as Record<string, unknown>);
+
                     switch (event.type) {
                         case 'thinking':
-                            // Real-time reasoning — accumulate thinking text
                             setLiveAgent(prev => prev ? {
                                 ...prev,
                                 thinking: prev.thinking + event.text,
@@ -193,20 +195,18 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                             break;
 
                         case 'tool-start':
-                            // Tool execution begins — add pending action
                             setLiveAgent(prev => prev ? {
                                 ...prev,
                                 actions: [...prev.actions, {
                                     toolName: event.toolName,
                                     args: event.args,
-                                    result: null,  // null = still executing
+                                    result: null,
                                     index: event.index,
                                 }],
                             } : prev);
                             break;
 
                         case 'tool-end':
-                            // Tool execution complete — fill in result
                             setLiveAgent(prev => {
                                 if (!prev) return prev;
                                 const updated = prev.actions.map(a =>
@@ -219,7 +219,6 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                             break;
 
                         case 'delta':
-                            // Final response text streaming
                             setStreamText(prev => prev + event.text);
                             setLiveAgent(prev => prev ? {
                                 ...prev,
@@ -228,22 +227,25 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                             break;
 
                         case 'error':
-                            // Error from API
                             break;
 
                         case 'done':
-                            // Streaming complete
                             break;
                     }
                 },
                 onSelectClips, controller.signal,
             );
             setMessages(result);
+            // Send final done event with the complete final text
+            sendBridgeResponse({ type: 'done', finalText: result[result.length - 1]?.content ?? '' });
         } catch (err: unknown) {
             if ((err as Error).name === 'AbortError') {
                 setMessages(prev => [...prev, { role: 'assistant', content: streamText || '(stopped)' }]);
+                sendBridgeResponse({ type: 'error', message: 'Aborted' });
             } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${(err as Error).message}` }]);
+                const errMsg = (err as Error).message;
+                setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${errMsg}` }]);
+                sendBridgeResponse({ type: 'error', message: errMsg });
             }
         } finally {
             setIsStreaming(false);
@@ -251,131 +253,154 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
             setLiveAgent(null);
             abortRef.current = null;
         }
-    }, [input, isStreaming, apiKey, messages, model, onSelectClips, streamText]);
+    }, [isStreaming, apiKey, messages, model, onSelectClips, streamText]);
+
+    // ── UI send handler (reads from input field) ──
+    const handleSend = useCallback(() => {
+        sendMessage(input);
+    }, [input, sendMessage]);
+
+    // ── Agent Bridge: receive remote messages from external tools ──
+    useAgentBridge({
+        onRemoteMessage: sendMessage,
+        isStreaming,
+    });
 
     // ── Voice input (native SpeechRecognition with getUserMedia pre-request) ──
     const toggleVoice = useCallback(async () => {
-        // ── STOP ──
-        if (isListening) {
-            intentionalStopRef.current = true;
-            recognitionRef.current?.stop();
-            mediaRecorderRef.current?.stop();
-            setIsListening(false);
-            return;
-        }
-
-        intentionalStopRef.current = false;
-
-        // ── Step 1: Ensure microphone permission via getUserMedia ──
-        // On macOS WKWebView (Tauri), SpeechRecognition silently fails without
-        // an explicit getUserMedia call first. Once the user grants permission,
-        // we cache it in localStorage so we don't re-prompt.
-        const micPermCacheKey = 'dream-ai-mic-permission';
-        const cachedPermission = localStorage.getItem(micPermCacheKey);
-
-        if (cachedPermission !== 'granted') {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // Release the stream immediately — we just needed the permission prompt.
-                stream.getTracks().forEach((t) => t.stop());
-                localStorage.setItem(micPermCacheKey, 'granted');
-            } catch (err) {
-                console.warn('[DreamAI] Microphone permission denied:', err);
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        role: 'assistant',
-                        content: '⚠️ Доступ к микрофону отклонён. Разрешите доступ: Системные настройки → Конфиденциальность → Микрофон. / Microphone access denied. Grant permission in System Preferences → Privacy & Security → Microphone.',
-                    },
-                ]);
+        try {
+            // ── STOP ──
+            if (isListening) {
+                intentionalStopRef.current = true;
+                try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+                try { mediaRecorderRef.current?.stop(); } catch { /* ignore */ }
+                setIsListening(false);
                 return;
             }
-        }
 
-        // ── Step 2: Try native SpeechRecognition ──
-        const recognition = createSpeechRecognition();
-        if (recognition) {
-            recognition.continuous = true;
-            recognition.interimResults = false;
-            // Auto-detect user's language
-            recognition.lang = navigator.language || 'en-US';
+            intentionalStopRef.current = false;
 
-            let hasStarted = false;
+            // ── Step 1: Ensure microphone permission via getUserMedia ──
+            // On macOS WKWebView (Tauri), SpeechRecognition silently fails without
+            // an explicit getUserMedia call first. Once the user grants permission,
+            // we cache it in localStorage so we don't re-prompt.
+            // NOTE: navigator.mediaDevices may be undefined in WKWebView — skip if so.
+            const micPermCacheKey = 'dream-ai-mic-permission';
+            const cachedPermission = localStorage.getItem(micPermCacheKey);
 
-            recognition.onstart = () => {
-                hasStarted = true;
-            };
-
-            recognition.onresult = (event) => {
-                let transcript = '';
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    transcript += event.results[i][0].transcript;
-                }
-                if (transcript) {
-                    setInput((prev) => {
-                        const spacer = prev.length > 0 && !prev.endsWith(' ') ? ' ' : '';
-                        return prev + spacer + transcript;
-                    });
-                }
-            };
-
-            recognition.onerror = (event) => {
-                console.warn('[DreamAI] Speech recognition error:', event.error);
-                setIsListening(false);
-                recognitionRef.current = null;
-
-                if (event.error === 'no-speech') {
-                    // Silence — not an error, just nothing to transcribe
-                } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    // Clear cached permission so we re-prompt next time
-                    localStorage.removeItem(micPermCacheKey);
+            if (cachedPermission !== 'granted' && navigator.mediaDevices?.getUserMedia) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    // Release the stream immediately — we just needed the permission prompt.
+                    stream.getTracks().forEach((t) => t.stop());
+                    localStorage.setItem(micPermCacheKey, 'granted');
+                } catch (err) {
+                    console.warn('[DreamAI] Microphone permission denied:', err);
                     setMessages((prev) => [
                         ...prev,
-                        { role: 'assistant', content: '⚠️ Доступ к микрофону заблокирован. Проверьте настройки Конфиденциальности. / Microphone blocked. Check Privacy settings.' },
-                    ]);
-                } else {
-                    setMessages((prev) => [
-                        ...prev,
-                        { role: 'assistant', content: `⚠️ Ошибка распознавания: ${event.error}. Попробуйте ещё раз.` },
-                    ]);
-                }
-            };
-
-            recognition.onend = () => {
-                if (!intentionalStopRef.current && !hasStarted) {
-                    setIsListening(false);
-                    setMessages((prev) => [
-                        ...prev,
-                        { role: 'assistant', content: '⚠️ Распознавание не удалось запустить. Используйте текстовый ввод.' },
+                        {
+                            role: 'assistant',
+                            content: '⚠️ Доступ к микрофону отклонён. Разрешите доступ: Системные настройки → Конфиденциальность → Микрофон. / Microphone access denied. Grant permission in System Preferences → Privacy & Security → Microphone.',
+                        },
                     ]);
                     return;
                 }
-                setIsListening(false);
-                recognitionRef.current = null;
-            };
-
-            recognitionRef.current = recognition;
-            setIsListening(true);
-
-            try {
-                recognition.start();
-            } catch (err) {
-                console.warn('[DreamAI] Speech recognition start failed:', err);
-                setIsListening(false);
-                setMessages((prev) => [
-                    ...prev,
-                    { role: 'assistant', content: '⚠️ Не удалось запустить распознавание речи. Используйте текстовый ввод.' },
-                ]);
             }
-            return;
+
+            // ── Step 2: Try native SpeechRecognition ──
+            const recognition = createSpeechRecognition();
+            if (recognition) {
+                recognition.continuous = true;
+                recognition.interimResults = false;
+                // Auto-detect user's language
+                recognition.lang = navigator.language || 'en-US';
+
+                let hasStarted = false;
+
+                recognition.onstart = () => {
+                    hasStarted = true;
+                };
+
+                recognition.onresult = (event) => {
+                    let transcript = '';
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    if (transcript) {
+                        setInput((prev) => {
+                            const spacer = prev.length > 0 && !prev.endsWith(' ') ? ' ' : '';
+                            return prev + spacer + transcript;
+                        });
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.warn('[DreamAI] Speech recognition error:', event.error);
+                    setIsListening(false);
+                    recognitionRef.current = null;
+
+                    if (event.error === 'no-speech') {
+                        // Silence — not an error, just nothing to transcribe
+                    } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                        // Clear cached permission so we re-prompt next time
+                        localStorage.removeItem(micPermCacheKey);
+                        setMessages((prev) => [
+                            ...prev,
+                            { role: 'assistant', content: '⚠️ Доступ к микрофону заблокирован. Проверьте настройки Конфиденциальности. / Microphone blocked. Check Privacy settings.' },
+                        ]);
+                    } else {
+                        setMessages((prev) => [
+                            ...prev,
+                            { role: 'assistant', content: `⚠️ Ошибка распознавания: ${event.error}. Попробуйте ещё раз.` },
+                        ]);
+                    }
+                };
+
+                recognition.onend = () => {
+                    if (!intentionalStopRef.current && !hasStarted) {
+                        setIsListening(false);
+                        setMessages((prev) => [
+                            ...prev,
+                            { role: 'assistant', content: '⚠️ Распознавание не удалось запустить. Используйте текстовый ввод.' },
+                        ]);
+                        return;
+                    }
+                    setIsListening(false);
+                    recognitionRef.current = null;
+                };
+
+                recognitionRef.current = recognition;
+                setIsListening(true);
+
+                try {
+                    recognition.start();
+                } catch (err) {
+                    console.warn('[DreamAI] Speech recognition start failed:', err);
+                    setIsListening(false);
+                    recognitionRef.current = null;
+                    setMessages((prev) => [
+                        ...prev,
+                        { role: 'assistant', content: '⚠️ Не удалось запустить распознавание речи. Используйте текстовый ввод.' },
+                    ]);
+                }
+                return;
+            }
+
+            // ── No native support — inform user ──
+            setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', content: '⚠️ Голосовой ввод недоступен в этой среде. macOS WebView не поддерживает Web Speech API. Используйте текстовый ввод.' },
+            ]);
+        } catch (err) {
+            // Top-level crash guard — should never happen, but prevents app crash
+            console.error('[DreamAI] toggleVoice unexpected crash:', err);
+            setIsListening(false);
+            recognitionRef.current = null;
+            setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', content: '⚠️ Произошла ошибка при активации микрофона. Используйте текстовый ввод.' },
+            ]);
         }
-
-        // ── No native support — inform user ──
-        setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: '⚠️ Голосовой ввод недоступен в этой среде. macOS WebView не поддерживает Web Speech API. Используйте текстовый ввод.' },
-        ]);
-
     }, [isListening]);
 
     // Voice input is native-only (SpeechRecognition API). No external API fallback.

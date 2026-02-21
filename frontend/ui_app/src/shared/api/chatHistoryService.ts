@@ -18,7 +18,7 @@ import * as engineApi from './engine';
  *  20 user messages ≈ 40-60 total entries (user, assistant, tool responses).
  *  We cap at 100 total entries to keep things manageable while preserving
  *  the full 20 exchange context the user requested. */
-const MAX_STORED_ENTRIES = 100;
+const MAX_STORED_ENTRIES = 40;
 
 const STORAGE_PREFIX = 'dream-ai-chat:';
 

@@ -710,18 +710,9 @@ const VirtualFileList = memo(function VirtualFileList({
                                         let dragStarted = false;
                                         let cancelled = false;
 
-                                        // BUG-1 FIX: Safety function to guarantee style restoration
-                                        const restoreFileListStyles = () => {
-                                            if (fileListRef.current) {
-                                                fileListRef.current.style.pointerEvents = '';
-                                                fileListRef.current.style.overflow = '';
-                                            }
-                                        };
-
                                         const cleanup = () => {
                                             if (cancelled) return;
                                             cancelled = true;
-                                            restoreFileListStyles();
                                             window.removeEventListener('mousemove', onMove);
                                             window.removeEventListener('mouseup', onUp);
                                             window.removeEventListener('blur', cleanup);
@@ -734,10 +725,6 @@ const VirtualFileList = memo(function VirtualFileList({
                                             const dy = me.clientY - startY;
                                             if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                 dragStarted = true;
-                                                if (fileListRef.current) {
-                                                    fileListRef.current.style.pointerEvents = 'none';
-                                                    fileListRef.current.style.overflow = 'hidden';
-                                                }
                                                 const knownDuration = isAudio
                                                     ? item.durationSeconds
                                                     ?? audioDurationSecRef.current[item.path!]
@@ -985,10 +972,6 @@ const VirtualFileList = memo(function VirtualFileList({
                                             const dy = me.clientY - startY;
                                             if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                 dragStarted = true;
-                                                if (fileListRef.current) {
-                                                    fileListRef.current.style.pointerEvents = 'none';
-                                                    fileListRef.current.style.overflow = 'hidden';
-                                                }
                                                 useDragStore.getState().startDrag({
                                                     id: item.id,
                                                     name: item.name,
@@ -1588,6 +1571,7 @@ export const AssetBrowser = () => {
                         ...INTERNAL_INSTRUMENT_ITEMS,
                         ...INTERNAL_EFFECT_ITEMS,
                         ...pluginBrowserItems,
+                        ...folderBrowserItems, // BUG FIX: Include all user folders and project files for global search
                     ].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
                     break;
                 case 'samples':
@@ -2433,13 +2417,15 @@ export const AssetBrowser = () => {
                 <div style={{
                     flex: 1,
                     minHeight: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
+                    minWidth: 0,
+                    display: 'grid',
+                    gridTemplateRows: 'auto 1fr auto',
                     overflow: 'hidden',
                     background: 'var(--color-bg-secondary)',
                 }}>
-                    {/* Filters Toolbar */}
+                    {/* ── ROW 1: Filters Toolbar ── */}
                     <div style={{
+                        gridRow: 1,
                         display: 'flex',
                         flexWrap: 'wrap',
                         gap: 4,
@@ -2541,75 +2527,92 @@ export const AssetBrowser = () => {
                         </div>
                     )}
 
-                    {selectedCategoryId === 'plugins' && pluginLetterAnchors.letters.length > 0 && (
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '3px 8px',
-                            borderBottom: '1px solid var(--color-divider-light)',
-                            background: 'var(--color-bg-header)',
-                            overflowX: 'auto',
-                        }}>
-                            {pluginLetterAnchors.letters.map((letter) => (
-                                <button
-                                    key={letter}
-                                    onClick={() => jumpToPluginLetter(letter)}
-                                    style={{
-                                        minWidth: 18,
-                                        height: 16,
-                                        borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--color-divider)',
-                                        background: selectedPluginLetter === letter
-                                            ? 'var(--color-control-bg-active)'
-                                            : 'var(--color-control-bg)',
-                                        color: selectedPluginLetter === letter
-                                            ? 'var(--color-text-primary)'
-                                            : 'var(--color-text-secondary)',
-                                        fontSize: 'var(--font-size-2xs)',
-                                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                        fontFamily: 'var(--font-mono)',
-                                        cursor: 'pointer',
-                                        padding: 0,
-                                        flexShrink: 0,
-                                    }}
-                                    title={`Jump to ${letter}`}
-                                >
-                                    {letter}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-
-                    {/* File List */}
-                    <VirtualFileList
-                        items={items}
-                        selectedCategoryId={selectedCategoryId}
-                        selectedItemId={selectedItemId}
-                        setSelectedItemId={setSelectedItemId}
-                        syncPreviewForItem={syncPreviewForItem}
-                        isPreviewPlayingRef={isPreviewPlayingRef}
-                        setContextMenu={setContextMenu}
-                        navigateInto={navigateInto}
-                        showTypeColumn={showTypeColumn}
-                        showSizeColumn={showSizeColumn}
-                        debouncedQuery={debouncedQuery}
-                        audioDurationSecRef={audioDurationSecRef}
-                        itemRowRefs={itemRowRefs}
-                        fileListRef={fileListRef as any}
-                        handleBrowserKeyDown={handleBrowserKeyDown}
-                        pluginGroupedRows={pluginGroupedRows}
-                        scanLoading={scanLoading}
-                        scanError={scanError}
-                        columnMenuPos={columnMenuPos}
-                        setColumnMenuPos={setColumnMenuPos}
-                    />
-
-                    {/* ── Footer: Preview Panel (RIGHT pane only) ────────── */}
+                    {/* ── ROW 2: Virtual Scroll List ── */}
                     <div style={{
-                        borderTop: '1px solid var(--color-divider)',
-                        background: 'var(--color-bg-header)',
+                        gridRow: 2,
+                        minHeight: 0, // CRITICAL: forces flex child to shrink properly
+                        overflow: 'hidden', // Contain the scrolling box
+                        display: 'flex', // So VirtualFileList can use \`flex: 1\` or \`height: 100%\`
+                        flexDirection: 'column',
+                    }}>
+                        {/* Plugin Search Alphabet Anchors */}
+                        {selectedCategoryId === 'plugins' && pluginLetterAnchors.letters.length > 0 && (
+                            <div className="scrollbar-hide" style={{
+                                flexShrink: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2,
+                                padding: '4px 8px',
+                                overflowX: 'auto',
+                                borderBottom: '1px solid var(--color-divider-light)',
+                                background: 'color-mix(in srgb, var(--color-bg-header) 95%, transparent)',
+                            }}>
+                                {pluginLetterAnchors.letters.map((letter) => (
+                                    <button
+                                        key={letter}
+                                        onClick={() => {
+                                            jumpToPluginLetter(letter);
+                                            focusResults();
+                                        }}
+                                        style={{
+                                            minWidth: 18,
+                                            height: 16,
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--color-divider)',
+                                            background: selectedPluginLetter === letter
+                                                ? 'var(--color-control-bg-active)'
+                                                : 'var(--color-control-bg)',
+                                            color: selectedPluginLetter === letter
+                                                ? 'var(--color-text-primary)'
+                                                : 'var(--color-text-secondary)',
+                                            fontSize: 'var(--font-size-2xs)',
+                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                                            fontFamily: 'var(--font-mono)',
+                                            cursor: 'pointer',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                        title={`Jump to ${letter}`}
+                                    >
+                                        {letter}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* File List */}
+                        <VirtualFileList
+                            items={items}
+                            selectedCategoryId={selectedCategoryId}
+                            selectedItemId={selectedItemId}
+                            setSelectedItemId={setSelectedItemId}
+                            syncPreviewForItem={syncPreviewForItem}
+                            isPreviewPlayingRef={isPreviewPlayingRef}
+                            setContextMenu={setContextMenu}
+                            navigateInto={navigateInto}
+                            showTypeColumn={showTypeColumn}
+                            showSizeColumn={showSizeColumn}
+                            debouncedQuery={debouncedQuery}
+                            audioDurationSecRef={audioDurationSecRef}
+                            itemRowRefs={itemRowRefs}
+                            fileListRef={fileListRef as any}
+                            handleBrowserKeyDown={handleBrowserKeyDown}
+                            pluginGroupedRows={pluginGroupedRows}
+                            scanLoading={scanLoading}
+                            scanError={scanError}
+                            columnMenuPos={columnMenuPos}
+                            setColumnMenuPos={setColumnMenuPos}
+                        />
+                    </div>
+
+                    {/* ── ROW 3: Footer Preview Panel (RIGHT pane only) ────────── */}
+                    <div style={{
+                        gridRow: 3,
+                        flexShrink: 0,
+                        borderTop: '2px solid var(--color-divider)', // Thicker border for clear separation
+                        background: 'var(--color-bg-secondary)', // Opaque background prevents list items from bleeding through
+                        position: 'relative', // Establish stacking context above relative scrolling list
+                        zIndex: 10,
                     }}>
                         <div style={{
                             display: 'flex',

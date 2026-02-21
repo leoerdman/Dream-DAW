@@ -307,10 +307,10 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                             break;
 
                         case 'delta':
-                            liveRef.thinking += event.text;
+                            liveRef.finalText += event.text;
                             setLiveAgent(prev => prev ? {
                                 ...prev,
-                                thinking: liveRef.thinking,
+                                finalText: liveRef.finalText,
                             } : prev);
                             break;
 
@@ -581,6 +581,24 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                             </option>
                         ))}
                     </select>
+                    <button className="assistant-mini-btn" onClick={() => {
+                        const historyText = messages.map(m => {
+                            let text = `[${m.role.toUpperCase()}${m.role === 'tool' && m.name ? ': ' + m.name : ''}]\n`;
+                            if (m.content) text += `${m.content}\n`;
+                            if (m.thinking) text += `[THINKING]\n${m.thinking}\n`;
+                            if (m.actions && m.actions.length > 0) {
+                                text += `[ACTIONS]\n`;
+                                m.actions.forEach(a => {
+                                    text += ` - ${a.toolName}(${JSON.stringify(a.args)})\n   Result: ${a.result}\n`;
+                                });
+                            }
+                            return text + '\n============================\n';
+                        }).join('\n');
+                        navigator.clipboard.writeText(historyText);
+                        // Brief visual feedback could go here, but the standard copy button is fine
+                    }} title="Copy full history to clipboard">
+                        <Copy size={14} />
+                    </button>
                     <button className="assistant-mini-btn" onClick={() => {
                         setMessages([]);
                         lastSavedRef.current = '';

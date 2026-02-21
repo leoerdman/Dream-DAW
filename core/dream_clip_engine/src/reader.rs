@@ -180,9 +180,12 @@ impl ClipReader {
             return;
         }
 
+        // AUD-10X FIX: By default, Standard warp mode previously used linear interpolation,
+        // which introduced severe "bitcrusher" aliasing noise on sample rate mismatches or
+        // basic time stretching. We now default to Catmull-Rom Cubic for ALL stretches.
         let read_sample = |src: &[f32], pos: f64| -> f32 {
             match mode {
-                WarpResampleMode::Standard => Self::sample_linear(src, pos),
+                WarpResampleMode::Standard => Self::sample_cubic(src, pos),
                 WarpResampleMode::Pro => Self::sample_cubic(src, pos),
             }
         };

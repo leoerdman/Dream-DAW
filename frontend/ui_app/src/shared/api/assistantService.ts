@@ -241,13 +241,33 @@ const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'delete_track',
-            description: 'Delete a track by 0-based index.',
+            description: 'Delete a single track by its index. Warning: If deleting multiple tracks, use delete_tracks_batch instead, because deleting one track shifts the indices of all subsequent tracks.',
             parameters: {
                 type: 'object',
-                properties: { trackIndex: { type: 'number' } },
+                properties: {
+                    trackIndex: { type: 'number', description: 'Zero-based index of track to delete' },
+                },
                 required: ['trackIndex'],
-            },
-        },
+            }
+        }
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'delete_tracks_batch',
+            description: 'Safely delete multiple tracks at once. Pass an array of exact track indices you want to delete. This safely resolves index-shifting issues automatically.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndices: {
+                        type: 'array',
+                        items: { type: 'number' },
+                        description: 'Array of zero-based track indices to delete'
+                    }
+                },
+                required: ['trackIndices']
+            }
+        }
     },
     {
         type: 'function' as const,
@@ -1274,7 +1294,17 @@ async function executeTool(
     // Show visual feedback for every action
     useAgentActionStore.getState().showAction(getToolLabel(name));
 
-    const result = await executeToolInner(name, args, onSelectClips);
+    let result: string;
+    try {
+        result = await executeToolInner(name, args, onSelectClips);
+    } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Assistant Tool Error] ${name}:`, errorMsg);
+        return JSON.stringify({
+            error: true,
+            message: `Tool ${name} failed to execute: ${errorMsg}. Please revise your tool arguments or try an alternative approach.`
+        });
+    }
 
     // CRITICAL: Refresh frontend store after any mutation so UI shows
     // updated BPM, tracks, clips, etc. Without this, the Zustand store
@@ -1428,6 +1458,17 @@ async function executeToolInner(
         case 'delete_track':
             await engineApi.deleteTrack(args.trackIndex as number);
             return JSON.stringify({ deleted: args.trackIndex });
+
+        case 'delete_tracks_batch': {
+            const indices = args.trackIndices as number[];
+            if (!Array.isArray(indices) || indices.length === 0) return JSON.stringify({ error: 'trackIndices array is required' });
+            const stBatch = useEngineStore.getState();
+            const idsToDelete = indices.map(idx => stBatch.projectTracks[idx]?.id).filter(Boolean);
+            if (idsToDelete.length > 0) {
+                await engineApi.deleteTracks(idsToDelete);
+            }
+            return JSON.stringify({ deletedIds: idsToDelete });
+        }
 
         case 'delete_clip':
             await engineApi.deleteClip(args.clipId as string);
@@ -2404,17 +2445,6 @@ async function executeToolInner(
                     soloed: t.is_solo,
                     volume: Math.round(t.volume * 100),
                     clipCount: trackClips.length,
-                    clips: trackClips.map(c => ({
-                        id: c.id,
-                        name: c.name,
-                        type: c.type,
-                        startBeat: c.startBeat,
-                        startBar: Math.floor(c.startBeat / 4) + 1,
-                        durationBeats: c.durationBeats,
-                        durationBars: parseFloat((c.durationBeats / 4).toFixed(2)),
-                        muted: c.muted,
-                        noteCount: (c as any).midiNotes?.length ?? 0,
-                    })),
                     fx: (t.effects ?? []).map(e => e.name),
                     instrument: t.instrument?.name ?? null,
                 };
@@ -2481,22 +2511,7 @@ function buildSystemPrompt(): string {
 ### Track List
 ${trackList || '  (no tracks)'}
 
-## Your Tools (${TOOLS.length} available)
-| Category | Tools |
-|----------|-------|
-| 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering, get_arrangement_overview |
-| 🎹 Piano Roll | get_midi_clip_notes, set_clip_notes, generate_beat_pattern, generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
-| 🎵 MIDI & Audio | add_midi_track, set_track_instrument, set_synth_param, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
-| 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_solo, set_pad_adsr, set_pad_filter_cutoff, preview_note |
-| 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group, duplicate_tracks, move_track, set_track_routing, arm_track |
-| ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, resize_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade, set_clip_warp, set_clip_source_offset |
-| 🔊 Transport & Mix | transport_play, transport_stop, set_bpm, seek_to_beat, set_master_volume, set_loop_region, undo, redo |
-| 🧩 Effects | add_effect, remove_effect, set_effect_parameter, bypass_effect |
-| 🤖 AI Mixing | auto_gain_stage, auto_cleanup_mix, bounce_track, export_mix |
-| 📐 Project | set_arrangement_grid, set_key_signature |
-| 🎼 Arrangement | suggest_arrangement |
-| 📈 Automation | set_automation_points |
-| ⚡ Batch | add_audio_clips_batch, delete_clips_batch, delete_all_clips_on_track, set_clips_muted_batch |
+
 
 ## Behavior Rules & Execution Patterns
 

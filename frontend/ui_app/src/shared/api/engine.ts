@@ -321,9 +321,13 @@ export const addTrackAdvanced = (
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
 
-/** Delete a track by its zero-based index. */
-export const deleteTrack = (index: number) =>
-    invoke<void>('delete_track_cmd', { index });
+/** Delete a single track by index. */
+export const deleteTrack = (trackIndex: number) =>
+    invoke<void>('delete_track_cmd', { index: trackIndex });
+
+/** Delete multiple tracks by their string IDs in a single backend transaction. */
+export const deleteTracks = (trackIds: string[]) =>
+    invoke<void>('delete_tracks_cmd', { trackIds });
 
 /** Rename a track by its zero-based index. */
 export const renameTrack = (index: number, name: string) =>

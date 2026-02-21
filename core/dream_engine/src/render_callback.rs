@@ -186,36 +186,28 @@ pub struct RenderContext {
     pub spectrum_producer: Option<rtrb::Producer<f32>>,
 }
 
-/// Transparent soft-knee limiter using tanh identity.
-///
-/// AUD-034 NOTE: Uses `exp()` internally via the identity
-/// `tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)`. For extreme signals,
-/// excess is clamped to 10.0 to prevent exp() overflow → NaN.
-/// A tanh lookup table would save ~3ns/call at 4KB memory cost.
-///
-/// - Below ±1.0 (0 dBFS): **passthrough** — no coloration whatsoever.
-/// - Above ±1.0: soft-knee compression that asymptotically approaches ±1.5,
-///   preventing hard digital clipping while preserving transient shape.
-///
-/// This replaces the previous `x / (1 + |x|)` waveshaper which compressed
-/// ALL signals (even –6 dBFS content was crushed by 34%).
-#[inline]
 pub fn soft_clip(sample: f32) -> f32 {
     // BUG-FIX: Guard NaN/Inf inputs early to prevent propagation.
     if !sample.is_finite() {
         return 0.0;
     }
     let abs = sample.abs();
-    if abs <= 1.0 {
-        sample // transparent below 0 dBFS
+    
+    // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5. 
+    // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old 
+    // soft_clip actually permitted destructive digital clipping for loud signals!
+    // This fast rational soft-clipper applies 0% compression below 0.8 (-1.9 dBFS)
+    // and C1-smoothly limits excess to form a strict, mathematical 1.0 ceiling.
+    const THRESH: f32 = 0.8;
+    const BETA: f32 = 1.0 - THRESH; // 0.2
+
+    if abs <= THRESH {
+        sample // 100% transparent below -1.9 dBFS
     } else {
-        // Soft-knee: 1.0 + 0.5 * tanh(excess)
-        // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
-        // Clamp excess to prevent exp() overflow → NaN at extreme signal levels.
-        let excess = (abs - 1.0).min(10.0);
-        let e2x = (2.0 * excess).exp();
-        let tanh_val = (e2x - 1.0) / (e2x + 1.0);
-        sample.signum() * (1.0 + 0.5 * tanh_val)
+        let excess = abs - THRESH;
+        // Rational curve mapping [0.8, inf) to [0.8, 1.0] with slope=1.0 at THRESH
+        let mapped = THRESH + (BETA * excess) / (BETA + excess);
+        sample.signum() * mapped
     }
 }
 

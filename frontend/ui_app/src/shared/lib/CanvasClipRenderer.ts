@@ -79,7 +79,6 @@ export interface GhostClipData {
 const HEADER_HEIGHT = 20;
 const CLIP_RADIUS = 4;
 const CLIP_BODY_ALPHA = 0.65;
-const CLIP_HEADER_ALPHA = 1.0;
 const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
@@ -540,7 +539,10 @@ export class CanvasClipRenderer {
 
         // ── 3. Header band ────────────────────────────────────────────
         const headerH = Math.min(HEADER_HEIGHT, h);
-        ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${CLIP_HEADER_ALPHA})`;
+        const headerR = Math.max(0, Math.round(rgb.r * 0.8));
+        const headerG = Math.max(0, Math.round(rgb.g * 0.8));
+        const headerB = Math.max(0, Math.round(rgb.b * 0.8));
+        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, ${CLIP_BODY_ALPHA})`;
         ctx.fillRect(x, y + 1, w, headerH);
 
         // Header divider

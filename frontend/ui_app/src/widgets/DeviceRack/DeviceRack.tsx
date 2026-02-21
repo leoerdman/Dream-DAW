@@ -63,9 +63,11 @@ interface DeviceSlot {
     | 'sampler'
     | 'saturator'
     | 'waveSynth'
+    | 'sample_rack'
     | 'rack';
     isEnabled: boolean;
     params: PluginParam[];
+    sampleRackConfig?: any;
     vuLevel: number;
     vuLevelL: number;
     vuLevelR: number;
@@ -400,6 +402,7 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Semitones', value: 0, min: -24, max: 24, suffix: 'st', step: 1 },
         { name: 'Chance', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
     ],
+    sample_rack: [],
     rack: [],
 };
 
@@ -673,8 +676,9 @@ export const DeviceRack = ({
                 plugin_id: 'internal://instrument/sample-rack',
                 is_bypassed: false,
                 source: 'internal',
+                sampleRackConfig: selectedTrack.sample_rack,
             } as any] : []),
-            ...(selectedTrack.instrument ? [selectedTrack.instrument] : []),
+            ...(!selectedTrack.sample_rack && selectedTrack.instrument ? [selectedTrack.instrument] : []),
             ...(selectedTrack.effects ?? []),
         ];
 
@@ -876,6 +880,7 @@ export const DeviceRack = ({
                 samplePath: effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth'
                     ? (selectedTrack.sampler?.sample_path ?? undefined)
                     : undefined,
+                sampleRackConfig: (slot as any).sampleRackConfig,
             };
         };
 
@@ -2127,7 +2132,7 @@ const DeviceNode = ({
                 width: rackWidth,
                 display: 'flex',
                 flexDirection: 'row',
-                background: '#2c2c2c',
+                background: '#3a3a3a',
                 borderRadius: 'var(--radius-sm)',
                 border: isSelected ? '1px solid rgba(255,255,255,0.7)' : '1px solid #3a3a3a',
                 overflow: 'hidden',
@@ -2181,11 +2186,11 @@ const DeviceNode = ({
                     alignItems: 'center',
                     gap: 5,
                     padding: '6px 3px',
-                    borderRight: '1px solid rgba(255,255,255,0.04)',
-                    background: '#252525',
+                    borderRight: '1px solid rgba(255,255,255,0.06)',
+                    background: '#2a2a2a',
                     cursor: 'grab',
-                    width: 22,
-                    minWidth: 22,
+                    width: 28,
+                    minWidth: 28,
                     flexShrink: 0,
                 }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
@@ -2196,22 +2201,14 @@ const DeviceNode = ({
                     onClick={onToggle}
                     title={device.isEnabled ? 'Disable' : 'Enable'}
                     style={{
-                        width: 11, height: 11,
+                        width: 13, height: 13,
                         borderRadius: '50%',
-                        background: device.isEnabled ? 'var(--color-accent-primary)' : '#3a3a3a',
-                        border: device.isEnabled ? '1px solid color-mix(in srgb, var(--color-accent-primary) 80%, white)' : '1px solid #555',
+                        background: device.isEnabled ? 'var(--color-accent-primary)' : '#4a4a4a',
+                        border: device.isEnabled ? '1px solid color-mix(in srgb, var(--color-accent-primary) 80%, white)' : '1px solid #666',
                         cursor: 'pointer',
                         flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        padding: 0,
-                        boxShadow: device.isEnabled ? '0 0 3px rgba(74, 158, 255, 0.3)' : 'none',
-                        transition: 'all 0.15s',
                     }}
                 >
-                    <svg width="6" height="6" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 1v6" stroke={device.isEnabled ? '#fff' : '#888'} strokeWidth="2.5" strokeLinecap="round" />
-                        <path d="M4.5 3.5a5.5 5.5 0 107 0" stroke={device.isEnabled ? '#fff' : '#888'} strokeWidth="2" strokeLinecap="round" fill="none" />
-                    </svg>
                 </button>
                 {/* 👁 UI button — green round with eye icon */}
                 {showUiButton && (
@@ -2222,7 +2219,7 @@ const DeviceNode = ({
                             ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
                             : 'Open Native Plugin UI'}
                         style={{
-                            width: 11, height: 11,
+                            width: 14, height: 14,
                             borderRadius: '50%',
                             background: (showSettings || nativeEditorOpen)
                                 ? 'rgba(72, 210, 130, 0.85)'
@@ -2240,7 +2237,7 @@ const DeviceNode = ({
                             transition: 'all 0.15s',
                         }}
                     >
-                        <svg width="7" height="7" viewBox="0 0 16 16" fill="none">
+                        <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
                             <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
                                 stroke={(showSettings || nativeEditorOpen) ? '#fff' : '#48d282'}
                                 strokeWidth="1.5" fill="none" />
@@ -2256,7 +2253,7 @@ const DeviceNode = ({
                         onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
                         title="Recover plugin runtime"
                         style={{
-                            width: 11, height: 11,
+                            width: 14, height: 14,
                             borderRadius: '50%',
                             background: 'rgba(255, 100, 100, 0.25)',
                             border: '1px solid rgba(255, 100, 100, 0.5)',
@@ -2264,7 +2261,7 @@ const DeviceNode = ({
                             flexShrink: 0,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             padding: 0,
-                            fontSize: 6, fontWeight: 800, color: '#ff6464',
+                            fontSize: 8, fontWeight: 800, color: '#ff6464',
                             transition: 'all 0.15s',
                         }}
                     >
@@ -2278,7 +2275,7 @@ const DeviceNode = ({
                         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                         title="Plugin Settings / Automatable Params"
                         style={{
-                            width: 11, height: 11,
+                            width: 14, height: 14,
                             borderRadius: '50%',
                             background: showSettings
                                 ? 'rgba(180, 180, 200, 0.45)'
@@ -2294,7 +2291,7 @@ const DeviceNode = ({
                             transition: 'all 0.15s',
                         }}
                     >
-                        <svg width="7" height="7" viewBox="0 0 16 16" fill="none">
+                        <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
                             <path d="M10.5 2a3.5 3.5 0 00-3.22 4.87L2.5 11.65a1.2 1.2 0 001.7 1.7l4.78-4.78A3.5 3.5 0 0010.5 2z"
                                 stroke={showSettings ? '#e0e0e8' : '#8888a0'}
                                 strokeWidth="1.2" fill="none" strokeLinecap="round" />
@@ -2447,7 +2444,7 @@ const DeviceNode = ({
                                 style={{
                                     border: '1px solid var(--color-divider)',
                                     borderRadius: 'var(--radius-md)',
-                                    background: '#252525',
+                                    background: '#2a2a2a',
                                     color: 'var(--color-text-primary)',
                                     fontSize: 'var(--font-size-2xs)',
                                     padding: '4px 6px',

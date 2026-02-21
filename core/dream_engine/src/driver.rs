@@ -1923,6 +1923,9 @@ pub fn start_audio_thread_on_device(
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].note_on(pitch, velocity);
                                     }
+                                    if idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].note_on(pitch, velocity);
+                                    }
                                     // Also queue for VST3 instruments on this track.
                                     // The graph pass will drain this into vst3_midi_scratch.
                                     // BUG-S1-02 FIX: Bounded push — drop events beyond 256 per
@@ -1937,6 +1940,9 @@ pub fn start_audio_thread_on_device(
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].note_off(pitch);
+                                    }
+                                    if idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].note_off(pitch);
                                     }
                                     // Also queue for VST3 instruments on this track.
                                     // BUG-S1-02 FIX: Same bounded push guard as note-on above.

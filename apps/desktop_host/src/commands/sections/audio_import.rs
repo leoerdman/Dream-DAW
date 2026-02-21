@@ -59,23 +59,55 @@ async fn import_audio_file(
         .unwrap_or("Untitled")
         .to_string();
 
-    let sample_rate = decoded.sample_rate;
-    let num_frames = decoded.num_frames;
-    let num_channels = decoded.channels.len();
+    // AUD-10X FIX: Offline studio-grade resampling.
+    // By default, the RT engine handles sample rate mismatches via linear interpolation,
+    // which results in massive aliasing/bitcrusher artifacts when dropping 44.1kHz clips
+    // into a 48kHz project. Here, we completely eliminate RT aliasing by pre-rendering
+    // the audio clip to the project's sample rate using a polyphase Sinc resampler.
+    let target_sample_rate = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.sample_rate as u32
+    };
+
+    let mut final_channels = decoded.channels;
+    let mut final_sample_rate = decoded.sample_rate;
+    
+    if final_sample_rate != target_sample_rate && target_sample_rate > 0 {
+        log::info!(
+            "Resampling imported audio '{}' from {}Hz to project rate {}Hz...",
+            clip_name, final_sample_rate, target_sample_rate
+        );
+        match dream_dsp::resampler::resample_channels(
+            &final_channels,
+            final_sample_rate as usize,
+            target_sample_rate as usize,
+        ) {
+            Ok(resampled) => {
+                final_channels = resampled;
+                final_sample_rate = target_sample_rate;
+            }
+            Err(e) => {
+                log::error!("Failed to resample audio (falling back to RT linear): {}", e);
+            }
+        }
+    }
+
+    let sample_rate = final_sample_rate;
+    let num_frames = final_channels.first().map(|c| c.len()).unwrap_or(0);
+    let num_channels = final_channels.len();
     let duration_seconds = num_frames as f64 / sample_rate as f64;
 
     // Build waveform peak sidecar in background (non-blocking for import UX).
     {
-        let mono_for_peaks: Vec<f32> = if decoded.channels.len() <= 1 {
-            decoded
-                .channels
+        let mono_for_peaks: Vec<f32> = if final_channels.len() <= 1 {
+            final_channels
                 .first()
                 .cloned()
                 .unwrap_or_default()
         } else {
-            decoded.channels[0]
+            final_channels[0]
                 .iter()
-                .zip(decoded.channels[1].iter())
+                .zip(final_channels[1].iter())
                 .map(|(l, r)| (l + r) * 0.5)
                 .collect()
         };
@@ -93,7 +125,7 @@ async fn import_audio_file(
     // Convert AudioBuffer → ClipAudio for the pool
     let clip_audio = ClipAudio {
         source_path: path.clone(),
-        channels: decoded.channels,
+        channels: final_channels,
         sample_rate,
         num_frames,
     };

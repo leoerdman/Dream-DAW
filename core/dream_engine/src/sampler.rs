@@ -376,6 +376,7 @@ impl SamplerVoice {
         sample_right: &[f32],
         sample_len: usize,
         frame_count: usize,
+        master_vol: f32,
     ) {
         if !self.active || sample_len == 0 {
             return;
@@ -414,8 +415,8 @@ impl SamplerVoice {
             let l = sample_left[idx] * inv_frac + sample_left[idx + 1] * frac;
             let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
 
-            // Apply velocity and envelope
-            let mut gain = self.velocity * env;
+            // Apply velocity, envelope, and master volume
+            let mut gain = self.velocity * env * master_vol;
 
             // BUG-004 FIX: Apply linear fade-out when approaching end of sample
             // to prevent click/pop. When within END_FADE_FRAMES of the end,
@@ -739,6 +740,7 @@ impl SamplerEngine {
                         sample_right,
                         sample_len,
                         frame_count,
+                        vol,
                     );
                 }
             }
@@ -767,15 +769,8 @@ impl SamplerEngine {
                     left_out,
                     right_out,
                     frame_count,
+                    vol,
                 );
-            }
-        }
-
-        // Apply master volume
-        if (vol - 1.0_f32).abs() > 0.001 {
-            for i in 0..frame_count {
-                left_out[i] *= vol;
-                right_out[i] *= vol;
             }
         }
     }
@@ -909,6 +904,7 @@ fn render_oscillator_voice(
     left_out: &mut [f32],
     right_out: &mut [f32],
     frame_count: usize,
+    master_vol: f32,
 ) {
     let mix2 = osc_mix.clamp(0.0, 1.0);
     let mix1 = 1.0 - mix2;
@@ -1033,9 +1029,9 @@ fn render_oscillator_voice(
         let gain = if lfo_target == LfoTarget::Volume && lfo_val.abs() > 0.0001 {
             // Map LFO [-depth..+depth] to volume multiplier [1-depth..1]
             let vol_mod = 1.0 - lfo_depth * 0.5 * (1.0 - lfo_val / lfo_depth.max(0.0001));
-            voice.velocity * env * vol_mod.clamp(0.0, 1.0)
+            voice.velocity * env * vol_mod.clamp(0.0, 1.0) * master_vol
         } else {
-            voice.velocity * env
+            voice.velocity * env * master_vol
         };
 
         left_out[i] += sample * gain;
@@ -1120,15 +1116,10 @@ impl SampleRackEngine {
         // SamplerEngine::render uses additive mixing (`+=`), so they sum cleanly.
         for pad in &mut self.pads {
             if pad.is_active() {
+                let pad_vol_orig = pad.volume;
+                pad.volume *= self.volume;
                 pad.render(left_out, right_out, frame_count);
-            }
-        }
-
-        // Apply master volume
-        if (self.volume - 1.0_f32).abs() > 0.001 {
-            for i in 0..frame_count {
-                left_out[i] *= self.volume;
-                right_out[i] *= self.volume;
+                pad.volume = pad_vol_orig;
             }
         }
     }

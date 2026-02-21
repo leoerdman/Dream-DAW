@@ -1,9 +1,11 @@
-import { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import type { SampleRackConfig } from '@/shared/types/SampleRackConfig';
 import type { SampleRackPadConfig } from '@/shared/types/SampleRackPadConfig';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
+
+import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 
 interface SampleRackProps {
     trackId: string;
@@ -26,130 +28,7 @@ const PAD_COLORS: Record<number, string> = {
     12: '#f0c430', 13: '#f0c430', 14: '#cf8ef7', 15: '#cf8ef7',
 };
 
-// ── Mini Arc Knob ────────────────────────────────────────────────
-const ArcKnob = memo(function ArcKnob({
-    value, min, max, label, unit, color, size = 36, onChange, onGestureStart, onGestureEnd,
-}: {
-    value: number; min: number; max: number; label: string;
-    unit?: string; color?: string; size?: number;
-    onChange: (v: number) => void;
-    onGestureStart?: () => void; onGestureEnd?: () => void;
-}) {
-    const knobRef = useRef<HTMLDivElement>(null);
-    const norm = Math.max(0, Math.min(1, (value - min) / (max - min)));
-    const startAngle = -135;
-    const endAngle = 135;
-    const angle = startAngle + norm * (endAngle - startAngle);
-    const r = (size - 6) / 2;
-    const cx = size / 2;
-    const cy = size / 2;
-    const arcColor = color ?? '#5ce0a6';
 
-    // Arc path
-    const toRad = (deg: number) => (deg - 90) * Math.PI / 180;
-    const x1 = cx + r * Math.cos(toRad(startAngle));
-    const y1 = cy + r * Math.sin(toRad(startAngle));
-    const x2 = cx + r * Math.cos(toRad(angle));
-    const y2 = cy + r * Math.sin(toRad(angle));
-    const largeArc = angle - startAngle > 180 ? 1 : 0;
-    const arcD = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
-
-    // Track arc (full range)
-    const xe = cx + r * Math.cos(toRad(endAngle));
-    const ye = cy + r * Math.sin(toRad(endAngle));
-    const trackD = `M ${x1} ${y1} A ${r} ${r} 0 1 1 ${xe} ${ye}`;
-
-    // Formatted display value
-    const displayVal = useMemo(() => {
-        if (unit === 'Hz') return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : `${Math.round(value)}`;
-        if (unit === 'ms') return value >= 1 ? `${value.toFixed(1)}s` : `${Math.round(value * 1000)}`;
-        if (unit === '%') return `${Math.round(value * 100)}`;
-        if (unit === 'dB') return `${value.toFixed(1)}`;
-        if (unit === 'pan') return value === 0 ? 'C' : value < 0 ? `L${Math.round(Math.abs(value) * 100)}` : `R${Math.round(value * 100)}`;
-        return value >= 100 ? Math.round(value).toString() : value.toFixed(value < 1 ? 2 : 1);
-    }, [value, unit]);
-
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onGestureStart?.();
-        const startY = e.clientY;
-        const startNorm = norm;
-        const sensitivity = 200;
-        const onMove = (me: MouseEvent) => {
-            const dy = startY - me.clientY;
-            const newNorm = Math.max(0, Math.min(1, startNorm + dy / sensitivity));
-            onChange(min + newNorm * (max - min));
-        };
-        const onUp = () => {
-            onGestureEnd?.();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-    }, [norm, min, max, onChange, onGestureStart, onGestureEnd]);
-
-    return (
-        <div
-            ref={knobRef}
-            onMouseDown={handleMouseDown}
-            style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-                cursor: 'ns-resize', userSelect: 'none',
-            }}
-        >
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                <path d={trackD} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={2.5} strokeLinecap="round" />
-                <path d={arcD} fill="none" stroke={arcColor} strokeWidth={2.5} strokeLinecap="round"
-                    style={{ filter: `drop-shadow(0 0 3px ${arcColor}44)` }} />
-                <circle cx={cx} cy={cy} r={r - 5} fill="rgba(0,0,0,0.4)" stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
-                <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle"
-                    fill="#fff" fontSize={size < 38 ? 8 : 9} fontFamily="var(--font-mono)" fontWeight={600}>
-                    {displayVal}
-                </text>
-            </svg>
-            <span style={{
-                fontSize: 8, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase',
-                letterSpacing: '0.06em', fontWeight: 600, lineHeight: 1,
-            }}>
-                {label}
-            </span>
-        </div>
-    );
-});
-
-// ── ADSR Envelope Visualizer ─────────────────────────────────────
-const AdsrVisualizer = memo(function AdsrVisualizer({ attack, decay, sustain, release }: {
-    attack: number; decay: number; sustain: number; release: number;
-}) {
-    const w = 140, h = 36;
-    const totalTime = Math.max(0.01, attack + decay + 0.3 + release);
-    const tA = (attack / totalTime) * w;
-    const tD = (decay / totalTime) * w;
-    const tS = (0.3 / totalTime) * w; // sustain hold segment
-    const tR = (release / totalTime) * w;
-    const sLevel = h - sustain * (h - 4);
-    const path = `M 0 ${h} L ${tA} 4 L ${tA + tD} ${sLevel} L ${tA + tD + tS} ${sLevel} L ${tA + tD + tS + tR} ${h}`;
-
-    return (
-        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ borderRadius: 4, background: 'rgba(0,0,0,0.3)' }}>
-            <defs>
-                <linearGradient id="adsrFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#5ce0a6" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#5ce0a6" stopOpacity="0.05" />
-                </linearGradient>
-            </defs>
-            <path d={`${path} L ${w} ${h} L 0 ${h} Z`} fill="url(#adsrFill)" />
-            <path d={path} fill="none" stroke="#5ce0a6" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"
-                style={{ filter: 'drop-shadow(0 0 4px rgba(92, 224, 166, 0.5))' }} />
-            {/* ADSR phase markers */}
-            <circle cx={tA} cy={4} r={2} fill="#5ce0a6" />
-            <circle cx={tA + tD} cy={sLevel} r={2} fill="#5ce0a6" />
-            <circle cx={tA + tD + tS} cy={sLevel} r={2} fill="#5ce0a6" opacity={0.5} />
-        </svg>
-    );
-});
 
 // ── Mini Waveform Bar ────────────────────────────────────────────
 const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePath: string }) {
@@ -226,7 +105,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
     }, [trackId]);
 
     const pad: SampleRackPadConfig | undefined = rackConfig.pads[selectedPad];
-    const padColor = PAD_COLORS[selectedPad] ?? '#5ce0a6';
 
     // Param change handlers
     const setVolume = useCallback((v: number) => {
@@ -346,145 +224,114 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                 })}
             </div>
 
-            {/* ── RIGHT: Pad Detail Panel ── */}
+            {/* ── RIGHT: Pad Detail Panel (Sampler UI) ── */}
             <div style={{
-                flex: 1, minWidth: 200, maxWidth: 280,
-                display: 'flex', flexDirection: 'column', gap: 6,
-                padding: '8px 10px',
+                flex: 1, minWidth: 0,
+                display: 'grid', gridTemplateRows: '102px auto',
+                gap: 4, padding: 4,
                 background: 'rgba(0, 0, 0, 0.15)',
                 borderLeft: '1px solid rgba(255, 255, 255, 0.04)',
             }}>
-                {/* Header */}
-                <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    paddingBottom: 4, borderBottom: `1px solid ${padColor}22`,
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{
-                            width: 10, height: 10, borderRadius: 2,
-                            background: padColor, boxShadow: `0 0 6px ${padColor}66`,
-                        }} />
-                        <span style={{
-                            fontSize: 12, fontWeight: 700, color: '#fff',
-                            fontFamily: 'var(--font-mono)', letterSpacing: '0.02em',
-                        }}>
-                            PAD {selectedPad + 1}
-                        </span>
-                    </div>
-                    {pad?.sample_path && (
-                        <button
-                            onClick={() => handleClearPad(selectedPad)}
-                            style={{
-                                background: 'none', border: '1px solid rgba(255,100,100,0.3)',
-                                borderRadius: 4, color: '#ff8080', fontSize: 9, padding: '1px 5px',
-                                cursor: 'pointer', fontWeight: 600,
-                            }}
-                        >×</button>
-                    )}
-                </div>
-
-                {/* Sample name */}
-                <div style={{
-                    fontSize: 10, color: pad?.sample_path ? padColor : 'rgba(255,255,255,0.3)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    fontFamily: 'var(--font-mono)',
-                }}>
-                    {pad?.sample_path ? pad.sample_path.split('/').pop() : 'Drop sample here'}
-                </div>
-
                 {pad ? (
                     <>
-                        {/* ── Volume / Pan / Mute / Solo Row ── */}
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, justifyContent: 'space-between' }}>
-                            <ArcKnob value={pad.volume ?? 1} min={0} max={2} label="VOL" color={padColor}
-                                onChange={setVolume} size={36} />
-                            <ArcKnob value={pad.pan ?? 0} min={-1} max={1} label="PAN" unit="pan" color="#9bc6ff"
-                                onChange={(v) => {
-                                    // Pan not yet exposed in engine API — show the knob but note it
-                                    // We'll set ADSR to include pan when API is available
-                                }}
-                                size={36} />
-                            <div style={{ display: 'flex', gap: 4 }}>
+                        {/* Waveform View */}
+                        <div style={{
+                            position: 'relative', overflow: 'hidden',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            background: 'linear-gradient(180deg, rgba(82, 196, 154, 0.15) 0%, rgba(82, 196, 154, 0.05) 100%)',
+                            borderRadius: '4px 4px 0 0',
+                        }}>
+                            <div style={{
+                                position: 'absolute', inset: 0,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                opacity: 0.5,
+                            }}>
+                                {/* Here we could render a real large waveform. For now, just stretch the mini one or show placeholder */}
+                                {pad.sample_path ? (
+                                    <div style={{ transform: 'scale(3)', opacity: 0.5 }}>
+                                        <PadWaveform samplePath={pad.sample_path} />
+                                    </div>
+                                ) : (
+                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--font-mono)' }}>
+                                        NO SAMPLE LOADED
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{
+                                position: 'absolute', top: 6, left: 8,
+                                color: '#e0e0e0', fontSize: 10, fontWeight: 700,
+                                fontFamily: 'var(--font-mono)', letterSpacing: '0.5px'
+                            }}>
+                                PAD {selectedPad + 1}
+                            </div>
+                            <div style={{
+                                position: 'absolute', bottom: 4, left: 8, right: 8,
+                                color: pad.sample_path ? '#5ce0a6' : 'rgba(255,255,255,0.4)',
+                                fontSize: 10, fontFamily: 'var(--font-mono)',
+                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                            }}>
+                                {pad.sample_path ? pad.sample_path.split('/').pop() : 'Drop sample here'}
+                            </div>
+                            {pad.sample_path && (
+                                <button
+                                    onClick={() => handleClearPad(selectedPad)}
+                                    style={{
+                                        position: 'absolute', top: 4, right: 8,
+                                        background: 'rgba(255,100,100,0.15)', border: '1px solid rgba(255,100,100,0.3)',
+                                        borderRadius: 4, color: '#ff8080', fontSize: 9, padding: '2px 6px',
+                                        cursor: 'pointer', fontWeight: 600,
+                                    }}
+                                >
+                                    CLEAR
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Knobs Grid */}
+                        <div style={{
+                            display: 'flex', flexWrap: 'wrap', gap: 8,
+                            padding: '8px 4px',
+                            alignItems: 'flex-start',
+                        }}>
+                            <PluginKnob param={{ name: 'Vol', value: pad.volume ?? 1, min: 0, max: 2, suffix: '', step: 0.01 }}
+                                compact onChange={(_, v) => setVolume(v)} />
+                            <PluginKnob param={{ name: 'Pan', value: pad.pan ?? 0, min: -1, max: 1, suffix: '', step: 0.01 }}
+                                compact onChange={() => { /* Pan not implemented in engine yet */ }} />
+                            <PluginKnob param={{ name: 'Attack', value: pad.attack ?? 0.005, min: 0.001, max: 2, suffix: 's', step: 0.001 }}
+                                compact onChange={(_, v) => setAdsr(v, pad.decay ?? 0.1, pad.sustain ?? 1, pad.release ?? 0.1)} />
+                            <PluginKnob param={{ name: 'Decay', value: pad.decay ?? 0.1, min: 0.001, max: 4, suffix: 's', step: 0.001 }}
+                                compact onChange={(_, v) => setAdsr(pad.attack ?? 0.005, v, pad.sustain ?? 1, pad.release ?? 0.1)} />
+                            <PluginKnob param={{ name: 'Sustain', value: pad.sustain ?? 1, min: 0, max: 1, suffix: '', step: 0.01 }}
+                                compact onChange={(_, v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, v, pad.release ?? 0.1)} />
+                            <PluginKnob param={{ name: 'Release', value: pad.release ?? 0.05, min: 0.001, max: 8, suffix: 's', step: 0.001 }}
+                                compact onChange={(_, v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, pad.sustain ?? 1, v)} />
+                            <PluginKnob param={{ name: 'Cutoff', value: pad.filter_cutoff ?? 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 }}
+                                compact onChange={(_, v) => setFilterCutoff(v)} />
+
+                            {/* Mute/Solo */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleMute} style={{
-                                    width: 28, height: 20, border: 'none', borderRadius: 4,
-                                    background: pad.is_muted ? '#ff5c5c' : 'rgba(255,255,255,0.06)',
-                                    color: pad.is_muted ? '#fff' : 'rgba(255,255,255,0.4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer',
-                                    transition: 'all 0.1s',
-                                }}>M</button>
+                                    width: 32, height: 20, border: pad.is_muted ? '1px solid #ff5c5c' : '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: 4, background: pad.is_muted ? 'rgba(255,92,92,0.2)' : 'rgba(0,0,0,0.2)',
+                                    color: pad.is_muted ? '#ff5c5c' : 'rgba(255,255,255,0.4)',
+                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
+                                }}>MUTE</button>
                                 <button onClick={toggleSolo} style={{
-                                    width: 28, height: 20, border: 'none', borderRadius: 4,
-                                    background: pad.is_soloed ? '#f0c430' : 'rgba(255,255,255,0.06)',
-                                    color: pad.is_soloed ? '#000' : 'rgba(255,255,255,0.4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer',
-                                    transition: 'all 0.1s',
-                                }}>S</button>
+                                    width: 32, height: 20, border: pad.is_soloed ? '1px solid #f0c430' : '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: 4, background: pad.is_soloed ? 'rgba(240,196,48,0.2)' : 'rgba(0,0,0,0.2)',
+                                    color: pad.is_soloed ? '#f0c430' : 'rgba(255,255,255,0.4)',
+                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
+                                }}>SOLO</button>
                             </div>
-                        </div>
-
-                        {/* ── ADSR Section ── */}
-                        <div style={{
-                            background: 'rgba(0,0,0,0.2)', borderRadius: 6,
-                            padding: '5px 6px', border: '1px solid rgba(255,255,255,0.04)',
-                        }}>
-                            <div style={{
-                                fontSize: 8, color: 'rgba(255,255,255,0.3)', fontWeight: 700,
-                                letterSpacing: '0.1em', marginBottom: 3,
-                            }}>ENVELOPE</div>
-                            <AdsrVisualizer
-                                attack={pad.attack ?? 0.005}
-                                decay={pad.decay ?? 0.1}
-                                sustain={pad.sustain ?? 1}
-                                release={pad.release ?? 0.1}
-                            />
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                                <ArcKnob value={pad.attack ?? 0.005} min={0.001} max={0.5} label="A" unit="ms" color="#5ce0a6" size={32}
-                                    onChange={(v) => setAdsr(v, pad.decay ?? 0.1, pad.sustain ?? 1, pad.release ?? 0.1)} />
-                                <ArcKnob value={pad.decay ?? 0.1} min={0.01} max={2} label="D" unit="ms" color="#5ce0a6" size={32}
-                                    onChange={(v) => setAdsr(pad.attack ?? 0.005, v, pad.sustain ?? 1, pad.release ?? 0.1)} />
-                                <ArcKnob value={pad.sustain ?? 1} min={0} max={1} label="S" unit="%" color="#5ce0a6" size={32}
-                                    onChange={(v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, v, pad.release ?? 0.1)} />
-                                <ArcKnob value={pad.release ?? 0.1} min={0.01} max={3} label="R" unit="ms" color="#5ce0a6" size={32}
-                                    onChange={(v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, pad.sustain ?? 1, v)} />
-                            </div>
-                        </div>
-
-                        {/* ── Filter Section ── */}
-                        <div style={{
-                            background: 'rgba(0,0,0,0.2)', borderRadius: 6,
-                            padding: '5px 6px', border: '1px solid rgba(255,255,255,0.04)',
-                            display: 'flex', alignItems: 'center', gap: 8,
-                        }}>
-                            <div style={{
-                                fontSize: 8, color: 'rgba(255,255,255,0.3)', fontWeight: 700,
-                                letterSpacing: '0.1em', writingMode: 'vertical-lr',
-                                transform: 'rotate(180deg)',
-                            }}>FILTER</div>
-                            <ArcKnob
-                                value={pad.filter_cutoff ?? 20000} min={20} max={20000}
-                                label="CUTOFF" unit="Hz" color="#ffbf5c" size={40}
-                                onChange={setFilterCutoff}
-                            />
-                            {/* Mini filter curve */}
-                            <svg width={60} height={28} viewBox="0 0 60 28" style={{ opacity: 0.5 }}>
-                                <path
-                                    d={(() => {
-                                        const fc = Math.max(20, Math.min(20000, pad.filter_cutoff ?? 20000));
-                                        const norm = (Math.log10(fc) - Math.log10(20)) / (Math.log10(20000) - Math.log10(20));
-                                        const cutX = norm * 60;
-                                        return `M 0 4 L ${Math.max(0, cutX - 8)} 4 Q ${cutX} 4 ${cutX} 14 Q ${cutX} 26 ${Math.min(60, cutX + 8)} 26 L 60 26`;
-                                    })()}
-                                    fill="none" stroke="#ffbf5c" strokeWidth={1.5} strokeLinecap="round"
-                                />
-                            </svg>
                         </div>
                     </>
                 ) : (
                     <div style={{
-                        fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center',
-                        marginTop: 20, fontStyle: 'italic',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        height: '100%', fontSize: 11, color: 'rgba(255,255,255,0.3)',
+                        fontFamily: 'var(--font-mono)', fontStyle: 'italic',
                     }}>
-                        Select a pad
+                        SELECT A PAD
                     </div>
                 )}
             </div>

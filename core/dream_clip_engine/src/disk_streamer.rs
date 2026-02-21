@@ -240,7 +240,7 @@ impl StreamingWindow {
     }
 
     #[inline(always)]
-    fn sample_linear_at(&self, pos: f64, right_channel: bool) -> Option<f32> {
+    fn sample_cubic_at(&self, pos: f64, right_channel: bool) -> Option<f32> {
         if !pos.is_finite() {
             return None;
         }
@@ -250,13 +250,26 @@ impl StreamingWindow {
         }
 
         let clamped = pos.clamp(0.0, max_pos);
-        let i0 = clamped.floor() as i64;
-        let i1 = (i0 + 1).min(self.total_frames.saturating_sub(1));
-        let frac = (clamped - i0 as f64) as f32;
+        let idx = clamped.floor() as i64;
+        let t = (clamped - idx as f64) as f32;
 
-        let s0 = self.sample_at_frame(i0, right_channel)?;
-        let s1 = self.sample_at_frame(i1, right_channel).unwrap_or(s0);
-        Some(s0 * (1.0 - frac) + s1 * frac)
+        // 4-point Catmull-Rom window
+        let i0 = (idx - 1).max(0);
+        let i1 = idx.max(0).min(self.total_frames.saturating_sub(1));
+        let i2 = (idx + 1).max(0).min(self.total_frames.saturating_sub(1));
+        let i3 = (idx + 2).max(0).min(self.total_frames.saturating_sub(1));
+
+        let s1 = self.sample_at_frame(i1, right_channel)?; // Must have at least the primary sample
+        let s0 = self.sample_at_frame(i0, right_channel).unwrap_or(s1);
+        let s2 = self.sample_at_frame(i2, right_channel).unwrap_or(s1);
+        let s3 = self.sample_at_frame(i3, right_channel).unwrap_or(s2);
+
+        let a = -0.5 * s0 + 1.5 * s1 - 1.5 * s2 + 0.5 * s3;
+        let b = s0 - 2.5 * s1 + 2.0 * s2 - 0.5 * s3;
+        let c = -0.5 * s0 + 0.5 * s2;
+        let d = s1;
+
+        Some(((a * t + b) * t + c) * t + d)
     }
 
     /// SR/warp aware read with linear interpolation.
@@ -303,23 +316,27 @@ impl StreamingWindow {
 
             if !src_pos.is_finite() { continue; }
             let clamped = src_pos.clamp(0.0, max_pos);
-            let frame0 = clamped.floor() as i64;
-            let frame1 = (frame0 + 1).min(self.total_frames.saturating_sub(1));
-            let frac = (clamped - frame0 as f64) as f32;
+            let idx = clamped.floor() as i64;
+            let t = (clamped - idx as f64) as f32;
+
+            let frame0 = (idx - 1).max(0);
+            let frame1 = idx.max(0).min(self.total_frames.saturating_sub(1));
+            let frame2 = (idx + 1).max(0).min(self.total_frames.saturating_sub(1));
+            let frame3 = (idx + 2).max(0).min(self.total_frames.saturating_sub(1));
 
             let mut sample_frame = |frame: i64, is_right: bool| -> Option<f32> {
                 if frame < 0 || frame >= self.total_frames { return None; }
                 if let Some(c) = self.chunks.get(chunk_idx_hint) {
                     let end = c.start_frame + c.num_frames as i64;
                     if frame >= c.start_frame && frame < end {
-                        let idx = (frame - c.start_frame) as usize;
-                        return if is_right { c.right.get(idx).copied() } else { c.left.get(idx).copied() };
+                        let i = (frame - c.start_frame) as usize;
+                        return if is_right { c.right.get(i).copied() } else { c.left.get(i).copied() };
                     }
                 }
-                for (idx, c) in self.chunks.iter().enumerate() {
+                for (search_idx, c) in self.chunks.iter().enumerate() {
                     let end = c.start_frame + c.num_frames as i64;
                     if frame >= c.start_frame && frame < end {
-                        chunk_idx_hint = idx;
+                        chunk_idx_hint = search_idx;
                         let src_idx = (frame - c.start_frame) as usize;
                         return if is_right { c.right.get(src_idx).copied() } else { c.left.get(src_idx).copied() };
                     }
@@ -327,17 +344,34 @@ impl StreamingWindow {
                 None
             };
 
-            let l0 = sample_frame(frame0, false);
-            let l1 = sample_frame(frame1, false).or(l0);
-            if let (Some(a), Some(b)) = (l0, l1) {
-                out_left[out_idx] += (a * (1.0 - frac) + b * frac) * gain;
+            // AUD-10X FIX: Replaced purely linear 2-point interpolation with Catmull-Rom
+            // 4-point cubic interpolation to permanently eliminate "bitcrusher" aliasing noise
+            // when streaming files at a different sample rate than the project.
+            let l1 = sample_frame(frame1, false);
+            if let Some(p1) = l1 {
+                let p0 = sample_frame(frame0, false).unwrap_or(p1);
+                let p2 = sample_frame(frame2, false).unwrap_or(p1);
+                let p3 = sample_frame(frame3, false).unwrap_or(p2);
+
+                let a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+                let b = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3;
+                let c = -0.5 * p0 + 0.5 * p2;
+                let d = p1;
+                out_left[out_idx] += (((a * t + b) * t + c) * t + d) * gain;
                 any_hit = true;
             }
 
-            let r0 = sample_frame(frame0, true);
-            let r1 = sample_frame(frame1, true).or(r0);
-            if let (Some(a), Some(b)) = (r0, r1) {
-                out_right[out_idx] += (a * (1.0 - frac) + b * frac) * gain;
+            let r1 = sample_frame(frame1, true);
+            if let Some(p1) = r1 {
+                let p0 = sample_frame(frame0, true).unwrap_or(p1);
+                let p2 = sample_frame(frame2, true).unwrap_or(p1);
+                let p3 = sample_frame(frame3, true).unwrap_or(p2);
+
+                let a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+                let b = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3;
+                let c = -0.5 * p0 + 0.5 * p2;
+                let d = p1;
+                out_right[out_idx] += (((a * t + b) * t + c) * t + d) * gain;
                 any_hit = true;
             }
         }

@@ -1591,41 +1591,49 @@ export const AssetBrowser = () => {
                 .map((entry) => entry.item);
         }
 
-        // ── AUDIT FIX: Apply source filter (previously cosmetic-only) ──
-        // 0=All, 1=Library, 2=Samples, 3=Plug-ins
-        if (sourceFilter === 1) {
-            // Library: real audio files + internal plugins (no external VST)
-            base = base.filter((i) => i.type === 'audio' || i.pluginSource === 'internal');
-        } else if (sourceFilter === 2) {
-            // Samples: only audio files
-            base = base.filter((i) => i.type === 'audio');
-        } else if (sourceFilter === 3) {
-            // Plug-ins: only plugin items
-            base = base.filter((i) => i.type === 'plugin');
-        }
+        // ── AUDIT FIX: Apply source/format/audio filters ONLY for library categories ──
+        // Folder-based views (user folders, currentProject, userLibrary) have items
+        // from raw disk scans where type/format metadata may be incomplete.
+        // Applying these filters there would hide valid files.
+        const isLibraryCategory = ['samples', 'all', 'drums', 'plugins', 'instruments', 'audioEffects',
+            'collection-red', 'collection-yellow', 'collection-green'].includes(selectedCategoryId)
+            && !activeCategory?.folderPath;
 
-        // ── AUDIT FIX: Apply format filter (previously cosmetic-only) ──
-        if (formatFilter > 0) {
-            const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
-            const wanted = formatNames[formatFilter];
-            if (wanted) {
-                base = base.filter((i) => {
-                    if (!i.format) return false;
-                    return i.format.toLowerCase() === wanted;
-                });
+        if (isLibraryCategory) {
+            // Source filter: 0=All, 1=Library, 2=Samples, 3=Plug-ins
+            if (sourceFilter === 1) {
+                base = base.filter((i) => i.type === 'audio' || i.pluginSource === 'internal');
+            } else if (sourceFilter === 2) {
+                base = base.filter((i) => i.type === 'audio');
+            } else if (sourceFilter === 3) {
+                base = base.filter((i) => i.type === 'plugin');
             }
         }
 
-        // ── AUDIT FIX: Apply audio type filter (previously cosmetic-only) ──
-        if (audioFilter > 0) {
-            const audioFilterFns: Record<number, (i: BrowserItem) => boolean> = {
-                1: (i) => /loop|bpm/i.test(i.name + (i.meta ?? '')), // Loops
-                2: (i) => /one.?shot|hit|stab/i.test(i.name + (i.meta ?? '')), // One Shot
-                3: (i) => isLikelyDrumAudio(i), // Drums
-                4: (i) => /vocal|vox|voice|acapella/i.test(i.name + (i.meta ?? '')), // Vocals
-            };
-            const fn = audioFilterFns[audioFilter];
-            if (fn) base = base.filter(fn);
+        if (isLibraryCategory) {
+            // Format filter: WAV/AIFF/MP3/FLAC
+            if (formatFilter > 0) {
+                const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
+                const wanted = formatNames[formatFilter];
+                if (wanted) {
+                    base = base.filter((i) => {
+                        if (!i.format) return false;
+                        return i.format.toLowerCase() === wanted;
+                    });
+                }
+            }
+
+            // Audio type filter: Loops/One-Shot/Drums/Vocals
+            if (audioFilter > 0) {
+                const audioFilterFns: Record<number, (i: BrowserItem) => boolean> = {
+                    1: (i) => /loop|bpm/i.test(i.name + (i.meta ?? '')),
+                    2: (i) => /one.?shot|hit|stab/i.test(i.name + (i.meta ?? '')),
+                    3: (i) => isLikelyDrumAudio(i),
+                    4: (i) => /vocal|vox|voice|acapella/i.test(i.name + (i.meta ?? '')),
+                };
+                const fn = audioFilterFns[audioFilter];
+                if (fn) base = base.filter(fn);
+            }
         }
 
         if (selectedCategoryId === 'plugins' && pluginSourceFilter !== 'all') {

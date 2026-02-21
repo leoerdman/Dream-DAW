@@ -171,6 +171,10 @@ impl AudioReader {
         // The previous implementation allocated a new SampleBuffer per decoded packet,
         // causing ~460 alloc+dealloc cycles for a 5-minute 48kHz WAV.
         let mut sample_buf: Option<SampleBuffer<f32>> = None;
+        // IO-1 FIX: Track the spec of the current SampleBuffer to detect channel
+        // layout changes mid-stream. Without this, a packet with a different spec
+        // reuses the old buffer → corrupted de-interleave.
+        let mut sample_buf_spec: Option<symphonia::core::audio::SignalSpec> = None;
 
         loop {
             let packet = match format_reader.next_packet() {
@@ -180,8 +184,15 @@ impl AudioReader {
                 {
                     break; // End of stream
                 }
+                // IO-2 FIX: Non-EOF packet errors (e.g., damaged MP3 frame) should
+                // not terminate the entire decode. Skip the bad packet and continue
+                // to recover as much audio as possible.
+                Err(symphonia::core::errors::Error::DecodeError(ref msg)) => {
+                    log::warn!("Packet read error (skipping frame): {msg}");
+                    continue;
+                }
                 Err(e) => {
-                    log::warn!("Packet read error (continuing): {e}");
+                    log::warn!("Packet read error (fatal, stopping): {e}");
                     break;
                 }
             };
@@ -202,10 +213,15 @@ impl AudioReader {
             let spec = *decoded.spec();
             let duration = decoded.capacity();
 
-            // Reuse the SampleBuffer if possible, or allocate if first use / capacity changed
+            // IO-1 FIX: Reuse SampleBuffer only if BOTH capacity AND spec match.
+            // A codec that changes channel layout mid-stream (or VBR packet size
+            // changes) would otherwise reuse a buffer with the wrong spec,
+            // causing corrupted de-interleave.
+            let spec_changed = sample_buf_spec.map_or(true, |s| s != spec);
             let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration as u64, spec));
-            if buf.capacity() < duration {
+            if buf.capacity() < duration || spec_changed {
                 *buf = SampleBuffer::<f32>::new(duration as u64, spec);
+                sample_buf_spec = Some(spec);
             }
             buf.copy_interleaved_ref(decoded);
 

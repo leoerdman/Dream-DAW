@@ -200,9 +200,29 @@ export const TrackInspector = ({
     }, []);
 
     const liveTracks = useMemo((): TrackData[] => {
-        return projectTracks.map((pt, idx) =>
+        const mapped = projectTracks.map((pt, idx) =>
             mapProjectTrack(pt, idx, meters.tracks[idx]),
         );
+        // Enterprise group meter aggregation: groups show the max peak
+        // of their children, since the backend doesn't meter group buses.
+        for (const t of mapped) {
+            if (t.type === 'group') {
+                let maxL = -Infinity;
+                let maxR = -Infinity;
+                for (const child of mapped) {
+                    if (child.groupId === t.id) {
+                        if (child.vuLevelL > maxL) maxL = child.vuLevelL;
+                        if (child.vuLevelR > maxR) maxR = child.vuLevelR;
+                    }
+                }
+                if (maxL > -Infinity) {
+                    t.vuLevelL = maxL;
+                    t.vuLevelR = maxR;
+                    t.vuLevel = Math.max(maxL, maxR);
+                }
+            }
+        }
+        return mapped;
     }, [projectTracks, meters]);
 
     const masterTrack = useMemo((): TrackData => {
@@ -2402,8 +2422,10 @@ const TrackRow = ({
     const showRoutingExpanded = !isMasterFixed;
     const showRoutingCompact = false;
 
-    // Subdue track visually when disabled (muted)
-    const isEnabled = !track.isMuted;
+    // Enterprise solo dimming: when any track is soloed, non-soloed tracks
+    // dim with grayscale + reduced opacity — exactly like Ableton Live.
+    const anySoloed = allTracks.some(t => t.isSoloed);
+    const isEnabled = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
     const [resizeHot, setResizeHot] = useState(false);
     const headerBgColor = track.color;
@@ -2811,7 +2833,7 @@ const TrackRow = ({
                         peakDb={track.vuLevel}
                         peakDbL={track.vuLevelL}
                         peakDbR={track.vuLevelR}
-                        isMidi={track.type === 'midi'}
+                        isMidi={false}
                         onVolumeChange={onVolumeChange}
                         onPanChange={onPanChange}
                     />
@@ -2931,7 +2953,7 @@ const TrackRow = ({
                     peakDb={track.vuLevel}
                     peakDbL={track.vuLevelL}
                     peakDbR={track.vuLevelR}
-                    isMidi={track.type === 'midi' && !isGroup}
+                    isMidi={false}
                     compact
                     isEnabled={isMaster ? true : isEnabled}
                     trackHeight={trackHeight}

@@ -1596,6 +1596,7 @@ pub fn start_audio_thread_on_device(
 
     // ── 5. Playback state ───────────────────────────────────────────
     let mut is_playing: bool = false;
+    let mut diag_block_counter: u32 = 0;
     // BUG-035 FIX: Removed misleading underscore — BPM IS used in TransportContext.
     let mut bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
@@ -3024,7 +3025,20 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // ── Master bus metering (post-FX) ─────────────────────
+                        // ── BUG-R4/R5 FIX: Apply master gain to graph_out BEFORE metering ──
+                        // Previously master gain was applied after interleave at L3157,
+                        // causing: (1) master meters to show pre-fader levels (wrong), and
+                        // (2) double soft_clip on hot signals (altered saturation character).
+                        // Now master gain is per-sample smoothed into graph_out buffers first,
+                        // so metering reflects the true output level.
+                        for i in 0..n {
+                            master_gain_current +=
+                                (master_gain_target - master_gain_current) * master_gain_smooth;
+                            graph_out_left[i] *= master_gain_current;
+                            graph_out_right[i] *= master_gain_current;
+                        }
+
+                        // ── Master bus metering (post-FX, post-master-gain) ──────────
                         {
                             let decay = graph_peak_decay;
                             let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
@@ -3037,19 +3051,57 @@ pub fn start_audio_thread_on_device(
                             render_ctx.meter_bank.master_right().store_peak_decay(peak_r, decay);
                         }
 
+                        // ── DIAGNOSTIC: periodic signal trace (every ~86 blocks ≈ 1s) ──
+                        diag_block_counter += 1;
+                        if diag_block_counter >= 86 {
+                            diag_block_counter = 0;
+                            let graph_peak = graph_out_left[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
+                            let total_clips: usize = snapshot.iter().map(|t| t.len()).sum();
+                            let tracks_with_clips = snapshot.iter().filter(|t| !t.is_empty()).count();
+                            
+                            // Check track slot buffers and output enabled
+                            let mut tracks_with_signal = 0usize;
+                            let mut tracks_output_on = 0usize;
+                            let mut first_slot_peak: f32 = 0.0;
+                            let mut first_signal_idx: Option<usize> = None;
+                            for idx in 0..track_count.min(render_ctx.track_slots.len()) {
+                                let slot = &render_ctx.track_slots[idx];
+                                let slot_peak = slot.buf_left[..n.min(slot.buf_left.len())].iter()
+                                    .fold(0.0f32, |a, &s| a.max(s.abs()));
+                                if slot_peak > 0.0001 {
+                                    tracks_with_signal += 1;
+                                    if first_signal_idx.is_none() {
+                                        first_signal_idx = Some(idx);
+                                        first_slot_peak = slot_peak;
+                                    }
+                                }
+                                if slot.strip.is_output_enabled() {
+                                    tracks_output_on += 1;
+                                }
+                            }
+                            
+                            eprintln!(
+                                "[AUDIO-DIAG] play={} snap={}/{} gp={:.6} mg={:.3} sig_trks={}/{} out_on={} slot0_pk={:.4} idx={:?} ph={}",
+                                is_playing, total_clips, tracks_with_clips, graph_peak, master_gain_current,
+                                tracks_with_signal, track_count, tracks_output_on,
+                                first_slot_peak, first_signal_idx, render_ctx.playhead.position()
+                            );
+                        }
+
+                        // BUG-R5 FIX: Interleave without soft_clip here — final soft_clip
+                        // is applied once at the output stage below. Previously signal was
+                        // soft-clipped twice (here + master gain loop), altering saturation.
                         for i in 0..n {
                             let base = i * channels;
                             if base >= data.len() { break; }
                             if channels == 1 {
                                 // AUD-062 FIX: Equal-power mono fold.
-                                // Simple average (0.5) causes -6dB level drop.
-                                // Equal-power coefficient cos(π/4) ≈ 0.707 gives -3dB.
-                                data[base] = soft_clip((graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2);
+                                data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
                                 continue;
                             }
-                            data[base] = soft_clip(graph_out_left[i]);
+                            data[base] = graph_out_left[i];
                             if base + 1 < data.len() {
-                                data[base + 1] = soft_clip(graph_out_right[i]);
+                                data[base + 1] = graph_out_right[i];
                             }
                             for ch in 2..channels {
                                 let idx = base + ch;
@@ -3136,17 +3188,13 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // ── C2. Master fader + final safety clip ─────────
-                        // BUG-045 FIX: Smooth per-FRAME (every `channels` samples)
-                        // instead of per-sample. This ensures L and R channels in
-                        // the same frame receive identical gain, eliminating the
-                        // subtle stereo imbalance during gain ramps.
-                        for frame in data.chunks_exact_mut(channels) {
-                            master_gain_current +=
-                                (master_gain_target - master_gain_current) * master_gain_smooth;
-                            for ch in frame.iter_mut() {
-                                *ch = soft_clip(*ch * master_gain_current);
-                            }
+                        // ── C2. Final safety limiter ─────────────────────
+                        // BUG-R4/R5 FIX: Master gain is now applied pre-metering
+                        // (to graph_out buffers above). This loop applies only
+                        // the final soft_clip limiter to prevent DAC clipping
+                        // from preview audio mix-in or accumulated rounding.
+                        for sample in data[..n * channels].iter_mut() {
+                            *sample = soft_clip(*sample);
                         }
 
                         // ── BUG-075 FIX: Feed spectrum analyzer POST-fader ──

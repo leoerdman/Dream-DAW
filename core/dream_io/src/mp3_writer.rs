@@ -63,11 +63,35 @@ pub struct Mp3Writer;
 
 /// Incremental MP3 writer for large offline renders.
 pub struct StreamingMp3Writer {
-    encoder: mp3lame_encoder::Encoder,
+    encoder: Option<mp3lame_encoder::Encoder>,
     writer: BufWriter<File>,
     path: PathBuf,
     sample_rate: u32,
     frames_written: usize,
+}
+
+/// IO-5 FIX: Finalize encoder on drop to prevent corrupted MP3 files.
+/// Without this, if write_chunk panics or caller drops without finalize(),
+/// the LAME VBR header and trailing frames are lost → truncated output.
+impl Drop for StreamingMp3Writer {
+    fn drop(&mut self) {
+        if let Some(mut encoder) = self.encoder.take() {
+            let required = mp3lame_encoder::max_required_buffer_size(0);
+            let mut out: Vec<u8> = Vec::with_capacity(required);
+            match encoder.flush::<FlushNoGap>(out.spare_capacity_mut()) {
+                Ok(flush_size) => {
+                    unsafe { out.set_len(flush_size); }
+                    if let Err(e) = self.writer.write_all(&out) {
+                        log::error!("[StreamingMp3Writer] flush write failed on drop: {}", e);
+                    }
+                    let _ = self.writer.flush();
+                }
+                Err(e) => {
+                    log::error!("[StreamingMp3Writer] encoder flush failed on drop: {:?}", e);
+                }
+            }
+        }
+    }
 }
 
 /// Chunk size for feeding the encoder (frames per iteration).
@@ -108,7 +132,7 @@ impl Mp3Writer {
             .map_err(|e| Mp3WriterError::WriteError(format!("Failed to create MP3 file: {e}")))?;
 
         Ok(StreamingMp3Writer {
-            encoder,
+            encoder: Some(encoder),
             writer: BufWriter::new(file),
             path: path_buf,
             sample_rate,
@@ -186,11 +210,18 @@ impl StreamingMp3Writer {
             return Ok(());
         }
 
-        let input = DualPcm { left, right };
+        let encoder = self.encoder.as_mut()
+            .ok_or_else(|| Mp3WriterError::EncodeError("Encoder already finalized".into()))?;
+
+        // IO-6 FIX: Sanitize NaN/Inf before passing to LAME encoder.
+        // LAME has undefined behavior for non-finite float input.
+        let left_clean: Vec<f32> = left.iter().map(|&s| if s.is_finite() { s } else { 0.0 }).collect();
+        let right_clean: Vec<f32> = right.iter().map(|&s| if s.is_finite() { s } else { 0.0 }).collect();
+
+        let input = DualPcm { left: &left_clean, right: &right_clean };
         let required = mp3lame_encoder::max_required_buffer_size(left.len());
         let mut out: Vec<u8> = Vec::with_capacity(required);
-        let encoded_size = self
-            .encoder
+        let encoded_size = encoder
             .encode(input, out.spare_capacity_mut())
             .map_err(|e| Mp3WriterError::EncodeError(format!("encode chunk: {e:?}")))?;
 
@@ -207,10 +238,11 @@ impl StreamingMp3Writer {
 
     /// Flushes encoder and finalizes file.
     pub fn finalize(mut self) -> Result<(), Mp3WriterError> {
+        let mut encoder = self.encoder.take()
+            .ok_or_else(|| Mp3WriterError::EncodeError("Encoder already finalized".into()))?;
         let required = mp3lame_encoder::max_required_buffer_size(0);
         let mut out: Vec<u8> = Vec::with_capacity(required);
-        let flush_size = self
-            .encoder
+        let flush_size = encoder
             .flush::<FlushNoGap>(out.spare_capacity_mut())
             .map_err(|e| Mp3WriterError::EncodeError(format!("flush: {e:?}")))?;
         unsafe {

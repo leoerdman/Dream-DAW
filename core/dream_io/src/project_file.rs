@@ -114,10 +114,11 @@ impl ProjectFile {
                 let backup_dir = parent.join("Backup");
                 let _ = fs::create_dir_all(&backup_dir);
                 let file_name = path.file_name().unwrap_or_default();
-                let bak_name = format!(
-                    "{}.bak",
-                    file_name.to_str().unwrap_or("project").trim_end_matches(".json")
-                );
+                // IO-9 FIX: trim_end_matches strips ALL trailing chars matching
+                // any char in the pattern. Use strip_suffix for exact suffix removal.
+                let base = file_name.to_str().unwrap_or("project");
+                let base = base.strip_suffix(".json").unwrap_or(base);
+                let bak_name = format!("{}.bak", base);
                 let bak_path = backup_dir.join(bak_name);
                 if let Err(e) = fs::copy(path, &bak_path) {
                     log::warn!("Could not create backup {}: {}", bak_path.display(), e);
@@ -162,7 +163,9 @@ impl ProjectFile {
             let file_name = path.file_name().unwrap_or_default();
             let bak_name = format!(
                 "{}.bak",
-                file_name.to_str().unwrap_or("project").trim_end_matches(".json")
+                file_name.to_str().unwrap_or("project").strip_suffix(".json").unwrap_or(
+                    file_name.to_str().unwrap_or("project")
+                )
             );
             let backup_dir_bak = path.parent().map(|p| p.join("Backup").join(&bak_name));
             let legacy_bak = path.with_extension("bak");

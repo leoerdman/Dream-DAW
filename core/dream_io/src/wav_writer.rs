@@ -161,6 +161,18 @@ impl WavWriter {
         channels: u16,
         bit_depth: u16,
     ) -> Result<(), WavWriterError> {
+        // IO-4 FIX: Guard against exceeding the WAV RIFF 4GB data chunk limit.
+        // WAV uses u32 for the data chunk size field, capping at 4,294,967,295 bytes.
+        // Writing more produces a corrupted file with wrapped chunk sizes.
+        let bytes_per_sample = (bit_depth as u64) / 8;
+        let total_data_bytes = (samples.len() as u64) * bytes_per_sample;
+        if total_data_bytes > u32::MAX as u64 {
+            return Err(WavWriterError::InvalidData(format!(
+                "Audio data ({} bytes) exceeds WAV 4GB RIFF limit",
+                total_data_bytes
+            )));
+        }
+
         let spec = WavSpec {
             channels,
             sample_rate,
@@ -179,7 +191,10 @@ impl WavWriter {
             16 => {
                 let mut dither = TpdfDither::new();
                 for &sample in samples {
-                    let val = (sample * 32767.0) + dither.dither();
+                    // IO-3 FIX: NaN × 32767 = NaN → `NaN as i16` is undefined.
+                    // Guard non-finite samples by writing silence.
+                    let s = if sample.is_finite() { sample } else { 0.0 };
+                    let val = (s * 32767.0) + dither.dither();
                     let int_sample = val.clamp(i16::MIN as f32, i16::MAX as f32).round() as i16;
                     writer
                         .write_sample(int_sample)
@@ -189,7 +204,8 @@ impl WavWriter {
             24 => {
                 let mut dither = TpdfDither::new();
                 for &sample in samples {
-                    let val = (sample * 8_388_607.0) + dither.dither();
+                    let s = if sample.is_finite() { sample } else { 0.0 };
+                    let val = (s * 8_388_607.0) + dither.dither();
                     let int_sample = val.clamp(-8_388_608.0, 8_388_607.0).round() as i32;
                     writer
                         .write_sample(int_sample)
@@ -198,8 +214,10 @@ impl WavWriter {
             }
             32 => {
                 for &sample in samples {
+                    // IO-3 FIX: Write 0.0 for NaN/Inf to prevent corrupt output.
+                    let s = if sample.is_finite() { sample } else { 0.0 };
                     writer
-                        .write_sample(sample)
+                        .write_sample(s)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
             }
@@ -292,7 +310,8 @@ impl StreamingWavWriter {
         match self.bit_depth {
             16 => {
                 for &sample in samples {
-                    let val = (sample * 32767.0) + self.dither.dither();
+                    let s = if sample.is_finite() { sample } else { 0.0 };
+                    let val = (s * 32767.0) + self.dither.dither();
                     let int_sample = val.clamp(i16::MIN as f32, i16::MAX as f32).round() as i16;
                     writer
                         .write_sample(int_sample)
@@ -301,7 +320,8 @@ impl StreamingWavWriter {
             }
             24 => {
                 for &sample in samples {
-                    let val = (sample * 8_388_607.0) + self.dither.dither();
+                    let s = if sample.is_finite() { sample } else { 0.0 };
+                    let val = (s * 8_388_607.0) + self.dither.dither();
                     let int_sample = val.clamp(-8_388_608.0, 8_388_607.0).round() as i32;
                     writer
                         .write_sample(int_sample)
@@ -310,8 +330,9 @@ impl StreamingWavWriter {
             }
             32 => {
                 for &sample in samples {
+                    let s = if sample.is_finite() { sample } else { 0.0 };
                     writer
-                        .write_sample(sample)
+                        .write_sample(s)
                         .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
                 }
             }

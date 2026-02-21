@@ -262,7 +262,20 @@ impl ProjectManager {
             let ext = source.extension().and_then(|s| s.to_str()).unwrap_or("");
 
             let mut n = 1usize;
+            // IO-10 FIX: Bound the loop to prevent infinite iteration if the
+            // destination directory has thousands of pre-existing numbered copies.
+            const MAX_SUFFIX_ATTEMPTS: usize = 10_000;
             loop {
+                if n > MAX_SUFFIX_ATTEMPTS {
+                    return Err(ProjectFileError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        format!(
+                            "Could not find unique filename for '{}' after {} attempts",
+                            file_name.to_string_lossy(),
+                            MAX_SUFFIX_ATTEMPTS,
+                        ),
+                    )));
+                }
                 let candidate = if ext.is_empty() {
                     format!("{}_{}", stem, n)
                 } else {

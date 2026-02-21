@@ -157,16 +157,26 @@ impl PeakCache {
         samples
             .chunks(samples_per_peak)
             .map(|chunk| {
-                // BUG-070 FIX: INFINITY handles NaN samples correctly.
                 let mut min = f32::INFINITY;
                 let mut max = f32::NEG_INFINITY;
                 for &s in chunk {
+                    // IO-7 FIX: Skip non-finite samples. Without this, an
+                    // all-NaN chunk retains the INFINITY/NEG_INFINITY init,
+                    // corrupting the waveform display with extreme bars.
+                    if !s.is_finite() {
+                        continue;
+                    }
                     if s < min {
                         min = s;
                     }
                     if s > max {
                         max = s;
                     }
+                }
+                // If no finite samples found, output silence.
+                if min == f32::INFINITY {
+                    min = 0.0;
+                    max = 0.0;
                 }
                 PeakPair { min, max }
             })
@@ -272,8 +282,32 @@ impl PeakCache {
     }
 
     /// Loads peaks from `.peaks` sidecar.
+    ///
+    /// IO-8 FIX: Validates that the sidecar is not stale by comparing
+    /// modification times. If the source audio was modified after the
+    /// cache was generated, returns an error to force regeneration.
     pub fn load_from_sidecar(source_path: &Path) -> io::Result<WaveformPeaks> {
         let sidecar = Self::sidecar_path_for(source_path);
+
+        // IO-8 FIX: Staleness check — if source file is newer than sidecar,
+        // the cached peaks are outdated and must be regenerated.
+        if source_path.exists() && sidecar.exists() {
+            let source_mtime = fs::metadata(source_path)
+                .and_then(|m| m.modified())
+                .ok();
+            let sidecar_mtime = fs::metadata(&sidecar)
+                .and_then(|m| m.modified())
+                .ok();
+            if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime) {
+                if src_t > cache_t {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "peak cache is stale (source modified after cache)",
+                    ));
+                }
+            }
+        }
+
         let bytes = fs::read(&sidecar)?;
 
         let header_size = 24;

@@ -1052,6 +1052,88 @@ fn render_oscillator_voice(
     }
 }
 
+// ── Sample Rack Engine ──────────────────────────────────────────────────
+
+/// The Sample Rack instrument — 16 independent simplistic samplers mapped to MIDI C1 (36) - D#2 (51).
+///
+/// Holds 16 `SamplerEngine` instances internally, acting as a router and additive mixer
+/// for Drum Rack functionality on a single track.
+pub struct SampleRackEngine {
+    pads: [SamplerEngine; 16],
+    /// Master volume (0.0–2.0).
+    pub volume: f32,
+    _sample_rate: f64,
+}
+
+impl SampleRackEngine {
+    /// Creates a new Sample Rack with 16 empty pads.
+    pub fn new(sample_rate: f64) -> Self {
+        Self {
+            pads: std::array::from_fn(|_| SamplerEngine::new(sample_rate)),
+            volume: 1.0,
+            _sample_rate: sample_rate,
+        }
+    }
+
+    /// Access a specific pad's SamplerEngine directly to configure it.
+    #[inline]
+    pub fn pad_mut(&mut self, index: usize) -> Option<&mut SamplerEngine> {
+        self.pads.get_mut(index)
+    }
+
+    /// Trigger a note-on event. Routes MIDI pitch to the corresponding pad.
+    #[inline]
+    pub fn note_on(&mut self, note: u8, velocity: u8) {
+        // C1 is note 36. 16 pads = 36 to 51 inclusive.
+        if note >= 36 && note < 36 + 16 {
+            let pad_idx = (note - 36) as usize;
+            let pad = &mut self.pads[pad_idx];
+            // Drum Racks usually play samples at their original pitch,
+            // so we trigger the pad at its own configured root_note.
+            let root = pad.root_note;
+            pad.note_on(root, velocity);
+        }
+    }
+
+    /// Trigger a note-off event.
+    #[inline]
+    pub fn note_off(&mut self, note: u8) {
+        if note >= 36 && note < 36 + 16 {
+            let pad_idx = (note - 36) as usize;
+            let pad = &mut self.pads[pad_idx];
+            let root = pad.root_note;
+            pad.note_off(root);
+        }
+    }
+
+    /// Stop all voices immediately across all pads.
+    pub fn all_notes_off(&mut self) {
+        for pad in &mut self.pads {
+            pad.all_notes_off();
+        }
+    }
+
+    /// Render all active pads into stereo output buffers.
+    #[inline]
+    pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
+        // We sum all pads recursively into the track buffers.
+        // SamplerEngine::render uses additive mixing (`+=`), so they sum cleanly.
+        for pad in &mut self.pads {
+            if pad.is_active() {
+                pad.render(left_out, right_out, frame_count);
+            }
+        }
+
+        // Apply master volume
+        if (self.volume - 1.0_f32).abs() > 0.001 {
+            for i in 0..frame_count {
+                left_out[i] *= self.volume;
+                right_out[i] *= self.volume;
+            }
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════

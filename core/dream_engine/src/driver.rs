@@ -44,7 +44,7 @@ use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
 use crate::render_callback::{RenderContext, MAX_TRACKS, MAX_BUFFER_FRAMES};
-use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
+use crate::sampler::{AdsrParams, SamplerEngine, SampleRackEngine, Waveform};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 
@@ -1621,6 +1621,9 @@ pub fn start_audio_thread_on_device(
     let mut sampler_engines: Vec<SamplerEngine> = (0..MAX_TRACKS)
         .map(|_| SamplerEngine::new(sample_rate_f64))
         .collect();
+    let mut sample_rack_engines: Vec<SampleRackEngine> = (0..MAX_TRACKS)
+        .map(|_| SampleRackEngine::new(sample_rate_f64))
+        .collect();
     let mut midi_note_states: Vec<MidiNoteMapState> =
         vec![MidiNoteMapState::default(); MAX_TRACKS];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
@@ -1747,6 +1750,7 @@ pub fn start_audio_thread_on_device(
                                     if !play {
                                         for idx in 0..sampler_engines.len() {
                                             sampler_engines[idx].all_notes_off();
+                                            sample_rack_engines[idx].all_notes_off();
                                             // DEEP-01 FIX: Reuse existing Vec allocation instead of
                                             // constructing a new MidiNoteMapState (which heap-allocates
                                             // Vec::with_capacity(128) and drops the old Vec on the RT thread).
@@ -1774,6 +1778,7 @@ pub fn start_audio_thread_on_device(
                                     // Prevent stuck/stacked notes after timeline jumps.
                                     for idx in 0..sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
+                                        sample_rack_engines[idx].all_notes_off();
                                         // DEEP-07 FIX: Same as DEEP-01 — reuse existing Vec allocation.
                                         midi_note_states[idx].active_notes.clear();
                                         midi_note_states[idx].rng_state = 0xA5A5_1337;
@@ -2393,6 +2398,7 @@ pub fn start_audio_thread_on_device(
 
                             let midi_track = &midi_snap[track_idx];
                             let engine = &mut sampler_engines[track_idx];
+                            let rack = &mut sample_rack_engines[track_idx];
                             let slot = &mut render_ctx.track_slots[track_idx];
 
                             // Schedule MIDI clips for this track (gated by transport)
@@ -2415,7 +2421,18 @@ pub fn start_audio_thread_on_device(
 
                             // TODO: Add real-time monitored MIDI here (bypass transport gate)
 
-                            if midi_schedule_scratch.is_empty() && !engine.has_active_voices() {
+                            // Both sampler and rack use the same MIDI schedule buffer
+                            let mut rack_active = false;
+                            for p in 0..16 {
+                                if let Some(pad) = rack.pad_mut(p) {
+                                    if pad.has_active_voices() {
+                                        rack_active = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if midi_schedule_scratch.is_empty() && !engine.has_active_voices() && !rack_active {
                                 continue;
                             }
 
@@ -2457,8 +2474,16 @@ pub fn start_audio_thread_on_device(
 
                             for &(frame, kind, pitch, velocity, event_uid) in &midi_events_scratch {
                                 let seg = frame.saturating_sub(cursor).min(fc - cursor);
-                                if seg > 0 && engine.has_active_voices() {
-                                    engine.render(
+                                if seg > 0 {
+                                    if engine.has_active_voices() {
+                                        engine.render(
+                                            &mut slot.buf_left[cursor..cursor + seg],
+                                            &mut slot.buf_right[cursor..cursor + seg],
+                                            seg,
+                                        );
+                                    }
+                                    // Rack sums natively into the same buffers
+                                    rack.render(
                                         &mut slot.buf_left[cursor..cursor + seg],
                                         &mut slot.buf_right[cursor..cursor + seg],
                                         seg,
@@ -2482,6 +2507,7 @@ pub fn start_audio_thread_on_device(
                                         pitch
                                     };
                                     engine.note_off(off_pitch);
+                                    rack.note_off(off_pitch);
                                 } else {
                                     // Note On: Apply MIDI FX
                                     let mut pitch_i16 = pitch as i16;
@@ -2532,6 +2558,7 @@ pub fn start_audio_thread_on_device(
                                     {
                                         let previous = note_state.active_notes.swap_remove(pos);
                                         engine.note_off(previous.mapped_pitch);
+                                        rack.note_off(previous.mapped_pitch);
                                     }
 
                                     note_state.active_notes.push(ActiveMappedNote {
@@ -2540,12 +2567,20 @@ pub fn start_audio_thread_on_device(
                                         mapped_pitch,
                                     });
                                     engine.note_on(mapped_pitch, mapped_velocity);
+                                    rack.note_on(mapped_pitch, mapped_velocity);
                                 }
                             }
 
-                            if cursor < fc && engine.has_active_voices() {
+                            if cursor < fc {
                                 let rem = fc - cursor;
-                                engine.render(
+                                if engine.has_active_voices() {
+                                    engine.render(
+                                        &mut slot.buf_left[cursor..fc],
+                                        &mut slot.buf_right[cursor..fc],
+                                        rem,
+                                    );
+                                }
+                                rack.render(
                                     &mut slot.buf_left[cursor..fc],
                                     &mut slot.buf_right[cursor..fc],
                                     rem,

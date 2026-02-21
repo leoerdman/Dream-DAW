@@ -58,7 +58,7 @@ use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::PlaybackState;
-use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
+use dream_models::midi::{MidiClip, MidiNote, SamplerConfig, SampleRackConfig};
 use dream_models::mutators::{self, MutatorError};
 use dream_models::project::{
     AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType,

@@ -92,20 +92,20 @@ export const TransportBar = ({
 
     const [keyEnabled, setKeyEnabled] = useState(storeKeySigEnabled);
     const [keyTonic, setKeyTonic] = useState(() => {
-        const idx = KEY_TONICS.indexOf(storeKeySigTonic as typeof KEY_TONICS[number]);
+        const idx = KEY_TONICS.findIndex(k => k.toLowerCase() === storeKeySigTonic.toLowerCase());
         return idx >= 0 ? idx : 0;
     });
     const [keyMode, setKeyMode] = useState(() => {
-        const idx = KEY_MODES.indexOf(storeKeySigMode as typeof KEY_MODES[number]);
+        const idx = KEY_MODES.findIndex(m => m.toLowerCase() === storeKeySigMode.toLowerCase());
         return idx >= 0 ? idx : 0;
     });
 
     // Sync local key sig state when project changes (e.g. project load).
     useEffect(() => {
         setKeyEnabled(storeKeySigEnabled);
-        const tonicIdx = KEY_TONICS.indexOf(storeKeySigTonic as typeof KEY_TONICS[number]);
+        const tonicIdx = KEY_TONICS.findIndex(k => k.toLowerCase() === storeKeySigTonic.toLowerCase());
         if (tonicIdx >= 0) setKeyTonic(tonicIdx);
-        const modeIdx = KEY_MODES.indexOf(storeKeySigMode as typeof KEY_MODES[number]);
+        const modeIdx = KEY_MODES.findIndex(m => m.toLowerCase() === storeKeySigMode.toLowerCase());
         if (modeIdx >= 0) setKeyMode(modeIdx);
     }, [storeKeySigEnabled, storeKeySigTonic, storeKeySigMode]);
 

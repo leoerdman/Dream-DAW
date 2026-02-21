@@ -183,7 +183,6 @@ export const TrackInspector = ({
     const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const masterVolume = useEngineStore((s) => s.masterVolume);
     const [masterColor, setMasterColor] = useState('#2b2f36');
-    const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
     const meters = useEngineStore((s) => s.meters);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -665,38 +664,75 @@ export const TrackInspector = ({
         setRenameValue('');
     }, []);
 
+    // BUG-FIX: Single-track delete now selects the adjacent surviving track
+    // and prunes stale localOverrides. Previously selected nothing → random.
     const handleDeleteTrack = useCallback((trackId: string) => {
         const idx = getTrackIndex(trackId);
-        if (idx >= 0) deleteTrack(idx);
-        setContextMenu(null);
-    }, [getTrackIndex, deleteTrack]);
+        if (idx < 0) { setContextMenu(null); return; }
 
+        // Pre-compute survivor BEFORE delete
+        const nonMaster = liveTracks.filter(t => t.type !== 'master');
+        const posInNonMaster = nonMaster.findIndex(t => t.id === trackId);
+        let nextId: string | null = null;
+        // Try the track below, then above
+        if (posInNonMaster >= 0) {
+            if (posInNonMaster + 1 < nonMaster.length) nextId = nonMaster[posInNonMaster + 1].id;
+            else if (posInNonMaster - 1 >= 0) nextId = nonMaster[posInNonMaster - 1].id;
+        }
+
+        void (async () => {
+            await engineApi.deleteTrack(idx);
+            // BUG-FIX: Prune stale localOverrides for deleted track
+            setLocalOverrides(prev => {
+                if (!(trackId in prev)) return prev;
+                const next = { ...prev };
+                delete next[trackId];
+                return next;
+            });
+            // BUG-FIX: Select adjacent surviving track
+            if (onSelectTrack) onSelectTrack(nextId ?? 'master');
+            if (selectedTrackIdsProp) {
+                onSelectTracks?.(nextId ? [nextId] : [], nextId ?? 'master');
+            } else {
+                setLocalSelectedTrackIds(nextId ? new Set([nextId]) : new Set());
+            }
+            debouncedFetchProject('delete-single');
+        })().catch(err => console.error('[TrackInspector] deleteTrack failed:', err));
+        setContextMenu(null);
+    }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp]);
+
+    // BUG-FIX: Batch delete now uses raw engineApi.deleteTrack to avoid N
+    // intermediate fetchProject calls. Single atomic refresh after all deletes.
+    // Also fixes: wrong survivor index (used filtered nonMasterTracks instead of
+    // liveTracks), localOverrides leak, and missing race guard.
+    const deletionInFlightRef = useRef(false);
     const handleDeleteSelectedTracks = useCallback(() => {
+        if (deletionInFlightRef.current) return; // Race guard
         const selected = Array.from(selectedTrackIdSet)
             .map((id) => ({ id, idx: getTrackIndex(id) }))
             .filter((v) => v.idx >= 0)
-            .sort((a, b) => b.idx - a.idx);
+            .sort((a, b) => b.idx - a.idx); // Delete from bottom to top (indices stable)
         if (selected.length === 0) return;
+        deletionInFlightRef.current = true;
 
-        // Find the track to select after deletion: the one ABOVE the first deleted track.
-        const lowestDeletedIdx = Math.min(...selected.map((s) => s.idx));
+        // Use liveTracks (engine order) for survivor resolution, not filtered array
         const deletedIds = new Set(selected.map((s) => s.id));
-        const nonMasterTracks = tracks.filter((t) => t.type !== 'master');
+        const lowestDeletedIdx = Math.min(...selected.map((s) => s.idx));
 
-        // Walk backwards from the lowest deleted index to find the first surviving track.
+        // Walk backwards from lowest deleted to find first surviving track
         let nextSelectedId: string | null = null;
         for (let i = lowestDeletedIdx - 1; i >= 0; i--) {
-            const candidate = nonMasterTracks[i];
-            if (candidate && !deletedIds.has(candidate.id)) {
+            const candidate = liveTracks[i];
+            if (candidate && candidate.type !== 'master' && !deletedIds.has(candidate.id)) {
                 nextSelectedId = candidate.id;
                 break;
             }
         }
-        // If nothing above, try the first surviving track after the deleted ones.
+        // If nothing above, try first surviving after deleted ones
         if (!nextSelectedId) {
-            for (let i = lowestDeletedIdx + 1; i < nonMasterTracks.length; i++) {
-                const candidate = nonMasterTracks[i];
-                if (candidate && !deletedIds.has(candidate.id)) {
+            for (let i = lowestDeletedIdx + 1; i < liveTracks.length; i++) {
+                const candidate = liveTracks[i];
+                if (candidate && candidate.type !== 'master' && !deletedIds.has(candidate.id)) {
                     nextSelectedId = candidate.id;
                     break;
                 }
@@ -704,21 +740,39 @@ export const TrackInspector = ({
         }
 
         void (async () => {
+            // BUG-FIX: Call raw engineApi.deleteTrack directly, not store.deleteTrack,
+            // to avoid N intermediate fetchProject setTimeout calls per iteration.
+            // Indices are sorted descending, so earlier indices remain valid.
             for (const item of selected) {
                 await engineApi.deleteTrack(item.idx);
             }
+
+            // BUG-FIX: Prune stale localOverrides for ALL deleted tracks
+            setLocalOverrides(prev => {
+                let changed = false;
+                const next = { ...prev };
+                for (const id of deletedIds) {
+                    if (id in next) { delete next[id]; changed = true; }
+                }
+                return changed ? next : prev;
+            });
+
+            // Select survivor
             if (selectedTrackIdsProp) {
                 onSelectTracks?.(nextSelectedId ? [nextSelectedId] : [], nextSelectedId ?? 'master');
             } else {
                 setLocalSelectedTrackIds(nextSelectedId ? new Set([nextSelectedId]) : new Set());
             }
-            if (onSelectTrack && nextSelectedId) onSelectTrack(nextSelectedId);
-            else if (onSelectTrack) onSelectTrack('master');
+            if (onSelectTrack) onSelectTrack(nextSelectedId ?? 'master');
+
+            // Single atomic project refresh
             debouncedFetchProject('delete-selected');
         })().catch((err) => {
             console.error('[TrackInspector] delete selected tracks failed:', err);
+        }).finally(() => {
+            deletionInFlightRef.current = false;
         });
-    }, [selectedTrackIdSet, getTrackIndex, tracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp]);
+    }, [selectedTrackIdSet, getTrackIndex, liveTracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp]);
 
     const handleDuplicateSelectedTracks = useCallback(() => {
         const ids = Array.from(selectedTrackIdSet);

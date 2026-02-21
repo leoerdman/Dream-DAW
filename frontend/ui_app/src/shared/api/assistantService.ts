@@ -311,13 +311,29 @@ const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'add_midi_track',
-            description: 'Add a new MIDI track to the project. Returns the new track index. Optionally provide a name.',
+            description: 'Add a new MIDI track to the project. Returns the new track index. Use instrument param to auto-assign Essence synth (for melodies, chords, pads, leads) or leave empty for drum rack tracks.',
             parameters: {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: 'Track name (optional)' },
+                    instrument: { type: 'string', enum: ['essence', 'sampler'], description: 'Auto-assign instrument. Use "essence" for melodic tracks (bass, lead, pad, chord). Leave empty for drum rack tracks.' },
                 },
                 required: [],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'set_track_instrument',
+            description: 'Set the instrument plugin on a MIDI track. Use "essence" for the built-in Essence synth (melodies, bass, leads, pads). Use "sampler" for drum racks. Replaces any existing instrument on the track.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based track index' },
+                    instrument: { type: 'string', enum: ['essence', 'sampler'], description: '"essence" = Essence wavetable synth, "sampler" = Sampler/Drum Rack' },
+                },
+                required: ['trackIndex', 'instrument'],
             },
         },
     },
@@ -1455,7 +1471,39 @@ async function executeToolInner(
             // Return the new track's index (it's appended at the end)
             const updatedState = useEngineStore.getState();
             const newIdx = updatedState.projectTracks.length - 1;
-            return JSON.stringify({ added: true, trackIndex: newIdx, name: trackName || `Track ${newIdx + 1}` });
+            const newTrackId = updatedState.projectTracks[newIdx]?.id;
+
+            // Auto-assign instrument if requested
+            const instrumentArg = (args.instrument as string | undefined)?.toLowerCase();
+            let instrumentAssigned: string | null = null;
+            if (instrumentArg && newTrackId) {
+                const INSTRUMENT_MAP: Record<string, { pluginId: string; displayName: string }> = {
+                    essence: { pluginId: 'internal://instrument/wave-synth', displayName: 'Essence' },
+                    sampler: { pluginId: 'internal://instrument/sampler', displayName: 'Sampler' },
+                };
+                const entry = INSTRUMENT_MAP[instrumentArg];
+                if (entry) {
+                    await engineApi.addPluginToTrack(newTrackId, entry.pluginId, entry.displayName, 'instrument');
+                    instrumentAssigned = entry.displayName;
+                }
+            }
+
+            return JSON.stringify({ added: true, trackIndex: newIdx, name: trackName || `Track ${newIdx + 1}`, instrument: instrumentAssigned });
+        }
+
+        case 'set_track_instrument': {
+            const siTrackIdx = args.trackIndex as number;
+            const siTrackId = tracks[siTrackIdx]?.id;
+            if (!siTrackId) return JSON.stringify({ error: `Track ${siTrackIdx} not found` });
+            const siInstrument = ((args.instrument as string) || 'essence').toLowerCase();
+            const SI_MAP: Record<string, { pluginId: string; displayName: string }> = {
+                essence: { pluginId: 'internal://instrument/wave-synth', displayName: 'Essence' },
+                sampler: { pluginId: 'internal://instrument/sampler', displayName: 'Sampler' },
+            };
+            const siEntry = SI_MAP[siInstrument];
+            if (!siEntry) return JSON.stringify({ error: `Unknown instrument: ${siInstrument}. Use "essence" or "sampler".` });
+            await engineApi.addPluginToTrack(siTrackId, siEntry.pluginId, siEntry.displayName, 'instrument');
+            return JSON.stringify({ success: true, trackIndex: siTrackIdx, instrument: siEntry.displayName });
         }
 
         case 'create_midi_clip': {
@@ -1463,6 +1511,19 @@ async function executeToolInner(
             const startBeat = args.startBeat as number;
             const durBeats = args.durationBeats as number;
             const clipName = (args.name as string) || undefined;
+
+            // OVERLAP GUARD: Auto-delete clips that collide with the new clip's range.
+            // This prevents the agent from stacking clips on top of each other.
+            const endBeat = startBeat + durBeats;
+            const overlapping = clips.filter(c =>
+                c.trackIndex === tIdx &&
+                c.startBeat < endBeat &&
+                (c.startBeat + c.durationBeats) > startBeat
+            );
+            for (const oc of overlapping) {
+                try { await engineApi.deleteClip(oc.id); } catch { /* skip missing */ }
+            }
+
             // Convert beats to frames: frames = beats * 60 / BPM * sampleRate
             const st = useEngineStore.getState();
             const bpmVal = st.projectBpm || st.transport.bpm || 120;
@@ -1471,7 +1532,13 @@ async function executeToolInner(
             const posFrames = Math.round(startBeat * framesPerBeat);
             const durFrames = Math.round(durBeats * framesPerBeat);
             const result = await engineApi.createMidiClip(tIdx, posFrames, durFrames, clipName);
-            return JSON.stringify({ clipId: result.clip_id, clipName: result.clip_name, startBeat, durationBeats: durBeats });
+            return JSON.stringify({
+                clipId: result.clip_id,
+                clipName: result.clip_name,
+                startBeat,
+                durationBeats: durBeats,
+                overlapsRemoved: overlapping.length,
+            });
         }
 
         case 'set_clip_notes': {
@@ -2157,12 +2224,17 @@ async function executeToolInner(
         }
 
         case 'set_key_signature': {
+            // Normalize tonic/mode to title-case for consistency with KEY_MODES/KEY_TONICS
+            const rawTonic = (args.tonic as string).trim();
+            const rawMode = (args.mode as string).trim();
+            const tonic = rawTonic.charAt(0).toUpperCase() + rawTonic.slice(1).toLowerCase();
+            const mode = rawMode.charAt(0).toUpperCase() + rawMode.slice(1).toLowerCase();
             await engineApi.setKeySignature(
                 (args.enabled as boolean) ?? true,
-                args.tonic as string,
-                args.mode as string,
+                tonic,
+                mode,
             );
-            return JSON.stringify({ success: true, key: `${args.tonic} ${args.mode}` });
+            return JSON.stringify({ success: true, key: `${tonic} ${mode}` });
         }
 
         case 'duplicate_tracks': {
@@ -2344,7 +2416,7 @@ ${trackList || '  (no tracks)'}
 |----------|-------|
 | 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering, get_arrangement_overview |
 | 🎹 Piano Roll | get_midi_clip_notes, set_clip_notes, generate_beat_pattern, generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
-| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
+| 🎵 MIDI & Audio | add_midi_track, set_track_instrument, create_midi_clip, search_browser, add_sample_to_rack, add_audio_clip, preview_audio_file, stop_preview, get_audio_file_duration |
 | 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_solo, set_pad_adsr, set_pad_filter_cutoff, preview_note |
 | 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group, duplicate_tracks, move_track, set_track_routing, arm_track |
 | ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted, move_clip, resize_clip, duplicate_clip, split_clip, merge_clips, set_clip_fade, set_clip_warp, set_clip_source_offset |
@@ -2369,8 +2441,14 @@ Before executing any action, briefly explain what you're about to do and why bas
    - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
 2. **Beat Patterns**: Use \\\`generate_beat_pattern\\\` for instant genre-correct rhythm patterns (house, techno, dnb, hiphop, trap, lofi). Feed the returned notes into \\\`set_clip_notes\\\`.
 3. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
-3. **NEVER overlap clips** on the same track at the same time. Check existing clips in the track list before creating new ones.
+3. **NEVER overlap clips** on the same track at the same time. The system will auto-delete overlapped clips, but you MUST still use the correct track index. **Check existing tracks and their clips before creating new ones.** Each musical element (kick, bass, melody, chords) should be on its OWN separate track.
 4. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
+
+### Instrument Assignment (CRITICAL)
+1. **For melodic tracks** (bass, lead, pad, chord, melody, arp): ALWAYS use \\\`add_midi_track({ instrument: 'essence' })\\\` or call \\\`set_track_instrument({ trackIndex, instrument: 'essence' })\\\` to assign the Essence synth.
+2. **For drum tracks**: Use \\\`add_midi_track\\\` WITHOUT instrument, then load samples into drum rack pads.
+3. **NEVER write melodic notes to a drum rack track.** Always create a DEDICATED track with Essence synth for melodies.
+4. **Track isolation**: Each musical role (kick, snare/clap, hats, bass, melody, chords, pads) should be on its OWN separate track with the right instrument.
 
 ### Music Theory Engine
 1. **Chords**: Use \\\`generate_chord\\\` to compute exact MIDI pitches. Example: \\\`generate_chord(48, "min7")\\\` returns [48, 51, 55, 58].

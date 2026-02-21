@@ -154,6 +154,31 @@ function saveCollections(collections: Record<CollectionId, Set<string>>): void {
     localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(serializable));
 }
 
+// BUG-4 FIX: Collection labels persistence
+const COLLECTION_LABELS_STORAGE_KEY = 'dream-daw-browser-collection-labels';
+
+function loadCollectionLabels(): Record<string, string> {
+    try {
+        const raw = localStorage.getItem(COLLECTION_LABELS_STORAGE_KEY);
+        if (!raw) return {
+            'collection-red': 'Collection',
+            'collection-yellow': 'Collection',
+            'collection-green': 'Collection',
+        };
+        return JSON.parse(raw) as Record<string, string>;
+    } catch {
+        return {
+            'collection-red': 'Collection',
+            'collection-yellow': 'Collection',
+            'collection-green': 'Collection',
+        };
+    }
+}
+
+function saveCollectionLabels(labels: Record<string, string>): void {
+    localStorage.setItem(COLLECTION_LABELS_STORAGE_KEY, JSON.stringify(labels));
+}
+
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
 const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC'] as const;
 const AUDIO_FILTERS = ['Audio: All', 'Loops', 'One Shot', 'Drums', 'Vocals'] as const;
@@ -183,35 +208,24 @@ const INTERNAL_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_PLUGINS.map((plugin
 function detectPluginSource(raw: string): BrowserItem['pluginSource'] {
     const norm = raw.toLowerCase();
     if (norm.includes('internal://')) return 'internal';
-    if (norm.includes('.vst3') || norm.includes('vst3')) return 'vst3';
-    if (norm.includes('.vst') || norm.includes('vst2') || norm.includes(' vst ')) return 'vst2';
-    if (norm.includes('.component') || norm.includes(' audio unit') || norm.includes(' au ')) return 'au';
+    // BUG-37 FIX: More robust detection patterns
+    if (/\.vst3\b/.test(norm) || /\bvst3\b/.test(norm)) return 'vst3';
+    if (/\.vst\b/.test(norm) || /\bvst2\b/.test(norm) || /\.vst$/.test(norm)) return 'vst2';
+    if (/\.component\b/.test(norm) || /\baudio\s*unit\b/.test(norm) || /\b\.au\b/.test(norm)) return 'au';
     return 'external';
 }
 
 function isLikelyInstrumentPlugin(item: BrowserItem): boolean {
     const text = `${item.name} ${item.meta ?? ''} ${item.format ?? ''}`.toLowerCase();
-    return (
-        text.includes('synth')
-        || text.includes('serum')
-        || text.includes('piano')
-        || text.includes('sampler')
-        || text.includes('kontakt')
-        || text.includes('instrument')
-    );
+    // BUG-35 FIX: Expanded instrument detection patterns
+    return /\b(synth|serum|piano|sampler|kontakt|instrument|organ|rompler|drum\s*machine|electric\s*piano|strings|brass|woodwind|choir)\b/i.test(text);
 }
 
 function isLikelyDrumAudio(item: BrowserItem): boolean {
     const text = item.name.toLowerCase();
-    return (
-        text.includes('kick')
-        || text.includes('snare')
-        || text.includes('clap')
-        || text.includes('hihat')
-        || text.includes('hat')
-        || text.includes('drum')
-        || text.includes('perc')
-    );
+    // BUG-36 FIX: Use word-boundary matching to avoid false positives like 'cathedral' matching 'hat'
+    return /\b(kick|snare|clap|hihat|hi-hat|hi_hat|drum|perc)\b/i.test(text)
+        || /\bhat\b/.test(text); // standalone 'hat' only
 }
 
 const PLUGIN_SOURCE_ORDER: Array<NonNullable<BrowserItem['pluginSource']>> = [
@@ -497,21 +511,22 @@ const VirtualFileList = memo(function VirtualFileList({
         setScrollTop(e.currentTarget.scrollTop);
     }, []);
 
-    // BUG-9 FIX: Reset scroll position when items change (e.g. category switch).
-    // Without this, the container stays at a high scrollTop from the previous list,
-    // causing empty space above when the new item list is shorter.
-    const prevItemsLenRef = useRef(items.length);
+    // BUG-6 FIX: Reset scroll position when items identity changes (not just length).
+    // Uses first+last item IDs to detect true content changes even with same count.
+    const prevItemsKeyRef = useRef('');
     useEffect(() => {
-        if (prevItemsLenRef.current !== items.length) {
-            prevItemsLenRef.current = items.length;
+        const key = items.length === 0 ? '' : `${items[0].id}|${items[items.length - 1].id}|${items.length}`;
+        if (prevItemsKeyRef.current !== key) {
+            prevItemsKeyRef.current = key;
             setScrollTop(0);
             if (fileListRef.current) {
                 fileListRef.current.scrollTop = 0;
             }
         }
-    }, [items.length, fileListRef]);
+    }, [items, fileListRef]);
 
-    const totalHeight = items.length * ROW_HEIGHT;
+    const HEADER_HEIGHT = 24; // BUG-15 FIX: Account for sticky header in virtual scroll
+    const totalHeight = items.length * ROW_HEIGHT + HEADER_HEIGHT;
     const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
@@ -691,16 +706,34 @@ const VirtualFileList = memo(function VirtualFileList({
 
                                         const startX = e.clientX;
                                         const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 5;
+                                        const DRAG_THRESHOLD = 8;
                                         let dragStarted = false;
                                         let cancelled = false;
 
+                                        // BUG-1 FIX: Safety function to guarantee style restoration
+                                        const restoreFileListStyles = () => {
+                                            if (fileListRef.current) {
+                                                fileListRef.current.style.pointerEvents = '';
+                                                fileListRef.current.style.overflow = '';
+                                            }
+                                        };
+
+                                        const cleanup = () => {
+                                            if (cancelled) return;
+                                            cancelled = true;
+                                            restoreFileListStyles();
+                                            window.removeEventListener('mousemove', onMove);
+                                            window.removeEventListener('mouseup', onUp);
+                                            window.removeEventListener('blur', cleanup);
+                                            document.removeEventListener('visibilitychange', cleanup);
+                                        };
+
                                         const onMove = (me: MouseEvent) => {
+                                            if (cancelled) return;
                                             const dx = me.clientX - startX;
                                             const dy = me.clientY - startY;
                                             if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                 dragStarted = true;
-                                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
                                                 if (fileListRef.current) {
                                                     fileListRef.current.style.pointerEvents = 'none';
                                                     fileListRef.current.style.overflow = 'hidden';
@@ -726,24 +759,16 @@ const VirtualFileList = memo(function VirtualFileList({
                                                             if (cancelled) return;
                                                             useDragStore.getState().updateDraggingItem({ durationSeconds });
                                                         })
-                                                        .catch(() => {
-                                                            // Keep drag active even if duration probe fails.
-                                                        });
+                                                        .catch(() => { /* keep drag active */ });
                                                 }
                                             }
                                         };
-                                        const onUp = () => {
-                                            cancelled = true;
-                                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                                            if (fileListRef.current) {
-                                                fileListRef.current.style.pointerEvents = '';
-                                                fileListRef.current.style.overflow = '';
-                                            }
-                                            window.removeEventListener('mousemove', onMove);
-                                            window.removeEventListener('mouseup', onUp);
-                                        };
+                                        const onUp = () => cleanup();
                                         window.addEventListener('mousemove', onMove);
                                         window.addEventListener('mouseup', onUp);
+                                        // BUG-1 FIX: Safety listeners — guarantee cleanup on window blur / tab switch
+                                        window.addEventListener('blur', cleanup);
+                                        document.addEventListener('visibilitychange', cleanup);
                                     }}
                                     style={{
                                         display: 'flex',
@@ -933,15 +958,33 @@ const VirtualFileList = memo(function VirtualFileList({
 
                                         const startX = e.clientX;
                                         const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 5;
+                                        const DRAG_THRESHOLD = 8;
                                         let dragStarted = false;
+                                        let cancelled = false;
+
+                                        const restoreFileListStyles = () => {
+                                            if (fileListRef.current) {
+                                                fileListRef.current.style.pointerEvents = '';
+                                                fileListRef.current.style.overflow = '';
+                                            }
+                                        };
+
+                                        const cleanup = () => {
+                                            if (cancelled) return;
+                                            cancelled = true;
+                                            restoreFileListStyles();
+                                            window.removeEventListener('mousemove', onMove);
+                                            window.removeEventListener('mouseup', onUp);
+                                            window.removeEventListener('blur', cleanup);
+                                            document.removeEventListener('visibilitychange', cleanup);
+                                        };
 
                                         const onMove = (me: MouseEvent) => {
+                                            if (cancelled) return;
                                             const dx = me.clientX - startX;
                                             const dy = me.clientY - startY;
                                             if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                 dragStarted = true;
-                                                // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
                                                 if (fileListRef.current) {
                                                     fileListRef.current.style.pointerEvents = 'none';
                                                     fileListRef.current.style.overflow = 'hidden';
@@ -956,17 +999,11 @@ const VirtualFileList = memo(function VirtualFileList({
                                                 }, me.clientX, me.clientY);
                                             }
                                         };
-                                        const onUp = () => {
-                                            // BUG-2 FIX: Restore pointer-events and overflow on the file list.
-                                            if (fileListRef.current) {
-                                                fileListRef.current.style.pointerEvents = '';
-                                                fileListRef.current.style.overflow = '';
-                                            }
-                                            window.removeEventListener('mousemove', onMove);
-                                            window.removeEventListener('mouseup', onUp);
-                                        };
+                                        const onUp = () => cleanup();
                                         window.addEventListener('mousemove', onMove);
                                         window.addEventListener('mouseup', onUp);
+                                        window.addEventListener('blur', cleanup);
+                                        document.addEventListener('visibilitychange', cleanup);
                                     }}
                                     style={{
                                         display: 'flex',
@@ -991,7 +1028,10 @@ const VirtualFileList = memo(function VirtualFileList({
                                         flex: 1,
                                         minWidth: 0,
                                     }}>
-                                        {item.name}
+                                        {/* BUG-28 FIX: Plugin items now highlight search matches */}
+                                        {debouncedQuery.trim()
+                                            ? renderHighlightedMatch(item.name, debouncedQuery)
+                                            : item.name}
                                     </span>
                                     {showTypeColumn && (
                                         <span style={{
@@ -1027,6 +1067,7 @@ const VirtualFileList = memo(function VirtualFileList({
                     </div>
                 )
             }
+            {/* BUG-42 FIX: Contextual empty state messages */}
             {
                 !scanLoading && items.length === 0 && (
                     <div style={{
@@ -1035,7 +1076,16 @@ const VirtualFileList = memo(function VirtualFileList({
                         color: 'var(--color-text-tertiary)',
                         fontSize: 'var(--font-size-xs)',
                     }}>
-                        No items found
+                        {selectedCategoryId === 'plugins'
+                            ? 'No plug-ins found. Try importing a VST folder.'
+                            : selectedCategoryId.startsWith('collection-')
+                                ? 'Collection is empty. Right-click items to add them.'
+                                : selectedCategoryId === 'drums'
+                                    ? 'No drum samples found.'
+                                    : debouncedQuery.trim()
+                                        ? `No results for "${debouncedQuery.trim()}"`
+                                        : 'No items found'
+                        }
                     </div>
                 )
             }
@@ -1062,14 +1112,24 @@ export const AssetBrowser = () => {
     const [sortFilter, setSortFilter] = useState(0);
     const [sizeFilter, setSizeFilter] = useState(0);
     const [pluginSourceFilter, setPluginSourceFilter] = useState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external'>('all');
+
+    // BUG-7 FIX: Reset filters when category changes to avoid stale carry-over
+    const prevCategoryRef = useRef(selectedCategoryId);
+    useEffect(() => {
+        if (prevCategoryRef.current !== selectedCategoryId) {
+            prevCategoryRef.current = selectedCategoryId;
+            setSourceFilter(0);
+            setFormatFilter(0);
+            setAudioFilter(0);
+            setSizeFilter(0);
+            setPluginSourceFilter('all');
+            // Note: sortFilter intentionally NOT reset — user preference
+        }
+    }, [selectedCategoryId]);
     const [showSizeColumn, setShowSizeColumn] = useState(settings.browserShowSizeColumn);
     const [showTypeColumn, setShowTypeColumn] = useState(settings.browserShowTypeColumn);
     const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
-    const [collectionLabels, setCollectionLabels] = useState<Record<string, string>>({
-        'collection-red': 'Collection',
-        'collection-yellow': 'Collection',
-        'collection-green': 'Collection',
-    });
+    const [collectionLabels, setCollectionLabels] = useState<Record<string, string>>(loadCollectionLabels);
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [leftPaneWidth, setLeftPaneWidth] = useState(settings.browserLeftPaneWidth);
@@ -1264,26 +1324,32 @@ export const AssetBrowser = () => {
         });
     }, []);
 
-    // ── Real file scanning (samples) ──
+    // ── Scan loading/error: per-type to avoid cross-clobbering (BUG-3 FIX) ──
     const [realFiles, setRealFiles] = useState<AudioFileEntry[]>([]);
-    const [scanLoading, setScanLoading] = useState(false);
-    const [scanError, setScanError] = useState<string | null>(null);
+    const [sampleScanLoading, setSampleScanLoading] = useState(false);
+    const [sampleScanError, setSampleScanError] = useState<string | null>(null);
+    const [pluginScanLoading, setPluginScanLoading] = useState(false);
+    const [pluginScanError, setPluginScanError] = useState<string | null>(null);
+    const [folderScanLoading, setFolderScanLoading] = useState(false);
+    const [folderScanError, setFolderScanError] = useState<string | null>(null);
     const scanTriggeredRef = useRef(false);
+
+    // Computed combined state for VirtualFileList
+    const scanLoading = sampleScanLoading || pluginScanLoading || folderScanLoading;
+    const scanError = sampleScanError || pluginScanError || folderScanError;
 
     const isSamplesCategory = ['samples', 'all', 'drums'].includes(selectedCategoryId);
 
     useEffect(() => {
         if (!isSamplesCategory || scanTriggeredRef.current) return;
-        scanTriggeredRef.current = true;
+        // BUG-2 FIX: Do NOT set scanTriggeredRef here — only on SUCCESS
 
         let cancelled = false;
         const timerId = setTimeout(() => {
             if (cancelled) return;
-            setScanLoading(true);
-            setScanError(null);
+            setSampleScanLoading(true);
+            setSampleScanError(null);
 
-            // Generate demo samples (idempotent, skips if marker exists),
-            // then scan ALL audio sources (samples_path + browser_folders) unified.
             engineApi.generateDemoSamples()
                 .catch(err => console.warn('[AssetBrowser] Demo sample generation skipped:', err))
                 .then(() => {
@@ -1292,15 +1358,17 @@ export const AssetBrowser = () => {
                 })
                 .then(files => {
                     if (!cancelled) {
+                        scanTriggeredRef.current = true; // BUG-2 FIX: Only mark as triggered on success
                         setRealFiles(files);
-                        setScanLoading(false);
+                        setSampleScanLoading(false);
                     }
                 })
                 .catch(err => {
                     if (!cancelled && err !== 'cancelled') {
                         console.warn('[AssetBrowser] Scan failed:', err);
-                        setScanError(String(err));
-                        setScanLoading(false);
+                        setSampleScanError(String(err));
+                        setSampleScanLoading(false);
+                        // BUG-2 FIX: scanTriggeredRef stays false → retry on next mount
                     }
                 });
         }, 300);
@@ -1308,11 +1376,6 @@ export const AssetBrowser = () => {
         return () => {
             cancelled = true;
             clearTimeout(timerId);
-            // BUG-10 FIX: Do NOT reset scanTriggeredRef here.
-            // Previously, switching categories cleared the flag, causing a
-            // full re-scan (generateDemoSamples + scanAllAudioSources) on
-            // every category switch — heavy I/O lag.  Scan results are cached
-            // in `realFiles` state, so the ref should stay true once scanned.
         };
     }, [isSamplesCategory]);
 
@@ -1336,24 +1399,21 @@ export const AssetBrowser = () => {
         if (pluginScanned && !forceRescan) return;
 
         let cancelled = false;
-        Promise.resolve().then(() => {
-            if (cancelled) return;
-            setScanError(null);
-            setScanLoading(true);
-        });
+        setPluginScanError(null);
+        setPluginScanLoading(true);
 
         engineApi.scanPluginFolders()
             .then(files => {
                 if (cancelled) return;
                 setPluginFiles(files);
                 setPluginScanned(true);
-                setScanLoading(false);
+                setPluginScanLoading(false);
             })
             .catch(err => {
                 if (cancelled) return;
                 console.warn('[Browser] Plugin scan failed:', err);
-                setScanError(String(err));
-                setScanLoading(false);
+                setPluginScanError(String(err));
+                setPluginScanLoading(false);
             });
 
         return () => {
@@ -1366,11 +1426,11 @@ export const AssetBrowser = () => {
             const picked = await engineApi.pickFolder();
             if (!picked) return;
             await updateAllSettings({ ...settings, [target]: picked });
-            setScanError(null);
+            setPluginScanError(null);
             triggerPluginScan();
         } catch (err) {
             console.warn('[Browser] Failed to set plugin folder:', err);
-            setScanError(String(err));
+            setPluginScanError(String(err));
         }
     }, [settings, updateAllSettings, triggerPluginScan]);
 
@@ -1390,23 +1450,22 @@ export const AssetBrowser = () => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
         let cancelled = false;
 
-        Promise.resolve().then(() => {
-            if (cancelled) return;
-            setFolderScanPath(activeFolderPath);
-            setScanLoading(true);
-        });
+        // BUG-5 FIX: Synchronous state updates — no microtask wrapper
+        setFolderScanPath(activeFolderPath);
+        setFolderScanLoading(true);
+        setFolderScanError(null);
 
         engineApi.scanFolderAll(activeFolderPath)
             .then(files => {
                 if (cancelled) return;
                 setFolderItems(files);
-                setScanLoading(false);
+                setFolderScanLoading(false);
             })
             .catch(err => {
                 if (cancelled) return;
                 console.warn('[Browser] Folder scan failed:', err);
-                setScanError(String(err));
-                setScanLoading(false);
+                setFolderScanError(String(err));
+                setFolderScanLoading(false);
             });
 
         return () => {
@@ -1424,15 +1483,14 @@ export const AssetBrowser = () => {
     useEffect(() => {
         const changed = activeFolderPath !== prevActiveFolderRef.current;
         prevActiveFolderRef.current = activeFolderPath;
-        Promise.resolve().then(() => {
-            setExpandedFolders(new Set());
-            setFolderChildrenCache(new Map());
-            setLoadingFolders(new Set());
-            if (changed) {
-                setFolderScanPath(null);
-                setFolderItems([]);
-            }
-        });
+        // BUG-5 FIX: Direct state updates — no microtask wrapper
+        setExpandedFolders(new Set());
+        setFolderChildrenCache(new Map());
+        setLoadingFolders(new Set());
+        if (changed) {
+            setFolderScanPath(null);
+            setFolderItems([]);
+        }
     }, [selectedCategoryId, activeFolderPath]);
 
     // Convert real audio files to BrowserItems
@@ -1640,10 +1698,14 @@ export const AssetBrowser = () => {
             base = base.filter((i) => i.type === 'plugin' && i.pluginSource === pluginSourceFilter);
         }
 
-        if (sizeFilter === 1) {
-            base = base.filter((i) => (i.sizeBytes ?? 0) < 1024 * 1024);
-        } else if (sizeFilter === 2) {
-            base = base.filter((i) => (i.sizeBytes ?? 0) >= 1024 * 1024);
+        // BUG-26 FIX: Size filter only applies to library categories, not folder views
+        // where sizeBytes may be 0 for directories
+        if (isLibraryCategory) {
+            if (sizeFilter === 1) {
+                base = base.filter((i) => (i.sizeBytes ?? 0) < 1024 * 1024);
+            } else if (sizeFilter === 2) {
+                base = base.filter((i) => (i.sizeBytes ?? 0) >= 1024 * 1024);
+            }
         }
 
         if (pluginSearchMode) {
@@ -1664,13 +1726,13 @@ export const AssetBrowser = () => {
 
         if (!isSearchActive || sortFilter !== 0) {
             if (sortFilter === 0) {
-                base = [...base].sort((a, b) => folderFirst(a, b) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+                base = [...base].sort((a, b) => folderFirst(a, b) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
             } else if (sortFilter === 1) {
-                base = [...base].sort((a, b) => folderFirst(a, b) || b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
+                base = [...base].sort((a, b) => folderFirst(a, b) || b.name.toLowerCase().localeCompare(a.name.toLowerCase()) || a.id.localeCompare(b.id));
             } else if (sortFilter === 2) {
-                base = [...base].sort((a, b) => folderFirst(a, b) || (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0));
+                base = [...base].sort((a, b) => folderFirst(a, b) || (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0) || a.id.localeCompare(b.id));
             } else {
-                base = [...base].sort((a, b) => folderFirst(a, b) || (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
+                base = [...base].sort((a, b) => folderFirst(a, b) || (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || a.id.localeCompare(b.id));
             }
         }
 
@@ -1742,26 +1804,19 @@ export const AssetBrowser = () => {
 
 
 
+    // BUG-10 FIX: Auto-select first item but do NOT trigger preview — just set selection
     useEffect(() => {
-        let cancelled = false;
         if (items.length === 0) {
-            queueMicrotask(() => {
-                if (!cancelled) setSelectedItemId(null);
-            });
+            setSelectedItemId(null);
             return;
         }
         if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) {
-            const nextId = items[0].id;
-            queueMicrotask(() => {
-                if (!cancelled) setSelectedItemId(nextId);
-            });
+            setSelectedItemId(items[0].id);
         }
-        return () => {
-            cancelled = true;
-        };
     }, [items, selectedItemId]);
 
     useEffect(() => {
+        if (!columnMenuPos) return; // BUG-98 FIX: Only add listener when menu is open
         const onMouseDown = (e: MouseEvent) => {
             if (!columnMenuRef.current) return;
             if (!columnMenuRef.current.contains(e.target as Node)) {
@@ -1880,9 +1935,23 @@ export const AssetBrowser = () => {
         return firstUsable ?? null;
     }, [projectTracks]);
 
+    // BUG-81 FIX: Stop preview when category changes to avoid orphaned playback
+    const prevCatForPreviewRef = useRef(selectedCategoryId);
+    useEffect(() => {
+        if (prevCatForPreviewRef.current !== selectedCategoryId) {
+            prevCatForPreviewRef.current = selectedCategoryId;
+            engineApi.stopPreview().catch(() => { /* ignore */ });
+            isPreviewPlayingRef.current = false;
+        }
+    }, [selectedCategoryId]);
+
+    // BUG-13 FIX: Cancellation nonce to prevent duplicate imports from rapid Enter
+    const enterNonceRef = useRef(0);
     const handleItemEnter = useCallback(async (item: BrowserItem | null) => {
         if (!item) return;
         if (!item.path) return;
+
+        const nonce = ++enterNonceRef.current;
 
         const track = resolveSelectedTrack();
         if (!track) return;
@@ -1935,7 +2004,9 @@ export const AssetBrowser = () => {
             const bpm = store.projectBpm || store.transport.bpm || 120;
             const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
             const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
+            if (enterNonceRef.current !== nonce) return; // BUG-13 FIX: Cancelled
             await engineApi.importAudioFile(item.path, trackIndex, positionFrames);
+            if (enterNonceRef.current !== nonce) return;
             await store.fetchProject();
         } catch (err) {
             console.error('[AssetBrowser] Enter action failed:', err);
@@ -2017,7 +2088,10 @@ export const AssetBrowser = () => {
         const next = items[nextIndex];
         if (!next) return;
         setSelectedItemId(next.id);
-        syncPreviewForItem(next);
+        // BUG-12 FIX: Only trigger preview when preview is enabled
+        if (previewEnabled) {
+            syncPreviewForItem(next);
+        }
         if (selectedCategoryId === 'plugins') {
             queueMicrotask(() => {
                 itemRowRefs.current[next.id]?.scrollIntoView({ block: 'nearest' });
@@ -2038,7 +2112,7 @@ export const AssetBrowser = () => {
                 el.scrollTop = itemBottom - el.clientHeight;
             }
         }
-    }, [items, selectedItemId, selectedCategoryId, syncPreviewForItem]);
+    }, [items, selectedItemId, selectedCategoryId, syncPreviewForItem, previewEnabled]);
 
     const focusResults = useCallback(() => {
         fileListRef.current?.focus();
@@ -2298,10 +2372,11 @@ export const AssetBrowser = () => {
                                     e.preventDefault();
                                     const next = window.prompt('Rename collection', cat.title)?.trim();
                                     if (!next) return;
-                                    setCollectionLabels((prev) => ({
-                                        ...prev,
-                                        [cat.id]: next,
-                                    }));
+                                    setCollectionLabels((prev) => {
+                                        const next2 = { ...prev, [cat.id]: next };
+                                        saveCollectionLabels(next2); // BUG-4 FIX: Persist labels
+                                        return next2;
+                                    });
                                 } : undefined)}
                                 style={{
                                     display: 'flex',
@@ -2656,8 +2731,8 @@ export const AssetBrowser = () => {
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             position: 'fixed',
-                            left: contextMenu.x,
-                            top: contextMenu.y,
+                            left: Math.min(contextMenu.x, window.innerWidth - 200),
+                            top: Math.min(contextMenu.y, window.innerHeight - 180),
                             background: 'var(--color-bg-elevated)',
                             border: '1px solid var(--color-divider)',
                             borderRadius: 'var(--radius-md)',
@@ -2939,18 +3014,31 @@ const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; height?: n
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // BUG-18 FIX: Use ResizeObserver to redraw waveform when container resizes
+    const [containerWidth, setContainerWidth] = useState(0);
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const ro = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setContainerWidth(Math.floor(entry.contentRect.width));
+            }
+        });
+        ro.observe(container);
+        setContainerWidth(Math.floor(container.getBoundingClientRect().width));
+        return () => ro.disconnect();
+    }, []);
+
     useEffect(() => {
         const canvas = canvasRef.current;
         const container = containerRef.current;
-        if (!canvas || !container || peaks.length === 0) return;
+        if (!canvas || !container || peaks.length === 0 || containerWidth <= 0) return;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Measure real pixel width
-        const rect = container.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const w = Math.floor(rect.width);
+        const w = containerWidth;
         const h = height;
 
         canvas.width = w * dpr;
@@ -2998,7 +3086,7 @@ const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; height?: n
             const barH = Math.max(1, yMin - yMax);
             ctx.fillRect(x, yMax, Math.max(0.8, barWidth - 0.3), barH);
         }
-    }, [peaks, height]);
+    }, [peaks, height, containerWidth]);
 
     return (
         <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', borderRadius: 'var(--radius-md)' }}>

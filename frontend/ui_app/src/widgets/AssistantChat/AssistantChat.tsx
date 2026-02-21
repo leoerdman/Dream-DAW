@@ -169,7 +169,10 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         let cancelled = false;
 
         // Reset active stream states when project conceptually changes
-        if (historyLoadedForId !== null && historyLoadedForId !== projectId) {
+        // CRITICAL: Do NOT abort if the agent is actively streaming —
+        // the agent's own tool calls (set_bpm, add_midi_track, etc.)
+        // change projectId, which would kill its own active stream.
+        if (historyLoadedForId !== null && historyLoadedForId !== projectId && !isStreaming) {
             abortRef.current?.abort();
             abortRef.current = null;
             setIsStreaming(false);

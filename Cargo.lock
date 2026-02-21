@@ -812,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "desktop_host"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "dream_automation"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "log",
  "serde",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "dream_clip_engine"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "arc-swap",
  "crossbeam-utils",
@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "dream_dsp"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "log",
  "rubato",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "dream_engine"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "arc-swap",
  "cpal",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "dream_graph"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "arc-swap",
  "dream_ipc",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "dream_io"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1046,21 +1046,21 @@ dependencies = [
 
 [[package]]
 name = "dream_ipc"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "rtrb",
 ]
 
 [[package]]
 name = "dream_mixer"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "dream_models"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "parking_lot",
  "serde",
@@ -1071,7 +1071,7 @@ dependencies = [
 
 [[package]]
 name = "dream_plugins"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "bytemuck",
  "cocoa",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "dream_renderer"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1098,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "dream_transport"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "dream_models",
  "log",
@@ -3282,7 +3282,7 @@ dependencies = [
 
 [[package]]
 name = "plugin_host_daemon"
-version = "1.0.59"
+version = "1.0.60"
 dependencies = [
  "bytemuck",
  "dream_plugins",

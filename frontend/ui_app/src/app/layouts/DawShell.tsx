@@ -1957,9 +1957,6 @@ const SessionWorkspace = ({
                         return (
                             <div key={`mix-${track.id}`} style={{
                                 width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6,
-                                opacity: isSoloDimmed ? 0.45 : 1,
-                                filter: isSoloDimmed ? 'grayscale(0.8)' : 'none',
-                                transition: 'opacity 0.15s ease, filter 0.15s ease',
                             }}>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
                                     {track.track_type}
@@ -1988,6 +1985,10 @@ const SessionWorkspace = ({
                                         background: '#171717',
                                         position: 'relative',
                                         overflow: 'hidden',
+                                        // Solo dimming — only the meter goes grey
+                                        opacity: isSoloDimmed ? 0.45 : 1,
+                                        filter: isSoloDimmed ? 'grayscale(0.8)' : 'none',
+                                        transition: 'opacity 0.15s ease, filter 0.15s ease',
                                     }}>
                                         {/* Stereo meter: unified MeterStrip */}
                                         <MeterStrip

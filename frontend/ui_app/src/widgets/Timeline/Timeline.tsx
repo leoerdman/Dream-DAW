@@ -392,6 +392,9 @@ export const Timeline = (props: TimelineProps) => {
         };
     }, []);
 
+    // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
+    const trackMuteStates = useEngineStore(s => s.projectTracks.map(t => t.is_mute));
+
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
@@ -419,6 +422,8 @@ export const Timeline = (props: TimelineProps) => {
             fadeOutCurve: c.fadeOutCurve,
             isOffline: c.isOffline,
             muted: c.muted,
+            // Clips on muted tracks render darker (reactive via trackMuteStates dep)
+            trackMuted: trackMuteStates[c.trackIndex] === true,
             midiNotes: c.midiNotes,
         }));
 
@@ -427,7 +432,7 @@ export const Timeline = (props: TimelineProps) => {
         // deselection on fetchProject. setClips resets all clip.selected flags to false,
         // so we must re-apply the selection atomically within the same effect.
         engine.setClipSelection(selectedClipIdsRef.current);
-    }, [clips, engineRef]);
+    }, [clips, engineRef, trackMuteStates]);
 
     useEffect(() => {
         const engine = engineRef.current;

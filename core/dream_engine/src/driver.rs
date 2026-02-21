@@ -1596,7 +1596,6 @@ pub fn start_audio_thread_on_device(
 
     // ── 5. Playback state ───────────────────────────────────────────
     let mut is_playing: bool = false;
-    let mut diag_block_counter: u32 = 0;
     // BUG-035 FIX: Removed misleading underscore — BPM IS used in TransportContext.
     let mut bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
@@ -3051,42 +3050,7 @@ pub fn start_audio_thread_on_device(
                             render_ctx.meter_bank.master_right().store_peak_decay(peak_r, decay);
                         }
 
-                        // ── DIAGNOSTIC: periodic signal trace (every ~86 blocks ≈ 1s) ──
-                        diag_block_counter += 1;
-                        if diag_block_counter >= 86 {
-                            diag_block_counter = 0;
-                            let graph_peak = graph_out_left[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                            let total_clips: usize = snapshot.iter().map(|t| t.len()).sum();
-                            let tracks_with_clips = snapshot.iter().filter(|t| !t.is_empty()).count();
-                            
-                            // Check track slot buffers and output enabled
-                            let mut tracks_with_signal = 0usize;
-                            let mut tracks_output_on = 0usize;
-                            let mut first_slot_peak: f32 = 0.0;
-                            let mut first_signal_idx: Option<usize> = None;
-                            for idx in 0..track_count.min(render_ctx.track_slots.len()) {
-                                let slot = &render_ctx.track_slots[idx];
-                                let slot_peak = slot.buf_left[..n.min(slot.buf_left.len())].iter()
-                                    .fold(0.0f32, |a, &s| a.max(s.abs()));
-                                if slot_peak > 0.0001 {
-                                    tracks_with_signal += 1;
-                                    if first_signal_idx.is_none() {
-                                        first_signal_idx = Some(idx);
-                                        first_slot_peak = slot_peak;
-                                    }
-                                }
-                                if slot.strip.is_output_enabled() {
-                                    tracks_output_on += 1;
-                                }
-                            }
-                            
-                            eprintln!(
-                                "[AUDIO-DIAG] play={} snap={}/{} gp={:.6} mg={:.3} sig_trks={}/{} out_on={} slot0_pk={:.4} idx={:?} ph={}",
-                                is_playing, total_clips, tracks_with_clips, graph_peak, master_gain_current,
-                                tracks_with_signal, track_count, tracks_output_on,
-                                first_slot_peak, first_signal_idx, render_ctx.playhead.position()
-                            );
-                        }
+
 
                         // BUG-R5 FIX: Interleave without soft_clip here — final soft_clip
                         // is applied once at the output stage below. Previously signal was

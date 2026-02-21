@@ -309,7 +309,7 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
             // signed bundle entitlements required for media capture.
             // Solution: detect Tauri and skip getUserMedia entirely.
             // SpeechRecognition handles its own permissions gracefully.
-            const isTauri = !!(window as unknown as Record<string, unknown>).__TAURI__;
+            const isTauri = !!((window as unknown as Record<string, unknown>).__TAURI__ || (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__);
             const micPermCacheKey = 'dream-ai-mic-permission';
             const cachedPermission = localStorage.getItem(micPermCacheKey);
 
@@ -333,7 +333,10 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
             }
 
             // ── Step 2: Try native SpeechRecognition ──
-            const recognition = createSpeechRecognition();
+            // CRITICAL: In Tauri WKWebView, webkitSpeechRecognition may exist
+            // as a constructor but calling .start() crashes the native WebView
+            // process (before JS catch fires). Skip entirely in Tauri.
+            const recognition = isTauri ? null : createSpeechRecognition();
             if (recognition) {
                 recognition.continuous = true;
                 recognition.interimResults = false;

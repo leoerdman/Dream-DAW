@@ -2422,10 +2422,11 @@ const TrackRow = ({
     const showRoutingExpanded = !isMasterFixed;
     const showRoutingCompact = false;
 
-    // Enterprise solo dimming: when any track is soloed, non-soloed tracks
-    // dim with grayscale + reduced opacity — exactly like Ableton Live.
+    // Track row dims only on mute (not solo)
+    const isEnabled = !track.isMuted;
+    // Meter dims on both mute AND solo (non-soloed tracks get grey meters)
     const anySoloed = allTracks.some(t => t.isSoloed);
-    const isEnabled = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
+    const isMeterActive = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
     const [resizeHot, setResizeHot] = useState(false);
     const headerBgColor = track.color;
@@ -2955,7 +2956,7 @@ const TrackRow = ({
                     peakDbR={track.vuLevelR}
                     isMidi={false}
                     compact
-                    isEnabled={isMaster ? true : isEnabled}
+                    isEnabled={isMaster ? true : isMeterActive}
                     trackHeight={trackHeight}
                 />
             </div>

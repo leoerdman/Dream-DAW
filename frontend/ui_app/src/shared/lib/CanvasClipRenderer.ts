@@ -50,6 +50,8 @@ export interface TimelineClipData {
     showFadeOutCurvePoint?: boolean;
     isOffline?: boolean;
     muted?: boolean;
+    /** TRUE when the parent track is muted — clips render darker. */
+    trackMuted?: boolean;
     midiNotes?: Array<{
         pitch: number;
         startBeat: number;
@@ -521,6 +523,12 @@ export class CanvasClipRenderer {
 
         ctx.save();
 
+        // Track-muted dimming — significantly reduce opacity for clips on muted tracks
+        const isTrackMuted = clip.trackMuted === true;
+        if (isTrackMuted) {
+            ctx.globalAlpha = 0.25;
+        }
+
         // ── 1. Rounded rectangle path ─────────────────────────────────
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
         this._roundRect(ctx, x, y + 1, w, h, r);
@@ -567,9 +575,9 @@ export class CanvasClipRenderer {
         if (bodyH > 8) {
 
             if (clip.type === 'audio' && clip.filePath && clip.durationSamples) {
-                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true);
+                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackMuted);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true, trackPitch);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackMuted, trackPitch);
             }
         }
 
@@ -603,7 +611,8 @@ export class CanvasClipRenderer {
         if (w > 30) {
             ctx.font = '11px Inter, -apple-system, sans-serif';
             const contrastColor = getContrastColor(clip.color);
-            ctx.fillStyle = clip.muted
+            const isMutedVisual = clip.muted || isTrackMuted;
+            ctx.fillStyle = isMutedVisual
                 ? 'rgba(210, 215, 223, 0.95)'
                 : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)');
             ctx.textBaseline = 'middle';
@@ -631,6 +640,7 @@ export class CanvasClipRenderer {
         // ── 11. Selection glow (drawn OUTSIDE the clip) ───────────────
         if (clip.selected) {
             ctx.save();
+            if (isTrackMuted) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
             ctx.lineWidth = SELECTION_BORDER_WIDTH;
             ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
@@ -643,6 +653,7 @@ export class CanvasClipRenderer {
         // ── 12. Border (non-selected) ─────────────────────────────────
         if (!clip.selected) {
             ctx.save();
+            if (isTrackMuted) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;
             ctx.lineWidth = 1;
             this._roundRect(ctx, x, y + 1, w, h, r);
@@ -659,6 +670,7 @@ export class CanvasClipRenderer {
             const rightX = x + w - Math.max(4, Math.min(w - 4, fadeOutWidth));
 
             ctx.save();
+            if (isTrackMuted) ctx.globalAlpha = 0.25;
             ctx.fillStyle = clip.selected ? 'rgba(255,255,255,0.98)' : 'rgba(238,245,255,0.9)';
             ctx.strokeStyle = 'rgba(0,0,0,0.65)';
             ctx.lineWidth = 1;

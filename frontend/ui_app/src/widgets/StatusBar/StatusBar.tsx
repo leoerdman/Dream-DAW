@@ -42,7 +42,12 @@ export const StatusBar = ({
     const connected = useEngineStore((s) => s.connected);
     const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
     const projectTracks = useEngineStore((s) => s.projectTracks);
-    const latestHistory = useEngineStore((s) => s.projectHistory[s.projectHistory.length - 1]);
+    // BUG-P5 FIX: Stable selectors to avoid re-render on every history merge.
+    // Previous code subscribed to the full array → new reference every 0.5s → re-render storm.
+    const latestHistory = useEngineStore((s) => {
+        const h = s.projectHistory;
+        return h.length > 0 ? h[h.length - 1] : undefined;
+    });
     const projectHistory = useEngineStore((s) => s.projectHistory);
     const pluginSandbox = useEngineStore((s) => s.pluginSandbox);
 

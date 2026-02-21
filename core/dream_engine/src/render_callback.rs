@@ -35,6 +35,11 @@ static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomic
 /// Previously both clip pool misses AND spectrum drops shared POOL_MISS_COUNT.
 pub static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// AUDIT-S1-01: RT-safe counter for zero-duration clips encountered during rendering.
+/// Replaces the previous log::warn! which acquired a global Mutex in the log backend,
+/// violating RT-safety constraints on the audio thread.
+pub static ZERO_DURATION_CLIP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
 /// or streaming windows since engine start.
@@ -55,6 +60,7 @@ pub fn spectrum_drop_count() -> u32 {
 pub fn reset_diagnostic_counters() {
     POOL_MISS_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
     SPECTRUM_DROP_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+    ZERO_DURATION_CLIP_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -278,7 +284,9 @@ impl RenderContext {
         // BUG-034 FIX: Use device sample rate for fade curves since fades operate
         // in device-time (samples output to the soundcard), not timeline-time.
         // A 10ms fade at 44.1kHz project SR on a 96kHz device needs 960 samples.
-        self.fade_cache = FadeCache::new(self.sample_rate);
+        // AUD-099 FIX: Rebuild in-place to avoid heap allocation on the RT thread.
+        // Previously `FadeCache::new()` created two new Vecs per call.
+        self.fade_cache.rebuild_in_place(self.sample_rate);
     }
 
     /// The core render function — called once per audio buffer.
@@ -377,13 +385,11 @@ impl RenderContext {
                     continue;
                 }
                 let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
-                // AUD-089 FIX: Warn on zero-duration clips (hidden by max(1)).
-                #[cfg(debug_assertions)]
+                // AUD-089 FIX: Count zero-duration clips via RT-safe atomic counter.
+                // Previously used log::warn! which acquires a global Mutex in the
+                // log backend — forbidden on the audio thread.
                 if clip.duration.sample_frame <= 0 {
-                    log::warn!(
-                        "[render] Zero-duration clip at track {} — will produce no audio",
-                        track_idx
-                    );
+                    ZERO_DURATION_CLIP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 let clip_source_len = if clip.warp_source_duration_frames > 0 {
                     clip.warp_source_duration_frames as f64
@@ -393,18 +399,9 @@ impl RenderContext {
                 let is_warped = clip.is_warped && clip_source_len > 1.0;
                 let playback_rate = if is_warped {
                     let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
-                    // AUD-020 FIX: Log when playback rate is clamped.
-                    #[cfg(debug_assertions)]
-                    {
-                        let unclamped = clip_source_len / clip_timeline_len;
-                        if (unclamped - rate).abs() > 0.001 {
-                            log::trace!(
-                                "[render] Clip playback_rate clamped: {:.3} → {:.3}",
-                                unclamped,
-                                rate
-                            );
-                        }
-                    }
+                    // AUD-020 FIX: Clamped playback rate diagnostic.
+                    // AUDIT-S1-02: Removed log::trace! — log backend Mutex is RT-unsafe.
+                    // Rate clamping is a correctness feature; silent in all builds.
                     rate
                 } else {
                     1.0
@@ -416,8 +413,8 @@ impl RenderContext {
                 };
                 if matches!(warp_mode, WarpResampleMode::Pro) {
                     if pro_warp_budget == 0 {
-                        // BUG-010 FIX: Log quality downgrade at trace level (zero-cost in release).
-                        log::trace!("[render] Pro warp budget exhausted — downgrading to Standard");
+                        // BUG-010 FIX: Quality downgrade when Pro warp budget is exhausted.
+                        // AUDIT-S1-03: Removed log::trace! — log backend Mutex is RT-unsafe.
                         warp_mode = WarpResampleMode::Standard;
                     } else {
                         pro_warp_budget = pro_warp_budget.saturating_sub(1);
@@ -587,13 +584,10 @@ impl RenderContext {
             }
         }
 
-        // BUG-65 FIX: Wire diagnostics to debug log instead of suppressing.
-        if total_active > 0 {
-            log::trace!(
-                "[RenderCtx] pos={} active_clips={} pool_hits={}",
-                playhead_pos, total_active, total_pool_hits
-            );
-        }
+        // BUG-65 FIX: Diagnostic counters for render pass.
+        // AUDIT-S1-04: Removed log::trace! — log backend Mutex is RT-unsafe.
+        // Active clip stats are available via SharedRtDebugStats if needed.
+        let _ = (total_active, total_pool_hits); // suppress unused warnings
 
         // ── 4. Process channel strips (gain + pan) per track ────────
         let sr = self.sample_rate as f32;

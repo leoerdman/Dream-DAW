@@ -343,13 +343,9 @@ impl SamplerVoice {
         self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0) * sr_ratio;
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
-        // DEEP-02 FIX: Gate Nyquist warning behind debug_assertions.
-        // log::debug! acquires a global mutex and heap-allocates format strings.
-        // This is called during note_on which runs on the RT audio thread.
-        #[cfg(debug_assertions)]
-        if freq_hz > self.sample_rate * 0.5 {
-            log::debug!("[Sampler] Note {} ({:.0}Hz) exceeds Nyquist ({:.0}Hz), clamped", note, freq_hz, self.sample_rate * 0.5);
-        }
+        // AUDIT-S2-01: Removed log::debug! — runs on RT audio thread during note-on.
+        // The log crate acquires a global Mutex and format!() heap-allocates.
+        // Nyquist is already guarded by phase_increment clamp to 0.5 above.
         self.envelope.note_on();
         self.filter_state.reset(); // Fresh filter state per note
         self.lfo_phase = 0.0; // Restart LFO per note for consistent timbre
@@ -1045,8 +1041,13 @@ fn render_oscillator_voice(
         left_out[i] += sample * gain;
         right_out[i] += sample * gain;
         voice.cursor += voice.phase_increment;
+        // AUDIT-S2-02 FIX: Use fract() for safe phase wrapping.
+        // Same class as BUG-014 (test tone): -= 1.0 fails when
+        // phase_increment > 1.0 (high freq / low SR), leaving phase > 1.0.
+        // PolyBLEP expects phase in [0,1) — incorrect wrapping produces
+        // aliasing and pitch instability.
         if voice.cursor >= 1.0 {
-            voice.cursor -= 1.0;
+            voice.cursor = voice.cursor.fract();
         }
     }
 }

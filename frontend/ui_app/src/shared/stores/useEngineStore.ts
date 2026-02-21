@@ -137,6 +137,11 @@ let _isFetchingProject = false;
 let _telemetryStarted = false;
 /** Timestamp (ms) until which telemetry BPM updates are suppressed (BUG-3 fix). */
 let _bpmPendingUntil = 0;
+/** PERF-FIX: Debounce timer for fetchProject calls.
+ *  Coalesces rapid-fire UI actions (e.g. addTrack, deleteTrack, rename)
+ *  into a single project re-fetch after a 100ms quiet window. */
+let _fetchProjectDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const FETCH_PROJECT_DEBOUNCE_MS = 100;
 const PROJECT_HISTORY_WINDOW = 256;
 const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
 /** PERF-FIX: Only push meter data to React state every N ticks.
@@ -147,6 +152,10 @@ const METER_STATE_UPDATE_EVERY_TICKS = 5;
 let _meterFrameCounter = 0;
 /** Latest raw meter snapshot (30fps), bypasses React state for perf. */
 let _latestMeters: MeteringSnapshot | null = null;
+/** rAF batching: pending Zustand updates coalesced across multiple Tauri ticks. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _pendingUpdate: Record<string, any> = {};
+let _rafPending = false;
 /** Get the latest meter snapshot without causing React re-renders. */
 export function getMetersRef(): MeteringSnapshot {
     return _latestMeters ?? useEngineStore.getState().meters;
@@ -403,10 +412,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         _bpmPendingUntil = Date.now() + 500;
         try {
             await engine.setBpm(bpm);
-            // Backend mutates pulse map + retimes persisted project structures.
-            // Pull refreshed project snapshot immediately so timeline conversions
-            // and clip geometry remain mathematically consistent.
-            await get().fetchProject('setBpm');
+            // PERF-FIX (BUG-P3): Debounced fetchProject to coalesce rapid BPM
+            // changes (e.g. dragging the BPM knob). Previously called synchronously
+            // which triggered full project clone + JSON serialize + IPC on every drag frame.
+            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
+            _fetchProjectDebounceTimer = setTimeout(
+                () => void get().fetchProject('setBpm'),
+                FETCH_PROJECT_DEBOUNCE_MS,
+            );
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -527,6 +540,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     setTrackMute: async (trackIndex: number, muted: boolean) => {
         // Optimistic update — UI reflects state instantly.
+        // PERF-FIX: No fetchProject() — this only toggles a boolean.
+        // The backend persists via EngineCommand; full project re-fetch
+        // was causing heavy Mutex lock + JSON serialization on every click.
         set((s) => ({
             projectTracks: s.projectTracks.map((t, i) =>
                 i === trackIndex ? { ...t, is_mute: muted } : t
@@ -534,7 +550,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }));
         try {
             await engine.setTrackMute(trackIndex, muted);
-            await get().fetchProject('setTrackMute');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -543,6 +558,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     setTrackSolo: async (trackIndex: number, soloed: boolean) => {
         // Optimistic update — UI reflects state instantly.
+        // PERF-FIX: No fetchProject() — this only toggles a boolean.
         set((s) => ({
             projectTracks: s.projectTracks.map((t, i) =>
                 i === trackIndex ? { ...t, is_solo: soloed } : t
@@ -550,7 +566,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }));
         try {
             await engine.setTrackSolo(trackIndex, soloed);
-            await get().fetchProject('setTrackSolo');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -562,7 +577,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     addTrack: async (name?: string) => {
         try {
             await engine.addTrack(name);
-            await get().fetchProject('addTrack');
+            // PERF-FIX: Debounced fetchProject to coalesce rapid topology changes.
+            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
+            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('addTrack'), FETCH_PROJECT_DEBOUNCE_MS);
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -574,15 +591,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             await engine.deleteTrack(index);
 
             // BUG-17: Prune stale throttles to prevent memory leaks.
-            // Since throttles are keyed by index, we must clear all throttles
-            // from the deleted index onwards, as indices of subsequent tracks shifted.
-            // Better: clear all and let them re-initialize on next move to ensure 100% safety.
             throttledVolumeSends.clear();
             throttledPanSends.clear();
             pendingVolumeValues.clear();
             pendingPanValues.clear();
 
-            await get().fetchProject('deleteTrack');
+            // PERF-FIX: Debounced fetchProject.
+            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
+            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('deleteTrack'), FETCH_PROJECT_DEBOUNCE_MS);
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -592,7 +608,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     renameTrack: async (index: number, name: string) => {
         try {
             await engine.renameTrack(index, name);
-            await get().fetchProject('renameTrack');
+            // PERF-FIX: Debounced fetchProject.
+            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
+            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('renameTrack'), FETCH_PROJECT_DEBOUNCE_MS);
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -622,7 +640,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.log(
                 `[Engine] Created MIDI clip '${response.clip_name}' → track ${trackIndex} @ frame ${positionFrames}`,
             );
-            await get().fetchProject('createMidiClip');
+            // PERF-FIX: Debounced fetchProject.
+            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
+            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('createMidiClip'), FETCH_PROJECT_DEBOUNCE_MS);
         } catch (err) {
             const msg = `Create MIDI clip failed: ${err}`;
             console.error(`[Engine] ${msg}`);
@@ -971,34 +991,30 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // ── Window ─────────────────────────────────────────────────────────
 
     expandWindow: async () => {
-        try {
-            await engine.expandWindow();
-        } catch (e) {
-            set({ lastError: String(e) });
-        }
+        // NEUTRALIZED: expandWindow calls set_decorations(true) which dynamically
+        // toggles the NSWindow styleMask. This may break WKWebView's responder
+        // chain and prevent mouse events from reaching JS. The window is now
+        // created programmatically in setup() with the correct config.
+        console.log('[expandWindow] NEUTRALIZED — window already configured');
     },
 
     // ── Telemetry Loop ─────────────────────────────────────────────────
 
     startTelemetryLoop: () => {
-        // CRITICAL FIX: Module-level guard prevents infinite re-entry.
-        // set({ telemetryRunning: true }) triggers synchronous React re-render →
-        // DawShell/SplashScreen useEffect fires → startTelemetryLoop() called again →
-        // get().telemetryRunning is STILL false (set hasn't committed yet) →
-        // "Maximum update depth exceeded". _telemetryStarted breaks this cycle.
-        if (_telemetryStarted || get().telemetryRunning) return;
+        // CRITICAL FIX: Module-level guard for instant synchronous re-entry prevention.
+        // _telemetryStarted is set BEFORE any set() call — blocks re-entry even when
+        // React hasn't committed the store update yet.
+        // We do NOT check get().telemetryRunning because Vite HMR resets _telemetryStarted
+        // but zustand persists telemetryRunning: true → would permanently block re-registration.
+        if (_telemetryStarted) return;
         _telemetryStarted = true;
-        set({ telemetryRunning: true });
-        let tickCounter = 0;
 
-        // BUG-FIX: Defer initial fetchProject to break synchronous re-render cascade.
-        // Calling fetchProject synchronously here triggers zustand set() → React
-        // forceStoreRerender → component re-renders → Maximum update depth exceeded.
-        // queueMicrotask keeps the same initialization semantics (runs before next
-        // paint) while breaking the synchronous call stack.
+        // CRITICAL: Defer ALL state updates to break synchronous React re-render cascade.
         queueMicrotask(() => {
+            set({ telemetryRunning: true });
             void get().fetchProject('telemetry-startup');
         });
+        let tickCounter = 0;
 
         void (async () => {
             try {
@@ -1037,28 +1053,78 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     _meterFrameCounter++;
                     const shouldUpdateMeterState = _meterFrameCounter % METER_STATE_UPDATE_EVERY_TICKS === 0;
 
-                    if (transportChanged && shouldUpdateMeterState) {
-                        set({ transport: effectiveTransport, meters: nextMeters, connected: true, lastError: null });
-                    } else if (transportChanged) {
-                        set({ transport: effectiveTransport, connected: true, lastError: null });
-                    } else if (shouldUpdateMeterState) {
+                    // ══════════════════════════════════════════════════════════
+                    // ENTERPRISE FIX: requestAnimationFrame batching
+                    //
+                    // Tauri pushes 30 telemetry events/sec. Each set() triggers
+                    // Zustand → React re-render of ALL subscribed components
+                    // (DawShell, TransportBar, Timeline, etc.).
+                    // At 30 set()/sec, React's reconciler is permanently busy
+                    // and NEVER processes user click/pointer handlers → UI
+                    // appears frozen even though events reach JS.
+                    //
+                    // Fix: Accumulate pending state in a module-level object.
+                    // Schedule a single rAF callback that does ONE set() per
+                    // browser frame (~16ms). Multiple Tauri events within the
+                    // same frame are coalesced → zero data loss, 60fps max.
+                    // ══════════════════════════════════════════════════════════
+                    if (transportChanged) {
+                        _pendingUpdate.transport = effectiveTransport;
+                        _pendingUpdate.connected = true;
+                        _pendingUpdate.lastError = null;
+                    }
+                    if (shouldUpdateMeterState) {
+                        _pendingUpdate.meters = nextMeters;
                         if (!get().connected) {
-                            set({ meters: nextMeters, connected: true, lastError: null });
-                        } else {
-                            set({ meters: nextMeters });
+                            _pendingUpdate.connected = true;
+                            _pendingUpdate.lastError = null;
                         }
-                    } else if (!get().connected) {
-                        set({ connected: true, lastError: null });
+                    }
+                    if (!get().connected && !_pendingUpdate.connected) {
+                        _pendingUpdate.connected = true;
+                        _pendingUpdate.lastError = null;
+                    }
+
+                    // Schedule single rAF flush (idempotent — only one pending at a time)
+                    if (!_rafPending) {
+                        _rafPending = true;
+                        requestAnimationFrame(() => {
+                            _rafPending = false;
+                            const update = _pendingUpdate;
+                            _pendingUpdate = {};
+                            if (Object.keys(update).length > 0) {
+                                set(update);
+                            }
+                        });
                     }
                 });
+                // BUG-P2 FIX: Route plugin_sandbox_tick through rAF batching.
+                // Previously called set() directly at 30fps, causing React re-render
+                // storms identical to the telemetry_tick issue.
                 _pluginSandboxUnlisten = await listen<PluginSandboxSnapshot>(
                     'plugin_sandbox_tick',
                     (event) => {
-                        set({ pluginSandbox: event.payload });
+                        _pendingUpdate.pluginSandbox = event.payload;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
                     },
                 );
             } catch (e) {
                 const msg = String(e);
+                console.error('[Telemetry] listen() failed — resetting guard for retry:', msg);
+                // CRITICAL: Reset module-level guard so DawShell safety-net useEffect
+                // can retry startTelemetryLoop(). Without this, a single failed listen()
+                // permanently locks out telemetry → entire UI goes dead.
+                _telemetryStarted = false;
                 if (get().lastError !== msg) {
                     set({ lastError: msg, connected: false, telemetryRunning: false });
                 }

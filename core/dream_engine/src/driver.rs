@@ -2224,8 +2224,23 @@ pub fn start_audio_thread_on_device(
                         let needs_plugin_host = external_fx_map
                             .iter()
                             .any(|track_slots| track_slots.iter().any(|slot| slot.instance_id.is_some()));
+                        // PERF-FIX: Bounded spin-try to reduce plugin host lock misses.
+                        // The UI thread typically holds this lock for microseconds (parameter
+                        // updates, plugin state capture). A few spin iterations (~100ns total)
+                        // are enough to outlast the contention window, preventing the 1-buffer
+                        // silence gap that caused audible clicks on every UI action.
+                        // MAX_SPIN = 3: each spin_loop is ~ns, 3 iterations add <100ns
+                        // worst-case, well within audio budget even at 64-sample buffers.
                         let mut plugin_host_guard = if needs_plugin_host {
-                            plugin_host.try_lock().ok()
+                            const MAX_SPIN: usize = 3;
+                            let mut guard = None;
+                            for _ in 0..MAX_SPIN {
+                                match plugin_host.try_lock() {
+                                    Ok(g) => { guard = Some(g); break; }
+                                    Err(_) => core::hint::spin_loop(),
+                                }
+                            }
+                            guard
                         } else {
                             None
                         };
@@ -2912,8 +2927,7 @@ pub fn start_audio_thread_on_device(
                                     // AUD-008 FIX: Cache peak_decay outside the closure via
                                     // sample_rate_f64 captured from outer scope. peak_decay_for_block
                                     // involves exp() which is ~5ns — ~1.3μs overhead for 256 tracks.
-                                    // AE-013 FIX: Use pre-cached decay from outer scope.
-                                    let _decay = graph_peak_decay;
+                                    // AE-013 FIX: Use pre-cached graph_peak_decay from outer scope.
                                     if let Some((meter_l, meter_r)) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {

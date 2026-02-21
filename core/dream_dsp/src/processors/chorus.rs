@@ -165,6 +165,13 @@ impl DspProcessor for ChorusProcessor {
                 self.fb_l[v] = out_l;
                 self.fb_r[v] = out_r;
 
+                // AUDIT-S3-02 FIX: Flush denormals in per-voice feedback buffers.
+                // BUG-AUD-105 flushed HP state but missed fb_l/fb_r.
+                // With high feedback, denormal tails persist through the delay line,
+                // causing 100x CPU slowdown on x86 during prolonged silence.
+                if self.fb_l[v].abs() < 1.0e-20 { self.fb_l[v] = 0.0; }
+                if self.fb_r[v].abs() < 1.0e-20 { self.fb_r[v] = 0.0; }
+
                 // Pan voices for stereo spread
                 let pan = if nv > 1 {
                     (v as f32 / (nv - 1).max(1) as f32 - 0.5) * 2.0 * self.spread

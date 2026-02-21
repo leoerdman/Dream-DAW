@@ -508,8 +508,20 @@ export const DawShell = () => {
 
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
+    // Retry every 500ms until telemetry is confirmed running — handles cases
+    // where listen() fails due to Tauri IPC not being ready yet.
     useEffect(() => {
         startTelemetryLoop();
+        const retryId = setInterval(() => {
+            const running = useEngineStore.getState().telemetryRunning;
+            if (!running) {
+                console.warn('[DawShell] Telemetry not running — retrying startTelemetryLoop()');
+                startTelemetryLoop();
+            } else {
+                clearInterval(retryId);
+            }
+        }, 500);
+        return () => clearInterval(retryId);
     }, [startTelemetryLoop]);
 
     // Force one layout sync pass right after workspace mount to avoid stale

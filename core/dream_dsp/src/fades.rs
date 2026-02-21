@@ -71,6 +71,38 @@ pub fn generate_hann_fade_out(length: usize) -> Vec<f32> {
     curve
 }
 
+/// AUD-099: Writes a Hann fade-in curve into an existing slice. **Zero-alloc.**
+///
+/// The caller must ensure `output.len() >= 2` for meaningful results.
+#[inline]
+pub fn generate_hann_fade_in_into(output: &mut [f32]) {
+    let length = output.len();
+    if length < 2 {
+        output.fill(1.0);
+        return;
+    }
+    let len_f = (length - 1) as f32;
+    for i in 0..length {
+        let normalized = i as f32 / len_f;
+        output[i] = 0.5 * (1.0 - (PI * normalized).cos());
+    }
+}
+
+/// AUD-099: Writes a Hann fade-out curve into an existing slice. **Zero-alloc.**
+#[inline]
+pub fn generate_hann_fade_out_into(output: &mut [f32]) {
+    let length = output.len();
+    if length < 2 {
+        output.fill(1.0);
+        return;
+    }
+    let len_f = (length - 1) as f32;
+    for i in 0..length {
+        let normalized = i as f32 / len_f;
+        output[i] = 0.5 * (1.0 + (PI * normalized).cos());
+    }
+}
+
 /// Computes the fade length in samples for a given sample rate (~2ms).
 ///
 /// Returns 88 for 44.1kHz, 96 for 48kHz, 192 for 96kHz.
@@ -103,6 +135,23 @@ impl FadeCache {
             fade_out: generate_hann_fade_out(length),
             fade_length: length,
         }
+    }
+
+    /// AUD-099: Rebuilds fade curves in-place for a new sample rate.
+    ///
+    /// **RT-SAFE**: Reuses the existing Vec allocations. No heap operations
+    /// as long as the new fade length ≤ the current capacity (which is
+    /// guaranteed for standard rates since initial allocation is at engine
+    /// start with the device sample rate — the largest rate in the system).
+    pub fn rebuild_in_place(&mut self, sample_rate: f64) {
+        let length = fade_length_for_sample_rate(sample_rate);
+        self.fade_length = length;
+        // Resize with zero-fill (Vec::resize never shrinks capacity)
+        self.fade_in.resize(length, 0.0);
+        self.fade_out.resize(length, 0.0);
+        // Overwrite with fresh curve data
+        generate_hann_fade_in_into(&mut self.fade_in[..length]);
+        generate_hann_fade_out_into(&mut self.fade_out[..length]);
     }
 
     /// Creates a `FadeCache` with the default 44.1kHz fade length (88 samples).

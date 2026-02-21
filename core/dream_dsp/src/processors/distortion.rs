@@ -197,6 +197,15 @@ impl DspProcessor for DistortionProcessor {
             if self.tone_state_r.abs() < 1.0e-20 {
                 self.tone_state_r = 0.0;
             }
+            // AUDIT-S3-01 FIX: BUG-AUD-108 missed cab_state flush.
+            // The comment says "HP/tone/cab" but only flushed HP + tone.
+            // cab_state one-pole LP has the same denormal risk during silence.
+            if self.cab_state_l.abs() < 1.0e-20 {
+                self.cab_state_l = 0.0;
+            }
+            if self.cab_state_r.abs() < 1.0e-20 {
+                self.cab_state_r = 0.0;
+            }
         }
     }
 

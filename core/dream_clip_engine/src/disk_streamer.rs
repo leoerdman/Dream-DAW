@@ -649,7 +649,7 @@ fn disk_io_thread(
 
         // ── Determine what to read ──────────────────────────────
         // Read ahead of the playhead by LOOK_AHEAD_CHUNKS chunks.
-        let look_ahead_end = current_playhead + (LOOK_AHEAD_CHUNKS as i64 * CHUNK_FRAMES as i64);
+        let look_ahead_end = current_playhead.saturating_add(LOOK_AHEAD_CHUNKS as i64 * CHUNK_FRAMES as i64);
 
         // Check if we need to seek (playhead jumped significantly)
         let jump_threshold = (CHUNK_FRAMES * LOOK_AHEAD_CHUNKS / 2) as i64;

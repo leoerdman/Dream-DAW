@@ -124,7 +124,7 @@ impl SpectrumAnalyzer {
         let mut pos = self.write_pos.load(Ordering::Relaxed);
         for &s in samples {
             self.ring[pos] = s;
-            pos = (pos + 1) % FFT_SIZE;
+            pos = (pos + 1) & (FFT_SIZE - 1);
         }
         self.write_pos.store(pos, Ordering::Release);
         self.has_new_data.store(true, Ordering::Release);
@@ -139,7 +139,7 @@ impl SpectrumAnalyzer {
         for i in 0..pairs {
             let mono = (samples[i * 2] + samples[i * 2 + 1]) * 0.5;
             self.ring[pos] = mono;
-            pos = (pos + 1) % FFT_SIZE;
+            pos = (pos + 1) & (FFT_SIZE - 1);
         }
         self.write_pos.store(pos, Ordering::Release);
         self.has_new_data.store(true, Ordering::Release);

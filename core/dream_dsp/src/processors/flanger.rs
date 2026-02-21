@@ -27,6 +27,7 @@
 use crate::dsp_processor::DspProcessor;
 
 const MAX_DELAY_SAMPLES: usize = 2048;
+const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
 
 pub struct FlangerProcessor {
     rate: f32,
@@ -110,11 +111,19 @@ impl FlangerProcessor {
     #[inline]
     fn lfo(&self, phase: f32, shape: u8, sh_value: f32) -> f32 {
         match shape {
-            0 => (phase * std::f32::consts::TAU).sin(),
+            0 | _ => {
+                let p = phase.fract();
+                let (t, sign) = if p < 0.5 {
+                    (p * 2.0, 1.0f32)
+                } else {
+                    ((p - 0.5) * 2.0, -1.0)
+                };
+                let t2 = t * (1.0 - t);
+                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+            }
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),
             2 => 2.0 * phase - 1.0,
             3 => sh_value,
-            _ => (phase * std::f32::consts::TAU).sin(),
         }
     }
 
@@ -122,8 +131,8 @@ impl FlangerProcessor {
     fn read_interp(buf: &[f32; MAX_DELAY_SAMPLES], write_pos: usize, delay: f32) -> f32 {
         let int_d = delay as usize;
         let frac = delay - int_d as f32;
-        let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) % MAX_DELAY_SAMPLES;
-        let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) % MAX_DELAY_SAMPLES;
+        let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) & DELAY_MASK;
+        let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) & DELAY_MASK;
         buf[i0] * (1.0 - frac) + buf[i1] * frac
     }
 }
@@ -206,7 +215,7 @@ impl DspProcessor for FlangerProcessor {
 
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
-            self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
+            self.write_pos = (self.write_pos + 1) & DELAY_MASK;
         }
     }
 

@@ -119,7 +119,7 @@ impl ClipScheduler {
             }
         };
 
-        let buffer_end = playhead_pos + buffer_size as i64;
+        let buffer_end = playhead_pos.saturating_add(buffer_size as i64);
         // If the cursor is already at or past the loop end, play freely
         // without wrapping — the user has seeked outside the loop region.
         if playhead_pos >= loop_region.end || buffer_end <= loop_region.end {
@@ -280,7 +280,8 @@ impl LoopRegion {
     /// Whether this loop region is valid (end > start, positive length).
     #[inline]
     pub fn is_valid(&self) -> bool {
-        self.end > self.start && self.start >= 0
+        // BUG FIX: Enforce minimum loop length (32 frames) to prevent RT thread CPU spikes
+        self.end >= self.start + 32 && self.start >= 0
     }
 
     /// Length of the loop in sample frames.

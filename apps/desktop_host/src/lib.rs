@@ -2724,11 +2724,14 @@ impl PluginHostState {
     }
 
     fn try_enable_sandbox_if_available(&self) {
-        // TEMPORARILY DISABLED: Force in-process loading to diagnose
-        // whether the crash originates in the sandbox daemon or
-        // in the main-process VST3 loading code.
-        // TODO: Re-enable after fixing the root cause.
-        log::info!("[PluginHost] Sandbox auto-enable DISABLED for diagnostic purposes");
+        if let Ok(mut sup) = self.sandbox_supervisor.lock() {
+            sup.set_enabled(true);
+            if sup.enabled() {
+                log::info!("[PluginHost] Sandbox auto-enabled on startup");
+            } else {
+                log::warn!("[PluginHost] Sandbox auto-enable failed (daemon binary not found)");
+            }
+        }
     }
 
     fn new() -> Self {

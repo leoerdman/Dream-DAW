@@ -116,7 +116,16 @@ impl AutoFilterProcessor {
     #[inline]
     fn lfo_value(&mut self, phase: f32) -> f32 {
         match self.lfo_shape {
-            0 => (phase * std::f32::consts::TAU).sin(), // Sine
+            0 | _ => {
+                // Sine (fast Bhaskara approximation)
+                let (t, sign) = if phase < 0.5 {
+                    (phase * 2.0, 1.0f32)
+                } else {
+                    ((phase - 0.5) * 2.0, -1.0)
+                };
+                let t2 = t * (1.0 - t);
+                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+            }
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),       // Triangle
             2 => 2.0 * phase - 1.0,                     // Saw Up
             3 => 1.0 - 2.0 * phase,                     // Saw Down
@@ -136,7 +145,6 @@ impl AutoFilterProcessor {
                 }
                 self.sh_value
             }
-            _ => (phase * std::f32::consts::TAU).sin(),
         }
     }
 

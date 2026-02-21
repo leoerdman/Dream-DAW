@@ -986,12 +986,41 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         prev.loop_start !== effectiveTransport.loop_start ||
                         prev.loop_end !== effectiveTransport.loop_end;
 
-                    if (transportChanged) {
-                        set({ transport: effectiveTransport, meters: nextMeters, connected: true, lastError: null });
-                    } else if (!get().connected) {
-                        set({ meters: nextMeters, connected: true, lastError: null });
+                    // BUG-P2 FIX: O(n) scalar comparison of meter arrays to prevent
+                    // 30fps redundant React re-renders on the main DawShell component.
+                    const prevMeters = get().meters;
+                    let metersChanged = false;
+
+                    const isMeterReadingEqual = (a: { rms: number; peak: number; clipping: boolean }, b: { rms: number; peak: number; clipping: boolean }) =>
+                        a.rms === b.rms && a.peak === b.peak && a.clipping === b.clipping;
+
+                    if (!isMeterReadingEqual(prevMeters.master_left, nextMeters.master_left) ||
+                        !isMeterReadingEqual(prevMeters.master_right, nextMeters.master_right) ||
+                        prevMeters.tracks.length !== nextMeters.tracks.length) {
+                        metersChanged = true;
                     } else {
-                        set({ meters: nextMeters });
+                        for (let i = 0; i < prevMeters.tracks.length; i++) {
+                            const [pl, pr] = prevMeters.tracks[i];
+                            const [nl, nr] = nextMeters.tracks[i];
+                            if (!isMeterReadingEqual(pl, nl) || !isMeterReadingEqual(pr, nr)) {
+                                metersChanged = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (transportChanged && metersChanged) {
+                        set({ transport: effectiveTransport, meters: nextMeters, connected: true, lastError: null });
+                    } else if (transportChanged) {
+                        set({ transport: effectiveTransport, connected: true, lastError: null });
+                    } else if (metersChanged) {
+                        if (!get().connected) {
+                            set({ meters: nextMeters, connected: true, lastError: null });
+                        } else {
+                            set({ meters: nextMeters });
+                        }
+                    } else if (!get().connected) {
+                        set({ connected: true, lastError: null });
                     }
                 });
                 _pluginSandboxUnlisten = await listen<PluginSandboxSnapshot>(

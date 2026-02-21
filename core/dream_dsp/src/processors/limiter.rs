@@ -23,8 +23,9 @@
 
 use crate::dsp_processor::DspProcessor;
 
-/// 5ms at 192kHz = 960 samples. Previous value (256) only covered up to 48kHz.
-const MAX_LOOKAHEAD: usize = 960;
+/// 1024 samples is a power of 2, allowing fast bitwise wrapping.
+const MAX_LOOKAHEAD: usize = 1024;
+const LOOKAHEAD_MASK: usize = 1023;
 
 pub struct LimiterProcessor {
     threshold_db: f32,
@@ -140,7 +141,7 @@ impl DspProcessor for LimiterProcessor {
             // by O(buffer_size + la_samples), not O(buffer_size × la_samples).
             if target_gain < 1.0 {
                 for j in 1..la_samples {
-                    let idx = (self.la_pos + MAX_LOOKAHEAD - j) % MAX_LOOKAHEAD;
+                    let idx = (self.la_pos + MAX_LOOKAHEAD - j) & LOOKAHEAD_MASK;
                     if self.la_gain[idx] > target_gain {
                         self.la_gain[idx] = target_gain;
                     } else {
@@ -150,7 +151,7 @@ impl DspProcessor for LimiterProcessor {
             }
 
             // Read from the delayed position
-            let la_read = (self.la_pos + MAX_LOOKAHEAD - la_samples) % MAX_LOOKAHEAD;
+            let la_read = (self.la_pos + MAX_LOOKAHEAD - la_samples) & LOOKAHEAD_MASK;
             let out_l = self.la_buf_l[la_read];
             let out_r = self.la_buf_r[la_read];
             let la_target = self.la_gain[la_read];
@@ -186,7 +187,7 @@ impl DspProcessor for LimiterProcessor {
             left[i] = out_l * scale;
             right[i] = out_r * scale;
 
-            self.la_pos = (self.la_pos + 1) % MAX_LOOKAHEAD;
+            self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
         }
     }
 

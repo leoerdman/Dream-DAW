@@ -105,6 +105,10 @@ export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
+    const selectedTrackIdRef = useRef(selectedTrackId);
+    selectedTrackIdRef.current = selectedTrackId;
+    const selectedTrackIdsRef = useRef(selectedTrackIds);
+    selectedTrackIdsRef.current = selectedTrackIds;
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     // selectedClipId is always the last element of selectedClipIds — derived synchronously
     // via useMemo to eliminate the 1-render stale window that the old useEffect pattern had.
@@ -500,7 +504,7 @@ export const DawShell = () => {
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [DEFAULT_BOTTOM_PANEL_HEIGHT]);
+    }, []);
 
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
@@ -934,7 +938,7 @@ export const DawShell = () => {
     const clampTrackHeight = useCallback((h: number) => {
         const snapped = Math.round(h / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
         return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
-    }, [TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, TRACK_HEIGHT_STEP]);
+    }, []);
 
     const resolveHeightTargetTrackIds = useCallback((target: EventTarget | null, clientY?: number) => {
         const element = target instanceof Element ? target : null;
@@ -944,6 +948,11 @@ export const DawShell = () => {
         if (inspectorTrackId && inspectorTrackId !== 'master') {
             return [inspectorTrackId];
         }
+
+        const state = useEngineStore.getState();
+        const projectTracksSnapshot = state.projectTracks;
+        const selectedTrackIds = selectedTrackIdsRef.current;
+        const selectedTrackId = selectedTrackIdRef.current;
 
         const timelineRoot = element?.closest?.('[data-testid="timeline-view"]') as HTMLElement | null;
         if (timelineRoot && Number.isFinite(clientY)) {
@@ -968,11 +977,8 @@ export const DawShell = () => {
         return [];
     }, [
         RULER_HEIGHT,
-        projectTracksSnapshot,
         clampTrackHeight,
         TRACK_HEIGHT_DEFAULT,
-        selectedTrackIds,
-        selectedTrackId,
     ]);
 
     const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {

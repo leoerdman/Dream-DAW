@@ -74,7 +74,16 @@ impl PhaserProcessor {
     #[inline]
     fn lfo(phase: f32, shape: u8) -> f32 {
         match shape {
-            0 => (phase * std::f32::consts::TAU).sin(),
+            0 | _ => {
+                let p = phase.fract();
+                let (t, sign) = if p < 0.5 {
+                    (p * 2.0, 1.0f32)
+                } else {
+                    ((p - 0.5) * 2.0, -1.0)
+                };
+                let t2 = t * (1.0 - t);
+                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+            }
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),
             2 => 2.0 * phase - 1.0,
             3 => {
@@ -84,7 +93,6 @@ impl PhaserProcessor {
                     -1.0
                 }
             }
-            _ => (phase * std::f32::consts::TAU).sin(),
         }
     }
 

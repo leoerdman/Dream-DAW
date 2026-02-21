@@ -161,8 +161,16 @@ impl DspProcessor for DelayProcessor {
         let mod_max = self.mod_depth * 20.0; // ±20 samples at full depth
 
         for i in 0..len {
-            // LFO modulation
-            let lfo = (self.lfo_phase as f32 * std::f32::consts::TAU).sin();
+            // LFO modulation (fast sine approximation)
+            let phase = self.lfo_phase as f32;
+            let (t, sign) = if phase < 0.5 {
+                (phase * 2.0, 1.0f32)
+            } else {
+                ((phase - 0.5) * 2.0, -1.0)
+            };
+            let t2 = t * (1.0 - t);
+            let fast_sin = sign * (16.0 * t2) / (5.0 - 4.0 * t2);
+            let lfo = fast_sin;
             self.lfo_phase += lfo_inc;
             // AUD-109 FIX: Use fract() for safe phase wrapping.
             self.lfo_phase = self.lfo_phase.fract();

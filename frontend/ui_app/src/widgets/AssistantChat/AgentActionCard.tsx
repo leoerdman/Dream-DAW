@@ -60,6 +60,11 @@ const TOOL_META: Record<string, ToolMeta> = {
     get_clip_details: { icon: Eye, category: 'Inspect', categoryColor: '#06b6d4', describe: () => 'Get clip details' },
     get_transport_state: { icon: Eye, category: 'Inspect', categoryColor: '#06b6d4', describe: () => 'Get transport state' },
 
+    // MIDI Composition
+    add_midi_track: { icon: Plus, category: 'MIDI', categoryColor: '#f43f5e', describe: (a) => a.name ? `Create MIDI track "${a.name}"` : 'Create MIDI track' },
+    create_midi_clip: { icon: PanelTop, category: 'MIDI', categoryColor: '#f43f5e', describe: (a) => `Create ${a.durationBeats}-beat MIDI clip` },
+    set_clip_notes: { icon: Zap, category: 'MIDI', categoryColor: '#f43f5e', describe: (a) => `Write ${(a.notes as unknown[])?.length || 0} MIDI notes` },
+
     // Mix
     set_master_volume: { icon: Volume2, category: 'Mix', categoryColor: '#f97316', describe: (a) => `Set master volume to ${Math.round((a.volume as number) * 100)}%` },
 
@@ -103,6 +108,9 @@ function formatToolResult(name: string, resultJson: string): string {
             case 'undo': return '↩ Undone';
             case 'redo': return '↪ Redone';
             case 'set_master_volume': return `Master → ${Math.round(data.masterVolume * 100)}%`;
+            case 'add_midi_track': return `✅ Track created`;
+            case 'create_midi_clip': return `✅ Clip created`;
+            case 'set_clip_notes': return `✅ ${data.notesWritten || 0} notes written`;
             default: return '✅ Done';
         }
     } catch {

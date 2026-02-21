@@ -225,7 +225,7 @@ impl MidiScheduler {
             }
         };
 
-        let buffer_end = playhead_pos + frame_count as i64;
+        let buffer_end = playhead_pos.saturating_add(frame_count as i64);
         // If the cursor is already at or past the loop end, play freely
         // without wrapping — the user has seeked outside the loop region.
         // Without this guard, the scheduler would erroneously wrap back

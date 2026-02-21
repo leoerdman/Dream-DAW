@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
 import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup } from './AgentActionCard';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAgentBridge, sendBridgeResponse } from '@/shared/hooks/useAgentBridge';
 import './AgentActionCard.css';
 import './AssistantChat.css';
@@ -103,17 +104,28 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streamText, liveAgent]);
 
-    // ── Load history from localStorage on open ──
+    // Get a dependency for project ID (so chat resets when project changes)
+    const projectId = useEngineStore((s) => s.projectTracks.length.toString() + s.projectBpm.toString());
+
+    // ── Load history from localStorage on open or project change ──
+    const [historyLoadedForId, setHistoryLoadedForId] = useState<string | null>(null);
+
     useEffect(() => {
         if (!open) return;
         let cancelled = false;
+
         void loadChatHistory().then((history) => {
-            if (!cancelled && history.length > 0) {
-                setMessages(history);
+            if (!cancelled) {
+                if (history.length > 0) {
+                    setMessages(history);
+                } else if (historyLoadedForId !== projectId) {
+                    setMessages([]); // Clear chat if new project has no history
+                }
+                setHistoryLoadedForId(projectId);
             }
         });
         return () => { cancelled = true; };
-    }, [open]);
+    }, [open, projectId /* re-run when project conceptually changes */]);
 
     // ── Persist history on every message change ──
     const lastSavedRef = useRef('');
@@ -219,12 +231,11 @@ export const AssistantChat = ({ open, onClose, onSelectClips }: AssistantChatPro
                             break;
 
                         case 'delta':
-                            // FIX: Only feed LiveAgentCard — removed setStreamText
-                            // which was causing duplicate rendering (text appeared
-                            // both in the card AND as a separate message bubble).
+                            // Route model's text generation into the 'thinking' block
+                            // This ensures the user sees the '💭 Reasoning' stream in real-time.
                             setLiveAgent(prev => prev ? {
                                 ...prev,
-                                finalText: prev.finalText + event.text,
+                                thinking: prev.thinking + event.text,
                             } : prev);
                             break;
 

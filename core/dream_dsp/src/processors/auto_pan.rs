@@ -58,7 +58,15 @@ impl AutoPanProcessor {
                     -1.0
                 }
             } // square
-            _ => (p * std::f32::consts::TAU).sin(), // sine
+            0 | _ => {
+                let (t, sign) = if p < 0.5 {
+                    (p * 2.0, 1.0f32)
+                } else {
+                    ((p - 0.5) * 2.0, -1.0)
+                };
+                let t2 = t * (1.0 - t);
+                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+            }
         }
     }
 }
@@ -90,13 +98,24 @@ impl DspProcessor for AutoPanProcessor {
             let mod_l = Self::wave(shape, phase_f32);
             let mod_r = Self::wave(shape, phase_f32 + phase_offset);
 
-            // Convert bipolar LFO to constant-power gains.
+            // Equal-power panning law (fast sine approximation).
+            // angle ranges from 0 to pi/2, so phase ranges from 0 to 0.25 (first quadrant).
+            // cos(x) = sin(pi/2 - x).
             let pan_l = (mod_l * depth).clamp(-1.0, 1.0);
             let pan_r = (mod_r * depth).clamp(-1.0, 1.0);
-            let angle_l = (pan_l + 1.0) * 0.25 * std::f32::consts::PI;
-            let angle_r = (pan_r + 1.0) * 0.25 * std::f32::consts::PI;
-            let gain_ll = angle_l.cos() * std::f32::consts::SQRT_2;
-            let gain_rr = angle_r.sin() * std::f32::consts::SQRT_2;
+            let phase_l_sin = (pan_l + 1.0) * 0.125; // mapped to [0, 0.25]
+            let phase_r_sin = (pan_r + 1.0) * 0.125;
+            let phase_l_cos = 0.25 - phase_l_sin;
+            
+            #[inline(always)]
+            fn fast_sin_q1(p: f32) -> f32 {
+                let t = p * 2.0; // p in [0, 0.25] -> t in [0, 0.5]
+                let t2 = t * (1.0 - t);
+                (16.0 * t2) / (5.0 - 4.0 * t2)
+            }
+
+            let gain_ll = fast_sin_q1(phase_l_cos) * std::f32::consts::SQRT_2;
+            let gain_rr = fast_sin_q1(phase_r_sin) * std::f32::consts::SQRT_2;
 
             let wet_l = dry_l * gain_ll;
             let wet_r = dry_r * gain_rr;

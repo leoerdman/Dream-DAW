@@ -24,6 +24,7 @@
 use crate::dsp_processor::DspProcessor;
 
 const MAX_DELAY_SAMPLES: usize = 4096;
+const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
 const MAX_VOICES: usize = 3;
 
 /// LFO phase offsets for 3 voices (evenly spaced).
@@ -107,8 +108,8 @@ impl ChorusProcessor {
     fn read_delay(buf: &[f32; MAX_DELAY_SAMPLES], write_pos: usize, delay_samples: f32) -> f32 {
         let int_d = delay_samples as usize;
         let frac = delay_samples - int_d as f32;
-        let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) % MAX_DELAY_SAMPLES;
-        let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) % MAX_DELAY_SAMPLES;
+        let i0 = (write_pos + MAX_DELAY_SAMPLES - int_d) & DELAY_MASK;
+        let i1 = (write_pos + MAX_DELAY_SAMPLES - int_d - 1) & DELAY_MASK;
         buf[i0] * (1.0 - frac) + buf[i1] * frac
     }
 }
@@ -132,10 +133,24 @@ impl DspProcessor for ChorusProcessor {
                 let base = VOICE_BASE_DELAY_MS[v] * 0.001 * sr;
                 let mod_depth = VOICE_MOD_DEPTH_MS[v] * 0.001 * sr * self.depth;
 
-                // Per-voice LFO with offset
-                let phase = (self.lfo_phase + VOICE_PHASE_OFFSETS[v]).fract() as f32;
-                let lfo_l = (phase * std::f32::consts::TAU).sin();
-                let lfo_r = ((phase + 0.25 * self.spread) * std::f32::consts::TAU).sin();
+                // Per-voice LFO with offset (fast sine approximation)
+                #[inline(always)]
+                fn fast_sin_frac(phase: f32) -> f32 {
+                    let p = phase.fract();
+                    let (t, sign) = if p < 0.5 {
+                        (p * 2.0, 1.0f32)
+                    } else {
+                        ((p - 0.5) * 2.0, -1.0)
+                    };
+                    let t2 = t * (1.0 - t);
+                    sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+                }
+                
+                let phase_l = (self.lfo_phase + VOICE_PHASE_OFFSETS[v]) as f32;
+                let phase_r = phase_l + 0.25 * self.spread;
+                
+                let lfo_l = fast_sin_frac(phase_l);
+                let lfo_r = fast_sin_frac(phase_r);
 
                 let delay_l = (base + lfo_l * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32);
                 let delay_r = (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32);
@@ -186,7 +201,7 @@ impl DspProcessor for ChorusProcessor {
 
             self.lfo_phase += phase_inc;
             self.lfo_phase = self.lfo_phase.fract();
-            self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
+            self.write_pos = (self.write_pos + 1) & DELAY_MASK;
         }
     }
 

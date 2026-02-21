@@ -43,6 +43,11 @@ pub struct VuMeter {
 
     /// Release coefficient (slow fall).
     release_coeff: f32,
+
+    /// BUG-M1 FIX: Track whether clipping was detected in the most recent block.
+    /// Using peak_hold for clipping detection was wrong — hold decay (0.99×)
+    /// kept the clipping flag active for seconds after the signal dropped below 1.0.
+    clip_flag: bool,
 }
 
 /// Default peak hold time: ~1.5 seconds at 44100Hz / 512-sample blocks.
@@ -59,6 +64,7 @@ impl VuMeter {
             hold_duration_frames: DEFAULT_HOLD_BLOCKS,
             attack_coeff: 0.9,    // Fast attack (~1ms)
             release_coeff: 0.005, // Slow release (~300ms)
+            clip_flag: false,
         }
     }
 
@@ -87,6 +93,12 @@ impl VuMeter {
         let mut sum_sq: f32 = 0.0;
 
         for &sample in buffer {
+            // BUG-M1 FIX: Guard NaN/Inf inputs. Without this, a single NaN
+            // from a plugin poisons peak_level, rms_level, and peak_hold
+            // permanently (NaN + x = NaN, NaN > x = false).
+            if !sample.is_finite() {
+                continue;
+            }
             let abs = sample.abs();
             if abs > block_peak {
                 block_peak = abs;
@@ -122,9 +134,18 @@ impl VuMeter {
         } else if self.peak_hold_frames > 0 {
             self.peak_hold_frames -= 1;
         } else {
-            // Decay hold
-            self.peak_hold *= 0.99;
+            // BUG-M2 FIX: Use release_coeff for hold decay instead of hardcoded 0.99.
+            // The previous constant created a fixed ~300-block decay regardless of
+            // sample rate or configured release speed, making the hold indicator
+            // visually inconsistent with the peak meter's own release ballistic.
+            self.peak_hold += (0.0 - self.peak_hold) * self.release_coeff;
         }
+
+        // BUG-M3 FIX: Clipping detection based on instantaneous block peak,
+        // not peak_hold. Previously is_clipping() checked peak_hold which
+        // persists for hold_duration_frames + slow decay → clipping flag
+        // stayed active for SECONDS after signal dropped below 1.0.
+        self.clip_flag = block_peak > 1.0;
     }
 
     /// Returns the current peak level in dB.
@@ -157,10 +178,10 @@ impl VuMeter {
         self.rms_level
     }
 
-    /// Returns whether the signal is clipping (peak > 1.0).
+    /// Returns whether the signal is clipping (block peak > 1.0).
     #[inline]
     pub fn is_clipping(&self) -> bool {
-        self.peak_hold > 1.0
+        self.clip_flag
     }
 
     /// Resets all meter state.
@@ -169,6 +190,7 @@ impl VuMeter {
         self.rms_level = 0.0;
         self.peak_hold = 0.0;
         self.peak_hold_frames = 0;
+        self.clip_flag = false;
     }
 }
 

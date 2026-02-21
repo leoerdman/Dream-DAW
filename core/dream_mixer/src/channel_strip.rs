@@ -109,7 +109,10 @@ impl ChannelStrip {
     /// Volume is smoothly ramped to prevent clicks.
     #[inline]
     pub fn set_volume(&mut self, volume: f32) {
-        self.target_volume = volume.max(0.0);
+        // BUG-M5 FIX: Clamp upper bound to 12.0 (~+21.6 dB).
+        // Previously only floored at 0.0, allowing Infinity or absurdly
+        // large values that overflow smoothed gain multiplication → NaN.
+        self.target_volume = volume.clamp(0.0, 12.0);
     }
 
     /// Sets the target pan position (called from UI thread).
@@ -137,7 +140,10 @@ impl ChannelStrip {
     /// 1.0 = normal, 0.0 = fully silenced.
     #[inline]
     pub fn set_effective_gain(&mut self, gain: f32) {
-        self.effective_gain = gain.max(0.0);
+        // BUG-M5 FIX: Clamp to [0.0, 1.0]. The solo/mute resolver only
+        // emits 0.0 or 1.0, but defensive clamping prevents accidental
+        // amplification from a future resolver change.
+        self.effective_gain = gain.clamp(0.0, 1.0);
     }
 
     /// Enables or disables this track's output routing.

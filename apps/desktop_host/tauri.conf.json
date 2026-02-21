@@ -1,6 +1,6 @@
 {
     "productName": "Dream DAW",
-    "version": "1.0.33",
+    "version": "1.0.35",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
@@ -9,7 +9,19 @@
         "beforeBuildCommand": "pnpm --filter ui_app build"
     },
     "app": {
-        "windows": [],
+        "windows": [
+            {
+                "label": "main",
+                "title": "Dream DAW",
+                "width": 1400,
+                "height": 900,
+                "resizable": true,
+                "fullscreen": false,
+                "decorations": false,
+                "maximizable": true,
+                "center": true
+            }
+        ],
         "security": {
             "csp": null
         }

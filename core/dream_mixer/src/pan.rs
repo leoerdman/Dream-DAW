@@ -110,8 +110,13 @@ pub fn apply_pan_smoothed(
         *r *= gr;
     }
 
-    // Update current_pan to match the smoothed position
-    *current_pan += (target_pan - *current_pan) * (1.0 - (1.0 - smoothing_coeff).powi(left.len() as i32));
+    // Update current_pan to match the smoothed position.
+    // BUG-M4 FIX: Clamp the exponent to prevent powi(i32) from producing 0.0
+    // for large buffers (e.g. 8192 samples with coeff 0.005 → 0.995^8192 ≈ 0.0,
+    // making the update factor = 1.0 and snapping pan instantly).
+    let clamped_len = left.len().min(2048) as i32;
+    *current_pan += (target_pan - *current_pan)
+        * (1.0 - (1.0 - smoothing_coeff).powi(clamped_len));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

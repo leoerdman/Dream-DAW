@@ -73,8 +73,17 @@ impl SummingBus {
         let len = left.len().min(right.len()).min(self.left.len());
 
         for i in 0..len {
-            self.left[i] += left[i];
-            self.right[i] += right[i];
+            // BUG-M7 FIX: Guard against NaN/Inf from misbehaving plugins.
+            // A single NaN source poisons the entire master bus (NaN + x = NaN),
+            // silencing ALL tracks. Skip non-finite samples instead.
+            let l = left[i];
+            let r = right[i];
+            if l.is_finite() {
+                self.left[i] += l;
+            }
+            if r.is_finite() {
+                self.right[i] += r;
+            }
         }
 
         self.source_count += 1;

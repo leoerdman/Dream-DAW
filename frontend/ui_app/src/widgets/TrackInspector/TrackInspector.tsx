@@ -9,6 +9,20 @@ import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { vuNorm } from '@/shared/lib/audioMath';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 
+// ── BUG-P4 FIX: Debounced project refresh ──────────────────────────────
+// Every context-menu action (color, bounce, stems, reorder) was calling
+// fetchProject() directly, triggering full project.clone() + Serde JSON +
+// IPC round-trip on each one. Coalesce into a single fetch per 100ms window.
+let _inspectorFetchTimer: ReturnType<typeof setTimeout> | null = null;
+const INSPECTOR_FETCH_DEBOUNCE_MS = 100;
+function debouncedFetchProject(reason: string) {
+    if (_inspectorFetchTimer) clearTimeout(_inspectorFetchTimer);
+    _inspectorFetchTimer = setTimeout(
+        () => void useEngineStore.getState().fetchProject(reason),
+        INSPECTOR_FETCH_DEBOUNCE_MS,
+    );
+}
+
 
 /**
  * TrackInspector — Ableton-style track header panel.
@@ -597,7 +611,7 @@ export const TrackInspector = ({
             ? (insertAfterIndex as number)
             : null;
         void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
-            .then(() => useEngineStore.getState().fetchProject(`track-context:add-${trackType}`))
+            .then(() => debouncedFetchProject(`track-context:add-${trackType}`))
             .catch((err) => {
                 console.error(`[TrackInspector] add ${trackType} track failed:`, err);
             });
@@ -676,7 +690,7 @@ export const TrackInspector = ({
             }
             if (onSelectTrack && nextSelectedId) onSelectTrack(nextSelectedId);
             else if (onSelectTrack) onSelectTrack('master');
-            await useEngineStore.getState().fetchProject();
+            debouncedFetchProject('delete-selected');
         })().catch((err) => {
             console.error('[TrackInspector] delete selected tracks failed:', err);
         });
@@ -686,7 +700,8 @@ export const TrackInspector = ({
         const ids = Array.from(selectedTrackIdSet);
         if (ids.length === 0) return;
         void engineApi.duplicateTracks(ids).then(() => {
-            return useEngineStore.getState().fetchProject();
+            debouncedFetchProject('duplicate-selected');
+            return;
         }).catch((err) => {
             console.error('[TrackInspector] duplicate selected tracks failed:', err);
         });
@@ -694,7 +709,7 @@ export const TrackInspector = ({
 
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroup([trackId]).then(() => {
-            void useEngineStore.getState().fetchProject();
+            debouncedFetchProject('create-group');
         }).catch((err) => {
             console.error('[TrackInspector] createGroup failed:', err);
         });
@@ -707,7 +722,7 @@ export const TrackInspector = ({
             ? engineApi.ungroupTrack(trackId)
             : engineApi.setTrackGroup(trackId, null);
         void op.then(() => {
-            void useEngineStore.getState().fetchProject();
+            debouncedFetchProject('ungroup');
         }).catch((err) => {
             console.error('[TrackInspector] ungroup failed:', err);
         });
@@ -727,7 +742,7 @@ export const TrackInspector = ({
         }
         setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
         void engineApi.setTrackColor(trackId, color)
-            .then(() => useEngineStore.getState().fetchProject('track-color-change'))
+            .then(() => debouncedFetchProject('track-color-change'))
             .catch((err) => {
                 console.error('[TrackInspector] setTrackColor failed:', err);
             });
@@ -736,7 +751,7 @@ export const TrackInspector = ({
 
     const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
         void engineApi.paintTrackClipsWithTrackColor(trackId)
-            .then(() => useEngineStore.getState().fetchProject('track-context:paint-clips-with-track-color'))
+            .then(() => debouncedFetchProject('track-context:paint-clips-with-track-color'))
             .catch((err) => {
                 console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
             });
@@ -753,7 +768,7 @@ export const TrackInspector = ({
         void Promise.all(
             children.map((child) => engineApi.setTrackColor(child.id, groupColor)),
         )
-            .then(() => useEngineStore.getState().fetchProject('track-context:paint-group-color'))
+            .then(() => debouncedFetchProject('track-context:paint-group-color'))
             .catch((err) => {
                 console.error('[TrackInspector] paintGroupColor failed:', err);
             });
@@ -762,7 +777,7 @@ export const TrackInspector = ({
 
     const handleBounceTrack = useCallback((trackId: string) => {
         void engineApi.bounceTrack(trackId)
-            .then(() => useEngineStore.getState().fetchProject('track-context:bounce-track'))
+            .then(() => debouncedFetchProject('track-context:bounce-track'))
             .catch((err) => {
                 console.error('[TrackInspector] bounceTrack failed:', err);
             });
@@ -771,7 +786,7 @@ export const TrackInspector = ({
 
     const handleBounceGroup = useCallback((groupTrackId: string) => {
         void engineApi.bounceGroup(groupTrackId)
-            .then(() => useEngineStore.getState().fetchProject('track-context:bounce-group'))
+            .then(() => debouncedFetchProject('track-context:bounce-group'))
             .catch((err) => {
                 console.error('[TrackInspector] bounceGroup failed:', err);
             });
@@ -780,7 +795,7 @@ export const TrackInspector = ({
 
     const handleSplitTrackToStems = useCallback((trackId: string) => {
         void engineApi.splitTrackToStems(trackId)
-            .then(() => useEngineStore.getState().fetchProject('track-context:split-to-stems'))
+            .then(() => debouncedFetchProject('track-context:split-to-stems'))
             .catch((err) => {
                 console.error('[TrackInspector] splitTrackToStems failed:', err);
             });
@@ -807,7 +822,7 @@ export const TrackInspector = ({
                 const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
                     void engineApi.createGroup(ids).then(() => {
-                        void useEngineStore.getState().fetchProject();
+                        debouncedFetchProject('create-group-multi');
                     }).catch((err) => {
                         console.error('[TrackInspector] createGroup(multi) failed:', err);
                     });
@@ -821,7 +836,7 @@ export const TrackInspector = ({
                 const groupToUngroup = selected?.type === 'group' ? selected.id : (selected?.groupId ?? null);
                 if (groupToUngroup) {
                     void engineApi.ungroupTrack(groupToUngroup).then(() => {
-                        void useEngineStore.getState().fetchProject();
+                        debouncedFetchProject('ungroup-shortcut');
                     }).catch((err) => {
                         console.error('[TrackInspector] ungroupTrack failed:', err);
                     });
@@ -878,7 +893,7 @@ export const TrackInspector = ({
         trackMoveInFlightRef.current = true;
 
         void engineApi.moveTrackWithParent(trackId, clamped, currentParentGroupId).then(() => {
-            void useEngineStore.getState().fetchProject();
+            debouncedFetchProject('move-track');
         }).catch((err) => {
             console.error('[TrackInspector] moveTrackWithParent(reorder) failed:', err);
         }).finally(() => {
@@ -900,7 +915,7 @@ export const TrackInspector = ({
         if (draggingTrack.type === 'group') {
             const rawInsertIndex = computeRawInsertIndex(visibleIndex);
             void engineApi.moveTrackBlockToIndex(dragId, rawInsertIndex).then(() => {
-                void useEngineStore.getState().fetchProject();
+                debouncedFetchProject('move-group-block');
             }).catch((err) => {
                 console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
             });
@@ -1003,7 +1018,7 @@ export const TrackInspector = ({
         }
         trackMoveInFlightRef.current = true;
         void engineApi.moveTrackWithParent(trackId, targetIndex, groupId).then(() => {
-            void useEngineStore.getState().fetchProject();
+            debouncedFetchProject('move-to-group');
         }).catch((err) => {
             console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
         }).finally(() => {
@@ -1424,7 +1439,8 @@ export const TrackInspector = ({
                     onDuplicate={() => {
                         if (!contextMenu.trackId) return;
                         void engineApi.duplicateTracks([contextMenu.trackId]).then(() => {
-                            return useEngineStore.getState().fetchProject();
+                            debouncedFetchProject('duplicate-context');
+                            return;
                         }).catch((err) => {
                             console.error('[TrackInspector] duplicate track (context menu) failed:', err);
                         });

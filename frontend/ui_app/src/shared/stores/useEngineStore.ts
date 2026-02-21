@@ -991,11 +991,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // ── Window ─────────────────────────────────────────────────────────
 
     expandWindow: async () => {
-        // NEUTRALIZED: expandWindow calls set_decorations(true) which dynamically
-        // toggles the NSWindow styleMask. This may break WKWebView's responder
-        // chain and prevent mouse events from reaching JS. The window is now
-        // created programmatically in setup() with the correct config.
-        console.log('[expandWindow] NEUTRALIZED — window already configured');
+        try {
+            await engine.expandWindow();
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
     },
 
     // ── Telemetry Loop ─────────────────────────────────────────────────

@@ -542,7 +542,6 @@ impl OfflineBouncer {
                         if !pad_cfg.sample_path.is_empty() {
                             if let Some(clip_audio) = clip_pool.get(&pad_cfg.sample_path) {
                                 pad.set_sample(clip_audio);
-                                has_sample = true;
                             }
                         }
                     }

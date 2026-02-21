@@ -1353,14 +1353,14 @@ fn rebuild_sampler_snapshot_from_project(
                     rack_settings.push(RackSettings {
                         track_idx: idx as u16,
                         pad_idx: p as u8,
-                        volume: pad.volume,
+                        volume: pad.volume as f32,
                         is_muted: pad.is_muted,
                         is_soloed: pad.is_soloed,
-                        attack: pad.attack,
-                        decay: pad.decay,
-                        sustain: pad.sustain,
-                        release: pad.release,
-                        filter_cutoff: pad.filter_cutoff,
+                        attack: pad.attack as f32,
+                        decay: pad.decay as f32,
+                        sustain: pad.sustain as f32,
+                        release: pad.release as f32,
+                        filter_cutoff: pad.filter_cutoff as f32,
                     });
                     if !pad.sample_path.trim().is_empty()
                         && let Some(audio) = pool.get(&pad.sample_path)

@@ -359,6 +359,53 @@ const TOOLS = [
             },
         },
     },
+    // ── AI Producer Tools ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'search_browser',
+            description: 'Search the asset browser for audio samples (e.g. kicks, claps, loops) by generic name. Returns matching file paths and durations.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Search term (e.g. "kick", "clap", "bass")' },
+                },
+                required: ['query'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_sample_to_rack',
+            description: 'Load an audio sample into a specific pad (0-15) of a MIDI track\'s Drum Rack. Automatically instantiates the Drum Rack if it doesn\'t exist.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based index of the MIDI track' },
+                    padIndex: { type: 'number', description: '0-15 (0=C1 usually Kick, 1=C#1 Snare/Clap, 2=D1 Closed Hat)' },
+                    samplePath: { type: 'string', description: 'Absolute path to the audio file from search_browser' },
+                },
+                required: ['trackIndex', 'padIndex', 'samplePath'],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
+            name: 'add_audio_clip',
+            description: 'Import an audio file (e.g. a loop) directly onto an audio track timeline at a specific beat.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    trackIndex: { type: 'number', description: '0-based index of the audio track' },
+                    samplePath: { type: 'string', description: 'Absolute path to the audio file from search_browser' },
+                    startBeat: { type: 'number', description: 'Start position in beats (e.g. 0 for bar 1)' },
+                },
+                required: ['trackIndex', 'samplePath', 'startBeat'],
+            },
+        },
+    }
 ];
 
 
@@ -601,6 +648,49 @@ async function executeToolInner(
             return JSON.stringify({ clipId, notesWritten: engineNotes.length });
         }
 
+        // ── AI Producer Tools ──
+        case 'search_browser': {
+            const query = (args.query as string).toLowerCase();
+            const files = await engineApi.scanAllAudioSources();
+            // Fuzzy match logic:
+            const matches = files.filter(f => f.name.toLowerCase().includes(query));
+            // Return top 10 matches to avoid blowing up context window
+            const limited = matches.slice(0, 10).map(f => ({
+                name: f.name,
+                path: f.path,
+                durationSeconds: f.duration_seconds
+            }));
+            return JSON.stringify({ matchesFound: matches.length, results: limited });
+        }
+
+        case 'add_sample_to_rack': {
+            const trackIndex = args.trackIndex as number;
+            const padIndex = args.padIndex as number;
+            const samplePath = args.samplePath as string;
+            const trackId = tracks[trackIndex]?.id;
+            if (!trackId) return JSON.stringify({ error: `Track ${trackIndex} not found` });
+            if (tracks[trackIndex].track_type !== 'midi') {
+                return JSON.stringify({ error: `Track ${trackIndex} is not a MIDI track` });
+            }
+            await engineApi.setSampleRackPadSample(trackId, padIndex, samplePath);
+            return JSON.stringify({ success: true, trackIndex, padIndex, sampleLoaded: samplePath });
+        }
+
+        case 'add_audio_clip': {
+            const trackIndex = args.trackIndex as number;
+            const samplePath = args.samplePath as string;
+            const startBeat = args.startBeat as number;
+
+            const st3 = useEngineStore.getState();
+            const bpm3 = st3.projectBpm || st3.transport.bpm || 120;
+            const sr3 = st3.projectSampleRate || 44100;
+            const fpb3 = (60.0 / bpm3) * sr3;
+            const startFrames = Math.round(startBeat * fpb3);
+
+            const result = await engineApi.importAudioFile(samplePath, trackIndex, startFrames);
+            return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat });
+        }
+
         default:
             return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -622,7 +712,7 @@ function buildSystemPrompt(): string {
             const trackClips = clips.filter(c => c.trackIndex === i);
             const fx = (t.effects ?? []).map(e => e.name).join(', ');
             const inst = t.instrument ? ` instrument="${t.instrument.name}"` : '';
-            const routing = t.output && t.output !== 'master' ? ` → ${t.output}` : '';
+            const routing = (t as any).output && (t as any).output !== 'master' ? ` → ${(t as any).output}` : (t as any).output_destination_id && (t as any).output_destination_id !== 'master' ? ` → ${(t as any).output_destination_id}` : '';
             const flags = [
                 t.is_mute ? '🔇MUTED' : '',
                 t.is_solo ? '🔆SOLO' : '',
@@ -636,13 +726,14 @@ function buildSystemPrompt(): string {
     const transportStatus = transport.is_playing ? '▶ Playing' : '⏹ Stopped';
     const totalClips = clips.length;
 
-    return `You are **Dream AI** — the intelligent co-producer built into Dream DAW, a professional digital audio workstation.
+    return `You are **Dream AI** — the intelligent Producer-Composer built into Dream DAW. You are not just a chatbot; you are an autonomous musical co-author capable of building professional tracks from scratch.
 
-## Identity
-You are a world-class music producer and mixing engineer with deep DAW expertise. You think like a pro — understanding signal flow, gain staging, track organization, and production workflow. You are the DAW's built-in intelligence, not an external chatbot.
-
-## Language
-ALWAYS respond in the user's language. If they write in Russian, respond in Russian. If in English, respond in English. Match their language exactly.
+## Your Identity & AI Producer Manifesto
+1. **Absolute Order (Enterprise Hygiene)**: Consistently and logically name all tracks and clips (e.g. \`DRM_Kick_Main\`, \`SYN_Bass_Sub\`).
+2. **Explainability**: NEVER act blindly. Explain *why* you chose a sample, *why* a note is placed on a specific beat, and how it fits the genre.
+3. **Musical Theory & Rhythmology**: You understand beats, bars, syncopation. You know genre rules (e.g. House: 4/4 Kick on 0, 1, 2, 3; Clap on 1 and 3; Hat on offbeats 0.5, 1.5).
+4. **Macro-Structure (Arrangement)**: You think in Intro -> Breakdown -> Build-up -> Drop/Chorus -> Outro.
+5. **Step-by-Step Logic**: Seek sounds -> Draft Rhythm -> Draft Harmony -> Arrange -> Mix.
 
 ## Current Project State
 - **Transport**: ${transportStatus} at beat ${transport.position_beats?.toFixed(1) ?? 0}
@@ -656,41 +747,29 @@ ${trackList || '  (no tracks)'}
 | Category | Tools |
 |----------|-------|
 | 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state |
-| 🎵 Transport | transport_play, transport_stop, set_bpm, seek_to_beat |
+| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, set_clip_notes, search_browser, add_sample_to_rack, add_audio_clip |
 | 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo |
 | ✂️ Clips | select_clips, select_all_clips_on_track, delete_clip, set_clip_muted |
-| 🔊 Mix | set_master_volume |
-| ↩️ Edit | undo, redo |
+| 🔊 Transport & Mix | transport_play, transport_stop, set_bpm, seek_to_beat, set_master_volume, undo, redo |
 
-## Behavior Rules
+## Behavior Rules & Execution Patterns
 
 ### Chain-of-Thought
-Before executing any action, briefly explain what you're about to do and why. This thinking appears in the UI so the user can follow your reasoning. Example:
-- "I'll mute the Shaker track (index 5) since you want to hear the mix without it."
-- "Let me check the project overview first to understand the full track layout."
+Before executing any action, briefly explain what you're about to do and why based on your music theory knowledge.
+- "For a Tech House drop, we need a punchy 4/4 kick. I'll search for 'kick', load it into a drum rack on Track 0, and program notes on beats 0, 1, 2, and 3."
 
-### Execution Patterns
-1. **Always use tools** — never simulate or guess the outcome of an action.
-2. **Resolve tracks by name** → use the Track List above to find the correct index. Track names are case-insensitive. If ambiguous, ask.
-3. **Multi-step tasks** → plan first, then execute tools sequentially. Explain each step.
-4. **Verify before destructive actions** — before delete_track or delete_clip, confirm with the user or use get_track_clips to check what will be lost.
-5. **Batch operations** → when muting/soloing multiple tracks, execute them all in one response.
-
-### Clip & Arrangement Rules (CRITICAL)
-1. **NEVER overlap clips.** Do not place multiple clips on top of each other on the same track at the same time. Check existing clips in the track list before creating new ones.
-2. **Drums Routing & Separation.** When programming drums, you MUST put each drum element on a SEPARATE track (e.g., one track for Kick, one for Snare, one for Hihats). NEVER put all drum notes into a single general "Drums" track unless it explicitly uses a "Sample Rack" instrument (the DAW's drum rack).
+### Drum Programming (CRITICAL)
+1. **Sample Racks (Drum Racks)**: Use a \`midi\` track for drums. Search for samples using \`search_browser\`. Load them into Drum Rack pads using \`add_sample_to_rack\`.
+   - **Pad 0 (Pitch 36 / C1)**: Kick
+   - **Pad 1 (Pitch 37 / C#1) or Pad 2**: Snare/Clap
+   - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
+2. **MIDI Notes**: Use \`create_midi_clip\` followed by \`set_clip_notes\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
+3. **NEVER overlap clips** on the same track at the same time. Check existing clips in the track list before creating new ones.
 
 ### Response Quality
-1. **Be concise but informative** — no filler text. Every sentence should add value.
-2. **Use pro audio terminology** — "gain staging", "signal flow", "bus routing", not generic language.
-3. **After actions, confirm what changed** — "Muted tracks Snare and Hihat (indices 0, 2)."
-4. **If a tool fails**, explain the error in plain language and suggest an alternative.
-5. **For creative requests you can't do** (generating audio, recording, editing waveforms), explain what IS possible and suggest a workflow.
-
-### Context Awareness
-- You can see ALL tracks, their routing, effects chains, and instruments in the Track List above.
-- Use this context to give intelligent suggestions — e.g., "Track 3 'Bass' has no effects, want me to check its volume?"
-- If the user asks about the mix, inspect relevant tracks before answering.`;
+1. **Be concise but informative**. Every sentence should add value.
+2. **Use pro audio terminology** — "gain staging", "signal flow", "groove", "syncopation".
+3. **If a tool fails**, explain the error in plain language and suggest an alternative (e.g. if the sample isn't found, try a broader search).`;
 }
 
 // ─── Prepare messages for API ───────────────────────────────────────────────

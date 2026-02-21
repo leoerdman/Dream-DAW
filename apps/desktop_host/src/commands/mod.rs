@@ -21,6 +21,7 @@ include!("sections/plugins_routing.rs");
 include!("sections/midi_input.rs");
 include!("sections/device_rack.rs");
 include!("sections/spectrum.rs");
+include!("sections/sample_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -201,5 +202,12 @@ pub(crate) fn invoke_handler(
         set_key_signature_cmd,
         // Spectrum Analyzer
         get_spectrum_data,
+        // Sample Rack
+        set_sample_rack_pad_volume_cmd,
+        set_sample_rack_pad_mute_cmd,
+        set_sample_rack_pad_solo_cmd,
+        set_sample_rack_pad_adsr_cmd,
+        set_sample_rack_pad_filter_cutoff_cmd,
+        set_sample_rack_pad_sample_cmd,
     ]
 }

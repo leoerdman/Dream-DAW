@@ -62,6 +62,7 @@ fn main() {
         Arc::new(dream_engine::driver::SharedExternalFxSnapshot::new()),
         Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
+        Arc::new(dream_engine::driver::SharedSampleRackSamples::new()),
         Arc::new(dream_engine::driver::SharedPreparedGraphSnapshot::new()),
         Arc::new(dream_engine::driver::SharedRtDebugStats::new()),
         Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),

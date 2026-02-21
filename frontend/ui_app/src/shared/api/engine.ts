@@ -1121,6 +1121,16 @@ export const setSamplerSample = (
         payload: { trackId, samplePath, rootNote: rootNote ?? null },
     });
 
+/** Assign sample file to a specific pad (0-15) in a track's Sample Rack. */
+export const setSampleRackPadSample = (
+    trackId: string,
+    padIndex: number,
+    samplePath: string,
+) =>
+    invoke<void>('set_sample_rack_pad_sample_cmd', {
+        trackId, padIndex, samplePath
+    });
+
 // ── Clip Fades ──────────────────────────────────────────────────────────
 
 /** Set fade-in and fade-out durations for a clip (in sample frames). */

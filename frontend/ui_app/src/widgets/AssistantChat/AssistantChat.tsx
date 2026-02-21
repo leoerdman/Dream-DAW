@@ -96,6 +96,10 @@ const CopyButton = ({ text }: { text: string }) => {
     );
 };
 
+// ── Module-level dedup lock for sendMessage ──────────────────────────────
+// Prevents StrictMode / HMR from triggering 2× concurrent API calls.
+let _isSending = false;
+
 export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: AssistantChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
@@ -224,11 +228,15 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         abortRef.current?.abort();
         abortRef.current = null;
         setIsStreaming(false);
+        _isSending = false; // Release dedup lock on manual stop
     }, []);
 
     // ── Send message (core function — accepts text directly) ──
+    // CRITICAL: Module-level lock prevents duplicate API calls when
+    // StrictMode / HMR causes multiple handler registrations.
     const sendMessage = useCallback(async (text: string) => {
-        if (!text.trim() || isStreaming) return;
+        if (!text.trim() || isStreaming || _isSending) return;
+        _isSending = true; // Synchronous lock BEFORE React setState
         if (!apiKey) {
             setMessages((prev) => [
                 ...prev,
@@ -236,6 +244,7 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                 { role: 'assistant', content: '⚠️ No API key configured. Go to **Settings → AI** and enter your OpenRouter API key.' },
             ]);
             sendBridgeResponse({ type: 'error', message: 'No API key configured' });
+            _isSending = false; // BUG-4 FIX: Release lock on early return
             return;
         }
 
@@ -245,6 +254,8 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         setInput('');
         setIsStreaming(true);
         setStreamText('');
+        // Use a ref to capture liveAgent state for use in catch/finally closures
+        const liveRef = { thinking: '', actions: [] as LiveAction[], finalText: '' };
         setLiveAgent({ thinking: '', actions: [], finalText: '' });
 
         const controller = new AbortController();
@@ -259,42 +270,43 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
 
                     switch (event.type) {
                         case 'thinking':
+                            liveRef.thinking += event.text;
                             setLiveAgent(prev => prev ? {
                                 ...prev,
-                                thinking: prev.thinking + event.text,
+                                thinking: liveRef.thinking,
                             } : prev);
                             break;
 
                         case 'tool-start':
+                            liveRef.actions.push({
+                                toolName: event.toolName,
+                                args: event.args,
+                                result: null,
+                                index: event.index,
+                            });
                             setLiveAgent(prev => prev ? {
                                 ...prev,
-                                actions: [...prev.actions, {
-                                    toolName: event.toolName,
-                                    args: event.args,
-                                    result: null,
-                                    index: event.index,
-                                }],
+                                actions: [...liveRef.actions],
                             } : prev);
                             break;
 
                         case 'tool-end':
-                            setLiveAgent(prev => {
-                                if (!prev) return prev;
-                                const updated = prev.actions.map(a =>
-                                    a.index === event.index
-                                        ? { ...a, result: event.result }
-                                        : a
-                                );
-                                return { ...prev, actions: updated };
-                            });
+                            liveRef.actions = liveRef.actions.map(a =>
+                                a.index === event.index
+                                    ? { ...a, result: event.result }
+                                    : a
+                            );
+                            setLiveAgent(prev => prev ? {
+                                ...prev,
+                                actions: [...liveRef.actions],
+                            } : prev);
                             break;
 
                         case 'delta':
-                            // Route model's text generation into the 'thinking' block
-                            // This ensures the user sees the '💭 Reasoning' stream in real-time.
+                            liveRef.thinking += event.text;
                             setLiveAgent(prev => prev ? {
                                 ...prev,
-                                thinking: prev.thinking + event.text,
+                                thinking: liveRef.thinking,
                             } : prev);
                             break;
 
@@ -307,23 +319,42 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                 },
                 onSelectClips, controller.signal,
             );
+            // BUG-6/7 FIX: Preserve thinking & actions in the final assistant message
+            const finalMsg = result[result.length - 1];
+            if (finalMsg && finalMsg.role === 'assistant') {
+                finalMsg.thinking = liveRef.thinking || undefined;
+                finalMsg.actions = liveRef.actions.length > 0 ? liveRef.actions : undefined;
+            }
             setMessages(result);
-            // Send final done event with the complete final text
-            sendBridgeResponse({ type: 'done', finalText: result[result.length - 1]?.content ?? '' });
+            sendBridgeResponse({ type: 'done', finalText: finalMsg?.content ?? '' });
         } catch (err: unknown) {
+            // BUG-3 FIX: Use liveRef.thinking (not stale streamText closure)
+            const abortContent = liveRef.thinking
+                ? `💭 ${liveRef.thinking.slice(0, 500)}${liveRef.thinking.length > 500 ? '...' : ''}\n\n(stopped by user)`
+                : '(stopped by user)';
             if ((err as Error).name === 'AbortError') {
-                setMessages(prev => [...prev, { role: 'assistant', content: streamText || '(stopped)' }]);
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: abortContent,
+                    actions: liveRef.actions.length > 0 ? liveRef.actions : undefined,
+                } as ChatMessage]);
                 sendBridgeResponse({ type: 'error', message: 'Aborted' });
             } else {
                 const errMsg = (err as Error).message;
-                setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${errMsg}` }]);
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `❌ Error: ${errMsg}`,
+                    thinking: liveRef.thinking || undefined,
+                    actions: liveRef.actions.length > 0 ? liveRef.actions : undefined,
+                } as ChatMessage]);
                 sendBridgeResponse({ type: 'error', message: errMsg });
             }
         } finally {
             setIsStreaming(false);
             setStreamText('');
-            setLiveAgent(null);
+            setLiveAgent(null); // Clear live card — data is now in messages
             abortRef.current = null;
+            _isSending = false;
         }
     }, [isStreaming, apiKey, messages, model, onSelectClips, streamText]);
 
@@ -592,6 +623,22 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                                     <details className="assistant-thinking-log">
                                         <summary>💭 Анализ и размышления...</summary>
                                         <div className="assistant-thinking-content">{msg.thinking}</div>
+                                    </details>
+                                )}
+                                {msg.role === 'assistant' && msg.actions && msg.actions.length > 0 && (
+                                    <details className="assistant-actions-log" open>
+                                        <summary>🔧 Выполнено действий: {msg.actions.length}</summary>
+                                        <div className="assistant-actions-list">
+                                            {msg.actions.map((action, idx) => (
+                                                <div key={idx} className={`action-item ${action.result !== null ? 'completed' : 'pending'}`}>
+                                                    <span className="action-name">{action.toolName}</span>
+                                                    <span className="action-args">{Object.keys(action.args).join(', ')}</span>
+                                                    {action.result !== null && (
+                                                        <span className="action-result">✅</span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </details>
                                 )}
                                 {msg.content}

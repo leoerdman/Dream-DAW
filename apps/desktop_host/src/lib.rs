@@ -103,6 +103,12 @@ struct AudioEngineHandle {
     /// Preview playback cursor (frame index × 2 for stereo interleaved).
     preview_cursor: Arc<std::sync::atomic::AtomicUsize>,
 
+    /// SSOT-FIX: Source sample rate of the preview audio.
+    /// Used by the RT callback to compute fractional cursor advancement
+    /// so preview pitch matches the original file regardless of device SR.
+    /// Stored as u32 (e.g. 44100, 48000). 0 means "same as device" (legacy fallback).
+    preview_source_sr: Arc<std::sync::atomic::AtomicU32>,
+
     /// Export cancel flag - set to true to abort offline bounce.
     pub export_cancel: Arc<std::sync::atomic::AtomicBool>,
 
@@ -152,9 +158,14 @@ struct SpectrumState {
 impl AudioEngineHandle {
     /// Load an interleaved stereo buffer for preview playback.
     /// Uses ArcSwap::store() — lock-free, never blocks the audio thread.
-    fn set_preview_buffer(&self, buffer: Vec<f32>) {
+    ///
+    /// SSOT-FIX: Now accepts `source_sr` so the RT callback can advance
+    /// the cursor at the correct rate (source_sr / device_sr) for pitch-correct preview.
+    fn set_preview_buffer(&self, buffer: Vec<f32>, source_sr: u32) {
         self.preview_cursor
             .store(0, std::sync::atomic::Ordering::SeqCst);
+        self.preview_source_sr
+            .store(source_sr, std::sync::atomic::Ordering::Release);
         self.preview_buffer.store(Arc::new(Some(buffer)));
     }
 
@@ -163,6 +174,8 @@ impl AudioEngineHandle {
         self.preview_buffer.store(Arc::new(None));
         self.preview_cursor
             .store(0, std::sync::atomic::Ordering::SeqCst);
+        self.preview_source_sr
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -4112,8 +4125,12 @@ pub fn run() {
     let preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>> = Arc::new(ArcSwap::from_pointee(None));
     let preview_cursor: Arc<std::sync::atomic::AtomicUsize> =
         Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // SSOT-FIX: Source SR of preview audio for pitch-correct playback
+    let preview_source_sr: Arc<std::sync::atomic::AtomicU32> =
+        Arc::new(std::sync::atomic::AtomicU32::new(0));
     let preview_buffer_for_engine = Arc::clone(&preview_buffer);
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
+    let preview_source_sr_for_engine = Arc::clone(&preview_source_sr);
 
     // Load settings from disk before booting audio so we can honor persisted
     // output device selection on startup.
@@ -4158,6 +4175,7 @@ pub fn run() {
         plugin_host_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
+        preview_source_sr_for_engine,
         preferred_output_device.as_deref(),
         Some(stream_error_tx.clone()),
     ) {
@@ -4224,6 +4242,7 @@ pub fn run() {
         _stream: Mutex::new(Some(Box::new(stream))),
         preview_buffer,
         preview_cursor,
+        preview_source_sr,
         export_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clip_pool: clip_pool_for_handle,
         clip_snapshot: clip_snapshot_for_handle,

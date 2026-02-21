@@ -20,6 +20,13 @@ export interface ChatMessage {
     name?: string;           // tool name (for role=tool)
     tool_call_id?: string;   // matches the tool_call id
     thinking?: string;       // CoT trace
+    /** Completed tool actions persisted after streaming ends. */
+    actions?: Array<{
+        toolName: string;
+        args: Record<string, unknown>;
+        result: string | null;
+        index: number;
+    }>;
     /** Tool calls made by the assistant in this message (needed for API round-trips). */
     tool_calls?: ToolCall[];
 }
@@ -1505,8 +1512,8 @@ async function executeToolInner(
             const samplePath = args.samplePath as string;
             const trackId = tracks[trackIndex]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${trackIndex} not found` });
-            if (tracks[trackIndex].track_type !== 'midi') {
-                return JSON.stringify({ error: `Track ${trackIndex} is not a MIDI track` });
+            if (tracks[trackIndex].track_type.toLowerCase() !== 'midi') {
+                return JSON.stringify({ error: `Track ${trackIndex} is not a MIDI track (type: ${tracks[trackIndex].track_type})` });
             }
             await engineApi.setSampleRackPadSample(trackId, padIndex, samplePath);
             return JSON.stringify({ success: true, trackIndex, padIndex, sampleLoaded: samplePath });

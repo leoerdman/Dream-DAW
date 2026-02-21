@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
@@ -1456,6 +1456,7 @@ pub fn start_audio_thread(
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
+    preview_source_sr: Arc<AtomicU32>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     start_audio_thread_on_device(
         consumer,
@@ -1475,6 +1476,7 @@ pub fn start_audio_thread(
         plugin_host,
         preview_buffer,
         preview_cursor,
+        preview_source_sr,
         None,
         None,
     )
@@ -1503,6 +1505,7 @@ pub fn start_audio_thread_on_device(
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
+    preview_source_sr: Arc<AtomicU32>,
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
@@ -3273,45 +3276,98 @@ pub fn start_audio_thread_on_device(
                         // BUG-002 FIX: Preview data is interleaved stereo. Mix it
                         // respecting the actual output channel count to prevent
                         // misalignment on mono or surround devices.
+                        //
+                        // SSOT-FIX: Fractional cursor advancement for pitch-correct
+                        // preview. When source SR ≠ device SR, advancing 1:1 causes
+                        // pitch shift. Now advances by (source_sr / device_sr) per
+                        // output frame, using linear interpolation for sub-sample positions.
                         let preview_snap = preview_buffer.load();
                         if let Some(ref preview_data) = **preview_snap {
                             let cursor = preview_cursor.load(Ordering::Relaxed);
                             let total = preview_data.len();
                             let preview_channels = 2usize; // preview is always stereo
+                            let total_frames = total / preview_channels;
                             if cursor < total {
-                                let preview_frames = (total - cursor) / preview_channels;
-                                let mix_frames = preview_frames.min(frame_count);
-                                for f in 0..mix_frames {
-                                    let p_idx = cursor + f * preview_channels;
-                                    let d_idx = f * channels;
-                                    if p_idx + 1 < total && d_idx < data.len() {
-                                        let p_left = preview_data[p_idx];
-                                        let p_right = preview_data[p_idx + 1];
-                                        if channels == 1 {
-                                            // AUD-090 FIX: Soft-clip preview before mixing.
-                                            data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
-                                        } else {
-                                            data[d_idx] += soft_clip(p_left);
-                                            if d_idx + 1 < data.len() {
-                                                data[d_idx + 1] += soft_clip(p_right);
+                                let cursor_frame = cursor / preview_channels;
+                                // SSOT-FIX: Compute advancement rate.
+                                // source_sr=0 means "same as device" (legacy fallback).
+                                let src_sr = preview_source_sr.load(Ordering::Relaxed);
+                                let rate = if src_sr > 0 && sample_rate > 0 {
+                                    src_sr as f64 / sample_rate as f64
+                                } else {
+                                    1.0
+                                };
+
+                                if (rate - 1.0).abs() < 0.001 {
+                                    // Fast path: 1:1 advancement (no interpolation needed)
+                                    let preview_frames = total_frames.saturating_sub(cursor_frame);
+                                    let mix_frames = preview_frames.min(frame_count);
+                                    for f in 0..mix_frames {
+                                        let p_idx = cursor + f * preview_channels;
+                                        let d_idx = f * channels;
+                                        if p_idx + 1 < total && d_idx < data.len() {
+                                            let p_left = preview_data[p_idx];
+                                            let p_right = preview_data[p_idx + 1];
+                                            if channels == 1 {
+                                                data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                                            } else {
+                                                data[d_idx] += soft_clip(p_left);
+                                                if d_idx + 1 < data.len() {
+                                                    data[d_idx + 1] += soft_clip(p_right);
+                                                }
                                             }
                                         }
                                     }
+                                    let new_cursor = cursor + mix_frames * preview_channels;
+                                    let _ = preview_cursor.compare_exchange(
+                                        cursor,
+                                        new_cursor,
+                                        Ordering::Release,
+                                        Ordering::Relaxed,
+                                    );
+                                } else {
+                                    // SR-conversion path: fractional advancement with linear interp
+                                    let mut src_pos = cursor_frame as f64;
+                                    for f in 0..frame_count {
+                                        if src_pos >= (total_frames - 1) as f64 {
+                                            break;
+                                        }
+                                        let i0 = src_pos.floor() as usize;
+                                        let i1 = (i0 + 1).min(total_frames - 1);
+                                        let frac = (src_pos - i0 as f64) as f32;
+                                        let inv = 1.0 - frac;
+
+                                        let l0 = preview_data[i0 * 2];
+                                        let l1 = preview_data[i1 * 2];
+                                        let r0 = preview_data[i0 * 2 + 1];
+                                        let r1 = preview_data[i1 * 2 + 1];
+
+                                        let p_left = l0 * inv + l1 * frac;
+                                        let p_right = r0 * inv + r1 * frac;
+
+                                        let d_idx = f * channels;
+                                        if d_idx < data.len() {
+                                            if channels == 1 {
+                                                data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                                            } else {
+                                                data[d_idx] += soft_clip(p_left);
+                                                if d_idx + 1 < data.len() {
+                                                    data[d_idx + 1] += soft_clip(p_right);
+                                                }
+                                            }
+                                        }
+                                        src_pos += rate;
+                                    }
+                                    // Convert fractional position back to interleaved cursor
+                                    let new_cursor_frame = src_pos.ceil() as usize;
+                                    let new_cursor = (new_cursor_frame * preview_channels).min(total);
+                                    let _ = preview_cursor.compare_exchange(
+                                        cursor,
+                                        new_cursor,
+                                        Ordering::Release,
+                                        Ordering::Relaxed,
+                                    );
                                 }
-                                // AUD-007 FIX: Use compare_exchange to prevent stale-cursor
-                                // race when the UI thread resets the cursor concurrently.
-                                // If the cursor was changed externally, skip the update
-                                // (the next callback will recalculate correctly).
-                                let new_cursor = cursor + mix_frames * preview_channels;
-                                // BUG-S1-03 FIX: Use Release on success so subsequent loads
-                                // (including from the UI thread checking playback progress)
-                                // see a consistent cursor value, not a stale partial update.
-                                let _ = preview_cursor.compare_exchange(
-                                    cursor,
-                                    new_cursor,
-                                    Ordering::Release,
-                                    Ordering::Relaxed,
-                                );
                             }
                         }
 

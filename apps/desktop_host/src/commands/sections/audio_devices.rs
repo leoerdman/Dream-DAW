@@ -57,6 +57,7 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.plugin_host),
         Arc::clone(&handle.preview_buffer),
         Arc::clone(&handle.preview_cursor),
+        Arc::clone(&handle.preview_source_sr),
         Some(device_name.as_str()),
         Some(handle.stream_error_tx.clone()),
     )

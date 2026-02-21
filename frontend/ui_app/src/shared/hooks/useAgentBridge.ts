@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Dream DAW - useAgentBridge hook
  *
@@ -11,6 +12,10 @@
  *       onRemoteMessage: (text) => { ... inject into chat ... },
  *       isStreaming: isStreaming,
  *   });
+ *
+ * CRITICAL FIX: Uses a module-level dedup lock + proper handler cleanup
+ * to prevent StrictMode / HMR from registering multiple handlers,
+ * which would cause N×API cost multiplication (money leak).
  */
 
 import { useEffect, useRef } from 'react';
@@ -21,6 +26,12 @@ interface AgentBridgeOptions {
     /** Whether the chat is currently streaming (prevents concurrent sends) */
     isStreaming: boolean;
 }
+
+// ── Module-level dedup lock ─────────────────────────────────────────────
+// Prevents StrictMode double-mount and HMR re-registration from
+// creating multiple handlers (which would fan out 1 message → N API calls).
+let _activeHandler: ((data: any) => void) | null = null;
+let _isProcessing = false; // Synchronous lock — React state is async and racy
 
 /** Sends an agent response event back to external bridge clients via Vite HMR */
 export function sendBridgeResponse(data: Record<string, unknown>): void {
@@ -38,29 +49,54 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
     const isStreamingRef = useRef(isStreaming);
     isStreamingRef.current = isStreaming;
 
+    // Reset the processing lock when streaming ends
+    useEffect(() => {
+        if (!isStreaming) {
+            _isProcessing = false;
+        }
+    }, [isStreaming]);
+
     const onMessageRef = useRef(onRemoteMessage);
     onMessageRef.current = onRemoteMessage;
 
     useEffect(() => {
         if (!import.meta.hot) return;
 
+        // ── Tear down any stale handler from previous mount / HMR cycle ──
+        if (_activeHandler) {
+            // Vite exposes .off() on the HMR client since v5
+            try {
+                (import.meta.hot as any).off?.('agent-bridge:message', _activeHandler);
+            } catch { /* older Vite — no .off(), we rely on dedup lock */ }
+            _activeHandler = null;
+        }
+
         const handler = (data: any) => {
             if (data?.type === 'send' && typeof data.message === 'string') {
-                if (isStreamingRef.current) {
+                // ── Synchronous dedup lock (React setState is async/racy) ──
+                if (_isProcessing || isStreamingRef.current) {
                     sendBridgeResponse({
                         type: 'error',
                         message: 'Agent is currently processing a request. Please wait.',
                     });
                     return;
                 }
+                _isProcessing = true; // Lock BEFORE async sendMessage fires
                 onMessageRef.current(data.message);
             }
         };
 
+        _activeHandler = handler;
         import.meta.hot.on('agent-bridge:message', handler);
 
         return () => {
-            // Vite HMR cleanup handled by module disposal
+            // Proper cleanup — remove THIS handler
+            if (_activeHandler === handler) {
+                try {
+                    (import.meta.hot as any).off?.('agent-bridge:message', handler);
+                } catch { /* fallback: dedup lock handles it */ }
+                _activeHandler = null;
+            }
         };
     }, []);
 }

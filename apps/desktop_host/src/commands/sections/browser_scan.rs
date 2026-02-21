@@ -165,9 +165,10 @@ async fn preview_audio_file_cmd(
         interleaved[frame * 2 + 1] = r;
     }
 
-    // Store preview buffer in engine for mixing into output
-    // The audio driver will pick it up and mix it in
-    handle.set_preview_buffer(interleaved);
+    // Store preview buffer in engine for mixing into output.
+    // SSOT-FIX: Pass source SR so the RT callback advances the cursor
+    // at (source_sr / device_sr) to preserve original pitch.
+    handle.set_preview_buffer(interleaved, decoded.sample_rate);
 
     log::info!("[Preview] Playing '{}' ({} frames, {}Hz)", 
         file_path.file_name().unwrap_or_default().to_string_lossy(),

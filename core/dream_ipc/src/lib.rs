@@ -147,6 +147,45 @@ pub enum EngineCommand {
     /// When bypassed, MIDI is still received but the sampler produces silence.
     BypassInstrument { track_index: u16, bypassed: bool },
 
+    // ── Sample Rack Control ──────────────────────────────────────────
+    /// Set the volume for a pad within a track's sample rack (linear gain, 0.0–2.0).
+    SetSampleRackPadVolume {
+        track_index: u16,
+        pad_index: u8,
+        volume: f32,
+    },
+
+    /// Set mute state for a pad.
+    SetSampleRackPadMute {
+        track_index: u16,
+        pad_index: u8,
+        muted: bool,
+    },
+
+    /// Set solo state for a pad.
+    SetSampleRackPadSolo {
+        track_index: u16,
+        pad_index: u8,
+        soloed: bool,
+    },
+
+    /// Set the ADSR envelope for a pad.
+    SetSampleRackPadAdsr {
+        track_index: u16,
+        pad_index: u8,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    },
+
+    /// Set synth voice filter cutoff frequency for a pad in Hz (20..20000).
+    SetSampleRackPadFilterCutoff {
+        track_index: u16,
+        pad_index: u8,
+        cutoff: f32,
+    },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

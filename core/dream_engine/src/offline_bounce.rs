@@ -40,7 +40,7 @@ use dream_models::project::{AudioClip, Project};
 use dream_models::time::AbsoluteTime;
 
 use crate::render_callback::{soft_clip, RenderContext};
-use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
+use crate::sampler::{AdsrParams, SamplerEngine, SampleRackEngine, Waveform};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -466,69 +466,97 @@ impl OfflineBouncer {
                 continue;
             }
 
-            // Skip tracks without a sampler config.
-            let sampler_cfg = match &track.sampler {
-                Some(cfg) => cfg.clone(),
-                None => {
-                    log::warn!(
-                        "[Bounce/MIDI] Track '{}' has {} MIDI clips but no sampler config — skipping.",
-                        track.name, track.midi_clips.len()
-                    );
-                    continue;
-                }
-            };
+            // Skip tracks without a built-in instrument.
+            let sampler_cfg = track.sampler.clone();
+            let rack_cfg = track.sample_rack.clone();
+
+            if sampler_cfg.is_none() && rack_cfg.is_none() {
+                log::warn!(
+                    "[Bounce/MIDI] Track '{}' has {} MIDI clips but no built-in instrument — skipping.",
+                    track.name, track.midi_clips.len()
+                );
+                continue;
+            }
 
             // ── Configure SamplerEngine ──────────────────────────
             let mut engine = SamplerEngine::new(sample_rate);
-            engine.set_root_note(sampler_cfg.root_note);
-            engine.volume = sampler_cfg.volume.clamp(0.0, 2.0) as f32;
-            engine.set_adsr(AdsrParams {
-                attack: sampler_cfg.attack,
-                decay: sampler_cfg.decay,
-                sustain: sampler_cfg.sustain,
-                release: sampler_cfg.release,
-            });
+            let mut rack = SampleRackEngine::new(sample_rate);
+            let mut has_sample = false;
 
-            // Configure oscillator/synth if osc2_waveform is set.
-            if sampler_cfg.osc2_waveform > 0 {
-                engine.set_waveform(Waveform::Sine); // OSC1 = sine by default
-                engine.set_waveform2(Waveform::from_u8(sampler_cfg.osc2_waveform));
-            }
-            engine.set_osc_mix(sampler_cfg.osc_mix as f32);
-            engine.set_detune_cents(sampler_cfg.detune_cents as f32);
-            engine.set_sub_level(sampler_cfg.sub_level as f32);
+            if let Some(cfg) = &sampler_cfg {
+                engine.set_root_note(cfg.root_note);
+                engine.volume = cfg.volume.clamp(0.0, 2.0) as f32;
+                engine.set_adsr(AdsrParams {
+                    attack: cfg.attack,
+                    decay: cfg.decay,
+                    sustain: cfg.sustain,
+                    release: cfg.release,
+                });
 
-            // Configure filter.
-            engine.set_filter_cutoff(sampler_cfg.filter_cutoff as f32);
-            engine.set_filter_resonance(sampler_cfg.filter_resonance as f32);
-            engine.set_filter_type(sampler_cfg.filter_type);
-
-            // Configure LFO.
-            engine.set_lfo_rate(sampler_cfg.lfo_rate as f32);
-            engine.set_lfo_depth(sampler_cfg.lfo_depth as f32);
-            engine.set_lfo_target(sampler_cfg.lfo_target);
-            engine.set_pulse_width(sampler_cfg.pulse_width as f32);
-
-            // ── Load Sample ─────────────────────────────────────
-            let has_sample = if sampler_cfg.has_sample() {
-                if let Some(clip_audio) = clip_pool.get(&sampler_cfg.sample_path) {
-                    engine.set_sample(clip_audio);
-                    true
-                } else {
-                    log::warn!(
-                        "[Bounce/MIDI] Track '{}': sample '{}' not in pool — using oscillator mode.",
-                        track.name, sampler_cfg.sample_path
-                    );
-                    false
+                if cfg.osc2_waveform > 0 {
+                    engine.set_waveform(Waveform::Sine);
+                    engine.set_waveform2(Waveform::from_u8(cfg.osc2_waveform));
                 }
-            } else {
-                false
-            };
+                engine.set_osc_mix(cfg.osc_mix as f32);
+                engine.set_detune_cents(cfg.detune_cents as f32);
+                engine.set_sub_level(cfg.sub_level as f32);
 
-            // If no sample and no oscillator configured, skip.
-            if !has_sample && sampler_cfg.osc2_waveform == 0 {
-                // Enable basic sine oscillator as fallback for MIDI-only tracks.
-                engine.set_waveform(Waveform::Sine);
+                engine.set_filter_cutoff(cfg.filter_cutoff as f32);
+                engine.set_filter_resonance(cfg.filter_resonance as f32);
+                engine.set_filter_type(cfg.filter_type);
+
+                engine.set_lfo_rate(cfg.lfo_rate as f32);
+                engine.set_lfo_depth(cfg.lfo_depth as f32);
+                engine.set_lfo_target(cfg.lfo_target);
+                engine.set_pulse_width(cfg.pulse_width as f32);
+
+                if cfg.has_sample() {
+                    if let Some(clip_audio) = clip_pool.get(&cfg.sample_path) {
+                        engine.set_sample(clip_audio);
+                        has_sample = true;
+                    } else {
+                        log::warn!(
+                            "[Bounce/MIDI] Track '{}': sample '{}' not in pool — using oscillator mode.",
+                            track.name, cfg.sample_path
+                        );
+                    }
+                }
+
+                if !has_sample && cfg.osc2_waveform == 0 {
+                    engine.set_waveform(Waveform::Sine);
+                }
+            }
+
+            if let Some(cfg) = &rack_cfg {
+                for (i, pad_cfg) in cfg.pads.iter().enumerate() {
+                    if let Some(pad) = rack.pad_mut(i) {
+                        pad.volume = if pad_cfg.is_muted { 0.0 } else { pad_cfg.volume.clamp(0.0, 2.0) as f32 };
+                        pad.set_adsr(AdsrParams {
+                            attack: pad_cfg.attack,
+                            decay: pad_cfg.decay,
+                            sustain: pad_cfg.sustain,
+                            release: pad_cfg.release,
+                        });
+                        pad.set_filter_cutoff(pad_cfg.filter_cutoff as f32);
+                        
+                        if !pad_cfg.sample_path.is_empty() {
+                            if let Some(clip_audio) = clip_pool.get(&pad_cfg.sample_path) {
+                                pad.set_sample(clip_audio);
+                                has_sample = true;
+                            }
+                        }
+                    }
+                }
+                let any_pad_soloed = cfg.pads.iter().any(|p| p.is_soloed);
+                if any_pad_soloed {
+                    for (i, pad_cfg) in cfg.pads.iter().enumerate() {
+                        if !pad_cfg.is_soloed {
+                            if let Some(pad) = rack.pad_mut(i) {
+                                pad.volume = 0.0;
+                            }
+                        }
+                    }
+                }
             }
 
             // ── Pre-render buffer by buffer ──────────────────────
@@ -569,7 +597,17 @@ impl OfflineBouncer {
                     &mut schedule_scratch,
                 );
 
-                if !schedule_scratch.is_empty() || engine.has_active_voices() {
+                let mut rack_active = false;
+                for p in 0..16 {
+                    if let Some(pad) = rack.pad_mut(p) {
+                        if pad.has_active_voices() {
+                            rack_active = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active {
                     // Convert scheduled notes to instantaneous events (same logic as driver.rs).
                     let mut events: Vec<(usize, u8, u8, u8)> = Vec::new(); // (frame, kind, pitch, velocity)
                     for event in &schedule_scratch {
@@ -596,8 +634,15 @@ impl OfflineBouncer {
                     let mut cursor = 0usize;
                     for &(frame, kind, pitch, velocity) in &events {
                         let seg = frame.saturating_sub(cursor).min(chunk_frames - cursor);
-                        if seg > 0 && engine.has_active_voices() {
-                            engine.render(
+                        if seg > 0 {
+                            if engine.has_active_voices() {
+                                engine.render(
+                                    &mut chunk_left[cursor..cursor + seg],
+                                    &mut chunk_right[cursor..cursor + seg],
+                                    seg,
+                                );
+                            }
+                            rack.render(
                                 &mut chunk_left[cursor..cursor + seg],
                                 &mut chunk_right[cursor..cursor + seg],
                                 seg,
@@ -609,15 +654,24 @@ impl OfflineBouncer {
 
                         if kind == 0 {
                             engine.note_off(pitch);
+                            rack.note_off(pitch);
                         } else {
                             engine.note_on(pitch, velocity);
+                            rack.note_on(pitch, velocity);
                         }
                     }
 
                     // Render tail after last event.
-                    if cursor < chunk_frames && engine.has_active_voices() {
+                    if cursor < chunk_frames {
                         let rem = chunk_frames - cursor;
-                        engine.render(
+                        if engine.has_active_voices() {
+                            engine.render(
+                                &mut chunk_left[cursor..cursor + rem],
+                                &mut chunk_right[cursor..cursor + rem],
+                                rem,
+                            );
+                        }
+                        rack.render(
                             &mut chunk_left[cursor..cursor + rem],
                             &mut chunk_right[cursor..cursor + rem],
                             rem,

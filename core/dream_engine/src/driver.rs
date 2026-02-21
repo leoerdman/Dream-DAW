@@ -1162,6 +1162,51 @@ impl Default for SharedSamplerSamples {
     }
 }
 
+// ── Shared Sample Rack Samples (LOCK-FREE) ─────────────────────────────
+
+/// Per-track sample rack samples.
+///
+/// Holds an array of 16 optional clips for each track's Sample Rack.
+/// **Wait-free** via `ArcSwap`.
+pub struct SharedSampleRackSamples {
+    inner: ArcSwap<Vec<[Option<Arc<ClipAudio>>; 16]>>,
+}
+
+impl SharedSampleRackSamples {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(Vec::new()),
+        }
+    }
+
+    pub fn set_track_pad_sample(&self, track_index: usize, pad_index: usize, sample: Option<Arc<ClipAudio>>) {
+        if pad_index >= 16 { return; }
+        self.inner.rcu(|current| {
+            let mut samples = (**current).clone();
+            if track_index >= samples.len() {
+                let empty_pad_array: [Option<Arc<ClipAudio>>; 16] = Default::default();
+                samples.resize(track_index + 1, empty_pad_array);
+            }
+            samples[track_index][pad_index] = sample.clone();
+            Arc::new(samples)
+        });
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<[Option<Arc<ClipAudio>>; 16]>>> {
+        self.inner.load()
+    }
+
+    pub fn swap(&self, samples: Vec<[Option<Arc<ClipAudio>>; 16]>) {
+        self.inner.store(Arc::new(samples));
+    }
+}
+
+impl Default for SharedSampleRackSamples {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── Constants ───────────────────────────────────────────────────────────
 
 /// Default test tone frequency (A4 = 440 Hz).
@@ -1405,6 +1450,7 @@ pub fn start_audio_thread(
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    sample_rack_samples: Arc<SharedSampleRackSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
     plugin_host: Arc<Mutex<PluginHost>>,
@@ -1423,6 +1469,7 @@ pub fn start_audio_thread(
         external_fx_snapshot,
         automation_snapshot,
         sampler_samples,
+        sample_rack_samples,
         prepared_graph_snapshot,
         rt_debug_stats,
         plugin_host,
@@ -1450,6 +1497,7 @@ pub fn start_audio_thread_on_device(
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    sample_rack_samples: Arc<SharedSampleRackSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
     plugin_host: Arc<Mutex<PluginHost>>,
@@ -2040,9 +2088,44 @@ pub fn start_audio_thread_on_device(
                                     if bypassed && idx < sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
                                     }
+                                    if bypassed && idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].all_notes_off();
+                                    }
                                     // BUG-012 FIX: Only flush the bypassed track, not all.
                                     if bypassed && idx < MAX_TRACKS {
                                         vst3_flush_per_track[idx] = true;
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadVolume { track_index, pad_index, volume } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.volume = volume;
+                                        }
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadMute { track_index, pad_index, muted } => {
+                                    // handled via composite volume in host, no-op in engine layer
+                                }
+                                EngineCommand::SetSampleRackPadSolo { track_index, pad_index, soloed } => {
+                                    // handled via composite volume in host, no-op in engine layer
+                                }
+                                EngineCommand::SetSampleRackPadAdsr { track_index, pad_index, attack, decay, sustain, release } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.set_adsr(AdsrParams {
+                                                attack: attack as f64,
+                                                decay: decay as f64,
+                                                sustain: sustain as f64,
+                                                release: release as f64,
+                                            });
+                                        }
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadFilterCutoff { track_index, pad_index, cutoff } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.set_filter_cutoff(cutoff);
+                                        }
                                     }
                                 }
                                 EngineCommand::Shutdown => {
@@ -2341,6 +2424,32 @@ pub fn start_audio_thread_on_device(
                                         engine.sample = None;
                                     }
                                     (None, None) => {}
+                                }
+                            }
+                        }
+
+                        let rack_samples_snapshot = sample_rack_samples.load();
+                        for (idx, rack_opt) in rack_samples_snapshot.iter().enumerate() {
+                            if idx < sample_rack_engines.len() {
+                                let engine = &mut sample_rack_engines[idx];
+                                for p in 0..16 {
+                                    if let Some(pad) = engine.pad_mut(p) {
+                                        let sample_opt = &rack_opt[p];
+                                        match (sample_opt, &pad.sample) {
+                                            (Some(new_sample), Some(existing)) => {
+                                                if !Arc::ptr_eq(new_sample, existing) {
+                                                    pad.set_sample(Arc::clone(new_sample));
+                                                }
+                                            }
+                                            (Some(new_sample), None) => {
+                                                pad.set_sample(Arc::clone(new_sample));
+                                            }
+                                            (None, Some(_)) => {
+                                                pad.sample = None;
+                                            }
+                                            (None, None) => {}
+                                        }
+                                    }
                                 }
                             }
                         }

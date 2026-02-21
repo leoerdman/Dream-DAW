@@ -116,6 +116,7 @@ struct AudioEngineHandle {
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
+    sample_rack_samples: Arc<dream_engine::driver::SharedSampleRackSamples>,
     plugin_host: Arc<Mutex<PluginHost>>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
 
@@ -1259,6 +1260,23 @@ fn rebuild_sampler_snapshot_from_project(
     }
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
+    let empty_pad_samples: [Option<Arc<ClipAudio>>; 16] = Default::default();
+    let mut rack_samples: Vec<[Option<Arc<ClipAudio>>; 16]> = vec![empty_pad_samples; project.tracks.len()];
+    
+    struct RackSettings {
+        track_idx: u16,
+        pad_idx: u8,
+        volume: f32,
+        is_muted: bool,
+        is_soloed: bool,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+        filter_cutoff: f32,
+    }
+    let mut rack_settings: Vec<RackSettings> = Vec::new();
+
     let mut synth_settings: Vec<(
         usize,
         u8,
@@ -1329,9 +1347,33 @@ fn rebuild_sampler_snapshot_from_project(
             {
                 samples[idx] = Some(audio);
             }
+
+            if let Some(rack) = &track.sample_rack {
+                for (p, pad) in rack.pads.iter().enumerate() {
+                    rack_settings.push(RackSettings {
+                        track_idx: idx as u16,
+                        pad_idx: p as u8,
+                        volume: pad.volume,
+                        is_muted: pad.is_muted,
+                        is_soloed: pad.is_soloed,
+                        attack: pad.attack,
+                        decay: pad.decay,
+                        sustain: pad.sustain,
+                        release: pad.release,
+                        filter_cutoff: pad.filter_cutoff,
+                    });
+                    if !pad.sample_path.trim().is_empty()
+                        && let Some(audio) = pool.get(&pad.sample_path)
+                    {
+                        rack_samples[idx][p] = Some(audio);
+                    }
+                }
+            }
         }
     }
     handle.sampler_samples.swap(samples);
+    handle.sample_rack_samples.swap(rack_samples);
+
     for (
         track_idx,
         waveform,
@@ -1407,6 +1449,29 @@ fn rebuild_sampler_snapshot_from_project(
             track_index: track_idx as u16,
             width: pw,
         }, "sampler pulse width");
+    }
+
+    for rs in rack_settings {
+        push_command_or_log!(handle, EngineCommand::SetSampleRackPadVolume {
+            track_index: rs.track_idx,
+            pad_index: rs.pad_idx,
+            volume: rs.volume,
+        }, "rack pad volume");
+        
+        push_command_or_log!(handle, EngineCommand::SetSampleRackPadAdsr {
+            track_index: rs.track_idx,
+            pad_index: rs.pad_idx,
+            attack: rs.attack,
+            decay: rs.decay,
+            sustain: rs.sustain,
+            release: rs.release,
+        }, "rack pad adsr");
+
+        push_command_or_log!(handle, EngineCommand::SetSampleRackPadFilterCutoff {
+            track_index: rs.track_idx,
+            pad_index: rs.pad_idx,
+            cutoff: rs.filter_cutoff,
+        }, "rack pad cutoff");
     }
 }
 
@@ -4018,6 +4083,7 @@ pub fn run() {
     let midi_input_runtime = MidiInputRuntime::new();
     rebuild_automation_snapshot_from_project(&bootstrap_project, &automation_runtime);
     let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
+    let sample_rack_samples = Arc::new(dream_engine::driver::SharedSampleRackSamples::new());
     let routing_snapshot_for_engine = Arc::clone(&clip_pool_state.routing_snapshot);
     let prepared_graph_snapshot_for_engine = Arc::clone(&clip_pool_state.prepared_graph_snapshot);
     let sidechain_snapshot_for_engine = Arc::clone(&clip_pool_state.sidechain_snapshot);
@@ -4025,6 +4091,7 @@ pub fn run() {
     let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
     let automation_snapshot_for_engine = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_engine = Arc::clone(&sampler_samples);
+    let sample_rack_samples_for_engine = Arc::clone(&sample_rack_samples);
     let clip_pool_for_handle = Arc::clone(&clip_pool_state.arc_pool);
     let clip_snapshot_for_handle = Arc::clone(&clip_pool_state.snapshot);
     let midi_snapshot_for_handle = Arc::clone(&midi_snapshot);
@@ -4034,6 +4101,7 @@ pub fn run() {
     let external_fx_snapshot_for_handle = Arc::clone(&clip_pool_state.external_fx_snapshot);
     let automation_snapshot_for_handle = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_handle = Arc::clone(&sampler_samples);
+    let sample_rack_samples_for_handle = Arc::clone(&sample_rack_samples);
     let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
     let rt_debug_stats = Arc::new(SharedRtDebugStats::new());
@@ -4084,6 +4152,7 @@ pub fn run() {
         external_fx_snapshot_for_engine,
         automation_snapshot_for_engine,
         sampler_samples_for_engine,
+        sample_rack_samples_for_engine,
         prepared_graph_snapshot_for_engine,
         rt_debug_stats_for_engine,
         plugin_host_for_engine,
@@ -4165,6 +4234,7 @@ pub fn run() {
         external_fx_snapshot: external_fx_snapshot_for_handle,
         automation_snapshot: automation_snapshot_for_handle,
         sampler_samples: sampler_samples_for_handle,
+        sample_rack_samples: sample_rack_samples_for_handle,
         plugin_host: plugin_host_for_handle,
         rt_debug_stats: rt_debug_stats_for_handle,
         output_latency_frames,

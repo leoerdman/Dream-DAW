@@ -872,6 +872,24 @@ const TOOLS = [
             }
         }
     },
+
+    // ── Beat Pattern Generator (AI Shortcut) ──
+    {
+        type: 'function' as const,
+        function: {
+            name: 'generate_beat_pattern',
+            description: 'Generate a standard drum beat pattern for a given genre. Returns arrays of {pitch, startBeat, velocity} for kick, snare/clap, and hi-hat. Use this to quickly create genre-correct patterns instead of manually placing notes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    genre: { type: 'string', description: 'Genre: house, techno, dnb, hiphop, trap, lofi' },
+                    bars: { type: 'number', description: 'Number of bars to generate (default: 4)' },
+                    swing: { type: 'number', description: 'Swing amount 0.0-0.5 (0 = straight, 0.33 = shuffle). Default 0.' },
+                },
+                required: ['genre'],
+            }
+        }
+    },
 ];
 
 
@@ -893,6 +911,7 @@ const READ_ONLY_TOOLS = new Set([
     'get_project_overview', 'get_track_clips', 'get_clip_details',
     'get_transport_state', 'select_clips', 'select_all_clips_on_track',
     'generate_chord', 'generate_scale', 'suggest_arrangement', 'get_metering',
+    'generate_beat_pattern',
 ]);
 
 async function executeTool(
@@ -1592,6 +1611,143 @@ async function executeToolInner(
             }
         }
 
+        // ── Beat Pattern Generator ──
+        case 'generate_beat_pattern': {
+            const genre = ((args.genre as string) || 'house').toLowerCase();
+            const bars = Math.max(1, Math.min(64, (args.bars as number) || 4));
+            const swing = Math.max(0, Math.min(0.5, (args.swing as number) || 0));
+
+            // Define one-bar patterns per genre: {pitch, beatOffset, velocity}
+            // Kick=36, Snare/Clap=37/38, ClosedHat=42, OpenHat=46, Ride=51
+            type NoteHit = { pitch: number; beat: number; velocity: number; dur: number };
+            const patterns: Record<string, NoteHit[]> = {
+                house: [
+                    // 4/4 kick
+                    { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
+                    { pitch: 36, beat: 1, velocity: 120, dur: 0.25 },
+                    { pitch: 36, beat: 2, velocity: 120, dur: 0.25 },
+                    { pitch: 36, beat: 3, velocity: 120, dur: 0.25 },
+                    // Clap on 1, 3
+                    { pitch: 37, beat: 1, velocity: 100, dur: 0.25 },
+                    { pitch: 37, beat: 3, velocity: 100, dur: 0.25 },
+                    // Closed hat offbeats
+                    { pitch: 42, beat: 0.5, velocity: 80, dur: 0.125 },
+                    { pitch: 42, beat: 1.5, velocity: 80, dur: 0.125 },
+                    { pitch: 42, beat: 2.5, velocity: 80, dur: 0.125 },
+                    { pitch: 42, beat: 3.5, velocity: 80, dur: 0.125 },
+                ],
+                techno: [
+                    // Hard 4/4 kick
+                    { pitch: 36, beat: 0, velocity: 127, dur: 0.25 },
+                    { pitch: 36, beat: 1, velocity: 127, dur: 0.25 },
+                    { pitch: 36, beat: 2, velocity: 127, dur: 0.25 },
+                    { pitch: 36, beat: 3, velocity: 127, dur: 0.25 },
+                    // Clap on 1, 3
+                    { pitch: 37, beat: 1, velocity: 90, dur: 0.25 },
+                    { pitch: 37, beat: 3, velocity: 90, dur: 0.25 },
+                    // 16th hats
+                    ...Array.from({ length: 16 }, (_, i) => ({
+                        pitch: 42, beat: i * 0.25, velocity: i % 4 === 0 ? 100 : i % 2 === 0 ? 70 : 55, dur: 0.125,
+                    })),
+                ],
+                dnb: [
+                    // DnB kick (1, 2.75)
+                    { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
+                    { pitch: 36, beat: 2.75, velocity: 110, dur: 0.25 },
+                    // Snare on 1, 3
+                    { pitch: 38, beat: 1, velocity: 110, dur: 0.25 },
+                    { pitch: 38, beat: 3, velocity: 110, dur: 0.25 },
+                    // Fast hats (8th notes)
+                    ...Array.from({ length: 8 }, (_, i) => ({
+                        pitch: 42, beat: i * 0.5, velocity: i % 2 === 0 ? 90 : 65, dur: 0.125,
+                    })),
+                ],
+                hiphop: [
+                    // Boom bap kick
+                    { pitch: 36, beat: 0, velocity: 110, dur: 0.5 },
+                    { pitch: 36, beat: 2.5, velocity: 100, dur: 0.5 },
+                    // Snare on 1, 3
+                    { pitch: 38, beat: 1, velocity: 105, dur: 0.25 },
+                    { pitch: 38, beat: 3, velocity: 105, dur: 0.25 },
+                    // Hats with groove
+                    { pitch: 42, beat: 0, velocity: 75, dur: 0.125 },
+                    { pitch: 42, beat: 0.5, velocity: 60, dur: 0.125 },
+                    { pitch: 42, beat: 1, velocity: 75, dur: 0.125 },
+                    { pitch: 42, beat: 1.5, velocity: 60, dur: 0.125 },
+                    { pitch: 42, beat: 2, velocity: 75, dur: 0.125 },
+                    { pitch: 42, beat: 2.5, velocity: 60, dur: 0.125 },
+                    { pitch: 42, beat: 3, velocity: 75, dur: 0.125 },
+                    { pitch: 42, beat: 3.5, velocity: 60, dur: 0.125 },
+                ],
+                trap: [
+                    // 808 kick
+                    { pitch: 36, beat: 0, velocity: 127, dur: 0.5 },
+                    { pitch: 36, beat: 1.75, velocity: 110, dur: 0.5 },
+                    { pitch: 36, beat: 2.5, velocity: 115, dur: 0.5 },
+                    // Snare on 1, 3
+                    { pitch: 38, beat: 1, velocity: 120, dur: 0.25 },
+                    { pitch: 38, beat: 3, velocity: 120, dur: 0.25 },
+                    // Trap hi-hat rolls (32nd notes on offbeats)
+                    { pitch: 42, beat: 0.5, velocity: 85, dur: 0.0625 },
+                    { pitch: 42, beat: 0.5625, velocity: 70, dur: 0.0625 },
+                    { pitch: 42, beat: 0.625, velocity: 60, dur: 0.0625 },
+                    { pitch: 42, beat: 1.5, velocity: 85, dur: 0.0625 },
+                    { pitch: 42, beat: 1.5625, velocity: 70, dur: 0.0625 },
+                    { pitch: 42, beat: 1.625, velocity: 60, dur: 0.0625 },
+                    { pitch: 42, beat: 2.5, velocity: 85, dur: 0.0625 },
+                    { pitch: 42, beat: 2.5625, velocity: 70, dur: 0.0625 },
+                    { pitch: 42, beat: 2.625, velocity: 60, dur: 0.0625 },
+                    { pitch: 42, beat: 3.5, velocity: 85, dur: 0.0625 },
+                    { pitch: 42, beat: 3.5625, velocity: 70, dur: 0.0625 },
+                    { pitch: 42, beat: 3.625, velocity: 60, dur: 0.0625 },
+                ],
+                lofi: [
+                    // Lazy boom bap
+                    { pitch: 36, beat: 0, velocity: 95, dur: 0.5 },
+                    { pitch: 36, beat: 2.33, velocity: 85, dur: 0.5 },
+                    // Snare on 1, 3 (softer)
+                    { pitch: 38, beat: 1, velocity: 80, dur: 0.25 },
+                    { pitch: 38, beat: 3, velocity: 80, dur: 0.25 },
+                    // Lazy hats
+                    { pitch: 42, beat: 0.5, velocity: 55, dur: 0.125 },
+                    { pitch: 42, beat: 1.5, velocity: 50, dur: 0.125 },
+                    { pitch: 42, beat: 2.5, velocity: 55, dur: 0.125 },
+                    { pitch: 42, beat: 3.5, velocity: 50, dur: 0.125 },
+                ],
+            };
+
+            const oneBar = patterns[genre] || patterns['house'];
+
+            // Expand to N bars + apply swing
+            const notes: { pitch: number; startBeat: number; velocity: number; durationBeats: number }[] = [];
+            for (let bar = 0; bar < bars; bar++) {
+                for (const hit of oneBar) {
+                    let beat = bar * 4 + hit.beat;
+                    // Apply swing to offbeat notes
+                    if (swing > 0 && hit.beat % 1 !== 0) {
+                        const isOffbeat16th = (hit.beat * 4) % 2 !== 0;
+                        if (isOffbeat16th) beat += swing;
+                    }
+                    notes.push({
+                        pitch: hit.pitch,
+                        startBeat: parseFloat(beat.toFixed(4)),
+                        velocity: hit.velocity,
+                        durationBeats: hit.dur,
+                    });
+                }
+            }
+
+            return JSON.stringify({
+                genre,
+                bars,
+                swing,
+                totalNotes: notes.length,
+                notes,
+                pitchMap: { kick: 36, snare: 38, clap: 37, closedHat: 42, openHat: 46 },
+                usage: 'Use set_clip_notes with these notes after creating a MIDI clip on a drum rack track.',
+            });
+        }
+
         default:
             return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1648,7 +1804,7 @@ ${trackList || '  (no tracks)'}
 | Category | Tools |
 |----------|-------|
 | 🔍 Inspect | get_project_overview, get_track_clips, get_clip_details, get_transport_state, get_metering |
-| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, set_clip_notes, search_browser, add_sample_to_rack, add_audio_clip |
+| 🎵 MIDI & Audio | add_midi_track, create_midi_clip, set_clip_notes, search_browser, add_sample_to_rack, add_audio_clip, generate_beat_pattern |
 | 🎹 Music Theory | generate_chord, generate_scale, generate_arpeggio, quantize_notes, humanize_velocity |
 | 🥁 Drum Rack | set_pad_volume, set_pad_mute, set_pad_adsr, set_pad_filter_cutoff, preview_note |
 | 🎛️ Track | add_track, delete_track, rename_track, set_track_volume, set_track_pan, set_track_mute, set_track_solo, set_track_color, create_track_group |
@@ -1669,7 +1825,8 @@ Before executing any action, briefly explain what you're about to do and why bas
    - **Pad 0 (Pitch 36 / C1)**: Kick
    - **Pad 1 (Pitch 37 / C#1) or Pad 2**: Snare/Clap
    - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
-2. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
+2. **Beat Patterns**: Use \\\`generate_beat_pattern\\\` for instant genre-correct rhythm patterns (house, techno, dnb, hiphop, trap, lofi). Feed the returned notes into \\\`set_clip_notes\\\`.
+3. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
 3. **NEVER overlap clips** on the same track at the same time. Check existing clips in the track list before creating new ones.
 4. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
 
@@ -1758,7 +1915,7 @@ export async function streamChat(
     onSelectClips?: (ids: string[]) => void,
     signal?: AbortSignal,
 ): Promise<ChatMessage[]> {
-    const MAX_TOOL_DEPTH = 8;
+    const MAX_TOOL_DEPTH = 15;
     let depth = 0;
     let conversation = [...messages];
     let globalToolIndex = 0;
@@ -1783,7 +1940,7 @@ export async function streamChat(
                 tools: TOOLS,
                 tool_choice: 'auto',
                 stream: true,
-                max_tokens: 4096,
+                max_tokens: 8192,
             }),
             signal,
         });

@@ -423,8 +423,12 @@ impl RenderContext {
 
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
+                    // CRITICAL-FIX: source_to_timeline_rate must use timeline_sample_rate
+                    // (project SR), NOT device sample_rate. Scheduler positions are in
+                    // timeline domain; playhead advance handles device→timeline conversion
+                    // separately. Using device SR caused wrong pitch when device_sr ≠ project_sr.
                     let source_to_timeline_rate = (audio.sample_rate.max(1) as f64
-                        / self.sample_rate.max(1.0))
+                        / self.timeline_sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     if is_warped {
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
@@ -462,8 +466,9 @@ impl RenderContext {
                     }
                 } else if let Some((_, window)) = self.streaming_windows.iter().find(|(p, _)| p == &clip.file_path) {
                     total_pool_hits += 1;
+                    // CRITICAL-FIX: Same as in-memory path — use timeline_sample_rate.
                     let source_to_timeline_rate = (window.sample_rate().max(1) as f64
-                        / self.sample_rate.max(1.0))
+                        / self.timeline_sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     if is_warped {
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
@@ -475,7 +480,7 @@ impl RenderContext {
                             + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
                         window.read_into_rate(
                             source_start,
-                            playback_rate,
+                            playback_rate * source_to_timeline_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,

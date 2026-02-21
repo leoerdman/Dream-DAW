@@ -109,6 +109,7 @@ const TOOL_META: Record<string, ToolMeta> = {
 
     // Phase 4: Arrangement
     suggest_arrangement: { icon: Wand2, category: 'Arrange', categoryColor: '#ec4899', describe: (a) => `Suggest ${a.genre} arrangement` },
+    generate_beat_pattern: { icon: Music, category: 'Pattern', categoryColor: '#ec4899', describe: (a) => `Generate ${a.genre} pattern (${a.bars || 4} bars)` },
 
     // Inspect
     get_project_overview: { icon: Eye, category: 'Inspect', categoryColor: '#06b6d4', describe: () => 'Get project overview' },

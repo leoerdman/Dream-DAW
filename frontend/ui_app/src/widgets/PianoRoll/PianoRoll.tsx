@@ -216,7 +216,13 @@ export const PianoRoll = memo(function PianoRoll({
     // Audit #6 fix: reset clipTranspose when clip changes (via clipLengthBeats prop change).
     useEffect(() => {
         setClipTranspose(0);
-    }, [clipLengthBeats]);
+        // BUG-13 FIX: Clear saved scroll position when the clip changes
+        // so the auto-scroll logic (L655) re-centers on actual note content
+        // instead of restoring a stale position from the previous clip.
+        if (trackIndex != null) {
+            _scrollTopByTrack.delete(trackIndex);
+        }
+    }, [clipLengthBeats, trackIndex]);
     const [quantizeAmount, setQuantizeAmount] = useState(100);
     const [foldToUsedNotes, setFoldToUsedNotes] = useState(false);
     const [stepInputOctave, setStepInputOctave] = useState(4);
@@ -547,7 +553,14 @@ export const PianoRoll = memo(function PianoRoll({
             if (e.altKey) {
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -1 : 1;
-                setNoteHeight((prev) => Math.max(MIN_NOTE_HEIGHT, Math.min(MAX_NOTE_HEIGHT, prev + delta)));
+                // BUG-14 FIX: Debounce noteHeight changes via RAF to
+                // prevent per-pixel re-renders during fast scroll.
+                if (noteHeightRafRef.current == null) {
+                    noteHeightRafRef.current = requestAnimationFrame(() => {
+                        noteHeightRafRef.current = null;
+                    });
+                    setNoteHeight((prev) => Math.max(MIN_NOTE_HEIGHT, Math.min(MAX_NOTE_HEIGHT, prev + delta)));
+                }
             } else if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -2 : 2;
@@ -638,6 +651,7 @@ export const PianoRoll = memo(function PianoRoll({
     // that jumps the view every time the user adjusts vertical zoom.
     // We read noteHeight via a ref so it is available without being a dependency.
     const noteHeightRef = useRef(noteHeight);
+    const noteHeightRafRef = useRef<number | null>(null);
     useEffect(() => { noteHeightRef.current = noteHeight; }, [noteHeight]);
 
     useEffect(() => {
@@ -916,18 +930,50 @@ export const PianoRoll = memo(function PianoRoll({
         setSelectedNotes(newSelected);
     }, [ratchetCount, selectedNotes, notes, onNotesChange, enforceNoOverlap, clipBeats]);
 
+    // BUG-12: Ref to track the last-clicked note for Shift+Click range selection.
+    const lastClickedNoteIdRef = useRef<string | null>(null);
+
     const handleNoteClick = useCallback(
         (e: React.MouseEvent, noteId: string) => {
             e.stopPropagation();
             editorRootRef.current?.focus();
-            // In draw mode, clicking a note selects it (like paint mode).
-            // Deletion is intentional only via the Delete/Backspace key,
-            // not on accidental click-up after a drag.
             const target = notes.find((n) => n.id === noteId);
             if (target) {
-                // Audit #12 fix: only audition on single note click, not Shift+click multi-select.
                 if (!e.shiftKey) auditionNote(target.pitch, target.velocity, 120);
             }
+
+            if (e.shiftKey && lastClickedNoteIdRef.current) {
+                // BUG-12 FIX: Range selection — select all notes whose beat range
+                // and pitch fall within the bounding box between the last-clicked
+                // note and the current shift-clicked note.
+                const anchor = notes.find((n) => n.id === lastClickedNoteIdRef.current);
+                if (anchor && target) {
+                    const minBeat = Math.min(anchor.startBeat, target.startBeat);
+                    const maxBeat = Math.max(
+                        anchor.startBeat + anchor.durationBeats,
+                        target.startBeat + target.durationBeats,
+                    );
+                    const minPitch = Math.min(anchor.pitch, target.pitch);
+                    const maxPitch = Math.max(anchor.pitch, target.pitch);
+                    const rangeIds = new Set<string>();
+                    for (const n of notes) {
+                        const noteEnd = n.startBeat + n.durationBeats;
+                        if (
+                            n.pitch >= minPitch &&
+                            n.pitch <= maxPitch &&
+                            n.startBeat < maxBeat &&
+                            noteEnd > minBeat
+                        ) {
+                            rangeIds.add(n.id);
+                        }
+                    }
+                    setSelectedNotes(rangeIds);
+                    return; // don't update lastClickedNoteIdRef on range select
+                }
+            }
+
+            // Single click or Shift without anchor — standard toggle behavior
+            lastClickedNoteIdRef.current = noteId;
             setSelectedNotes((prev) => {
                 const next = new Set(prev);
                 if (e.shiftKey) {
@@ -2213,11 +2259,13 @@ export const PianoRoll = memo(function PianoRoll({
                             overflow: 'hidden',
                         }}>
                             {/* Clip region bar (Ableton-style colored stripe) */}
+                            {/* BUG-11 FIX: Use clipBeats (actual clip duration) not canvasWidth
+                                (totalBeats × ppb) which extends beyond the clip when zoomed out. */}
                             <div style={{
                                 position: 'absolute',
                                 top: 0,
                                 left: 0,
-                                width: canvasWidth,
+                                width: clipBeats * pixelsPerBeat,
                                 height: 3,
                                 background: color,
                                 opacity: 0.65,

@@ -503,6 +503,20 @@ const VirtualFileList = memo(function VirtualFileList({
         setScrollTop(e.currentTarget.scrollTop);
     }, []);
 
+    // BUG-9 FIX: Reset scroll position when items change (e.g. category switch).
+    // Without this, the container stays at a high scrollTop from the previous list,
+    // causing empty space above when the new item list is shorter.
+    const prevItemsLenRef = useRef(items.length);
+    useEffect(() => {
+        if (prevItemsLenRef.current !== items.length) {
+            prevItemsLenRef.current = items.length;
+            setScrollTop(0);
+            if (fileListRef.current) {
+                fileListRef.current.scrollTop = 0;
+            }
+        }
+    }, [items.length, fileListRef]);
+
     const totalHeight = items.length * ROW_HEIGHT;
     const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
@@ -1302,7 +1316,11 @@ export const AssetBrowser = () => {
         return () => {
             cancelled = true;
             clearTimeout(timerId);
-            scanTriggeredRef.current = false;
+            // BUG-10 FIX: Do NOT reset scanTriggeredRef here.
+            // Previously, switching categories cleared the flag, causing a
+            // full re-scan (generateDemoSamples + scanAllAudioSources) on
+            // every category switch — heavy I/O lag.  Scan results are cached
+            // in `realFiles` state, so the ref should stay true once scanned.
         };
     }, [isSamplesCategory]);
 
@@ -1581,6 +1599,43 @@ export const AssetBrowser = () => {
                 .map((entry) => entry.item);
         }
 
+        // ── AUDIT FIX: Apply source filter (previously cosmetic-only) ──
+        // 0=All, 1=Library, 2=Samples, 3=Plug-ins
+        if (sourceFilter === 1) {
+            // Library: real audio files + internal plugins (no external VST)
+            base = base.filter((i) => i.type === 'audio' || i.pluginSource === 'internal');
+        } else if (sourceFilter === 2) {
+            // Samples: only audio files
+            base = base.filter((i) => i.type === 'audio');
+        } else if (sourceFilter === 3) {
+            // Plug-ins: only plugin items
+            base = base.filter((i) => i.type === 'plugin');
+        }
+
+        // ── AUDIT FIX: Apply format filter (previously cosmetic-only) ──
+        if (formatFilter > 0) {
+            const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
+            const wanted = formatNames[formatFilter];
+            if (wanted) {
+                base = base.filter((i) => {
+                    if (!i.format) return false;
+                    return i.format.toLowerCase() === wanted;
+                });
+            }
+        }
+
+        // ── AUDIT FIX: Apply audio type filter (previously cosmetic-only) ──
+        if (audioFilter > 0) {
+            const audioFilterFns: Record<number, (i: BrowserItem) => boolean> = {
+                1: (i) => /loop|bpm/i.test(i.name + (i.meta ?? '')), // Loops
+                2: (i) => /one.?shot|hit|stab/i.test(i.name + (i.meta ?? '')), // One Shot
+                3: (i) => isLikelyDrumAudio(i), // Drums
+                4: (i) => /vocal|vox|voice|acapella/i.test(i.name + (i.meta ?? '')), // Vocals
+            };
+            const fn = audioFilterFns[audioFilter];
+            if (fn) base = base.filter(fn);
+        }
+
         if (selectedCategoryId === 'plugins' && pluginSourceFilter !== 'all') {
             base = base.filter((i) => i.type === 'plugin' && i.pluginSource === pluginSourceFilter);
         }
@@ -1620,7 +1675,7 @@ export const AssetBrowser = () => {
         }
 
         return base;
-    }, [selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack, sizeFilter, sortFilter, pluginSourceFilter, collectionItems]);
+    }, [selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, sizeFilter, sortFilter, pluginSourceFilter, collectionItems, formatFilter, audioFilter, sourceFilter]);
 
     const pluginGroupedRows = useMemo(() => {
         if (selectedCategoryId !== 'plugins') return [] as Array<
@@ -2042,7 +2097,7 @@ export const AssetBrowser = () => {
             return;
         }
         void handleItemEnter(selected);
-    }, [focusResults, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, selectedCategoryId, selectedItemId]);
+    }, [focusResults, handleItemEnter, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, selectedCategoryId, selectedItemId]);
 
     const beginSplitResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();

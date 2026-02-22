@@ -7,7 +7,6 @@ import {
     type MidiNoteLike,
     getOptionalStringField,
 } from '@/shared/api/assistant/types';
-import { shouldFetchProjectAfterTool } from '@/shared/api/assistant/toolPolicies';
 type GlobalWithPreviewTimer = typeof globalThis & {
     __dreamPreviewTimer?: ReturnType<typeof setTimeout> | null;
 };
@@ -36,13 +35,6 @@ export async function executeTool(
             error: true,
             message: `Tool ${name} failed to execute: ${errorMsg}. Please revise your tool arguments or try an alternative approach.`
         });
-    }
-    if (shouldFetchProjectAfterTool(name)) {
-        try {
-            await useEngineStore.getState().fetchProject(`agent-tool:${name}`);
-        } catch (e) {
-            console.warn('[Agent] fetchProject after tool failed:', e);
-        }
     }
     return result;
 }

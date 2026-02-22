@@ -181,9 +181,9 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 } else {
                     await engineApi.openProject(path);
                 }
-                // Force full store refresh so tracks/clips/tempo update immediately
-                const fetchProject = useEngineStore.getState().fetchProject;
-                await fetchProject('project-manager:open');
+                // Snapshot-delta sync after project load/import.
+                const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta;
+                await syncProjectSnapshotDelta('project-manager:open');
                 await syncProjectHistory();
                 await refreshStatus();
                 // Eagerly activate external VST3 plugins and restore their saved state

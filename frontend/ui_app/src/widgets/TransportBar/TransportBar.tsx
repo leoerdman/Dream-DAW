@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { beatToFrame, resolveSampleRate } from '../../shared/lib/audioMath';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { useTransportEngineSlice } from './model/useTransportEngineSlice';
 import {
@@ -202,12 +203,16 @@ export const TransportBar = ({
     const cycleKeyTonic = () => {
         const next = (keyTonic + 1) % KEY_TONICS.length;
         setKeyTonic(next);
-        void engineApi.setKeySignature(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode]);
+        void engineApi
+            .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode])
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'));
     };
     const cycleKeyMode = () => {
         const next = (keyMode + 1) % KEY_MODES.length;
         setKeyMode(next);
-        void engineApi.setKeySignature(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next]);
+        void engineApi
+            .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next])
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'));
     };
     const cycleTimeSignature = () => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length);
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
@@ -417,7 +422,9 @@ export const TransportBar = ({
                             onClick={() => {
                                 const next = !keyEnabled;
                                 setKeyEnabled(next);
-                                void engineApi.setKeySignature(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode]);
+                                void engineApi
+                                    .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
+                                    .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
                             }}
                         />
                         <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} />

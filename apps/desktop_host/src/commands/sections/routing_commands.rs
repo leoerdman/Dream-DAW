@@ -40,21 +40,7 @@ fn set_track_routing_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if result.changed {
-            *project_state.project.lock().map_err(|e| e.to_string())? =
-                ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        }
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     if !result.changed {
         return Ok(());
@@ -107,21 +93,7 @@ fn set_track_input_cmd(
             .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if result.changed {
-            *project_state.project.lock().map_err(|e| e.to_string())? =
-                ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        }
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     if !result.changed {
         return Ok(());
@@ -152,21 +124,7 @@ fn set_plugin_sidechain_source_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if result.changed {
-            *project_state.project.lock().map_err(|e| e.to_string())? =
-                ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        }
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     if !result.changed {
         return Ok(());

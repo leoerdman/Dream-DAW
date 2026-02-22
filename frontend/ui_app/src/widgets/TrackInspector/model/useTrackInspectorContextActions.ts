@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 interface UseTrackInspectorContextActionsParams {
     tracks: TrackData[];
@@ -92,7 +93,8 @@ export function useTrackInspectorContextActions({
         }
 
         void (async () => {
-            await engineApi.deleteTrack(idx);
+            const response = await engineApi.deleteTrackWithDeltas(idx);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:delete-single');
             setLocalOverrides(prev => {
                 if (!(trackId in prev)) return prev;
                 const next = { ...prev };
@@ -142,7 +144,8 @@ export function useTrackInspectorContextActions({
 
         void (async () => {
             for (const item of selected) {
-                await engineApi.deleteTrack(item.idx);
+                const response = await engineApi.deleteTrackWithDeltas(item.idx);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:delete-selected');
             }
             setLocalOverrides(prev => {
                 let changed = false;
@@ -169,7 +172,8 @@ export function useTrackInspectorContextActions({
     const handleDuplicateSelectedTracks = useCallback(() => {
         const ids = Array.from(selectedTrackIdSet);
         if (ids.length === 0) return;
-        void engineApi.duplicateTracks(ids).then(() => {
+        void engineApi.duplicateTracksWithDeltas(ids).then(async (response) => {
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:duplicate-selected');
             onRefresh('duplicate-selected');
             return;
         }).catch((err) => {
@@ -178,7 +182,8 @@ export function useTrackInspectorContextActions({
     }, [selectedTrackIdSet, onRefresh]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
-        void engineApi.createGroup([trackId]).then(() => {
+        void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');
             onRefresh('create-group');
         }).catch((err) => {
             console.error('[TrackInspector] createGroup failed:', err);
@@ -211,8 +216,11 @@ export function useTrackInspectorContextActions({
             return;
         }
         setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
-        void engineApi.setTrackColor(trackId, color)
-            .then(() => onRefresh('track-color-change'))
+        void engineApi.setTrackColorWithDeltas(trackId, color)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:track-color-change');
+                onRefresh('track-color-change');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] setTrackColor failed:', err);
             });
@@ -234,8 +242,13 @@ export function useTrackInspectorContextActions({
         const groupColor = group.color;
         const children = tracks.filter((t) => t.groupId === groupTrackId);
         if (children.length === 0) return;
-        void Promise.all(children.map((child) => engineApi.setTrackColor(child.id, groupColor)))
-            .then(() => onRefresh('track-context:paint-group-color'))
+        void Promise.all(children.map((child) => engineApi.setTrackColorWithDeltas(child.id, groupColor)))
+            .then(async (responses) => {
+                for (const response of responses) {
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-group-color');
+                }
+                onRefresh('track-context:paint-group-color');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] paintGroupColor failed:', err);
             });

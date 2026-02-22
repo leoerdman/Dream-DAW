@@ -19,6 +19,7 @@ import {
     type AutomationLane as LaneData,
     type AutomationBreakpoint,
 } from '@/shared/stores/useAutomationStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -70,7 +71,8 @@ export const AutomationLane = memo(function AutomationLane({
         () =>
             throttle((points: engineApi.AutomationPoint[]) => {
                 engineApi
-                    .setAutomationPoints(lane.trackId, lane.paramKey, points)
+                    .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
+                    .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:throttle'))
                     .catch((err) => console.error('[AutomationLane] setAutomationPoints failed:', err));
             }, 16),
         [lane.trackId, lane.paramKey],
@@ -100,7 +102,8 @@ export const AutomationLane = memo(function AutomationLane({
     const pushPointsImmediate = useCallback(() => {
         const points = buildEnginePoints();
         engineApi
-            .setAutomationPoints(lane.trackId, lane.paramKey, points)
+            .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:flush'))
             .catch((err) => console.error('[AutomationLane] setAutomationPoints final push failed:', err));
     }, [buildEnginePoints, lane.trackId, lane.paramKey]);
 

@@ -3,6 +3,7 @@ import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 import type { SampleRackPadConfig } from '@bindings/SampleRackPadConfig';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
@@ -100,7 +101,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
 
     const handleDropSample = useCallback(async (padIndex: number, samplePath: string) => {
         try {
-            await engineApi.setSampleRackPadSample(trackId, padIndex, samplePath);
+            const response = await engineApi.setSampleRackPadSampleWithDeltas(trackId, padIndex, samplePath);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:drop-sample');
         } catch (err) {
             console.error('[SampleRack] Failed to set pad sample:', err);
         }
@@ -108,7 +110,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
 
     const handleClearPad = useCallback(async (padIndex: number) => {
         try {
-            await engineApi.setSampleRackPadSample(trackId, padIndex, '');
+            const response = await engineApi.setSampleRackPadSampleWithDeltas(trackId, padIndex, '');
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:clear-sample');
         } catch (err) {
             console.error('[SampleRack] Failed to clear pad:', err);
         }

@@ -51,7 +51,8 @@ export function createTransportActions(
             set((s) => ({ transport: { ...s.transport, bpm }, projectBpm: bpm }));
             markBpmPending(500);
             try {
-                await engine.setBpmWithDeltas(bpm);
+                const response = await engine.setBpmWithDeltas(bpm);
+                await get().applyProjectDeltas(response.deltas, 'setBpm');
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

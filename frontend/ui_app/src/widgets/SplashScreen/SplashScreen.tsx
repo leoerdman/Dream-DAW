@@ -77,17 +77,17 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         startTelemetryLoop()
         console.log('[Splash] step 3: startTelemetryLoop DONE')
 
-        // 3. Await initial project fetch — ensures tracks/clips are in the store
+        // 3. Await initial project snapshot-delta sync — ensures tracks/clips are in the store
         //    before the Workspace component mounts
-        const fetchProject = useEngineStore.getState().fetchProject
+        const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta
         try {
-            console.log('[Splash] step 4: fetchProject...')
-            await fetchProject()
-            console.log('[Splash] step 4: fetchProject DONE')
+            console.log('[Splash] step 4: syncProjectSnapshotDelta...')
+            await syncProjectSnapshotDelta('splash:start')
+            console.log('[Splash] step 4: syncProjectSnapshotDelta DONE')
         } catch (e) {
-            console.warn('[Splash] fetchProject failed:', e)
+            console.warn('[Splash] snapshot sync failed:', e)
         }
-        if (cancelledRef.current) { console.log('[Splash] cancelled after fetchProject'); return }
+        if (cancelledRef.current) { console.log('[Splash] cancelled after snapshot sync'); return }
 
         // 4. Now fade out the splash overlay
         console.log('[Splash] step 5: FADING OUT')

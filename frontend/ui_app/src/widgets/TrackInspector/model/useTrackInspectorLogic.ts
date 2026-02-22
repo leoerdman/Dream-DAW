@@ -1,12 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════
-// useTrackInspectorLogic — extracted state/effects/callbacks from TrackInspector
-// ═══════════════════════════════════════════════════════════════════════
-//
-// All React hooks (state, refs, effects, callbacks, memos) extracted here.
-// TrackInspector.tsx becomes a pure *rendering* component.
-//
-// ═══════════════════════════════════════════════════════════════════════
-
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -18,19 +9,7 @@ import { useTrackInspectorResize } from '@/widgets/TrackInspector/model/useTrack
 import { useTrackInspectorKeyboardShortcuts } from '@/widgets/TrackInspector/model/useTrackInspectorKeyboardShortcuts';
 import { useTrackInspectorDragDrop } from '@/widgets/TrackInspector/model/useTrackInspectorDragDrop';
 import { useTrackInspectorDerivedState } from '@/widgets/TrackInspector/model/useTrackInspectorDerivedState';
-
-// ── BUG-P4 FIX: Debounced project refresh ──────────────────────────────
-let _inspectorFetchTimer: ReturnType<typeof setTimeout> | null = null;
-const INSPECTOR_FETCH_DEBOUNCE_MS = 100;
-function debouncedFetchProject(reason: string) {
-    if (_inspectorFetchTimer) clearTimeout(_inspectorFetchTimer);
-    _inspectorFetchTimer = setTimeout(
-        () => void useEngineStore.getState().fetchProject(reason),
-        INSPECTOR_FETCH_DEBOUNCE_MS,
-    );
-}
-
-// ── Props ──────────────────────────────────────────────────────────────
+import { useTrackInspectorProjectRefresh } from '@/widgets/TrackInspector/model/useTrackInspectorProjectRefresh';
 
 export interface UseTrackInspectorLogicProps {
     selectedTrackId: string;
@@ -44,8 +23,6 @@ export interface UseTrackInspectorLogicProps {
     onToggleGroupCollapse?: (groupId: string) => void;
 }
 
-// ── Hook ───────────────────────────────────────────────────────────────
-
 export function useTrackInspectorLogic({
     selectedTrackId,
     selectedTrackIds: selectedTrackIdsProp,
@@ -56,6 +33,8 @@ export function useTrackInspectorLogic({
     collapsedGroups: collapsedGroupsProp,
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: UseTrackInspectorLogicProps) {
+    const debouncedFetchProject = useTrackInspectorProjectRefresh();
+
     const {
         trackIds,
         tracksByIdState,
@@ -80,18 +59,15 @@ export function useTrackInspectorLogic({
         meters: s.meters,
     })));
 
-    // ── Refs ───────────────────────────────────────────────────────
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastProgrammaticScrollRef = useRef<number | null>(null);
 
-    // ── State ──────────────────────────────────────────────────────
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
     const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
     const [rowHeightOverrides, setRowHeightOverrides] = useState<Record<string, number>>({});
     const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string> | null>(null);
 
-    // ── Computed: selection ─────────────────────────────────────────
     const effectiveSelectedTrackIds = useMemo(() => {
         if (selectedTrackIdsProp) return selectedTrackIdsProp;
         if (localSelectedTrackIds) return Array.from(localSelectedTrackIds);
@@ -99,11 +75,7 @@ export function useTrackInspectorLogic({
         return [];
     }, [selectedTrackIdsProp, localSelectedTrackIds, selectedTrackId]);
 
-    const selectedTrackIdSet = useMemo(
-        () => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')),
-        [effectiveSelectedTrackIds],
-    );
-
+    const selectedTrackIdSet = useMemo(() => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')), [effectiveSelectedTrackIds]);
     const applySelection = useCallback((ids: string[], primaryId: string) => {
         const cleaned = Array.from(new Set(ids)).filter((id) => id && id !== 'master');
         if (onSelectTracks) onSelectTracks(cleaned, primaryId);
@@ -217,7 +189,6 @@ export function useTrackInspectorLogic({
         onRefresh: debouncedFetchProject,
     });
 
-    // ── Drag & Drop ─────────────────────────────────────────────────
     const {
         draggingTrackId,
         dropInsertIndex,
@@ -237,9 +208,6 @@ export function useTrackInspectorLogic({
         debouncedFetchProject,
     });
 
-    // ── Effects ─────────────────────────────────────────────────────
-
-    // Scroll sync
     useEffect(() => {
         const unsub = scrollSync.subscribe('inspector', (y) => {
             if (scrollRef.current) {
@@ -262,16 +230,12 @@ export function useTrackInspectorLogic({
         debouncedFetchProject,
     });
 
-    // ── Return ──────────────────────────────────────────────────────
     return {
-        // Refs
         scrollRef,
         lastProgrammaticScrollRef,
         trackRowRefs,
         suppressNextClickRef,
         draggingTrackIdRef,
-
-        // State
         masterTrack,
         tracks,
         liveTracks,
@@ -292,12 +256,8 @@ export function useTrackInspectorLogic({
         resizingTrackId,
         lastClickedTrackId,
         rowLayout,
-
-        // Computed
         getTrackIndex,
         getDepth,
-
-        // Actions
         applySelection,
         setLastClickedTrackId,
         setRenameValue,
@@ -332,11 +292,11 @@ export function useTrackInspectorLogic({
         commitDraggedTrackToVisibleIndex,
         commitTrackToGroup,
         canDropTrackIntoGroup,
-
-        // Engine actions (for volume/pan inline handlers)
         engineSetTrackVolume,
         engineSetTrackPan,
         engineSetMasterVolume,
         setLocalOverrides,
     };
 }
+
+export type TrackInspectorLogicState = ReturnType<typeof useTrackInspectorLogic>;

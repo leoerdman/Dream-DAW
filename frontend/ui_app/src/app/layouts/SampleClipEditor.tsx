@@ -109,7 +109,13 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         setDraftWarpMode(next.mode > 0 ? 1 : 0);
         setDraftWarpBaseBpm(base);
         try {
-            await engineApi.setClipWarp({ clipId: clip.id, isWarped: next.enabled, warpMode: next.mode > 0 ? 1 : 0, warpBaseBpm: base });
+            const response = await engineApi.setClipWarpWithDeltas({
+                clipId: clip.id,
+                isWarped: next.enabled,
+                warpMode: next.mode > 0 ? 1 : 0,
+                warpBaseBpm: base,
+            });
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-clip-editor:warp');
         } catch (err) {
             useEngineStore.setState({
                 timelineClips: previousClips,

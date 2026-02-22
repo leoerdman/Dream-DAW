@@ -15,6 +15,7 @@
 
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import {
     type GridDivision,
     divisionToInterval,
@@ -139,13 +140,14 @@ export const useGridStore = create<GridStore>((set, get) => ({
         });
         const st = get();
         void engine
-            .setArrangementGrid(
+            .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
                 st.triplet ? 3 : 2,
                 st.snapEnabled,
                 st.fixedMode,
             )
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-division'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setDivision) failed:', err));
     },
 
@@ -153,13 +155,14 @@ export const useGridStore = create<GridStore>((set, get) => ({
         set({ triplet: t });
         const st = get();
         void engine
-            .setArrangementGrid(
+            .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
                 st.triplet ? 3 : 2,
                 st.snapEnabled,
                 st.fixedMode,
             )
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-triplet'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setTriplet) failed:', err));
     },
 
@@ -167,13 +170,14 @@ export const useGridStore = create<GridStore>((set, get) => ({
         set({ snapEnabled: enabled });
         const st = get();
         void engine
-            .setArrangementGrid(
+            .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
                 st.triplet ? 3 : 2,
                 st.snapEnabled,
                 st.fixedMode,
             )
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-snap-enabled'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setSnapEnabled) failed:', err));
     },
 

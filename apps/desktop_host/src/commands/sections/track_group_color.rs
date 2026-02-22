@@ -41,15 +41,12 @@ async fn set_track_color_cmd(
 
     push_undo(&project_state)?;
     let project = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        ctx.lock_project().map_err(|e| e.to_string())?.clone()
+        execute_orchestrator_command(&project_state, &cmd)?;
+        project_state
+            .project
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
     };
     *project_state.project.lock().map_err(|e| e.to_string())? = project.clone();
     let project_name = project.name.clone();
@@ -144,19 +141,7 @@ async fn create_group_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -287,18 +272,7 @@ async fn set_group_expanded_cmd(
         &group_id, expanded,
     )
     .map_err(|e| e.to_string())?;
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);

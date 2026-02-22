@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 
 interface UseTrackInspectorTrackActionsArgs {
@@ -69,16 +70,20 @@ export function useTrackInspectorTrackActions({
         const idx = getTrackIndex(id);
         const newArmed = !track.isArmed;
         if (idx >= 0) {
-            void engineApi.armTrack(idx, newArmed).catch((err) => {
-                console.error('[TrackInspector] armTrack failed:', err);
-            });
+            void engineApi
+                .armTrackWithDeltas(idx, newArmed)
+                .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:arm'))
+                .catch((err) => {
+                    console.error('[TrackInspector] armTrack failed:', err);
+                });
         }
         setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
     }, [tracks, getTrackIndex, setLocalOverrides]);
 
     const setTrackOutput = useCallback(async (trackId: string, targetId: string) => {
         try {
-            await engineApi.setTrackRouting(trackId, targetId);
+            const response = await engineApi.setTrackRoutingWithDeltas(trackId, targetId);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:routing');
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], output: targetId } }));
         } catch (err) {
             console.error('[TrackInspector] setTrackRouting failed:', err);

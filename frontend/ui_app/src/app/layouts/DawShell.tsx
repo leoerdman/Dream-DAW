@@ -137,7 +137,6 @@ export const DawShell = () => {
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
-    const projectRefreshTimerRef = useRef<number | null>(null);
     const midiSaveThrottlesRef = useRef<Map<string, ThrottledSender<MidiNote[]>>>(new Map());
     const midiEnvelopeSaveThrottlesRef = useRef<
         Map<string, ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>>
@@ -151,7 +150,6 @@ export const DawShell = () => {
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
-    const fetchProject = useEngineStore(s => s.fetchProject);
     const applyProjectDeltas = useEngineStore(s => s.applyProjectDeltas);
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
@@ -561,27 +559,6 @@ export const DawShell = () => {
         [timelineClips, midiNotesByClip, clipFadeCurves],
     );
 
-    const scheduleProjectRefresh = useCallback((reason: string) => {
-        if (!transportIsPlaying) {
-            void fetchProject(reason);
-            return;
-        }
-        if (projectRefreshTimerRef.current !== null) {
-            window.clearTimeout(projectRefreshTimerRef.current);
-        }
-        projectRefreshTimerRef.current = window.setTimeout(() => {
-            projectRefreshTimerRef.current = null;
-            void fetchProject(reason);
-        }, 500);
-    }, [transportIsPlaying, fetchProject]);
-
-    useEffect(() => () => {
-        if (projectRefreshTimerRef.current !== null) {
-            window.clearTimeout(projectRefreshTimerRef.current);
-            projectRefreshTimerRef.current = null;
-        }
-    }, []);
-
     // Keep a valid selected track at all times.
     useEffect(() => {
         if (projectTracks.length === 0) {
@@ -803,7 +780,7 @@ export const DawShell = () => {
             }));
 
             setMidiNotesByClip((prev) => ({ ...prev, [clip.id]: normalizedForUi }));
-            await engineApi.updateMidiClip(
+            const response = await engineApi.updateMidiClipWithDeltas(
                 clip.id,
                 normalizedForUi.map((n) => ({
                     pitch: n.pitch,
@@ -812,7 +789,7 @@ export const DawShell = () => {
                     durationFrames: Math.max(1, beatDurationToFrames(n.durationBeats, bpm, sampleRate)),
                 })),
             );
-            await fetchProject();
+            await applyProjectDeltas(response.deltas, 'daw-shell:midi-variation');
         } catch (err) {
             console.error('[DawShell] AI MIDI variation failed:', err);
             const message = err instanceof Error ? err.message : 'Unknown AI error';
@@ -827,7 +804,7 @@ export const DawShell = () => {
         projectBpm,
         transportBpm,
         projectSampleRate,
-        fetchProject,
+        applyProjectDeltas,
     ]);
 
     const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
@@ -938,8 +915,9 @@ export const DawShell = () => {
             for (const clipId of Array.from(dirtyMidiNotesClipIdsRef.current)) {
                 const notes = latestMidiNotesRef.current[clipId] ?? [];
                 void engineApi
-                    .updateMidiClip(clipId, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
-                    .then(() => {
+                    .updateMidiClipWithDeltas(clipId, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
+                    .then(async (response) => {
+                        await applyProjectDeltas(response.deltas, 'midi-notes:pointerup');
                         dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
                     .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
@@ -957,7 +935,7 @@ export const DawShell = () => {
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, flushMidiThrottles, serializeMidiNotesToFrames]);
+    }, [flushTrackControlFinals, flushMidiThrottles, serializeMidiNotesToFrames, applyProjectDeltas]);
 
     // ── Scroll sync ──────────────────────────────────────────────────
     // Scroll is synchronized via the scrollSync singleton (useScrollSync.ts).
@@ -1352,16 +1330,16 @@ export const DawShell = () => {
     }, [projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
-        engineApi.setClipFades(
+        engineApi.setClipFadesWithDeltas(
             clipId,
             Math.max(0, Math.round(fadeInFrames)),
             Math.max(0, Math.round(fadeOutFrames)),
         )
-            .then(() => {
-                scheduleProjectRefresh('clip-fades');
+            .then(async (response) => {
+                await applyProjectDeltas(response.deltas, 'clip-fades');
             })
             .catch((err) => console.error('[DawShell] setClipFades failed:', err));
-    }, [scheduleProjectRefresh]);
+    }, [applyProjectDeltas]);
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipIds([clipId]);
@@ -1374,10 +1352,13 @@ export const DawShell = () => {
         const envelopeClipIds = Array.from(dirtyMidiEnvelopeClipIdsRef.current);
         const noteTasks = noteClipIds.map((clipId) =>
             engineApi
-                .updateMidiClip(clipId, serializeMidiNotesToFrames(latestMidiNotesRef.current[clipId] ?? []), {
+                .updateMidiClipWithDeltas(clipId, serializeMidiNotesToFrames(latestMidiNotesRef.current[clipId] ?? []), {
                     pushUndoStep: true,
                 })
-                .then(() => ({ ok: true as const, clipId }))
+                .then(async (response) => {
+                    await applyProjectDeltas(response.deltas, 'midi-notes:flush');
+                    return { ok: true as const, clipId };
+                })
                 .catch((err) => {
                     console.error('[DawShell] flushPendingMidiEdits updateMidiClip failed:', err);
                     return { ok: false as const, clipId };
@@ -1403,7 +1384,7 @@ export const DawShell = () => {
         for (const r of envelopeResults) {
             if (r.ok) dirtyMidiEnvelopeClipIdsRef.current.delete(r.clipId);
         }
-    }, [flushMidiThrottles, serializeMidiNotesToFrames]);
+    }, [flushMidiThrottles, serializeMidiNotesToFrames, applyProjectDeltas]);
 
     useEffect(() => {
         window.__dreamFlushPendingEdits = async () => {
@@ -1662,11 +1643,12 @@ export const DawShell = () => {
                                             if (!send) {
                                                 send = throttle((toSend: MidiNote[]) => {
                                                     void engineApi
-                                                        .updateMidiClip(
+                                                        .updateMidiClipWithDeltas(
                                                             clipId,
                                                             serializeMidiNotesToFrames(toSend),
                                                             { pushUndoStep: false },
                                                         )
+                                                        .then((response) => applyProjectDeltas(response.deltas, 'midi-notes:throttle'))
                                                         .catch((err) => console.error('[DawShell] updateMidiClip failed:', err));
                                                 }, 80) as ThrottledSender<MidiNote[]>;
                                                 midiSaveThrottlesRef.current.set(clipId, send);

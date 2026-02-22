@@ -5,6 +5,23 @@ type DeviceNode = dream_models::project::DeviceNode;
 type DeviceRack = dream_models::project::DeviceRack;
 type RackChain = dream_models::project::RackChain;
 
+fn execute_orchestrator_command<C: dream_orchestrator::Command>(
+    project_state: &ProjectState,
+    cmd: &C,
+) -> Result<C::Result, String> {
+    let ctx = dream_orchestrator::OrchestratorContext::new(
+        project_state
+            .project
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+    );
+    let result = ctx.execute(cmd).map_err(|e| e.to_string())?;
+    *project_state.project.lock().map_err(|e| e.to_string())? =
+        ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    Ok(result)
+}
+
 pub mod payloads;
 pub use payloads::*;
 

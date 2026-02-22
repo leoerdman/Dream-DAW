@@ -68,7 +68,7 @@ pub struct AudioEngineHandle {
     /// Shared container for disk streaming handles (OOM prevention).
     /// Files > 50 MB are streamed from disk instead of loaded into RAM.
     /// The audio callback drains pending chunks via try_lock() (non-blocking).
-    pub disk_streamers: Arc<dream_engine::driver::SharedDiskStreamers>,
+    pub disk_streamers: Arc<SharedDiskStreamers>,
 
     /// Estimated hardware output latency in sample frames.
     /// Captured from cpal at stream init. Passed to frontend so the

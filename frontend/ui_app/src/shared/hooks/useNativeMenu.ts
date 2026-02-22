@@ -42,7 +42,7 @@ export function useNativeMenu(onProjectChange?: () => void) {
 // ── Menu Construction ────────────────────────────────────────────────────
 
 async function buildNativeMenu(onProjectChange?: () => void) {
-    const fetchProject = useEngineStore.getState().fetchProject;
+    const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta;
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
@@ -70,7 +70,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.newProject();
-                await fetchProject('native-menu:new');
+                await syncProjectSnapshotDelta('native-menu:new');
                 onProjectChange?.();
                 console.log('[NativeMenu] New project created');
             } catch (err) {
@@ -93,14 +93,14 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 if (isAbleton) {
                     console.warn('[NativeMenu:Open] importing ALS...');
                     await engineApi.importAbletonProject(path);
-                    console.warn('[NativeMenu:Open] ALS import done, calling fetchProject...');
+                    console.warn('[NativeMenu:Open] ALS import done, syncing snapshot-delta...');
                 } else {
                     console.warn('[NativeMenu:Open] opening project...');
                     await engineApi.openProject(path);
-                    console.warn('[NativeMenu:Open] open done, calling fetchProject...');
+                    console.warn('[NativeMenu:Open] open done, syncing snapshot-delta...');
                 }
-                await fetchProject('native-menu:open');
-                console.warn('[NativeMenu:Open] fetchProject completed');
+                await syncProjectSnapshotDelta('native-menu:open');
+                console.warn('[NativeMenu:Open] snapshot-delta sync completed');
                 // Eagerly activate external VST3 plugins and restore their saved state
                 engineApi.eagerActivateExternalPlugins().catch((err) =>
                     console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)
@@ -114,7 +114,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
     });
 
     // Build Open Recent submenu dynamically
-    const recentSubmenu = await buildRecentSubmenu(fetchProject, onProjectChange);
+    const recentSubmenu = await buildRecentSubmenu(syncProjectSnapshotDelta, onProjectChange);
 
     const saveItem = await MenuItem.new({
         id: 'file_save',
@@ -249,7 +249,7 @@ async function handleSaveAs() {
 }
 
 async function buildRecentSubmenu(
-    fetchProject: (reason?: string) => Promise<void>,
+    syncProjectSnapshotDelta: (reason?: string) => Promise<void>,
     onProjectChange?: () => void,
 ): Promise<Submenu> {
     const recentItems: (MenuItem | PredefinedMenuItem)[] = [];
@@ -276,8 +276,8 @@ async function buildRecentSubmenu(
                                     await engineApi.openProject(rp.path);
                                     console.warn('[NativeMenu:OpenRecent] open done');
                                 }
-                                await fetchProject('native-menu:open-recent');
-                                console.warn('[NativeMenu:OpenRecent] fetchProject completed');
+                                await syncProjectSnapshotDelta('native-menu:open-recent');
+                                console.warn('[NativeMenu:OpenRecent] snapshot-delta sync completed');
                                 // Eagerly activate external VST3 plugins and restore their saved state
                                 engineApi.eagerActivateExternalPlugins().catch((err) =>
                                     console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)

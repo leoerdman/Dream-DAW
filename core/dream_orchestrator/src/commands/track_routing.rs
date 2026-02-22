@@ -354,6 +354,9 @@ mod tests {
             DeviceNode::Rack(_) => panic!("expected single slot"),
         };
         let expected = carrier_track_id.to_string();
-        assert_eq!(slot.sidechain_source_track_id.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            slot.sidechain_source_track_id.as_deref(),
+            Some(expected.as_str())
+        );
     }
 }

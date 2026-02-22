@@ -52,21 +52,21 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         }
     }, [open]);
 
-    const fetchProject = useEngineStore.getState().fetchProject;
+    const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
     const handleNew = useCallback(async () => {
         setOpen(false);
         try {
             await engineApi.newProject();
-            await fetchProject('file-menu:new');
+            await syncProjectSnapshotDelta('file-menu:new');
             await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
-    }, [onProjectChange, fetchProject, syncProjectHistory]);
+    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
 
     const handleOpen = useCallback(async () => {
         setOpen(false);
@@ -79,7 +79,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             } else {
                 await engineApi.openProject(path);
             }
-            await fetchProject('file-menu:open');
+            await syncProjectSnapshotDelta('file-menu:open');
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
             engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -90,7 +90,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
-    }, [onProjectChange, fetchProject, syncProjectHistory]);
+    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
 
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
@@ -101,7 +101,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             } else {
                 await engineApi.openProject(path);
             }
-            await fetchProject('file-menu:open-recent');
+            await syncProjectSnapshotDelta('file-menu:open-recent');
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
             engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -112,7 +112,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
-    }, [onProjectChange, fetchProject, syncProjectHistory]);
+    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);

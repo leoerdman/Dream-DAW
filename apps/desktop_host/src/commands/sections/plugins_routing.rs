@@ -771,18 +771,7 @@ fn replace_missing_plugin_slot_cmd(
         external_plugin_version: descriptor.version.clone(),
     };
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
@@ -860,18 +849,7 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
         external_plugin_version: descriptor.version.clone(),
     };
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
@@ -1160,18 +1138,7 @@ fn set_external_plugin_param_for_slot_cmd(
         normalized,
     )
     .map_err(|e| e.to_string())?;
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&lane_cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &lane_cmd)?;
 
     let project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
@@ -1440,19 +1407,7 @@ fn add_plugin_to_track_cmd(
         external_supports_sidechain_input,
     )
     .map_err(|e| e.to_string())?;
-    let cmd_result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let new_slot_id = cmd_result.slot_id;
     let use_instrument = cmd_result.placed_as_instrument;
 
@@ -1659,19 +1614,8 @@ fn remove_plugin_from_track_cmd(
         &payload.slot_id,
     )
     .map_err(|e| e.to_string())?;
-    let runtime_remove_slot = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result.runtime_remove_slot
-    };
+    let runtime_remove_slot =
+        execute_orchestrator_command(&project_state, &cmd)?.runtime_remove_slot;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
@@ -1720,19 +1664,7 @@ fn set_internal_plugin_param_cmd(
         payload.value,
     )
     .map_err(|e| e.to_string())?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     let track_index = result.track_index;
     let sampler_command_needed = result.sampler_command_needed;
     let sampler_cfg_for_rt = result.sampler_cfg_for_rt;
@@ -1935,19 +1867,8 @@ fn set_sampler_sample_cmd(
         payload.root_note,
     )
     .map_err(|e| e.to_string())?;
-    let (track_index, sampler_cfg) = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        (result.track_index, result.sampler_cfg)
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -2180,19 +2101,7 @@ fn set_slot_bypass_cmd(
         slot_id: slot_uuid,
         bypassed,
     };
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     log::info!(
         "[IPC] set_slot_bypass_cmd(track={}, slot={}, bypassed={}, is_instrument={}) plugin={}",
@@ -2285,18 +2194,7 @@ async fn move_effect_slot_cmd(
     };
 
     push_undo(&project_state)?;
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     // Rebuild FX snapshot so the audio engine picks up the new order
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -2334,19 +2232,7 @@ async fn move_effect_slot_with_deltas_cmd(
     };
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let delta_track_id = match target {
@@ -2441,19 +2327,7 @@ fn paste_device_to_track_cmd(
         slot_hint: slot_hint.clone(),
         pasted_node,
     };
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     let use_instrument = result.use_instrument;
     let new_slots = result.new_slots;
     let runtime_add = result.runtime_add;

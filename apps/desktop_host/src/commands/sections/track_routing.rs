@@ -15,21 +15,7 @@ async fn move_track_to_index_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if result.changed {
-            *project_state.project.lock().map_err(|e| e.to_string())? =
-                ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        }
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     if !result.changed {
         return Ok(());
     }
@@ -63,21 +49,7 @@ async fn move_track_to_index_with_deltas_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if result.changed {
-            *project_state.project.lock().map_err(|e| e.to_string())? =
-                ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        }
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     if !result.changed {
         return Ok(TrackManagementDeltaResponse { deltas: vec![] });
     }
@@ -120,19 +92,7 @@ async fn move_track_with_parent_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -165,18 +125,7 @@ async fn set_track_group_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -203,19 +152,7 @@ async fn ungroup_track_cmd(
         .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -252,19 +189,7 @@ async fn move_track_block_to_index_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -301,19 +226,7 @@ async fn duplicate_tracks_cmd(
     }
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     if result.added_tracks.is_empty() {
         return Ok(());
     }
@@ -348,19 +261,7 @@ async fn duplicate_tracks_with_deltas_cmd(
     }
 
     push_undo(&project_state)?;
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        result
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     if result.added_tracks.is_empty() {
         return Ok(TrackManagementDeltaResponse { deltas: vec![] });
     }

@@ -16,6 +16,10 @@ mod plugins_routing_helpers;
 use plugins_routing_helpers::{
     apply_imported_external_state_blob,
     bind_runtime_instance_for_plugin_slots,
+    collect_external_slot_refs,
+    load_external_slot_best_effort,
+    load_external_slots_best_effort,
+    sync_external_fx_snapshot,
     sync_plugin_runtime_and_mark_dirty,
 };
 

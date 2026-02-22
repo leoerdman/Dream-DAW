@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { TypeIcon } from './AssetBrowserPrimitives';
@@ -36,6 +36,7 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
     const pluginTypeLabel = item.pluginSource === 'internal' ? 'Internal' : item.pluginSource === 'vst3' ? 'VST3' : item.pluginSource === 'vst2' ? 'VST2' : item.pluginSource === 'au' ? 'AU' : (item.format || 'Plugin');
     const typeLabel = item.isDirectory ? 'Folder' : (item.type === 'audio' ? (item.format || 'Audio').toUpperCase() : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
     const sizeLabel = item.sizeBytes && !item.isDirectory ? (item.sizeBytes >= 1024 * 1024 ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(item.sizeBytes / 1024)} KB`) : '';
+    void audioDurationSecRef;
 
     return (
         <div

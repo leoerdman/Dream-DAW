@@ -13,7 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
-import type { ProjectDelta } from '@/shared/api/engine';
+import type { PluginSlotRuntimeStatus, ProjectDelta } from '@/shared/api/engine';
 
 // Micro-hook imports
 import { useDeviceRackCore } from './useDeviceRackCore';
@@ -24,7 +24,6 @@ import { useDeviceKeyboardShortcuts } from './useDeviceKeyboardShortcuts';
 import { useDeviceRackDnD } from './useDeviceRackDnD';
 import { useDeviceRackSlotActions } from './useDeviceRackSlotActions';
 import { useDeviceRackLifecycle } from './useDeviceRackLifecycle';
-import type { DeviceRackLogic } from './types';
 import type { AutomationLane } from '@/shared/stores/useAutomationStore';
 
 // --- Types ---
@@ -50,7 +49,7 @@ export interface DeviceRackLogicOutput {
     draggingItem: any;
     sidechainOptions: Array<{ id: string; name: string }>;
     pluginCapability: Record<string, { supported: boolean; reason?: string }>;
-    pluginRuntimeBySlot: Record<string, engineApi.PluginSlotRuntimeStatus>;
+    pluginRuntimeBySlot: Record<string, PluginSlotRuntimeStatus>;
     inlineSettingsOpen: Record<string, boolean>;
     paramSnapshotsByDevice: Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>;
     openEditorsByTrack: Record<string, Set<string>>;
@@ -71,7 +70,7 @@ export interface DeviceRackLogicOutput {
     recallParamSnapshot: (device: any, slot: 'A' | 'B') => void;
     toggleParamSnapshot: (device: any) => void;
     applyQuickUtilityScene: (device: any, scene: 'center' | 'mono' | 'wide') => void;
-    ensureSlotRuntimeActive: (slotId: string) => Promise<engineApi.PluginSlotRuntimeStatus | null>;
+    ensureSlotRuntimeActive: (slotId: string) => Promise<PluginSlotRuntimeStatus | null>;
     setPluginSidechainSource: (slotId: string, sourceTrackId: string) => Promise<void>;
     handleParamContextMenu: (e: React.MouseEvent, paramName: string, deviceId: string) => void;
     setAutoCtxMenu: React.Dispatch<React.SetStateAction<AutoCtxMenuState>>;

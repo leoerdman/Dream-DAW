@@ -1,9 +1,9 @@
 import * as engineApi from '@/shared/api/engine';
-import { MeterStrip } from '@/widgets/MeterStrip';
+import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { DeviceNode } from '@/widgets/DeviceRack/ui/DeviceNode';
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
-import { linearToMeterNorm } from '@/shared/lib/meterUtils';
-import { normalizePickedPath, errorMessage } from '@/shared/lib/helpers';
+import { linearToMeterNorm } from '@/shared/lib/meterManifest';
+import { normalizePickedPath, errorMessage } from '@/widgets/DeviceRack/model/deviceRackCatalog';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
 
 interface DeviceRackContentProps {

@@ -1,45 +1,43 @@
 import type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+export {
+    clampAndSnapParamValue,
+    defaultParamForReset,
+    randomParamValue,
+    resolveQuickPresetParams,
+} from './presets';
 
 export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlot['effectType']>> = {
     'internal://instrument/wave-synth': 'waveSynth',
     'internal://instrument/sampler': 'sampler',
-
     'internal://effect/eq-eight': 'eq',
     'internal://effect/channel-eq': 'eq',
     'internal://effect/eq-three': 'eq',
-
     'internal://effect/compressor': 'compressor',
     'internal://effect/multiband-dynamics': 'compressor',
     'internal://effect/transient-shaper': 'compressor',
-
     'internal://effect/delay': 'delay',
     'internal://effect/echo': 'delay',
     'internal://effect/grain-delay': 'delay',
     'internal://effect/beat-repeat': 'delay',
     'internal://effect/looper': 'delay',
     'internal://effect/spectral-time': 'delay',
-
     'internal://effect/reverb': 'reverb',
     'internal://effect/hybrid-reverb': 'reverb',
     'internal://effect/corpus': 'reverb',
     'internal://effect/resonators': 'reverb',
     'internal://effect/spectral-resonator': 'reverb',
-
     'internal://effect/chorus': 'chorus',
     'internal://effect/saturator': 'saturator',
     'internal://effect/drum-buss': 'saturator',
     'internal://effect/dynamic-tube': 'saturator',
-
     'internal://effect/utility': 'utility',
     'internal://effect/tuner': 'utility',
     'internal://effect/auto-shift': 'utility',
     'internal://effect/shifter': 'utility',
     'internal://effect/external-audio-effect': 'utility',
-
     'internal://effect/limiter': 'limiter',
     'internal://effect/gate': 'gate',
-
     'internal://effect/auto-filter': 'autoFilter',
     'internal://effect/vocoder': 'autoFilter',
     'internal://effect/auto-pan': 'autoPan',
@@ -326,6 +324,8 @@ export const DEVICE_PARAM_PRESETS: Record<
     sample_rack: [],
     rack: [],
 };
+
+export const EFFECT_PARAM_CATALOG = DEVICE_PARAM_PRESETS;
 
 // vuNorm imported from '@/shared/lib/audioMath'
 

@@ -62,19 +62,13 @@ fn add_plugin_to_track_cmd(
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     
-    let mut plugin_load_error: Option<String> = None;
-    if !effective_plugin_id.starts_with("internal://") {
-        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
-            log::warn!(
-                "[IPC] add_plugin_to_track_cmd: plugin '{}' failed to load (slot={}): {}. \
-                 The plugin slot will exist but be inactive until reloaded.",
-                effective_plugin_id,
-                new_slot_id,
-                err
-            );
-            plugin_load_error = Some(format!("Plugin '{}' failed to load: {}", effective_plugin_name, err));
-        }
-    }
+    let plugin_load_error = load_external_slot_best_effort(
+        new_slot_id,
+        &effective_plugin_id,
+        &effective_plugin_name,
+        &plugin_host_state,
+        "add_plugin_to_track_cmd",
+    );
     
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());

@@ -252,9 +252,16 @@ pub(crate) fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugVi
     DELEGATE_CLASS_INIT.call_once(|| {
         // SAFETY: Objective-C runtime functions are called with static class names and validated handles.
         let ns_object_class = unsafe { objc_getClass(c"NSObject".as_ptr() as _) };
+        if ns_object_class.is_null() {
+            log::error!("[VST3-Delegate] objc_getClass('NSObject') returned null");
+            return;
+        }
         // SAFETY: superclass handle above is valid for dynamic subclass creation.
         let new_class = unsafe { objc_allocateClassPair(ns_object_class, class_name, 0) };
-        assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
+        if new_class.is_null() {
+            log::error!("[VST3-Delegate] objc_allocateClassPair failed");
+            return;
+        }
 
         // SAFETY: ivar declarations use stable C layouts/types and newly-created class handle.
         unsafe {
@@ -301,6 +308,10 @@ pub(crate) fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugVi
 
     // SAFETY: class was registered above during `call_once`; lookup by same static name is valid.
     let delegate_class = unsafe { objc_getClass(class_name) };
+    if delegate_class.is_null() {
+        log::error!("[VST3-Delegate] delegate class lookup failed");
+        return;
+    }
     // SAFETY: selector names are static C strings and runtime returns canonical SEL values.
     let sel_alloc = unsafe { sel_registerName(c"alloc".as_ptr() as _) };
     // SAFETY: selector names are static C strings and runtime returns canonical SEL values.

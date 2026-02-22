@@ -92,6 +92,7 @@ pub struct AddPluginToTrackCommand {
 
 #[derive(Debug, Clone, Copy)]
 pub struct AddPluginToTrackResult {
+    pub track_index: usize,
     pub slot_id: Uuid,
     pub placed_as_instrument: bool,
     pub runtime_effect_slot_index: Option<u8>,
@@ -150,14 +151,18 @@ impl Command for AddPluginToTrackCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
-        let track = project
+        let track_index = project
             .tracks
-            .iter_mut()
-            .find(|t| t.id == self.track_id)
+            .iter()
+            .position(|t| t.id == self.track_id)
             .ok_or_else(|| OrchestratorError::NotFound {
                 entity: "Track",
                 id: self.track_id.to_string(),
             })?;
+        let track = project
+            .tracks
+            .get_mut(track_index)
+            .expect("track index resolved from same vector");
 
         let use_instrument = if track.track_type != TrackType::Midi {
             false
@@ -213,6 +218,7 @@ impl Command for AddPluginToTrackCommand {
         }
 
         Ok(AddPluginToTrackResult {
+            track_index,
             slot_id,
             placed_as_instrument: use_instrument,
             runtime_effect_slot_index,

@@ -7,7 +7,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';

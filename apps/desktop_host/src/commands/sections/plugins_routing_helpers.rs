@@ -104,6 +104,98 @@ pub fn apply_imported_external_state_blob(
     Ok(())
 }
 
+pub fn collect_external_slot_refs(project: &Project) -> Vec<(Uuid, String)> {
+    fn collect_external_slots_from_node(node: &DeviceNode, out: &mut Vec<(Uuid, String)>) {
+        match node {
+            DeviceNode::Single(slot) => {
+                if !slot.plugin_id.starts_with("internal://") && !slot.plugin_id.is_empty() {
+                    out.push((slot.id, slot.plugin_id.clone()));
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                for chain in &rack.chains {
+                    for child in &chain.devices {
+                        collect_external_slots_from_node(child, out);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut external_slots: Vec<(Uuid, String)> = Vec::new();
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            collect_external_slots_from_node(inst, &mut external_slots);
+        }
+        for fx in &track.effects {
+            collect_external_slots_from_node(fx, &mut external_slots);
+        }
+    }
+    for fx in &project.master_track.effects {
+        collect_external_slots_from_node(fx, &mut external_slots);
+    }
+    external_slots
+}
+
+pub fn sync_external_fx_snapshot(
+    project: &Project,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+) {
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+}
+
+pub fn load_external_slots_best_effort(
+    slots: &[PluginSlot],
+    plugin_host_state: &State<'_, PluginHostState>,
+    log_context: &str,
+) -> Option<String> {
+    let mut first_error: Option<String> = None;
+    for slot in slots {
+        if slot.plugin_id.starts_with("internal://") {
+            continue;
+        }
+        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
+            log::warn!(
+                "[IPC] {log_context}: plugin '{}' failed to load (slot={}): {}",
+                slot.plugin_id,
+                slot.id,
+                err
+            );
+            if first_error.is_none() {
+                first_error = Some(format!("Plugin '{}' failed to load: {}", slot.name, err));
+            }
+        }
+    }
+    first_error
+}
+
+pub fn load_external_slot_best_effort(
+    slot_id: Uuid,
+    plugin_id: &str,
+    plugin_name: &str,
+    plugin_host_state: &State<'_, PluginHostState>,
+    log_context: &str,
+) -> Option<String> {
+    if plugin_id.starts_with("internal://") {
+        return None;
+    }
+    match plugin_host_state.ensure_loaded_instance_for_slot(slot_id, plugin_id) {
+        Ok(_) => None,
+        Err(err) => {
+            log::warn!(
+                "[IPC] {log_context}: plugin '{}' failed to load (slot={}): {}",
+                plugin_id,
+                slot_id,
+                err
+            );
+            Some(format!("Plugin '{}' failed to load: {}", plugin_name, err))
+        }
+    }
+}
+
 pub fn sync_plugin_runtime_and_mark_dirty(
     project_state: &State<'_, ProjectState>,
     clip_pool_state: &State<'_, ClipPoolState>,

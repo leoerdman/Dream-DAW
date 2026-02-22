@@ -220,7 +220,7 @@ export function DeviceNodeHeader({
             <span
                 style={{
                     fontSize: 6,
-                    color: formatBadgeColor(pluginFormat),
+                    color: formatBadgeColor(pluginFormat as any),
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     flexShrink: 0,
                     opacity: 0.6,

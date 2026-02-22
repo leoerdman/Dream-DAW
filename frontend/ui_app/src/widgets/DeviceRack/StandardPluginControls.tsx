@@ -11,8 +11,9 @@ export interface PluginParam {
 }
 
 const formatPluginParamValue = (param: PluginParam): string => {
+    const v = Number.isFinite(param.value) ? param.value : 0;
     const precision = param.step && param.step < 1 ? 2 : 0;
-    return `${param.value.toFixed(precision)}${param.suffix}`;
+    return `${v.toFixed(precision)}${param.suffix ?? ''}`;
 };
 
 const formatPluginParamName = (raw: string): string => {

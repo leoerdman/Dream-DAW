@@ -4,7 +4,7 @@ import type { DeviceSlot, PluginParam } from '../model/types';
 
 export function useDeviceProbes(
     chain: DeviceSlot[],
-    selectedTrackId: string,
+    _selectedTrackId: string,
     selectedTrack: any,
 ) {
     const [pluginCapability, setPluginCapability] = useState<Record<string, { supported: boolean; reason?: string }>>({});

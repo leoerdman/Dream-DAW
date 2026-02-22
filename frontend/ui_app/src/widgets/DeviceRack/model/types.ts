@@ -1,4 +1,5 @@
 import type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
+export type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
 
 export type DeviceEffectType =
     | 'eq'
@@ -35,6 +36,8 @@ export interface DeviceSlot {
     name: string;
     effectType: DeviceEffectType;
     isEnabled: boolean;
+    isBypassed?: boolean;
+    isMissing?: boolean;
     params: PluginParam[];
     sampleRackConfig?: unknown;
     vuLevel: number;
@@ -42,8 +45,9 @@ export interface DeviceSlot {
     vuLevelR: number;
     pluginId: string;
     isVst: boolean;
-    source: 'internal' | 'vst' | 'unknown';
+    source: 'internal' | 'vst' | 'missing' | 'unknown';
     samplePath?: string;
+    waveformIndex?: number;
     supportsSidechain?: boolean;
     sidechainSourceTrackId?: string | null;
     guiMode?: string;

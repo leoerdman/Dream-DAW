@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { useMemo, useState, type CSSProperties } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MeterStrip } from '@/shared/ui/MeterStrip';

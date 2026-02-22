@@ -18,7 +18,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useRef, useEffect, useState, useMemo } from 'react';
-import { TimelineEngine, type TimelineEngineConfig } from './TimelineEngine';
+import { TimelineEngine } from './TimelineEngine';
+import type { TimelineEngineConfig } from './TimelineEngine.types';
 import type { ViewportSnapshot } from './ViewportMatrix';
 
 // ── Config ────────────────────────────────────────────────────────────────

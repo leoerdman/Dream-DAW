@@ -36,6 +36,12 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         return true;
     }
 
+    if (delta.kind === 'ExternalPluginParamChanged') {
+        // External plugin parameter values are tracked by plugin runtime/editor state.
+        // Treat as handled to keep delta pipeline lockstep without forcing snapshots.
+        return true;
+    }
+
     if (delta.kind === 'PluginSidechainChanged') {
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;

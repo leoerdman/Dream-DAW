@@ -3,8 +3,8 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { DeviceSlot } from '../model/types';
 import { getInternalPluginById, normalizeInternalPluginId, waveformIndexFromSamplePath } from '@/shared/lib/internalPlugins';
-import { dbToMeterNorm } from '@/shared/lib/meterUtils';
-import { EFFECT_PARAM_CATALOG, internalParamIdForControl } from '../model/deviceRackCatalog';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
+import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
 import type { PluginParam } from '../model/types';
 
 export function useDeviceRackCore(selectedTrackId: string) {
@@ -91,7 +91,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
             const normalizedId = normalizeInternalPluginId(pluginId);
             const internalPlugin = normalizedId ? getInternalPluginById(normalizedId) : null;
             const isInternalEffect = !!internalPlugin;
-            const effectType = internalPlugin?.effectType ?? '';
+            const effectType = (INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[normalizedId ?? pluginId] ?? 'vst') as DeviceSlot['effectType'];
 
             let params: PluginParam[] = [];
             let source: 'internal' | 'vst' | 'missing' = 'internal';
@@ -129,7 +129,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
             const vuLevelR = isEnabled ? outLevelR : 0;
 
             let displayName = name;
-            if (internalPlugin) displayName = internalPlugin.displayName ?? internalPlugin.name ?? name;
+            if (internalPlugin) displayName = internalPlugin.name ?? name;
 
             const sidechainSourceTrackId = node.sidechain_source_track_id ?? null;
             const supportsSidechain = node.supports_sidechain_input ?? false;

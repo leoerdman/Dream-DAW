@@ -1,7 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as engineApi from '@/shared/api/engine';
 import type { BrowserItem, PluginGroupedRow } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
-import { useDragStore } from '@/shared/stores/useDragStore';
 import { EmptyAssetState, ScanStatus, VirtualListHeader } from './AssetBrowserVirtualMeta';
 import { AssetListItemRow } from './AssetBrowserRows';
 import { PluginGroupHeaderRow, PluginGroupItemRow } from './AssetBrowserPluginRows';
@@ -144,6 +142,7 @@ export const VirtualFileList = memo(function VirtualFileList({
     const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
+    void columnMenuPos;
 
     return (
         <div

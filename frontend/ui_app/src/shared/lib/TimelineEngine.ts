@@ -19,7 +19,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { ViewportMatrix, type ViewportConfig, type ViewportSnapshot } from './ViewportMatrix';
+import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames } from './audioMath';

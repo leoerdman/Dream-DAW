@@ -2,26 +2,13 @@ import { useCallback, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { DeviceSlot } from '../model/types';
-import { clampAndSnapParamValue } from '../model/deviceRackCatalog';
+import { clampAndSnapParamValue } from '../model/presets';
 import { RUNTIME_PARAM_INDEX_BY_EFFECT, internalParamIdForControl } from '../model/deviceRackCatalog';
-
-type AdaptiveSender = {
-    send: (value: number, pushUndoStep: boolean) => void;
-    cancel: () => void;
-};
-
-type PendingGestureCommit = {
-    source: 'internal' | 'vst';
-    trackId: string;
-    deviceId: string;
-    paramName: string;
-    value: number;
-    paramIndex?: number;
-};
+import type { AdaptiveSender, PendingGestureCommit } from './useDeviceParamGestureTypes';
 
 export function useDeviceParamGestures(
     chain: DeviceSlot[],
-    selectedTrackId: string,
+    _selectedTrackId: string,
     selectedTrack: any,
     projectTracks: any[],
     isMaster: boolean,
@@ -127,9 +114,10 @@ export function useDeviceParamGestures(
                 let sender = throttledExternalParamSendsRef.current.get(key);
                 if (!sender) {
                     sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
-                        await engineApi.setExternalPluginParamForSlot(selectedTrack.id, device.id, paramIndex, v, {
+                        const response = await engineApi.setExternalPluginParamForSlotWithDeltas(selectedTrack.id, device.id, paramIndex, v, {
                             pushUndoStep: pushUndo,
                         });
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-gesture');
                     });
                     throttledExternalParamSendsRef.current.set(key, sender);
                 }
@@ -231,12 +219,13 @@ export function useDeviceParamGestures(
             entries.forEach((entry, index) => {
                 if (entry.source === 'vst') {
                     if (entry.paramIndex == null) return;
-                    void engineApi.setExternalPluginParamForSlot(
+                    void engineApi.setExternalPluginParamForSlotWithDeltas(
                         entry.trackId, entry.deviceId, entry.paramIndex, entry.value,
                         { pushUndoStep: index === 0 },
-                    ).catch((err) => {
-                        console.error('[DeviceRack] setExternalPluginParam(commit) failed:', err);
-                    });
+                    ).then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-commit'))
+                        .catch((err) => {
+                            console.error('[DeviceRack] setExternalPluginParam(commit) failed:', err);
+                        });
                     return;
                 }
 

@@ -6,7 +6,6 @@ import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
-import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
 import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentActionIndicator';
@@ -15,17 +14,16 @@ import { Timeline } from '@/widgets/Timeline/Timeline';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
-import { useEngineStore, type ProjectTrack } from '@/shared/stores/useEngineStore';
-import { useGridStore } from '@/shared/stores/useGridStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
-import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
-import { scrollSync } from '@/shared/lib/useScrollSync';
-import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { beatDurationToFrames, beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { EmptyClipEditor, SampleClipEditor, SessionWorkspace } from './DawShellPanels';
+import { useTrackHeightControls } from './model/useTrackHeightControls';
+import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
+import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
@@ -626,12 +624,15 @@ export const DawShell = () => {
                 next.add(groupId);
                 expanded = false;
             }
-            void engineApi.setGroupExpanded(groupId, expanded).catch((err) => {
-                console.error('[DawShell] setGroupExpanded failed:', err);
-            });
+            void engineApi
+                .setGroupExpandedWithDeltas(groupId, expanded)
+                .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
+                .catch((err) => {
+                    console.error('[DawShell] setGroupExpanded failed:', err);
+                });
             return next;
         });
-    }, []);
+    }, [applyProjectDeltas]);
 
     // ── Compute which track indices are hidden due to group collapse ──
     const hiddenTrackIndices = useMemo(() => {
@@ -899,230 +900,36 @@ export const DawShell = () => {
     const selectedTimelineClipRef = useRef(selectedTimelineClip);
     selectedTimelineClipRef.current = selectedTimelineClip;
 
-    useEffect(() => {
-        const onPointerUp = () => {
-            void flushTrackControlFinals();
-            flushMidiThrottles();
-            // BUG-C14 FIX: Early-exit if no dirty clips.
-            if (dirtyMidiNotesClipIdsRef.current.size === 0 && dirtyMidiEnvelopeClipIdsRef.current.size === 0) return;
-
-            // BUG-P13 FIX: Flush ALL dirty clips, not just the selected one.
-            // If the user edits clip A then switches to clip B before releasing
-            // the pointer, clip A's final undo-stamped save was being skipped.
-            for (const clipId of Array.from(dirtyMidiNotesClipIdsRef.current)) {
-                const notes = latestMidiNotesRef.current[clipId] ?? [];
-                void engineApi
-                    .updateMidiClipWithDeltas(clipId, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
-                    .then(async (response) => {
-                        await applyProjectDeltas(response.deltas, 'midi-notes:pointerup');
-                        dirtyMidiNotesClipIdsRef.current.delete(clipId);
-                    })
-                    .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
-            }
-
-            for (const clipId of Array.from(dirtyMidiEnvelopeClipIdsRef.current)) {
-                const envelopes = latestMidiEnvelopesRef.current[clipId] ?? [];
-                void engineApi
-                    .setMidiClipEnvelopes(clipId, envelopes, { pushUndoStep: true })
-                    .then(() => {
-                        dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
-                    })
-                    .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
-            }
-        };
-        window.addEventListener('pointerup', onPointerUp);
-        return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, flushMidiThrottles, serializeMidiNotesToFrames, applyProjectDeltas]);
+    usePointerUpFinalizer({
+        flushTrackControlFinals,
+        flushMidiThrottles,
+        dirtyMidiNotesClipIdsRef,
+        dirtyMidiEnvelopeClipIdsRef,
+        latestMidiNotesRef,
+        latestMidiEnvelopesRef,
+        serializeMidiNotesToFrames,
+        applyProjectDeltas,
+    });
 
     // ── Scroll sync ──────────────────────────────────────────────────
     // Scroll is synchronized via the scrollSync singleton (useScrollSync.ts).
     // NO React state here — avoids re-rendering the entire DawShell tree
     // on every scroll frame. Timeline and TrackInspector subscribe directly.
-
-    // ── Track Height ────────────────────────────────────────────────
-    const TRACK_HEIGHT_DEFAULT = 48;
-    const TRACK_HEIGHT_MIN = 24;
-    const TRACK_HEIGHT_MAX = 120;
-    const TRACK_HEIGHT_STEP = 1;
-    const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
-    const RULER_HEIGHT = 28;
-    const clampTrackHeight = useCallback((h: number) => {
-        const snapped = Math.round(h / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
-        return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
-    }, []);
-
-    const resolveHeightTargetTrackIds = useCallback((target: EventTarget | null, clientY?: number) => {
-        const element = target instanceof Element ? target : null;
-
-        const inspectorRow = element?.closest?.('[data-track-row="true"][data-track-id]') as HTMLElement | null;
-        const inspectorTrackId = inspectorRow?.getAttribute('data-track-id');
-        if (inspectorTrackId && inspectorTrackId !== 'master') {
-            return [inspectorTrackId];
-        }
-
-        const state = useEngineStore.getState();
-        const projectTracksSnapshot = state.projectTracks;
-        const selectedTrackIds = selectedTrackIdsRef.current;
-        const selectedTrackId = selectedTrackIdRef.current;
-
-        const timelineRoot = element?.closest?.('[data-testid="timeline-view"]') as HTMLElement | null;
-        if (timelineRoot && Number.isFinite(clientY)) {
-            const rect = timelineRoot.getBoundingClientRect();
-            const yInViewport = (clientY as number) - rect.top;
-            const yInTracks = yInViewport - RULER_HEIGHT + scrollSync.scrollY;
-            if (yInTracks >= 0) {
-                let acc = 0;
-                for (const track of projectTracksSnapshot) {
-                    if (!track?.id || track.id === 'master') continue;
-                    const h = clampTrackHeight(typeof track.height === 'number' ? track.height : TRACK_HEIGHT_DEFAULT);
-                    const nextAcc = acc + h;
-                    if (yInTracks < nextAcc) return [track.id];
-                    acc = nextAcc;
-                }
-            }
-        }
-
-        const selected = selectedTrackIds.filter((id) => id && id !== 'master');
-        if (selected.length > 0) return [selected[selected.length - 1]];
-        if (selectedTrackId && selectedTrackId !== 'master') return [selectedTrackId];
-        return [];
-    }, [
-        RULER_HEIGHT,
-        clampTrackHeight,
-        TRACK_HEIGHT_DEFAULT,
-    ]);
-
-    const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {
-        if (trackIds.length === 0) return;
-        const idSet = new Set(trackIds);
-        useEngineStore.setState((state) => {
-            const nextTracks = state.projectTracks.map((track) =>
-                idSet.has(track.id) ? { ...track, height } : track
-            );
-            const nextById = Object.fromEntries(nextTracks.map((t) => [t.id, t]));
-            return {
-                projectTracks: nextTracks,
-                tracksById: nextById,
-                tracks: {
-                    byId: nextById,
-                    allIds: state.tracks.allIds,
-                },
-            };
-        });
-    }, []);
-
-    // Option(Alt)+Wheel: adjust selected track height.
-    // Option(Alt)+0: reset selected track height.
-    useEffect(() => {
-        const WHEEL_STEP_THRESHOLD = 40;
-        let wheelAccumulator = 0;
-        let wheelRafId = 0;
-        let lastWheelEventTarget: EventTarget | null = null;
-        let lastWheelClientY = 0;
-
-        const flushWheelZoom = () => {
-            wheelRafId = 0;
-            const steps = Math.floor(Math.abs(wheelAccumulator) / WHEEL_STEP_THRESHOLD);
-            if (steps <= 0) return;
-
-            const direction = wheelAccumulator < 0 ? 1 : -1;
-            wheelAccumulator -= Math.sign(wheelAccumulator) * steps * WHEEL_STEP_THRESHOLD;
-
-            const trackIds = resolveHeightTargetTrackIds(lastWheelEventTarget, lastWheelClientY);
-            if (trackIds.length === 0) return;
-            const current = projectTracksSnapshot.find((t) => t.id === trackIds[0]);
-            const currentHeight = clampTrackHeight(
-                typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT,
-            );
-            const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP * steps);
-            if (nextHeight === currentHeight) return;
-
-            applyTrackHeightsOptimistic(trackIds, nextHeight);
-            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
-                console.warn('[DawShell] setTrackHeight failed:', err);
-            });
-        };
-
-        const onWheel = (e: WheelEvent) => {
-            if (!e.altKey) return;
-            const target = e.target as HTMLElement | null;
-            const inTimeline = !!target?.closest?.('[data-testid="timeline-view"]');
-            const inInspector = !!target?.closest?.('[data-testid="track-inspector"]');
-            if (!inTimeline && !inInspector) return;
-            e.preventDefault();
-            e.stopPropagation();
-
-            lastWheelEventTarget = e.target;
-            lastWheelClientY = e.clientY;
-
-            wheelAccumulator += e.deltaY;
-            if (!wheelRafId) {
-                wheelRafId = window.requestAnimationFrame(flushWheelZoom);
-            }
-        };
-
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (!e.altKey) return;
-            if (e.key !== '0') return;
-            const target = e.target as HTMLElement | null;
-            const tag = target?.tagName?.toLowerCase();
-            const isTextInput =
-                tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-            if (isTextInput) return;
-            e.preventDefault();
-            const trackIds = resolveHeightTargetTrackIds(e.target);
-            if (trackIds.length === 0) return;
-            const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
-            applyTrackHeightsOptimistic(trackIds, nextHeight);
-            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
-                console.warn('[DawShell] setTrackHeight reset failed:', err);
-            });
-        };
-
-        window.addEventListener('wheel', onWheel, { passive: false, capture: true });
-        window.addEventListener('keydown', onKeyDown, { capture: true });
-        return () => {
-            window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
-            window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
-            if (wheelRafId) {
-                window.cancelAnimationFrame(wheelRafId);
-            }
-        };
-    }, [
-        TRACK_HEIGHT_DEFAULT,
-        TRACK_HEIGHT_STEP,
-        clampTrackHeight,
-        resolveHeightTargetTrackIds,
-        applyTrackHeightsOptimistic,
+    const {
+        trackHeightBase: TRACK_HEIGHT_BASE,
+        timelineTrackHeights,
+        resetTrackHeights: handleResetTrackHeights,
+    } = useTrackHeightControls({
         projectTracksSnapshot,
-    ]);
-
-    // Keep timeline hit-test geometry identical to TrackInspector rows.
-    const timelineTrackHeights = useMemo(() => {
-        const clamp = (h: number) => Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, Math.round(h)));
-        return projectTracksSnapshot.map((t, idx) => {
-            // Collapsed group children → 0 height in Timeline
-            if (hiddenTrackIndices.has(idx)) return 0;
-            const persisted = Number.isFinite(t.height) ? t.height : TRACK_HEIGHT_BASE;
-            return clamp(persisted);
-        });
-    }, [projectTracksSnapshot, TRACK_HEIGHT_BASE, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, hiddenTrackIndices]);
+        hiddenTrackIndices,
+        selectedTrackIdRef,
+        selectedTrackIdsRef,
+        applyProjectDeltas,
+    });
 
     const handleFitTimelineHorizontally = useCallback(() => {
         setFitTimelineToken((v) => v + 1);
     }, []);
-
-    const handleResetTrackHeights = useCallback(() => {
-        const trackIds = projectTracksSnapshot
-            .map((t) => t.id)
-            .filter((id) => id && id !== 'master');
-        if (trackIds.length === 0) return;
-        const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
-        applyTrackHeightsOptimistic(trackIds, nextHeight);
-        void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
-            console.warn('[DawShell] reset track heights failed:', err);
-        });
-    }, [TRACK_HEIGHT_DEFAULT, clampTrackHeight, applyTrackHeightsOptimistic, projectTracksSnapshot]);
 
     // Seek callback: Timeline ruler click → seek in engine (beat-precision)
     const handlePlayheadChange = useCallback((beat: number) => {
@@ -1236,112 +1043,24 @@ export const DawShell = () => {
             .catch((err) => console.error('[DawShell] browser drop failed:', err));
     }, [dropBrowserItemOnTimeline]);
 
-    // Double-click on track lane → create 1-bar MIDI clip
-    const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
-        console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
-        const bpm = projectBpm || transportBpm || 120;
-        const sr = projectSampleRate;
-        // BUG-C20 FIX: Read beatsPerBar from store when available, fall back to 4.
-        const storeState = useEngineStore.getState();
-        const beatsPerBar = (storeState as typeof storeState & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
-        const positionFrames = beatToFrame(beat, bpm, sr);
-        const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sr);
-        createMidiClip(trackIndex, positionFrames, durationFrames);
-    }, [createMidiClip, projectBpm, transportBpm, projectSampleRate]);
-
-    // Clip drag → move clip to new position in engine (syncs audio with visual)
-    const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = projectBpm || transportBpm || 120;
-        const sr = projectSampleRate;
-
-        const dragged = timelineClipsForView.find((c) => c.id === clipId);
-        if (!dragged) return;
-
-        const selectedSet = new Set(selectedClipIds);
-        const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
-
-        const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
-            const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sr);
-            const response = await engineApi.moveClipWithDeltas(id, targetTrack, positionFrames);
-            await applyProjectDeltas(response.deltas, 'clip-move');
-        };
-
-        const run = async () => {
-            if (!moveAsGroup) {
-                await moveOne(clipId, newStartBeat, newTrackIndex);
-                return;
-            }
-
-            const deltaBeat = newStartBeat - dragged.startBeat;
-            const deltaTrack = newTrackIndex - dragged.trackIndex;
-
-            const selectedClips = timelineClipsForView.filter((c) => selectedSet.has(c.id));
-            // Sequential moves to avoid race conditions: each moveOne reads the current
-            // clip state, so parallel moves would each see stale positions for other clips.
-            for (const clip of selectedClips) {
-                const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                // BUG-A5 FIX: Use trackCountRaw (raw project track count) instead of
-                // trackCount (visible-only count). Clip trackIndex references raw project
-                // indices, not visible-only indices. Using visible count could prevent
-                // moves to tracks that exist but are inside collapsed groups.
-                const targetTrack = Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack));
-                await moveOne(clip.id, targetBeat, targetTrack);
-            }
-        };
-
-        run()
-            .then(() => {
-                console.log('[DawShell] Clip move applied', {
-                    clipId,
-                    newTrackIndex,
-                    newStartBeat,
-                    mode: moveAsGroup ? 'group' : 'single',
-                });
-            })
-            .catch(err => {
-                console.error('[DawShell] moveClip failed:', err);
-                useStatusStore.getState().setError(
-                    `Clip move failed: ${err instanceof Error ? err.message : String(err)}`
-                );
-            });
-    }, [projectBpm, transportBpm, projectSampleRate, timelineClipsForView, selectedClipIds, trackCountRaw, applyProjectDeltas]);
-
-    // Clip resize → update position and duration in engine
-    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
-        const bpm = projectBpm || transportBpm || 120;
-        const sr = projectSampleRate;
-        const newPositionFrames = beatToFrame(newStartBeat, bpm, sr);
-        const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sr));
-
-        engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames)
-            .then(async (response) => {
-                await applyProjectDeltas(response.deltas, 'clip-resize');
-                console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
-            })
-            .catch(err => {
-                console.error('[DawShell] resizeClip failed:', err);
-                useStatusStore.getState().setError(
-                    `Clip resize failed: ${err instanceof Error ? err.message : String(err)}`
-                );
-            });
-    }, [projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
-
-    const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
-        engineApi.setClipFadesWithDeltas(
-            clipId,
-            Math.max(0, Math.round(fadeInFrames)),
-            Math.max(0, Math.round(fadeOutFrames)),
-        )
-            .then(async (response) => {
-                await applyProjectDeltas(response.deltas, 'clip-fades');
-            })
-            .catch((err) => console.error('[DawShell] setClipFades failed:', err));
-    }, [applyProjectDeltas]);
-
-    const handleOpenMidiClip = useCallback((clipId: string) => {
-        setSelectedClipIds([clipId]);
-        setBottomPanelModeForActiveTrack('clip');
-    }, [setBottomPanelModeForActiveTrack]);
+    const {
+        handleDoubleClickTrack,
+        handleClipMove,
+        handleClipResize,
+        handleClipFades,
+        handleOpenMidiClip,
+    } = useTimelineClipHandlers({
+        projectBpm,
+        transportBpm: transportBpm || 120,
+        projectSampleRate,
+        timelineClipsForView,
+        selectedClipIds,
+        trackCountRaw,
+        createMidiClip,
+        applyProjectDeltas,
+        setSelectedClipIds,
+        setBottomPanelModeForActiveTrack,
+    });
 
     const flushPendingMidiEdits = useCallback(async () => {
         flushMidiThrottles();
@@ -1555,7 +1274,7 @@ export const DawShell = () => {
                                             onSelectTracks={handleSelectTracks}
                                             onSelectTrack={handleSelectTrack}
                                             trackHeight={TRACK_HEIGHT_BASE}
-                                            rulerHeight={RULER_HEIGHT}
+                                            rulerHeight={28}
 
                                             mixerFocusMode={false}
                                             collapsedGroups={collapsedGroups}

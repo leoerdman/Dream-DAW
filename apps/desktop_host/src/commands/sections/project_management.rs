@@ -320,19 +320,6 @@ fn get_recent_projects(
     Ok(recent.projects)
 }
 
-/// Returns current project wrapped as a snapshot delta event.
-#[tauri::command]
-fn get_project_snapshot_delta_cmd(
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<DeltaMutationResponse, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
-        }],
-    })
-}
-
 /// Returns whether the project has unsaved changes and the current file path.
 #[tauri::command]
 fn get_project_status(

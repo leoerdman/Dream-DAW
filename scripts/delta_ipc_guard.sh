@@ -7,18 +7,18 @@ cd "$ROOT_DIR"
 # Mutating engine API calls that must go through delta variants.
 MUTATORS=(
   setBpm setLoop setTrackVolume setTrackPan setTrackMute setTrackSolo
-  addTrack deleteTrack renameTrack setTrackColor createGroup moveTrackToIndex
+  addTrack deleteTrack renameTrack setTrackHeight setTrackColor createGroup setGroupExpanded moveTrackToIndex
   moveTrackWithParent setTrackGroup ungroupTrack moveTrackBlockToIndex
   duplicateTracks importAudioFile createMidiClip updateMidiClip moveClip resizeClip
   splitClip duplicateClip mergeClips deleteClip setClipMuted setClipsMuted
   resolveMissingFile setAutomationPoints setArrangementGrid setKeySignature
   setTrackRouting setTrackInput setPluginSidechainSource
   paintTrackClipsWithTrackColor
-  addPluginToTrack removePluginFromTrack
+  addPluginToTrack removePluginFromTrack setExternalPluginParamForSlot
   pasteDeviceToTrack setInternalPluginParam setSamplerSample setSampleRackPadSample
   setSampleRackPadVolume setSampleRackPadMute setSampleRackPadSolo
   setSampleRackPadAdsr setSampleRackPadFilterCutoff setClipFades
-  setClipSourceOffset setClipWarp
+  setClipSourceOffset setClipWarp setClipPitch
   bounceSelectionToTrack bounceTrack bounceGroup splitTrackToStems
   undo redo armTrack
   replaceMissingPluginSlot setSlotBypass moveEffectSlot
@@ -69,8 +69,7 @@ if [[ -n "$snapshot_fallback_hits" ]]; then
   exit 1
 fi
 
-legacy_sync_hits="$(rg -n "\\bsyncProjectSnapshotDelta\\b|\\bgetProjectSnapshotDelta\\(" frontend/ui_app/src \
-  -g "!$engine_api_file" || true)"
+legacy_sync_hits="$(rg -n "\\bsyncProjectSnapshotDelta\\b|\\bgetProjectSnapshotDelta\\(" frontend/ui_app/src || true)"
 
 if [[ -n "$legacy_sync_hits" ]]; then
   echo "[DELTA IPC GUARD] FAIL: found legacy snapshot-sync fallback entrypoints:" >&2

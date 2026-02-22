@@ -544,9 +544,6 @@ export const eagerActivateExternalPlugins = () =>
 export const getRecentProjects = () =>
     invoke<RecentProject[]>('get_recent_projects');
 
-export const getProjectSnapshotDelta = () =>
-    invoke<DeltaMutationResponse>('get_project_snapshot_delta_cmd');
-
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
 
 export const createBackup = () => invoke<string>('create_backup_cmd');

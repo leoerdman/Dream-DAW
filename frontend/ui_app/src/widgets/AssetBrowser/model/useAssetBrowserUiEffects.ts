@@ -6,7 +6,6 @@ interface UseAssetBrowserUiEffectsParams {
     leftPaneWidth: number;
     leftPaneWidthRef: React.RefObject<number>;
     setUserFolders: React.Dispatch<React.SetStateAction<string[]>>;
-    prevCategoryRef: React.RefObject<string>;
     selectedCategoryId: string;
     setSelectedCategoryId: React.Dispatch<React.SetStateAction<string>>;
     setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -31,7 +30,6 @@ export function useAssetBrowserUiEffects({
     leftPaneWidth,
     leftPaneWidthRef,
     setUserFolders,
-    prevCategoryRef,
     selectedCategoryId,
     setSelectedCategoryId,
     setExpandedFolders,

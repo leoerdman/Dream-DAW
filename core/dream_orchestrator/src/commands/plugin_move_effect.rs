@@ -25,6 +25,7 @@ impl EffectTrackTarget {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MoveEffectSlotResult {
+    pub track_id: Uuid,
     pub old_slot_index: usize,
     pub new_slot_index: usize,
 }
@@ -41,16 +42,22 @@ impl Command for MoveEffectSlotCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
 
-        let track = match self.target {
-            EffectTrackTarget::Master => &mut project.master_track,
-            EffectTrackTarget::Track(track_id) => project
-                .tracks
-                .iter_mut()
-                .find(|t| t.id == track_id)
-                .ok_or_else(|| OrchestratorError::NotFound {
-                    entity: "Track",
-                    id: track_id.to_string(),
-                })?,
+        let (track_id, track) = match self.target {
+            EffectTrackTarget::Master => {
+                let track_id = project.master_track.id;
+                (track_id, &mut project.master_track)
+            }
+            EffectTrackTarget::Track(track_id) => {
+                let track = project
+                    .tracks
+                    .iter_mut()
+                    .find(|t| t.id == track_id)
+                    .ok_or_else(|| OrchestratorError::NotFound {
+                        entity: "Track",
+                        id: track_id.to_string(),
+                    })?;
+                (track_id, track)
+            }
         };
 
         let old_slot_index = track
@@ -81,6 +88,7 @@ impl Command for MoveEffectSlotCommand {
             })?;
 
         Ok(MoveEffectSlotResult {
+            track_id,
             old_slot_index,
             new_slot_index,
         })

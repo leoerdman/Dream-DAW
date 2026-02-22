@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PeakPair } from '@/shared/api/engine';
 
 export type BrowserGlyphName =

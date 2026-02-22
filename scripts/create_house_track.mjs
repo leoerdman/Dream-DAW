@@ -151,12 +151,9 @@ async function main() {
         log.push('🔍 Samples found: kick=' + !!kickPath + ' clap=' + !!clapPath + ' hat=' + !!hatPath);
 
         // ── 5. Load samples into drum rack pads ──
-        // Get the actual track ID from the snapshot delta event.
-        const snapshotResponse = await safeInvoke('get_project_snapshot_delta_cmd', {});
-        const snapshotProject = snapshotResponse?.deltas?.find?.((d) => d?.kind === 'ProjectSnapshotReplaced')?.data?.project
-            || snapshotResponse?.deltas?.[0]?.data?.project
-            || null;
-        const project = snapshotProject;
+        // Read current project state directly from engine state.
+        const state1 = await safeInvoke('get_state', {});
+        const project = state1?.project ?? null;
         const tracks = project?.tracks || [];
         const drumTrackData = tracks.find(t => t.name === 'Drums');
         const drumTrackId = drumTrackData?.id;
@@ -226,11 +223,9 @@ async function main() {
         });
         log.push('🎸 Bass track created');
 
-        // Re-fetch project snapshot to get updated track list
-        const snapshotResponse2 = await safeInvoke('get_project_snapshot_delta_cmd', {});
-        const project2 = snapshotResponse2?.deltas?.find?.((d) => d?.kind === 'ProjectSnapshotReplaced')?.data?.project
-            || snapshotResponse2?.deltas?.[0]?.data?.project
-            || null;
+        // Re-fetch current state to get updated track list
+        const state2 = await safeInvoke('get_state', {});
+        const project2 = state2?.project ?? null;
         const tracks2 = project2?.tracks || [];
         const bassTrackIdx = tracks2.findIndex(t => t.name === 'Bass');
         

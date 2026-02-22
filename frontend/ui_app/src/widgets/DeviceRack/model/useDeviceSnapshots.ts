@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { DeviceSlot, QuickPreset } from '../model/types';
-import { resolveQuickPresetParams, randomParamValue, defaultParamForReset } from '../model/deviceRackCatalog';
+import { resolveQuickPresetParams, randomParamValue, defaultParamForReset } from '../model/presets';
 
 export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries: Array<{ paramName: string, value: number }>) => void) {
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<

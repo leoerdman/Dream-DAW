@@ -16,10 +16,22 @@ pub struct RuntimeAddDevice {
 }
 
 #[derive(Debug, Clone)]
+pub struct PastedPluginSlotDelta {
+    pub slot_id: Uuid,
+    pub slot_index: usize,
+    pub is_instrument: bool,
+    pub plugin_name: String,
+    pub plugin_uid: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct PasteDeviceToTrackResult {
+    pub track_id: Uuid,
     pub use_instrument: bool,
     pub new_slots: Vec<PluginSlot>,
     pub runtime_add: Option<RuntimeAddDevice>,
+    pub replaced_instrument_slot_id: Option<Uuid>,
+    pub added_slot_deltas: Vec<PastedPluginSlotDelta>,
 }
 
 pub struct PasteDeviceToTrackCommand {
@@ -65,7 +77,10 @@ impl Command for PasteDeviceToTrackCommand {
             .collect();
 
         let mut runtime_add: Option<RuntimeAddDevice> = None;
+        let mut replaced_instrument_slot_id: Option<Uuid> = None;
+        let mut added_slot_deltas: Vec<PastedPluginSlotDelta> = Vec::new();
         if use_instrument {
+            replaced_instrument_slot_id = track.instrument.as_ref().map(DeviceNode::id);
             let pid_lower = plugin_id.to_lowercase();
             if (pid_lower.contains("sampler") || pid_lower.contains("wave-synth"))
                 && track.sampler.is_none()
@@ -73,12 +88,36 @@ impl Command for PasteDeviceToTrackCommand {
                 track.sampler = Some(SamplerConfig::default());
             }
             track.instrument = Some(self.pasted_node.clone());
+            if let Some(inst) = &track.instrument {
+                added_slot_deltas.push(PastedPluginSlotDelta {
+                    slot_id: inst.id(),
+                    slot_index: 0,
+                    is_instrument: true,
+                    plugin_name: inst.name().to_owned(),
+                    plugin_uid: inst.plugin_id().to_owned(),
+                });
+            }
         } else {
             let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(
                 track,
                 self.pasted_node.clone(),
                 None,
             );
+            let pasted_node_id = self.pasted_node.id();
+            if let Some((idx, node)) = track
+                .effects
+                .iter()
+                .enumerate()
+                .find(|(_, node)| node.id() == pasted_node_id)
+            {
+                added_slot_deltas.push(PastedPluginSlotDelta {
+                    slot_id: node.id(),
+                    slot_index: idx,
+                    is_instrument: false,
+                    plugin_name: node.name().to_owned(),
+                    plugin_uid: node.plugin_id().to_owned(),
+                });
+            }
 
             if let DeviceNode::Single(slot) = &self.pasted_node
                 && slot.plugin_id.starts_with("internal://effect/")
@@ -94,9 +133,12 @@ impl Command for PasteDeviceToTrackCommand {
         }
 
         Ok(PasteDeviceToTrackResult {
+            track_id: track.id,
             use_instrument,
             new_slots,
             runtime_add,
+            replaced_instrument_slot_id,
+            added_slot_deltas,
         })
     }
 }

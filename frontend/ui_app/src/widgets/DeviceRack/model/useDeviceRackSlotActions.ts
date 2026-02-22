@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import { errorMessage } from '@/shared/lib/helpers';
+import { errorMessage } from '../model/deviceRackCatalog';
 import type { ProjectDelta } from '@/shared/api/engine';
 
 interface TrackLike {

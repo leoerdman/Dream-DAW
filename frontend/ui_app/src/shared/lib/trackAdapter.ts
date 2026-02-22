@@ -71,7 +71,7 @@ function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
             name: node.name ?? '',
             plugin_id: node.plugin_id ?? '',
             is_bypassed: Boolean(node.is_bypassed ?? false),
-            supports_sidechain_input: node.supports_sidechain_input,
+            supports_sidechain_input: node.supports_sidechain_input ?? undefined,
             sidechain_source_track_id: node.sidechain_source_track_id ?? null,
         };
     }

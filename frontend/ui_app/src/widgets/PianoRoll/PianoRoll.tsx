@@ -41,7 +41,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         activeLane, setActiveLane,
         ratchetCount, setRatchetCount,
         laneValuesByNote,
-        hoveredNoteEdge,
+        hoveredNoteEdge, setHoveredNoteEdge,
         zoomOverrideH, setZoomOverrideH,
         // Computed
         playheadBeat, pixelsPerBeat, totalBeats, clipBeats,
@@ -68,6 +68,27 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         snapBeat, pianoPencilMode, snapEnabled,
         gridDivision, gridTriplet, setGridDivision,
     } = usePianoRollLogic(props);
+    void isDragInProgressRef;
+    void setSelectedNotes;
+    void containerWidth;
+    void isEditorFocused;
+    void clipTranspose;
+    void setClipTranspose;
+    void laneValuesByNote;
+    void totalBeats;
+    void pitchRowIndex;
+    void currentGridInterval;
+    void beatsPerBar;
+    void yToPitch;
+    void copySelection;
+    void pasteClipboard;
+    void ghostNotes;
+    void timeSignature;
+    void trackIndex;
+    void clipStartBeat;
+    void snapBeat;
+    void pianoPencilMode;
+    void snapEnabled;
 
     return (
         <div
@@ -156,7 +177,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     drumMode={drumMode}
                     noteHeight={noteHeight}
                     auditionNote={auditionNote}
-                    stopAudition={stopAudition}
                 />
 
                 {/* Grid area */}
@@ -476,4 +496,3 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
 });
 
 export default PianoRoll;
-

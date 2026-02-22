@@ -23,7 +23,7 @@ interface PianoKeyboardProps {
     drumMode: boolean;
     noteHeight: number;
     auditionNote: (pitch: number, velocity?: number, durationMs?: number) => void;
-    stopAudition: (pitch: number) => void;
+    stopAudition?: (pitch: number) => void;
 }
 
 export const PianoKeyboard = memo(function PianoKeyboard({
@@ -79,8 +79,8 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                             <div
                                 key={key.pitch}
                                 onMouseDown={() => auditionNote(key.pitch, 110, 220)}
-                                onMouseUp={() => stopAudition(key.pitch)}
-                                onMouseLeave={() => stopAudition(key.pitch)}
+                                onMouseUp={() => stopAudition?.(key.pitch)}
+                                onMouseLeave={() => stopAudition?.(key.pitch)}
                                 style={{
                                     position: 'absolute',
                                     top: key.y,

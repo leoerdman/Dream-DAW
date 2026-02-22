@@ -112,7 +112,6 @@ pub(crate) fn invoke_handler()
         open_project,
         import_ableton_project,
         get_recent_projects,
-        get_project_snapshot_delta_cmd,
         get_project_status,
         set_arrangement_grid_cmd,
         set_arrangement_grid_with_deltas_cmd,

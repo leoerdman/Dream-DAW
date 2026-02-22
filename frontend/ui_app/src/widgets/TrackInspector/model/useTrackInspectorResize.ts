@@ -58,8 +58,8 @@ export function useTrackInspectorResize({
                             .applyProjectDeltas(response.deltas, 'track-inspector:resize-track-height'),
                     )
                     .catch((err) => {
-                    console.error('[TrackInspector] setTrackHeight failed:', err);
-                });
+                        console.error('[TrackInspector] setTrackHeight failed:', err);
+                    });
             }
         };
         window.addEventListener('pointermove', onPointerMove, { passive: false });

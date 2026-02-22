@@ -1253,6 +1253,40 @@ impl Track {
         self.clips.is_empty() && self.midi_clips.is_empty()
     }
 
+    /// Returns the last automation value for a parameter lane, if present.
+    ///
+    /// For static import lanes this corresponds to the single imported value.
+    pub fn static_automation_value(&self, param_id: &str) -> Option<f64> {
+        self.automation_lanes
+            .iter()
+            .find(|lane| lane.param_id == param_id)
+            .and_then(|lane| {
+                lane.points
+                    .iter()
+                    .max_by(|a, b| a.beat.total_cmp(&b.beat))
+                    .or_else(|| lane.points.first())
+                    .map(|p| p.value)
+            })
+    }
+
+    /// Effective track output gate derived from model SSOT.
+    ///
+    /// - `mixer.output_enabled` automation lane overrides routing output gate.
+    /// - Missing lane defaults to enabled.
+    pub fn output_enabled_from_model(&self) -> bool {
+        self.static_automation_value("mixer.output_enabled")
+            .map(|v| v >= 0.5)
+            .unwrap_or(true)
+    }
+
+    /// Effective mute used by runtime mixers.
+    ///
+    /// A track is treated as muted if either explicit mute is on, or
+    /// Ableton import marked it as `mixer.output_enabled = 0`.
+    pub fn effective_mute_from_model(&self) -> bool {
+        self.is_mute || !self.output_enabled_from_model()
+    }
+
     /// End position of the last clip on this track.
     pub fn end_position(&self) -> AbsoluteTime {
         let audio_end = self
@@ -2105,6 +2139,33 @@ mod tests {
         assert_eq!(restored.tracks[0].name, "Drums");
         assert_eq!(restored.tracks[0].clips.len(), 1);
         assert_eq!(restored.tracks[0].clips[0].name, "Kick");
+    }
+
+    #[test]
+    fn output_enabled_from_model_defaults_true_without_lane() {
+        let track = Track::new("T");
+        assert!(track.output_enabled_from_model());
+        assert!(!track.effective_mute_from_model());
+    }
+
+    #[test]
+    fn output_enabled_from_model_reads_static_lane() {
+        let mut track = Track::new("T");
+        track.automation_lanes.push(AutomationLane {
+            param_id: "mixer.output_enabled".to_string(),
+            points: vec![AutomationPoint {
+                beat: 0.0,
+                value: 0.0,
+                curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            }],
+        });
+        assert!(!track.output_enabled_from_model());
+        assert!(track.effective_mute_from_model());
     }
 
     // ── New Sprint 13 tests ────────────────────────────────────────────

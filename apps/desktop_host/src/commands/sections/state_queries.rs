@@ -232,7 +232,8 @@ fn get_audio_chain_audit(
         if track.track_type == TrackType::Group {
             group_track_count = group_track_count.saturating_add(1);
         }
-        if track.is_mute {
+        let effective_mute = track.effective_mute_from_model();
+        if effective_mute {
             muted_track_count = muted_track_count.saturating_add(1);
         }
         if track.is_solo {
@@ -303,7 +304,7 @@ fn get_audio_chain_audit(
             track_id: track.id.to_string(),
             name: track.name.clone(),
             track_type: format!("{:?}", track.track_type),
-            muted: track.is_mute,
+            muted: effective_mute,
             solo: track.is_solo,
             parent_track_index,
             output_track_index,

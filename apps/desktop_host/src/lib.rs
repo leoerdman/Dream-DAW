@@ -2343,7 +2343,7 @@ pub(crate) fn sync_track_mix_state_from_project(
             handle,
             EngineCommand::SetTrackMute {
                 track_index: idx,
-                muted: track.is_mute,
+                muted: track.effective_mute_from_model(),
             },
         )?;
         push_command(

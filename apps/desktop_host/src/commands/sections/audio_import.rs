@@ -153,8 +153,8 @@ async fn import_audio_file(
         // Snapshot for undo BEFORE mutation
         push_undo(&project_state)?;
 
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let project_sr = project.sample_rate.max(1.0);
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project_sr = target_sample_rate as f64;
         let source_sr = sample_rate.max(1) as f64;
         let timeline_frames = ((num_frames as f64) * (project_sr / source_sr)).round() as i64;
 
@@ -177,7 +177,17 @@ async fn import_audio_file(
             project.add_track(Track::new(format!("Track {track_num}")));
         }
 
-        project.tracks[idx].clips.push(clip);
+        let target_track = &mut project.tracks[idx];
+        
+        // BUG-C5 FIX: Handle overlaps and maintain sorted order when importing.
+        // Dropping a clip from the browser must wipe underlying overlapping clips
+        // and strictly maintain positional sorting, just like `move_clip`.
+        dream_models::mutators::handle_overlaps(target_track, &clip);
+        let insert_pos = target_track
+            .clips
+            .binary_search_by(|c| c.position.cmp(&clip.position))
+            .unwrap_or_else(|i| i);
+        target_track.clips.insert(insert_pos, clip);
 
         // Mark project dirty
         let project_name = project.name.clone();

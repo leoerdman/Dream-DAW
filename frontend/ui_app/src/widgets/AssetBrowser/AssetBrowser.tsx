@@ -2051,15 +2051,33 @@ export const AssetBrowser = () => {
         });
     }, [items, pluginLetterAnchors, syncPreviewForItem]);
 
-    const scrollSelectedIntoView = useCallback((itemId: string | null) => {
-        if (!itemId) return;
-        const row = itemRowRefs.current[itemId];
-        row?.scrollIntoView({ block: 'nearest' });
-    }, []);
-
     useEffect(() => {
-        scrollSelectedIntoView(selectedItemId);
-    }, [selectedItemId, scrollSelectedIntoView]);
+        if (!selectedItemId) return;
+
+        if (selectedCategoryId === 'plugins') {
+            const row = itemRowRefs.current[selectedItemId];
+            row?.scrollIntoView({ block: 'nearest' });
+            return;
+        }
+
+        // Mathematically enforce virtual scroll position (no DOM hacks)
+        const index = items.findIndex(it => it.id === selectedItemId);
+        if (index === -1) return;
+
+        const el = fileListRef.current;
+        if (!el) return;
+
+        const ROW_HEIGHT = 28;
+        const headerOffset = 24;
+        const itemTop = index * ROW_HEIGHT;
+        const itemBottom = itemTop + ROW_HEIGHT;
+
+        if (itemTop < el.scrollTop + headerOffset) {
+            el.scrollTop = itemTop - headerOffset;
+        } else if (itemBottom > el.scrollTop + el.clientHeight) {
+            el.scrollTop = itemBottom - el.clientHeight;
+        }
+    }, [selectedItemId, items, selectedCategoryId]);
 
     const moveSelection = useCallback((delta: number) => {
         if (items.length === 0) return;

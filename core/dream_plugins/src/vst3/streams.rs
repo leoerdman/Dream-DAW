@@ -62,7 +62,7 @@ unsafe extern "C" fn stream_release(this: *mut IBStream) -> u32 {
     stream.ref_count
 }
 
-unsafe extern "C" fn stream_read(
+pub(crate) unsafe extern "C" fn stream_read(
     this: *mut IBStream,
     buffer: *mut c_void,
     num_bytes: i32,
@@ -107,7 +107,7 @@ unsafe extern "C" fn stream_write_noop(
     K_RESULT_FALSE
 }
 
-unsafe extern "C" fn stream_seek(
+pub(crate) unsafe extern "C" fn stream_seek(
     this: *mut IBStream,
     pos: i64,
     mode: i32,

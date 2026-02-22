@@ -36,22 +36,9 @@ impl Command for SetClipSourceOffsetCommand {
     type Result = ();
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
-        // Check clip exists BEFORE any mutation
-        {
-            let project = ctx.lock_project()?;
-            let found = project
-                .tracks
-                .iter()
-                .any(|t| t.clips.iter().any(|c| c.id == self.clip_id));
-            if !found {
-                return Err(OrchestratorError::NotFound {
-                    entity: "clip",
-                    id: self.clip_id.to_string(),
-                });
-            }
-        }
-
         let mut project = ctx.lock_project()?;
+        let mut updated = false;
+
         for track in &mut project.tracks {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
                 // Clamp source_offset to [0, max_offset] where
@@ -64,8 +51,16 @@ impl Command for SetClipSourceOffsetCommand {
                 clip.source_offset = AbsoluteTime::new(
                     self.source_offset_frames.max(0).min(max_offset),
                 );
+                updated = true;
                 break;
             }
+        }
+
+        if !updated {
+            return Err(OrchestratorError::NotFound {
+                entity: "clip",
+                id: self.clip_id.to_string(),
+            });
         }
 
         Ok(())

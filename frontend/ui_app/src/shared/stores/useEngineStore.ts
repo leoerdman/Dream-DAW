@@ -368,15 +368,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         // optimistic value isn't immediately flickered back to the old BPM.
         _bpmPendingUntil = Date.now() + 500;
         try {
-            await engine.setBpm(bpm);
-            // PERF-FIX (BUG-P3): Debounced fetchProject to coalesce rapid BPM
-            // changes (e.g. dragging the BPM knob). Previously called synchronously
-            // which triggered full project clone + JSON serialize + IPC on every drag frame.
-            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
-            _fetchProjectDebounceTimer = setTimeout(
-                () => void get().fetchProject('setBpm'),
-                FETCH_PROJECT_DEBOUNCE_MS,
-            );
+            await engine.setBpmWithDeltas(bpm);
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -596,12 +588,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     importFile: async (path: string, trackIndex: number, positionFrames?: number) => {
         try {
-            const response = await engine.importAudioFile(path, trackIndex, positionFrames);
+            const response = await engine.importAudioFileWithDeltas(path, trackIndex, positionFrames);
             console.log(
                 `[Engine] Imported '${response.clip_name}' → track ${trackIndex} (${response.duration_seconds.toFixed(1)}s)`,
             );
-            // Refresh project state so Timeline shows the new clip
-            await get().fetchProject('importFile');
+            await get().applyProjectDeltas(response.deltas, 'importFile');
             return response;
         } catch (err) {
             const msg = `Import failed: ${err}`;
@@ -613,13 +604,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     createMidiClip: async (trackIndex: number, positionFrames: number, durationFrames: number) => {
         try {
-            const response = await engine.createMidiClip(trackIndex, positionFrames, durationFrames);
+            const response = await engine.createMidiClipWithDeltas(trackIndex, positionFrames, durationFrames);
             console.log(
                 `[Engine] Created MIDI clip '${response.clip_name}' → track ${trackIndex} @ frame ${positionFrames}`,
             );
-            // PERF-FIX: Debounced fetchProject.
-            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
-            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('createMidiClip'), FETCH_PROJECT_DEBOUNCE_MS);
+            await get().applyProjectDeltas(response.deltas, 'createMidiClip');
         } catch (err) {
             const msg = `Create MIDI clip failed: ${err}`;
             console.error(`[Engine] ${msg}`);
@@ -630,17 +619,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         if (!Array.isArray(deltas) || deltas.length === 0) return;
 
-        let fallbackReason: string | null = null;
         set((s) => {
-            const { nextState, fallbackReason: applyFallbackReason } =
+            const { nextState } =
                 applyProjectDeltasToState(s, deltas, reason);
-            fallbackReason = applyFallbackReason;
             return nextState ?? s;
         });
-
-        if (fallbackReason) {
-            await get().fetchProject(fallbackReason);
-        }
     },
 
     // ── Project Sync ───────────────────────────────────────────────────
@@ -1223,13 +1206,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             instanceIds,
                             (inst) => ({
                                 ...inst,
-                                bypass_requested: false,
-                                status: 'running',
-                                last_error: null,
+                                // Reload means restart request accepted, not full recovery.
+                                // Runtime is expected to pass through Spawning before Ready.
+                                status: 'spawning',
                             }),
                         );
                         _pendingUpdate.pluginSandbox = nextSandbox;
-                        _pendingUpdate.lastError = null;
                         if (!_rafPending) {
                             _rafPending = true;
                             requestAnimationFrame(() => {

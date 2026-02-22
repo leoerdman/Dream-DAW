@@ -1080,4 +1080,99 @@ mod tests {
 
         assert!(recoveries.is_empty());
     }
+
+    #[test]
+    fn repeated_ready_while_running_does_not_duplicate_recovery_event() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        drop(tx);
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Spawning, 2, 1, Some(rx)),
+        );
+
+        let _ = sup.tick_watchdog();
+        let recoveries = sup.drain_recovery_events();
+
+        assert_eq!(recoveries.len(), 1);
+        assert_eq!(recoveries[0].instance_id, id);
+    }
+
+    #[test]
+    fn has_pending_recovery_events_reflects_queue_state() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        drop(tx);
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Spawning, 1, 1, Some(rx)),
+        );
+
+        assert!(!sup.has_pending_recovery_events());
+        let _ = sup.tick_watchdog();
+        assert!(sup.has_pending_recovery_events());
+
+        let drained = sup.drain_recovery_events();
+        assert_eq!(drained.len(), 1);
+        assert!(!sup.has_pending_recovery_events());
+    }
+
+    #[test]
+    fn crashed_then_ready_toggles_shared_crash_flag_and_emits_both_events() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Crashed {
+            instance_id: Some(id),
+            reason: "simulated crash".to_string(),
+        })
+        .unwrap();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        drop(tx);
+
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Running, 1, 0, Some(rx)),
+        );
+        let crash_flag = Arc::new(AtomicBool::new(false));
+        sup.register_crash_flag(id, crash_flag.clone());
+
+        let _ = sup.tick_watchdog();
+
+        // Ready should clear the crash flag after transient crash processing.
+        assert!(!crash_flag.load(Ordering::Relaxed));
+
+        let crashes = sup.drain_crash_events();
+        assert_eq!(crashes.len(), 1);
+        assert_eq!(crashes[0].instance_id, id);
+        assert!(!crashes[0].auto_restarted);
+
+        let recoveries = sup.drain_recovery_events();
+        assert_eq!(recoveries.len(), 1);
+        assert_eq!(recoveries[0].instance_id, id);
+    }
 }

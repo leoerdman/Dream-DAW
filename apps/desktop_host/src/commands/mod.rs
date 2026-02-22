@@ -44,6 +44,7 @@ pub(crate) fn invoke_handler(
         seek_seconds,
         seek_to_beat,
         set_bpm,
+        set_bpm_with_deltas,
         set_loop,
         // Track Control
         set_track_volume,
@@ -105,6 +106,7 @@ pub(crate) fn invoke_handler(
         import_audio_file,
         import_audio_file_with_deltas,
         create_midi_clip_cmd,
+        create_midi_clip_with_deltas_cmd,
         update_midi_clip_cmd,
         set_midi_clip_envelopes_cmd,
         generate_midi_variation_cmd,
@@ -220,6 +222,7 @@ pub(crate) fn invoke_handler(
         move_effect_slot_with_deltas_cmd,
         copy_device_from_track_cmd,
         paste_device_to_track_cmd,
+        paste_device_to_track_with_deltas_cmd,
         // Device Chain
         add_device_cmd,
         remove_device_cmd,

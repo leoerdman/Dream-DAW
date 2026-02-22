@@ -277,6 +277,33 @@ fn set_bpm(
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct TransportDeltaResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[tauri::command]
+fn set_bpm_with_deltas(
+    bpm: f64,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
+) -> Result<TransportDeltaResponse, String> {
+    set_bpm(
+        bpm,
+        handle,
+        project_state,
+        clip_pool_state,
+        automation_runtime,
+        app,
+    )?;
+    Ok(TransportDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TempoChanged { bpm }],
+    })
+}
+
 /// Sets the loop region and enables/disables looping.
 #[tauri::command]
 fn set_loop(

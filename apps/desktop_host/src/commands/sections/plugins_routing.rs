@@ -2618,3 +2618,86 @@ fn paste_device_to_track_cmd(
     }
     Ok(())
 }
+
+#[tauri::command]
+fn paste_device_to_track_with_deltas_cmd(
+    track_id: String,
+    slot_hint: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {track_id}"))?;
+
+    let (before_instrument_id, before_effect_ids): (Option<Uuid>, std::collections::HashSet<Uuid>) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        (
+            track.instrument.as_ref().map(DeviceNode::id),
+            track.effects.iter().map(DeviceNode::id).collect(),
+        )
+    };
+
+    paste_device_to_track_cmd(
+        track_id,
+        slot_hint,
+        project_state.clone(),
+        clip_pool_state,
+        handle,
+        plugin_host_state,
+        app,
+    )?;
+
+    let mut deltas = Vec::new();
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found after paste: {track_uuid}"))?;
+
+        if let Some(inst) = &track.instrument {
+            let inst_id = inst.id();
+            if before_instrument_id != Some(inst_id) {
+                if let Some(old_inst_id) = before_instrument_id {
+                    deltas.push(dream_models::delta::ProjectDelta::PluginRemoved {
+                        track_id: track_uuid,
+                        slot_id: old_inst_id,
+                    });
+                }
+                deltas.push(dream_models::delta::ProjectDelta::PluginAdded {
+                    track_id: track_uuid,
+                    slot_id: inst_id,
+                    slot_index: 0,
+                    is_instrument: true,
+                    plugin_name: inst.name().to_owned(),
+                    plugin_uid: inst.plugin_id().to_owned(),
+                });
+            }
+        }
+
+        for (idx, node) in track.effects.iter().enumerate() {
+            if before_effect_ids.contains(&node.id()) {
+                continue;
+            }
+            deltas.push(dream_models::delta::ProjectDelta::PluginAdded {
+                track_id: track_uuid,
+                slot_id: node.id(),
+                slot_index: idx,
+                is_instrument: false,
+                plugin_name: node.name().to_owned(),
+                plugin_uid: node.plugin_id().to_owned(),
+            });
+        }
+    }
+
+    Ok(PluginMutationDeltaResponse { deltas })
+}

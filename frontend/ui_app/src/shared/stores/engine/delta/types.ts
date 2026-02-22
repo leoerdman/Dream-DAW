@@ -14,7 +14,6 @@ export interface DeltaApplyState {
 
 export interface DeltaApplyResult {
     nextState: Pick<DeltaApplyState, 'timelineClips' | 'clipsById' | 'projectTracks' | 'tracksById'> | null;
-    fallbackReason: string | null;
 }
 
 export interface DeltaWorkingState {
@@ -23,7 +22,6 @@ export interface DeltaWorkingState {
     projectTracks: ProjectTrack[];
     tracksById: Record<string, ProjectTrack>;
     changed: boolean;
-    fallbackReason: string | null;
 }
 
 export interface DeltaEnv {

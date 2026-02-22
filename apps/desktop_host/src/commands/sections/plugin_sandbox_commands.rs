@@ -35,13 +35,11 @@ struct ReloadSandboxInstancesResponse {
     errors: Vec<String>,
 }
 
-/// Manually restart a sandboxed plugin host process and clear forced bypass.
+/// Manually restart a sandboxed plugin host process.
 #[tauri::command]
 fn reload_plugin_sandbox_instance(
     instance_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<PluginSandboxSnapshot, String> {
     let instance_uuid =
@@ -49,20 +47,18 @@ fn reload_plugin_sandbox_instance(
     let slot_ids = plugin_host_state.manual_restart_sandbox_instance(instance_uuid)?;
 
     if !slot_ids.is_empty() {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let changed = set_plugin_slots_bypass_in_project(&mut project, &slot_ids, false);
-        if changed > 0 {
-            clip_pool_state.rebuild_routing_only(&project);
-            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-            let _ = project_state.mark_dirty(&project.name, Some(&app));
-        }
+        // ENTERPRISE/Lazarus: Do NOT clear project-level forced bypass here.
+        // The daemon is only "spawning" after manual restart; clearing bypass
+        // early can route not-yet-recovered plugin output and create glitches.
+        //
+        // Bypass is lifted by the watchdog path when we receive an actual
+        // PluginHostEventMessage::Ready -> PluginRecoveryEvent.
         let _ = app.emit(
             "plugin_sandbox_reloaded",
             serde_json::json!({
                 "instanceId": instance_id,
                 "slotIds": slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                "changedSlots": changed,
+                "changedSlots": 0usize,
             }),
         );
     }
@@ -74,8 +70,6 @@ fn reload_plugin_sandbox_instance(
 #[tauri::command]
 fn reload_unhealthy_plugin_sandboxes(
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<ReloadSandboxInstancesResponse, String> {
     let snapshot = plugin_host_state.sandbox_snapshot()?;
@@ -123,17 +117,10 @@ fn reload_unhealthy_plugin_sandboxes(
         }
     }
 
-    let mut changed_slots = 0usize;
+    // ENTERPRISE/Lazarus: leave changed_slots=0 on restart request.
+    // Forced bypass is cleared only on confirmed recovery (Ready event).
+    let changed_slots = 0usize;
     if !recovered_slot_ids.is_empty() {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        changed_slots =
-            set_plugin_slots_bypass_in_project(&mut project, &recovered_slot_ids, false);
-        if changed_slots > 0 {
-            clip_pool_state.rebuild_routing_only(&project);
-            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-            let _ = project_state.mark_dirty(&project.name, Some(&app));
-        }
         let _ = app.emit(
             "plugin_sandbox_reloaded",
             serde_json::json!({

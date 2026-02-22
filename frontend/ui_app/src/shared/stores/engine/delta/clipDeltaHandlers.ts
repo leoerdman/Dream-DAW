@@ -4,6 +4,28 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 
 export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
+    if (delta.kind === 'ClipAdded') {
+        const track = state.projectTracks[delta.data.track_index];
+        const nextClip: TimelineClip = {
+            id: delta.data.clip_id,
+            name: delta.data.name,
+            trackIndex: delta.data.track_index,
+            startBeat: frameToBeat(delta.data.position, env.bpm, env.sampleRate),
+            durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
+            durationSamples: delta.data.duration,
+            type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
+            color: track?.color ?? '#667788',
+            filePath: delta.data.file_path ?? undefined,
+            sourceOffset: 0,
+            muted: false,
+            midiNotes: delta.data.clip_type === 'midi' ? [] : undefined,
+        };
+        state.timelineClips = [...state.timelineClips, nextClip];
+        state.clipsById = { ...state.clipsById, [nextClip.id]: nextClip };
+        state.changed = true;
+        return true;
+    }
+
     if (delta.kind === 'ClipMoved') {
         const clip = state.clipsById[delta.data.clip_id];
         if (!clip) return true;

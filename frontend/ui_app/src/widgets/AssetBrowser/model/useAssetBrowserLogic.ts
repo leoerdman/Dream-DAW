@@ -395,8 +395,10 @@ export function useAssetBrowserLogic() {
                     );
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-sampler');
                 }
-                await engineApi.setSamplerSample(track.id, item.path);
-                await useEngineStore.getState().fetchProject();
+                {
+                    const response = await engineApi.setSamplerSampleWithDeltas(track.id, item.path);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:set-sampler-sample');
+                }
                 return;
             }
             const trackIndex = projectTracks.findIndex((t) => t.id === track.id);
@@ -406,9 +408,9 @@ export function useAssetBrowserLogic() {
             const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
             const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
             if (enterNonceRef.current !== nonce) return;
-            await engineApi.importAudioFile(item.path, trackIndex, positionFrames);
+            const response = await engineApi.importAudioFileWithDeltas(item.path, trackIndex, positionFrames);
             if (enterNonceRef.current !== nonce) return;
-            await store.fetchProject();
+            await store.applyProjectDeltas(response.deltas, 'asset-browser:import-audio');
         } catch (err) {
             console.error('[AssetBrowser] Enter action failed:', err);
         }

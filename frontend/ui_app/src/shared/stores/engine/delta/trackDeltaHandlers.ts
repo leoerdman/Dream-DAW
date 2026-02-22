@@ -31,7 +31,7 @@ function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<Project
     state.changed = true;
 }
 
-export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
+export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
     if (delta.kind === 'TrackVolumeChanged') {
         patchTrack(state, delta.data.track_id, { volume: delta.data.volume });
         return true;
@@ -46,6 +46,26 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
     if (delta.kind === 'TrackSoloChanged') {
         patchTrack(state, delta.data.track_id, { is_solo: delta.data.soloed });
+        return true;
+    }
+    if (delta.kind === 'TrackSamplerSampleChanged') {
+        const track = state.tracksById[delta.data.track_id];
+        if (!track) return true;
+        patchTrack(state, delta.data.track_id, {
+            sampler: {
+                sample_path: delta.data.sample_path,
+                root_note: track.sampler?.root_note ?? 60,
+                volume: track.sampler?.volume ?? 1,
+                attack: track.sampler?.attack ?? 0.01,
+                decay: track.sampler?.decay ?? 0.2,
+                sustain: track.sampler?.sustain ?? 0.8,
+                release: track.sampler?.release ?? 0.3,
+                osc2_waveform: track.sampler?.osc2_waveform,
+                osc_mix: track.sampler?.osc_mix,
+                detune_cents: track.sampler?.detune_cents,
+                sub_level: track.sampler?.sub_level,
+            },
+        });
         return true;
     }
     if (delta.kind === 'TrackRenamed') {

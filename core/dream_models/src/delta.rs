@@ -41,7 +41,8 @@ pub enum ProjectDelta {
         clip_id: Uuid,
         track_index: usize,
         name: String,
-        file_path: String,
+        clip_type: String,
+        file_path: Option<String>,
         position: i64,
         duration: i64,
     },
@@ -191,8 +192,6 @@ pub enum ProjectDelta {
     /// Loop region changed.
     LoopRegionChanged { start: i64, end: i64, enabled: bool },
 
-    /// Forces frontend to issue a full `fetchProject` for complex mutations.
-    FullRefreshRequired { reason: String },
 }
 
 // ── Delta Event (with metadata) ─────────────────────────────────────────

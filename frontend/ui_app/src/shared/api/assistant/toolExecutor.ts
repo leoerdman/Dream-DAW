@@ -300,7 +300,8 @@ async function executeToolInner(
             const results: { clipId: string; clipName: string; startBeat: number }[] = [];
             for (const def of clipDefs) {
                 const startFrames = Math.round(def.startBeat * fpbBatch);
-                const r = await engineApi.importAudioFile(def.samplePath, def.trackIndex, startFrames);
+                const r = await engineApi.importAudioFileWithDeltas(def.samplePath, def.trackIndex, startFrames);
+                await useEngineStore.getState().applyProjectDeltas(r.deltas, 'agent-batch-import-audio');
                 results.push({ clipId: r.clip_id, clipName: r.clip_name, startBeat: def.startBeat });
             }
             return JSON.stringify({ success: true, clipsCreated: results.length, clips: results, overlapsRemoved: batchOverlapsRemoved });
@@ -528,7 +529,8 @@ async function executeToolInner(
             const fpb3 = (60.0 / bpm3) * sr3;
             const startFrames = Math.round(startBeat * fpb3);
 
-            const result = await engineApi.importAudioFile(samplePath, trackIndex, startFrames);
+            const result = await engineApi.importAudioFileWithDeltas(samplePath, trackIndex, startFrames);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-add-audio-clip');
             return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat, overlapsRemoved: overlapping.length });
         }
 

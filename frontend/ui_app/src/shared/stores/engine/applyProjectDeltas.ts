@@ -21,34 +21,31 @@ export function applyProjectDeltasToState(
         projectTracks: state.projectTracks,
         tracksById: state.tracksById,
         changed: false,
-        fallbackReason: null,
     };
 
     for (const delta of deltas) {
         const handledByClip = applyClipDelta(working, delta, { bpm, sampleRate, reason });
         if (handledByClip) {
-            if (working.fallbackReason) break;
             continue;
         }
 
         const handledByTrack = applyTrackDelta(working, delta, { bpm, sampleRate, reason });
         if (handledByTrack) {
-            if (working.fallbackReason) break;
             continue;
         }
 
         const handledByPlugin = applyPluginDelta(working, delta, { bpm, sampleRate, reason });
         if (handledByPlugin) {
-            if (working.fallbackReason) break;
             continue;
         }
-
-        working.fallbackReason = `${reason}-unhandled-${delta.kind}`;
-        break;
+        // Delta kind intentionally ignored by local reducer. Keep state stable
+        // and avoid forcing heavyweight full-project refreshes.
+        // eslint-disable-next-line no-console
+        console.warn(`[Delta] Unhandled delta ignored (${reason}): ${delta.kind}`);
     }
 
     if (!working.changed) {
-        return { nextState: null, fallbackReason: working.fallbackReason };
+        return { nextState: null };
     }
 
     return {
@@ -58,6 +55,5 @@ export function applyProjectDeltasToState(
             projectTracks: working.projectTracks,
             tracksById: working.tracksById,
         },
-        fallbackReason: working.fallbackReason,
     };
 }

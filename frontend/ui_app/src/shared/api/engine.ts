@@ -66,6 +66,8 @@ export const seekToBeat = (beat: number) =>
 
 /** Set project tempo (BPM). Range: 20–999. */
 export const setBpm = (bpm: number) => invoke<void>('set_bpm', { bpm });
+export const setBpmWithDeltas = (bpm: number) =>
+    invoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm });
 
 /** Set loop region and enable/disable looping. */
 export const setLoop = (enabled: boolean, startFrames: number, endFrames: number) =>
@@ -353,9 +355,19 @@ export interface ImportAudioResponse {
     frames: number;
 }
 
+export interface ImportAudioWithDeltasResponse extends ImportAudioResponse {
+    deltas: ProjectDelta[];
+}
+
 /** Import an audio file, decode it, and place a clip on the specified track. */
 export const importAudioFile = (path: string, trackIndex: number, positionFrames?: number) =>
     invoke<ImportAudioResponse>('import_audio_file', {
+        path,
+        trackIndex,
+        positionFrames: positionFrames ?? null,
+    });
+export const importAudioFileWithDeltas = (path: string, trackIndex: number, positionFrames?: number) =>
+    invoke<ImportAudioWithDeltasResponse>('import_audio_file_with_deltas', {
         path,
         trackIndex,
         positionFrames: positionFrames ?? null,
@@ -368,6 +380,9 @@ interface CreateMidiClipResponse {
     clip_name: string;
     position_frames: number;
     duration_frames: number;
+}
+interface CreateMidiClipWithDeltasResponse extends CreateMidiClipResponse {
+    deltas: ProjectDelta[];
 }
 
 export interface MidiClipNoteUpdate {
@@ -410,6 +425,18 @@ export const createMidiClip = (
     name?: string,
 ) =>
     invoke<CreateMidiClipResponse>('create_midi_clip_cmd', {
+        trackIndex,
+        positionFrames,
+        durationFrames,
+        name: name ?? null,
+    });
+export const createMidiClipWithDeltas = (
+    trackIndex: number,
+    positionFrames: number,
+    durationFrames: number,
+    name?: string,
+) =>
+    invoke<CreateMidiClipWithDeltasResponse>('create_midi_clip_with_deltas_cmd', {
         trackIndex,
         positionFrames,
         durationFrames,
@@ -766,6 +793,7 @@ export interface MergeClipsResponse {
 
 export type ProjectDelta =
     | { kind: 'ClipMoved'; data: { clip_id: string; old_track_index: number; new_track_index: number; new_position: number } }
+    | { kind: 'ClipAdded'; data: { clip_id: string; track_index: number; name: string; clip_type: string; file_path: string | null; position: number; duration: number } }
     | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number } }
     | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
     | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }
@@ -776,6 +804,7 @@ export type ProjectDelta =
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
     | { kind: 'TrackMuteChanged'; data: { track_id: string; muted: boolean } }
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
+    | { kind: 'TrackSamplerSampleChanged'; data: { track_id: string; sample_path: string } }
     | { kind: 'TrackAdded'; data: { track_index: number; track_id: string; name: string; track_type: string } }
     | { kind: 'TrackRemoved'; data: { track_id: string; track_index: number } }
     | { kind: 'TrackRenamed'; data: { track_id: string; new_name: string } }
@@ -1086,6 +1115,11 @@ export const pasteDeviceToTrack = (
     slotHint: 'instrument' | 'effect' | 'auto' = 'auto',
 ) =>
     invoke<void>('paste_device_to_track_cmd', { trackId, slotHint });
+export const pasteDeviceToTrackWithDeltas = (
+    trackId: string,
+    slotHint: 'instrument' | 'effect' | 'auto' = 'auto',
+) =>
+    invoke<DeltaMutationResponse>('paste_device_to_track_with_deltas_cmd', { trackId, slotHint });
 
 /** Set an internal plugin parameter (Utility/Sampler/EQ UI -> backend state). */
 export const setInternalPluginParam = (
@@ -1157,6 +1191,14 @@ export const setSamplerSample = (
     rootNote?: number,
 ) =>
     invoke<void>('set_sampler_sample_cmd', {
+        payload: { trackId, samplePath, rootNote: rootNote ?? null },
+    });
+export const setSamplerSampleWithDeltas = (
+    trackId: string,
+    samplePath: string,
+    rootNote?: number,
+) =>
+    invoke<DeltaMutationResponse>('set_sampler_sample_with_deltas_cmd', {
         payload: { trackId, samplePath, rootNote: rootNote ?? null },
     });
 

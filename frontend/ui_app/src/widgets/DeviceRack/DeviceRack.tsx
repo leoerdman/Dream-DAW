@@ -235,10 +235,13 @@ export const DeviceRack = ({
                                                 statusError('Failed to load sampler sample: invalid file path.');
                                                 return;
                                             }
-                                            await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
                                             selectDevice(device.id, false);
                                             statusClear();
-                                            await fetchProject();
+                                            const response = await engineApi.setSamplerSampleWithDeltas(
+                                                selectedTrack.id,
+                                                normalizedPath,
+                                            );
+                                            await applyProjectDeltas(response.deltas, 'device-rack:set-sampler-sample-drop');
                                         } catch (err) {
                                             console.error('[DeviceRack] sampler device drop failed:', err);
                                             statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
@@ -255,9 +258,12 @@ export const DeviceRack = ({
                                             });
                                             const normalizedPath = normalizePickedPath(picked);
                                             if (normalizedPath) {
-                                                await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                                const response = await engineApi.setSamplerSampleWithDeltas(
+                                                    selectedTrack.id,
+                                                    normalizedPath,
+                                                );
+                                                await applyProjectDeltas(response.deltas, 'device-rack:set-sampler-sample-dialog');
                                                 statusClear();
-                                                await fetchProject();
                                             }
                                         } catch (err) {
                                             console.error('[DeviceRack] setSamplerSample failed:', err);

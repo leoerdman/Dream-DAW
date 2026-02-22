@@ -9,6 +9,15 @@ struct CreateMidiClipResponse {
     duration_frames: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateMidiClipWithDeltasResponse {
+    clip_id: String,
+    clip_name: String,
+    position_frames: i64,
+    duration_frames: i64,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
 /// Creates an empty MIDI clip on a track at a specified position.
 ///
 /// Used when the user double-clicks on a MIDI track to create a new
@@ -62,6 +71,60 @@ async fn create_midi_clip_cmd(
         clip_name,
         position_frames,
         duration_frames,
+    })
+}
+
+#[tauri::command]
+async fn create_midi_clip_with_deltas_cmd(
+    track_index: u32,
+    position_frames: i64,
+    duration_frames: i64,
+    name: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<CreateMidiClipWithDeltasResponse, String> {
+    let response = create_midi_clip_cmd(
+        track_index,
+        position_frames,
+        duration_frames,
+        name,
+        project_state.clone(),
+        handle.clone(),
+        app,
+    )
+    .await?;
+
+    let clip_uuid = Uuid::parse_str(&response.clip_id)
+        .map_err(|_| format!("Invalid MIDI clip UUID: {}", response.clip_id))?;
+    let resolved_track_index = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .iter()
+            .position(|t| t.midi_clips.iter().any(|c| c.id == clip_uuid))
+            .ok_or_else(|| {
+                format!(
+                    "Delta invariant violated: created MIDI clip {} not found",
+                    response.clip_id
+                )
+            })?
+    };
+
+    Ok(CreateMidiClipWithDeltasResponse {
+        clip_id: response.clip_id.clone(),
+        clip_name: response.clip_name.clone(),
+        position_frames: response.position_frames,
+        duration_frames: response.duration_frames,
+        deltas: vec![dream_models::delta::ProjectDelta::ClipAdded {
+            clip_id: clip_uuid,
+            track_index: resolved_track_index,
+            name: response.clip_name,
+            clip_type: "midi".to_string(),
+            file_path: None,
+            position: response.position_frames,
+            duration: response.duration_frames,
+        }],
     })
 }
 

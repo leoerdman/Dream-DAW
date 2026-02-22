@@ -36,8 +36,8 @@ export function useDeviceKeyboardShortcuts(
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 try {
-                    await engineApi.pasteDeviceToTrack(selectedTrack.id, 'auto');
-                    await fetchProject();
+                    const response = await engineApi.pasteDeviceToTrackWithDeltas(selectedTrack.id, 'auto');
+                    await applyProjectDeltas(response.deltas, 'device-rack:paste-device');
                     statusClear();
                     console.log('[DeviceRack] Pasted device to track:', selectedTrack.id);
                 } catch (err) {

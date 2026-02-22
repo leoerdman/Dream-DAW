@@ -1,14 +1,70 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared Audio Buffer — Cross-Process Zero-Copy Audio Transport
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Memory layout (64-byte header + channel data):
+//
+// ┌───────────────────────────────────────────────────────────────────┐
+// │  Offset   │  Size │  Field            │  Access Pattern          │
+// ├───────────┼───────┼───────────────────┼──────────────────────────┤
+// │  0..4     │  4B   │  magic (DRMD)     │  Write-once at creation  │
+// │  4..8     │  4B   │  requested_frames │  Host writes, daemon reads│
+// │  8..12    │  4B   │  request_seq      │  ATOMIC: Host→Daemon     │
+// │  12..16   │  4B   │  processed_seq    │  ATOMIC: Daemon→Host     │
+// │  16..20   │  4B   │  midi_event_count │  Host writes per block   │
+// │  20..52   │  32B  │  midi_events[4]   │  Host writes per block   │
+// │  52..64   │  12B  │  reserved/padding │  —                       │
+// ├───────────┼───────┼───────────────────┼──────────────────────────┤
+// │  64..     │  var  │  input channels   │  Host writes per block   │
+// │  ...      │  var  │  output channels  │  Daemon writes per block │
+// └───────────┴───────┴───────────────────┴──────────────────────────┘
+//
+// Synchronization protocol (seq-based, lock-free):
+//   1. Host writes input samples → sets requested_frames → stores request_seq (Release)
+//   2. Daemon spins on request_seq (Acquire) → processes → stores processed_seq (Release)
+//   3. Host reads processed_seq (Acquire) → reads output samples
+//
+// SAFETY INVARIANTS:
+//   - request_seq and processed_seq use AtomicU32 casts over mmap for tear-free cross-process access.
+//   - Audio channel data is NOT atomically protected; correctness relies on the seq handshake:
+//     the daemon only reads inputs AFTER observing a new request_seq, and the host only reads
+//     outputs AFTER observing a matching processed_seq. This is the standard producer-consumer
+//     pattern with a sequence number fence.
+//   - The mmap file is exclusively created by the host; no third party truncates it.
+
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use memmap2::MmapMut;
 
+// ── Header field offsets ────────────────────────────────────────────────
 pub const HEADER_MAGIC_OFFSET: usize = 0;
 pub const HEADER_REQUESTED_FRAMES_OFFSET: usize = 4;
 pub const HEADER_REQUEST_SEQ_OFFSET: usize = 8;
 pub const HEADER_PROCESSED_SEQ_OFFSET: usize = 12;
+pub const HEADER_MIDI_COUNT_OFFSET: usize = 16;
+pub const HEADER_MIDI_DATA_OFFSET: usize = 20;
+pub const HEADER_TOTAL_BYTES: usize = 64;
+
+/// Maximum number of MIDI events that fit in the shared header.
+/// Each event = 8 bytes: (i32 sample_offset, u8 channel, [u8; 3] data).
+pub const MAX_INLINE_MIDI_EVENTS: usize = 4;
+pub const MIDI_EVENT_STRIDE: usize = 8;
+
 pub const SHARED_AUDIO_MAGIC: u32 = 0x4452_4D44; // "DRMD"
+
+/// Compact MIDI event for shared-memory transport (8 bytes, no heap).
+#[derive(Debug, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct InlineMidiEvent {
+    pub sample_offset: i32,
+    pub channel: u8,
+    pub data: [u8; 3],
+}
+
+// ── Layout ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct SharedAudioBufferLayout {
@@ -23,7 +79,7 @@ impl SharedAudioBufferLayout {
     }
 
     pub fn header_bytes(&self) -> usize {
-        64
+        HEADER_TOTAL_BYTES
     }
 
     pub fn total_bytes(&self) -> usize {
@@ -37,6 +93,8 @@ impl SharedAudioBufferLayout {
     }
 }
 
+// ── Region ──────────────────────────────────────────────────────────────
+
 pub struct SharedAudioBufferRegion {
     pub path: PathBuf,
     pub layout: SharedAudioBufferLayout,
@@ -44,6 +102,7 @@ pub struct SharedAudioBufferRegion {
 }
 
 impl SharedAudioBufferRegion {
+    /// Creates a new shared region file and maps it into memory.
     pub fn create(path: PathBuf, layout: SharedAudioBufferLayout) -> Result<Self, String> {
         let total_bytes = layout.total_bytes();
         if total_bytes == 0 {
@@ -61,25 +120,23 @@ impl SharedAudioBufferRegion {
             .and_then(|_| file.write_all(&[0]))
             .map_err(|e| format!("resize shared region '{}': {e}", path.display()))?;
 
-        // ── Mathematical Invariants for Unsafe Shared Memory ──
-        // SAFETY PROOF (Phase 35 Enterprise Audit):
-        // `MmapMut::map_mut` is unsafe because the underlying file might be truncated
-        // by another process, causing SIGBUS on access. However:
-        // 1. We exclusively create and control this tempfile.
-        // 2. While the memory is shared across process boundaries (violating standard Rust XOR aliasing),
-        //    Undefined Behavior is strictly prevented by our IPC ring buffer synchronization.
-        //    The host only mutates `mmap` when the plugin is blocked waiting for the host's lock.
+        // SAFETY: MmapMut::map_mut is unsafe because the file could be truncated externally.
+        // We exclusively own this tempfile. Cross-process aliasing is synchronized via the
+        // atomic seq-counter handshake (see module-level docs).
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
 
         let mut region = Self { path, layout, mmap };
-        region.set_magic(SHARED_AUDIO_MAGIC);
-        region.set_requested_frames(0);
+        region.write_u32_raw(HEADER_MAGIC_OFFSET, SHARED_AUDIO_MAGIC);
+        region.write_u32_raw(HEADER_REQUESTED_FRAMES_OFFSET, 0);
+        region.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, 0);
+        // Initialize atomic counters via store_release to ensure visibility.
         region.set_request_seq(0);
         region.set_processed_seq(0);
         Ok(region)
     }
 
+    /// Opens an existing shared region file.
     pub fn open_existing(path: PathBuf, layout: SharedAudioBufferLayout) -> Result<Self, String> {
         if !path.exists() {
             return Err(format!("shared region not found: {}", path.display()));
@@ -89,12 +146,13 @@ impl SharedAudioBufferRegion {
             .write(true)
             .open(&path)
             .map_err(|e| format!("open shared region '{}': {e}", path.display()))?;
-        // SAFETY: Same invariant as above. The file descriptor is valid, 
-        // and concurrent Rust XOR mutation violations are prevented dynamically via IPC handshakes.
+        // SAFETY: Same invariant — file is exclusively managed by Dream DAW processes.
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
         Ok(Self { path, layout, mmap })
     }
+
+    // ── Audio Channel I/O ───────────────────────────────────────────────
 
     pub fn write_output_channel(
         &mut self,
@@ -107,7 +165,6 @@ impl SharedAudioBufferRegion {
         if samples.len() > self.layout.max_frames as usize {
             return Err("too many frames for shared buffer");
         }
-
         let base = self.layout.output_offset(output_index);
         let bytes: &[u8] = bytemuck::cast_slice(samples);
         let end = base + bytes.len();
@@ -163,56 +220,141 @@ impl SharedAudioBufferRegion {
         Ok(())
     }
 
-    pub fn region_pulse_byte(&self) -> u8 {
-        self.mmap.first().copied().unwrap_or(0)
+    /// Reads an input channel from the shared region. Used by the daemon
+    /// to read host-written input samples for plugin processing.
+    pub fn read_input_channel(
+        &self,
+        input_index: usize,
+        num_frames: usize,
+        out: &mut [f32],
+    ) -> Result<(), &'static str> {
+        if input_index >= self.layout.num_inputs as usize {
+            return Err("input channel out of range");
+        }
+        if num_frames > self.layout.max_frames as usize || num_frames > out.len() {
+            return Err("requested frames out of bounds");
+        }
+        let base = self.layout.header_bytes() + input_index * self.layout.channel_stride_bytes();
+        let bytes_len = num_frames * std::mem::size_of::<f32>();
+        let end = base + bytes_len;
+        if end > self.mmap.len() {
+            return Err("shared region overflow");
+        }
+        let src = &self.mmap[base..end];
+        let src_f32: &[f32] = bytemuck::cast_slice(src);
+        out[..num_frames].copy_from_slice(src_f32);
+        Ok(())
     }
 
-    fn write_u32(&mut self, offset: usize, value: u32) {
-        let bytes = value.to_le_bytes();
-        if offset + 4 <= self.mmap.len() {
-            self.mmap[offset..offset + 4].copy_from_slice(&bytes);
+    // ── Inline MIDI Events (zero-allocation RT-safe) ────────────────────
+
+    /// Writes MIDI events into the shared header. Truncates at MAX_INLINE_MIDI_EVENTS.
+    /// Returns the number of events actually written.
+    pub fn write_midi_events(&mut self, events: &[InlineMidiEvent]) -> usize {
+        let count = events.len().min(MAX_INLINE_MIDI_EVENTS);
+        self.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, count as u32);
+        let bytes: &[u8] = bytemuck::cast_slice(&events[..count]);
+        let end = HEADER_MIDI_DATA_OFFSET + bytes.len();
+        if end <= self.mmap.len() {
+            self.mmap[HEADER_MIDI_DATA_OFFSET..end].copy_from_slice(bytes);
+        }
+        count
+    }
+
+    /// Reads MIDI events from the shared header. Zero-allocation.
+    pub fn read_midi_events(&self) -> &[InlineMidiEvent] {
+        let count = self.read_u32_raw(HEADER_MIDI_COUNT_OFFSET) as usize;
+        let count = count.min(MAX_INLINE_MIDI_EVENTS);
+        if count == 0 {
+            return &[];
+        }
+        let bytes_len = count * MIDI_EVENT_STRIDE;
+        let end = HEADER_MIDI_DATA_OFFSET + bytes_len;
+        if end > self.mmap.len() {
+            return &[];
+        }
+        bytemuck::cast_slice(&self.mmap[HEADER_MIDI_DATA_OFFSET..end])
+    }
+
+    /// Clears the MIDI event count (call after daemon has consumed events).
+    pub fn clear_midi_events(&mut self) {
+        self.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, 0);
+    }
+
+    // ── Atomic Sequence Counters (cross-process safe) ───────────────────
+    //
+    // These use AtomicU32 pointer casts over the mmap region. This is safe because:
+    // 1. The mmap is page-aligned (OS guarantee), so any 4-byte-aligned offset is naturally aligned.
+    // 2. AtomicU32 has the same size/alignment as u32 on all platforms we target (x86_64, aarch64).
+    // 3. Atomics over mmap are well-defined on macOS/Linux for cross-process synchronization.
+
+    /// Atomically stores the request sequence number with Release ordering.
+    /// Called by the HOST after writing input samples.
+    pub fn set_request_seq(&mut self, seq: u32) {
+        // SAFETY: HEADER_REQUEST_SEQ_OFFSET (8) is 4-byte aligned within the mmap.
+        // AtomicU32 and u32 have identical layout. The mmap pointer is valid and page-aligned.
+        unsafe {
+            let ptr = self.mmap.as_mut_ptr().add(HEADER_REQUEST_SEQ_OFFSET) as *const AtomicU32;
+            (*ptr).store(seq, Ordering::Release);
         }
     }
 
-    fn read_u32(&self, offset: usize) -> u32 {
-        if offset + 4 > self.mmap.len() {
+    /// Atomically loads the request sequence number with Acquire ordering.
+    /// Called by the DAEMON to detect new work.
+    pub fn request_seq(&self) -> u32 {
+        if HEADER_REQUEST_SEQ_OFFSET + 4 > self.mmap.len() {
             return 0;
         }
-        let mut arr = [0u8; 4];
-        arr.copy_from_slice(&self.mmap[offset..offset + 4]);
-        u32::from_le_bytes(arr)
+        // SAFETY: Same alignment proof as set_request_seq.
+        unsafe {
+            let ptr = self.mmap.as_ptr().add(HEADER_REQUEST_SEQ_OFFSET) as *const AtomicU32;
+            (*ptr).load(Ordering::Acquire)
+        }
     }
 
+    /// Atomically stores the processed sequence number with Release ordering.
+    /// Called by the DAEMON after writing output samples.
+    pub fn set_processed_seq(&mut self, seq: u32) {
+        // SAFETY: HEADER_PROCESSED_SEQ_OFFSET (12) is 4-byte aligned within the mmap.
+        unsafe {
+            let ptr = self.mmap.as_mut_ptr().add(HEADER_PROCESSED_SEQ_OFFSET) as *const AtomicU32;
+            (*ptr).store(seq, Ordering::Release);
+        }
+    }
+
+    /// Atomically loads the processed sequence number with Acquire ordering.
+    /// Called by the HOST to detect completed work.
+    pub fn processed_seq(&self) -> u32 {
+        if HEADER_PROCESSED_SEQ_OFFSET + 4 > self.mmap.len() {
+            return 0;
+        }
+        // SAFETY: Same alignment proof as set_processed_seq.
+        unsafe {
+            let ptr = self.mmap.as_ptr().add(HEADER_PROCESSED_SEQ_OFFSET) as *const AtomicU32;
+            (*ptr).load(Ordering::Acquire)
+        }
+    }
+
+    // ── Non-Atomic Header Fields ────────────────────────────────────────
+
     pub fn set_magic(&mut self, magic: u32) {
-        self.write_u32(HEADER_MAGIC_OFFSET, magic);
+        self.write_u32_raw(HEADER_MAGIC_OFFSET, magic);
     }
 
     pub fn magic(&self) -> u32 {
-        self.read_u32(HEADER_MAGIC_OFFSET)
+        self.read_u32_raw(HEADER_MAGIC_OFFSET)
     }
 
     pub fn set_requested_frames(&mut self, frames: u32) {
-        self.write_u32(HEADER_REQUESTED_FRAMES_OFFSET, frames);
+        self.write_u32_raw(HEADER_REQUESTED_FRAMES_OFFSET, frames);
     }
 
     pub fn requested_frames(&self) -> u32 {
-        self.read_u32(HEADER_REQUESTED_FRAMES_OFFSET)
+        self.read_u32_raw(HEADER_REQUESTED_FRAMES_OFFSET)
     }
 
-    pub fn set_request_seq(&mut self, seq: u32) {
-        self.write_u32(HEADER_REQUEST_SEQ_OFFSET, seq);
-    }
-
-    pub fn request_seq(&self) -> u32 {
-        self.read_u32(HEADER_REQUEST_SEQ_OFFSET)
-    }
-
-    pub fn set_processed_seq(&mut self, seq: u32) {
-        self.write_u32(HEADER_PROCESSED_SEQ_OFFSET, seq);
-    }
-
-    pub fn processed_seq(&self) -> u32 {
-        self.read_u32(HEADER_PROCESSED_SEQ_OFFSET)
+    pub fn region_pulse_byte(&self) -> u8 {
+        self.mmap.first().copied().unwrap_or(0)
     }
 
     pub fn flush(&mut self) -> Result<(), String> {
@@ -223,6 +365,24 @@ impl SharedAudioBufferRegion {
 
     pub fn path_ref(&self) -> &Path {
         &self.path
+    }
+
+    // ── Internal Helpers ────────────────────────────────────────────────
+
+    fn write_u32_raw(&mut self, offset: usize, value: u32) {
+        let bytes = value.to_le_bytes();
+        if offset + 4 <= self.mmap.len() {
+            self.mmap[offset..offset + 4].copy_from_slice(&bytes);
+        }
+    }
+
+    fn read_u32_raw(&self, offset: usize) -> u32 {
+        if offset + 4 > self.mmap.len() {
+            return 0;
+        }
+        let mut arr = [0u8; 4];
+        arr.copy_from_slice(&self.mmap[offset..offset + 4]);
+        u32::from_le_bytes(arr)
     }
 }
 
@@ -250,6 +410,78 @@ mod tests {
 
         let reopened = SharedAudioBufferRegion::open_existing(path.clone(), layout).unwrap();
         assert!(reopened.mmap.len() >= 64);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn atomic_seq_roundtrip() {
+        let path = std::env::temp_dir().join(format!(
+            "dream_daw_test_atomic_seq_{}.bin",
+            uuid::Uuid::new_v4()
+        ));
+        let layout = SharedAudioBufferLayout {
+            num_inputs: 2,
+            num_outputs: 2,
+            max_frames: 256,
+        };
+        let mut region = SharedAudioBufferRegion::create(path.clone(), layout).unwrap();
+
+        // Initial state
+        assert_eq!(region.request_seq(), 0);
+        assert_eq!(region.processed_seq(), 0);
+
+        // Simulate host writing seq
+        region.set_request_seq(42);
+        assert_eq!(region.request_seq(), 42);
+
+        // Simulate daemon writing processed seq
+        region.set_processed_seq(42);
+        assert_eq!(region.processed_seq(), 42);
+
+        // Wrapping behavior
+        region.set_request_seq(u32::MAX);
+        assert_eq!(region.request_seq(), u32::MAX);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn inline_midi_roundtrip() {
+        let path = std::env::temp_dir().join(format!(
+            "dream_daw_test_midi_{}.bin",
+            uuid::Uuid::new_v4()
+        ));
+        let layout = SharedAudioBufferLayout {
+            num_inputs: 2,
+            num_outputs: 2,
+            max_frames: 256,
+        };
+        let mut region = SharedAudioBufferRegion::create(path.clone(), layout).unwrap();
+
+        let events = [
+            InlineMidiEvent {
+                sample_offset: 0,
+                channel: 0,
+                data: [0x90, 60, 100], // Note On C4
+            },
+            InlineMidiEvent {
+                sample_offset: 128,
+                channel: 0,
+                data: [0x80, 60, 0], // Note Off C4
+            },
+        ];
+
+        let written = region.write_midi_events(&events);
+        assert_eq!(written, 2);
+
+        let read = region.read_midi_events();
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[0].data, [0x90, 60, 100]);
+        assert_eq!(read[1].sample_offset, 128);
+
+        region.clear_midi_events();
+        assert_eq!(region.read_midi_events().len(), 0);
+
         let _ = std::fs::remove_file(path);
     }
 }

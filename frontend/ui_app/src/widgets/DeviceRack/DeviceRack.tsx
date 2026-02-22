@@ -859,7 +859,7 @@ export const DeviceRack = ({
         };
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsBySlotId, staticLaneValueByParamId]);
+    }, [selectedTrack, localBypass, localParams, outLevel, outLevelL, outLevelR, externalParamsBySlotId, staticLaneValueByParamId]);
 
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!selectedTrack) return;
@@ -1143,7 +1143,7 @@ export const DeviceRack = ({
                 pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
             }
         },
-        [selectedTrack, projectTracks, createAdaptiveParamSender],
+        [selectedTrack, projectTracks, isMaster, createAdaptiveParamSender],
     );
 
     const beginParamGesture = useCallback((deviceId: string, paramName: string, gestureGroupId?: string) => {

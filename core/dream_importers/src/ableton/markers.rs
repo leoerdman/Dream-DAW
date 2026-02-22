@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 use crate::ableton::xml_helpers::*;
-use crate::ableton::color_map::ableton_color_to_track_color;
+use crate::ableton::color_map::{ableton_color_to_track_color, extract_ableton_color_index};
 use dream_models::project;
 use uuid::Uuid;
 
@@ -32,11 +32,7 @@ pub fn parse_project_markers(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("Marker {}", idx + 1));
-        let color = first_child_value(locator, "Color")
-            .or_else(|| locator.attribute("Color").map(|s| s.to_string()))
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| ableton_color_to_track_color(v, idx));
+        let color = extract_ableton_color_index(locator).map(|v| ableton_color_to_track_color(v, idx));
         out.push(project::ProjectMarker {
             id: Uuid::new_v4(),
             name,
@@ -63,13 +59,7 @@ pub fn parse_project_markers(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("Cue {}", idx + 1));
-        let color = cue
-            .attribute("Color")
-            .map(|s| s.to_string())
-            .or_else(|| first_child_value(cue, "Color"))
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| ableton_color_to_track_color(v, idx));
+        let color = extract_ableton_color_index(cue).map(|v| ableton_color_to_track_color(v, idx));
         out.push(project::ProjectMarker {
             id: Uuid::new_v4(),
             name,
@@ -117,9 +107,7 @@ pub fn parse_project_scenes(
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("Scene {}", index + 1));
 
-        let color = first_child_value(scene, "Color")
-            .as_deref()
-            .and_then(parse_i64_value)
+        let color = extract_ableton_color_index(scene)
             .and_then(|v| (v >= 0).then_some(ableton_color_to_track_color(v, fallback_idx)));
 
         let tempo = first_child_f64(scene, "Tempo").filter(|v| v.is_finite() && *v > 0.0);
@@ -171,4 +159,51 @@ pub fn parse_project_scenes(
 
     out.sort_by_key(|s| s.index);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dream_models::project::TrackColor;
+
+    #[test]
+    fn parses_marker_colors_from_colorindex_forms() {
+        let xml = r#"
+        <LiveSet>
+          <Locators>
+            <Locator>
+              <Name Value="L1"/>
+              <Time Value="4"/>
+              <ColorIndex Value="24"/>
+            </Locator>
+          </Locators>
+          <CuePoint Name="C1" Time="8" ColorIndex="17"/>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc.root_element();
+        let markers = parse_project_markers(live_set);
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[0].color, Some(TrackColor::Blue));
+        assert_eq!(markers[1].color, Some(TrackColor::Teal));
+    }
+
+    #[test]
+    fn parses_scene_color_from_colorindex() {
+        let xml = r#"
+        <LiveSet>
+          <Scenes>
+            <Scene Id="0">
+              <Name Value="Scene A"/>
+              <ColorIndex Value="24"/>
+            </Scene>
+          </Scenes>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc.root_element();
+        let scenes = parse_project_scenes(live_set);
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].color, Some(TrackColor::Blue));
+    }
 }

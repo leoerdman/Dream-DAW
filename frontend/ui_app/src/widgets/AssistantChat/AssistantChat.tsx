@@ -193,7 +193,7 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
             }
         });
         return () => { cancelled = true; };
-    }, [open, projectId /* re-run when project conceptually changes */]);
+    }, [open, projectId, historyLoadedForId, isStreaming /* re-run when project conceptually changes */]);
 
     // ── Persist history on every message change ──
     const lastSavedRef = useRef('');
@@ -222,9 +222,11 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
 
     // ── Cleanup on unmount ──
     useEffect(() => {
+        const recorder = mediaRecorderRef.current;
+        const recognition = recognitionRef.current;
         return () => {
-            recognitionRef.current?.abort();
-            mediaRecorderRef.current?.stop();
+            recognition?.abort();
+            recorder?.stop();
         };
     }, []);
 
@@ -361,7 +363,7 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
             abortRef.current = null;
             _isSending = false;
         }
-    }, [isStreaming, apiKey, messages, model, onSelectClips, streamText]);
+    }, [isStreaming, apiKey, messages, model, onSelectClips]);
 
     // ── UI send handler (reads from input field) ──
     const handleSend = useCallback(() => {

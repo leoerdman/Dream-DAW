@@ -1153,7 +1153,7 @@ export const AssetBrowser = () => {
         engineApi.getBrowserFolders()
             .then(folders => setUserFolders(folders))
             .catch(err => console.warn('[Browser] Failed to load folders:', err));
-    }, []);
+    }, [columnMenuPos]);
 
     // Build dynamic categories (static + user folders)
     const categories = useMemo<BrowserCategory[]>(() => {
@@ -1198,7 +1198,7 @@ export const AssetBrowser = () => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, []);
+    }, [columnMenuPos]);
 
     useEffect(() => {
         const focusBrowserSearch = (evt: Event) => {
@@ -1821,7 +1821,7 @@ export const AssetBrowser = () => {
             window.removeEventListener('mousedown', onMouseDown);
             window.removeEventListener('keydown', onKeyDown);
         };
-    }, []);
+    }, [columnMenuPos]);
 
 
 

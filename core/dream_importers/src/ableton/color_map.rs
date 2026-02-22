@@ -8,6 +8,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 use dream_models::project::TrackColor;
+use crate::ableton::xml_helpers::{node_child_value, parse_i64_value};
 
 /// Maps an Ableton color index (0–69) to the nearest TrackColor variant.
 /// Falls back to `TrackColor::for_index(fallback)` for out-of-range indices.
@@ -49,25 +50,63 @@ pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
     }
 }
 
-/// Returns the exact Ableton Live hex color for a given color index (0–69).
+/// Returns a stable UI hex color for a given Ableton color index.
 ///
-/// Ableton uses a 70-color palette arranged in a 14×5 grid.
+/// We intentionally derive this from the same 70→16 semantic mapping as
+/// `ableton_color_to_track_color` so track/clip colors stay consistent
+/// throughout the app even when ALS variants use different palette internals.
 pub fn ableton_color_index_to_hex(index: i64) -> Option<&'static str> {
-    const ABLETON_COLORS: [&str; 70] = [
-        "#FF94A6", "#FFA529", "#CC9927", "#F7F47C", "#BEFA40", "#20FF32", "#25FEA9",
-        "#5CFFE8", "#8DC7FA", "#5480E4", "#92A8FB", "#D170DA", "#E156A1", "#FFFFFF",
-        "#FF3636", "#F66C03", "#997551", "#FFF034", "#87FF67", "#3DC300", "#00BFA8",
-        "#19E9FD", "#10A4EE", "#007DC0", "#886CE4", "#B677C6", "#FF39D4", "#D0D0D0",
-        "#E2675A", "#FFA374", "#D3AD71", "#EDFFAE", "#D2E498", "#BAD074", "#9FC48D",
-        "#D4FDE1", "#CDF1F8", "#B9C1E3", "#CDBADB", "#AF97E4", "#E5DDE1", "#A9A9A9",
-        "#C6928B", "#B58057", "#9A8468", "#BEBA6F", "#A3B82C", "#85B054", "#90C3BB",
-        "#9EBAC1", "#8BA7BF", "#8998C8", "#A99AB5", "#BEA4BC", "#BD7396", "#7B7B7B",
-        "#AF3333", "#A85131", "#724F41", "#DFC133", "#85982C", "#529F36", "#0A9C8E",
-        "#236384", "#1A2F96", "#2F52A2", "#624BAD", "#A34BAD", "#CC2E6E", "#3E3E3E",
-    ];
-    if (0..=69).contains(&index) {
-        Some(ABLETON_COLORS[index as usize])
-    } else {
-        None
+    (0..=69)
+        .contains(&index)
+        .then(|| ableton_color_to_track_color(index, 0).hex())
+}
+
+/// Extracts an Ableton color index from the known ALS representations.
+///
+/// Supports both element and attribute forms:
+/// - `<Color Value="17"/>`
+/// - `<ColorIndex Value="17"/>`
+/// - `Color="17"`
+/// - `ColorIndex="17"`
+pub fn extract_ableton_color_index(node: roxmltree::Node<'_, '_>) -> Option<i64> {
+    node_child_value(node, "Color")
+        .or_else(|| node_child_value(node, "ColorIndex"))
+        .or_else(|| node.attribute("Color").map(|s| s.to_string()))
+        .or_else(|| node.attribute("ColorIndex").map(|s| s.to_string()))
+        .as_deref()
+        .and_then(parse_i64_value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_hex_is_derived_from_track_color_mapping() {
+        assert_eq!(ableton_color_index_to_hex(17), Some(TrackColor::Teal.hex()));
+        assert_eq!(ableton_color_index_to_hex(24), Some(TrackColor::Blue.hex()));
+        assert_eq!(ableton_color_index_to_hex(56), Some(TrackColor::Slate.hex()));
+        assert_eq!(ableton_color_index_to_hex(-1), None);
+        assert_eq!(ableton_color_index_to_hex(70), None);
+    }
+
+    #[test]
+    fn extract_color_index_supports_node_and_attribute_forms() {
+        let xml = r#"
+        <Root>
+          <A><Color Value="12"/></A>
+          <B><ColorIndex Value="24"/></B>
+          <C Color="33" />
+          <D ColorIndex="48" />
+        </Root>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let root = doc.root_element();
+        let nodes: Vec<_> = root.children().filter(|n| n.is_element()).collect();
+
+        assert_eq!(extract_ableton_color_index(nodes[0]), Some(12));
+        assert_eq!(extract_ableton_color_index(nodes[1]), Some(24));
+        assert_eq!(extract_ableton_color_index(nodes[2]), Some(33));
+        assert_eq!(extract_ableton_color_index(nodes[3]), Some(48));
     }
 }

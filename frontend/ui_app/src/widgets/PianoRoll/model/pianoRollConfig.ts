@@ -69,7 +69,6 @@ export const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 
 export const OCTAVE_LABEL_OFFSET = -2;
 export const DEFAULT_FOCUS_PITCH = 60;
 
-export type GridDivision = '1/1' | '1/4' | '1/8' | '1/16' | '1/32' | '1/64';
 export const MIDI_GRID_PRESETS: Array<{ label: string; division: GridDivision }> = [
     { label: '1 Bar', division: '1/1' },
     { label: '1/4', division: '1/4' },
@@ -100,3 +99,4 @@ export const isBlackKey = (pitch: number): boolean => {
 };
 
 export const genNoteId = (): string => crypto.randomUUID();
+import type { GridDivision } from '@/shared/lib/gridSnap';

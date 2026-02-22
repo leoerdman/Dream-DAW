@@ -38,6 +38,7 @@ use dream_importers::ableton::automation::{
 use dream_importers::ableton::color_map::{
     ableton_color_index_to_hex,
     ableton_color_to_track_color,
+    extract_ableton_color_index,
 };
 use dream_importers::ableton::routing::{
     choose_preferred_output_target,
@@ -121,15 +122,6 @@ fn encode_missing_meta(raw: &str) -> String {
             }
         })
         .collect::<String>()
-}
-
-fn extract_ableton_color_index(node: roxmltree::Node<'_, '_>) -> Option<i64> {
-    node_child_value(node, "Color")
-        .or_else(|| node_child_value(node, "ColorIndex"))
-        .or_else(|| node.attribute("Color").map(|s| s.to_string()))
-        .or_else(|| node.attribute("ColorIndex").map(|s| s.to_string()))
-        .as_deref()
-        .and_then(parse_i64_value)
 }
 
 fn make_missing_external_plugin_slot_with_metadata(
@@ -902,9 +894,9 @@ mod als_import_tests {
 
     #[test]
     fn ableton_color_hex_matches_enum_mapping_for_common_indices() {
-        assert_eq!(ableton_color_index_to_hex(17), Some("#FFF034"));
-        assert_eq!(ableton_color_index_to_hex(24), Some("#886CE4"));
-        assert_eq!(ableton_color_index_to_hex(56), Some("#AF3333"));
+        assert_eq!(ableton_color_index_to_hex(17), Some("#4DC7B0"));
+        assert_eq!(ableton_color_index_to_hex(24), Some("#4D7AE3"));
+        assert_eq!(ableton_color_index_to_hex(56), Some("#8C949E"));
         assert_eq!(ableton_color_index_to_hex(-1), None);
         assert_eq!(ableton_color_index_to_hex(70), None);
     }
@@ -926,6 +918,48 @@ mod als_import_tests {
         assert_eq!(extract_ableton_color_index(nodes[1]), Some(24));
         assert_eq!(extract_ableton_color_index(nodes[2]), Some(33));
         assert_eq!(extract_ableton_color_index(nodes[3]), Some(48));
+    }
+
+    #[test]
+    fn als_color_regression_again_v117_tracks_are_stable() {
+        use std::path::PathBuf;
+
+        let Some(path_raw) = std::env::var("DREAM_DAW_ALS_COLOR_AUDIT_PATH").ok() else {
+            eprintln!(
+                "skip: set DREAM_DAW_ALS_COLOR_AUDIT_PATH=/abs/path/to/Again\\ V117.als"
+            );
+            return;
+        };
+        let als_path = PathBuf::from(path_raw);
+        if !als_path.exists() {
+            eprintln!("skip: ALS path not found: {}", als_path.display());
+            return;
+        }
+
+        let project = import_als_project(&als_path).unwrap_or_else(|e| {
+            panic!("import failed for {}: {e}", als_path.display());
+        });
+        assert!(
+            !project.tracks.is_empty(),
+            "no tracks imported from {}",
+            als_path.display()
+        );
+
+        let drums = project
+            .tracks
+            .iter()
+            .find(|t| t.name.trim().eq_ignore_ascii_case("DRUMS"))
+            .expect("missing DRUMS track");
+        let vox = project
+            .tracks
+            .iter()
+            .find(|t| t.name.trim().eq_ignore_ascii_case("VOX"))
+            .expect("missing VOX track");
+
+        assert_eq!(drums.color, TrackColor::Teal);
+        assert_eq!(drums.color_hex.as_deref(), Some(TrackColor::Teal.hex()));
+        assert_eq!(vox.color, TrackColor::Blue);
+        assert_eq!(vox.color_hex.as_deref(), Some(TrackColor::Blue.hex()));
     }
 
     #[test]
@@ -2079,6 +2113,136 @@ mod als_import_tests {
                 als_path.display()
             );
         }
+    }
+
+    #[test]
+    fn audit_als_device_chain_depth_vs_xml() {
+        use std::path::PathBuf;
+
+        fn count_device_tree_nodes(node: &DeviceNode) -> usize {
+            match node {
+                DeviceNode::Single(_) => 1,
+                DeviceNode::Rack(rack) => {
+                    1 + rack
+                        .chains
+                        .iter()
+                        .map(|chain| chain.devices.iter().map(count_device_tree_nodes).sum::<usize>())
+                        .sum::<usize>()
+                }
+            }
+        }
+
+        let Some(als_path_raw) = std::env::var("DREAM_DAW_ALS_DEVICE_AUDIT_PATH").ok() else {
+            eprintln!(
+                "skip: set DREAM_DAW_ALS_DEVICE_AUDIT_PATH=/abs/path/to/project.als to run device-depth audit"
+            );
+            return;
+        };
+        let als_path = PathBuf::from(als_path_raw);
+        if !als_path.exists() {
+            eprintln!("skip: ALS path not found: {}", als_path.display());
+            return;
+        }
+
+        let project = import_als_project(&als_path).unwrap_or_else(|e| {
+            panic!("import failed for {}: {e}", als_path.display());
+        });
+        assert!(
+            !project.tracks.is_empty(),
+            "no tracks imported from {}",
+            als_path.display()
+        );
+
+        let xml_text = read_als_xml_text_from_importer(&als_path).expect("als text");
+        let doc = parse_als_document_from_importer(&xml_text).expect("als doc");
+        let live_set = find_live_set_from_importer(&doc).expect("live set");
+        let tracks_node = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Tracks"))
+            .or_else(|| {
+                live_set
+                    .descendants()
+                    .find(|n| n.is_element() && n.has_tag_name("Tracks"))
+            })
+            .expect("tracks node");
+
+        let xml_track_nodes: Vec<roxmltree::Node<'_, '_>> = tracks_node
+            .children()
+            .filter(|n| n.is_element())
+            .filter(|n| {
+                matches!(
+                    n.tag_name().name(),
+                    "AudioTrack" | "MidiTrack" | "GroupTrack" | "ReturnTrack"
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            xml_track_nodes.len(),
+            project.tracks.len(),
+            "xml/imported track count mismatch in {}",
+            als_path.display()
+        );
+
+        let mut xml_multi_device_tracks = 0usize;
+        let mut imported_multi_device_tracks = 0usize;
+        let mut severe_collapses: Vec<(usize, usize, usize, String)> = Vec::new();
+
+        for (idx, (track_node, imported_track)) in xml_track_nodes.iter().zip(project.tracks.iter()).enumerate() {
+            let xml_nodes = collect_track_devices(*track_node).len();
+            let imported_nodes = imported_track
+                .instrument
+                .as_ref()
+                .map(count_device_tree_nodes)
+                .unwrap_or(0)
+                + imported_track
+                    .effects
+                    .iter()
+                    .map(count_device_tree_nodes)
+                    .sum::<usize>();
+
+            if xml_nodes >= 2 {
+                xml_multi_device_tracks += 1;
+            }
+            if imported_nodes >= 2 {
+                imported_multi_device_tracks += 1;
+            }
+
+            if xml_nodes >= 2 && imported_nodes <= 1 {
+                severe_collapses.push((idx, xml_nodes, imported_nodes, imported_track.name.clone()));
+            }
+        }
+
+        eprintln!(
+            "[ALS Device Audit] file='{}' tracks={} xml_multi={} imported_multi={} severe_collapses={}",
+            als_path.display(),
+            project.tracks.len(),
+            xml_multi_device_tracks,
+            imported_multi_device_tracks,
+            severe_collapses.len()
+        );
+
+        for (idx, xml_nodes, imported_nodes, name) in severe_collapses.iter().take(20) {
+            eprintln!(
+                "[ALS Device Audit] collapse track={} name='{}' xml_nodes={} imported_nodes={}",
+                idx,
+                name,
+                xml_nodes,
+                imported_nodes
+            );
+        }
+
+        assert!(
+            xml_multi_device_tracks > 0,
+            "no multi-device tracks found in xml for {}",
+            als_path.display()
+        );
+        assert!(
+            severe_collapses.is_empty(),
+            "found {} severe device-chain collapses in {}",
+            severe_collapses.len(),
+            als_path.display()
+        );
     }
 
     #[test]

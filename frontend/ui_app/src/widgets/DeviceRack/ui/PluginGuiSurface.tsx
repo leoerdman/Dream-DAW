@@ -238,7 +238,7 @@ export const PluginGuiSurface = ({
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
-    }, [dragEqBand, onParamChange, endEqBandGesture]);
+    }, [dragEqBand, onParamChange, endEqBandGesture, eqBandFilterTypes]);
 
     // Close context menu on click outside
     useEffect(() => {

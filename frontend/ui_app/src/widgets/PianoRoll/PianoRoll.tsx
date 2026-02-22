@@ -21,7 +21,6 @@
 import { useState, useCallback, useRef, useMemo, useEffect, memo } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import type { GridDivision } from '@/shared/lib/gridSnap';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 import {
@@ -32,18 +31,15 @@ import {
     HIGHEST_PITCH,
     isBlackKey,
     isInScale,
-    KEYBOARD_WIDTH,
     KEY_NAMES,
     MAX_NOTE_HEIGHT,
     MAX_PPB,
-    MIDI_GRID_PRESETS,
     MIN_NOTE_BEATS,
     MIN_NOTE_HEIGHT,
     MIN_PPB,
     OCTAVE_LABEL_OFFSET,
     ROOT_NOTES,
     RULER_HEIGHT,
-    SCALE_NAMES,
     TOTAL_KEYS,
     VELOCITY_LANE_HEIGHT,
     LOWEST_PITCH,
@@ -54,18 +50,9 @@ import {
     type RootNote,
     type ScaleName,
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
-import {
-    Pencil,
-    Brush,
-    Sparkles,
-    RotateCw,
-    Music,
-    Filter,
-    ChevronUp,
-    ChevronDown,
-} from 'lucide-react';
-import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
-
+import { PianoRollToolbar } from '@/widgets/PianoRoll/ui/PianoRollToolbar';
+import { PianoRollSidebarPanel } from '@/widgets/PianoRoll/ui/PianoRollSidebar';
+import { PianoKeyboard } from '@/widgets/PianoRoll/ui/PianoKeyboard';
 export type { MidiNote, PianoRollTool } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 interface PianoRollProps {
@@ -500,8 +487,6 @@ export const PianoRoll = memo(function PianoRoll({
         };
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
-        // Intentionally omit pixelsPerBeat — accessed via ref to avoid listener teardown on zoom.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Pitch ↔ Y
@@ -1001,7 +986,8 @@ export const PianoRoll = memo(function PianoRoll({
 
             const startX = e.clientX;
             const startY = e.clientY;
-            const note = notes.find((n) => n.id === noteId);
+            const notesAtStart = notesRef.current;
+            const note = notesAtStart.find((n) => n.id === noteId);
             if (!note) return;
 
             const target = e.currentTarget as HTMLElement;
@@ -1021,7 +1007,7 @@ export const PianoRoll = memo(function PianoRoll({
                 setSelectedNotes(new Set([noteId]));
             }
             const startStates = new Map(
-                notes
+                notesAtStart
                     .filter((n) => selectedIds.has(n.id))
                     .map((n) => [n.id, { startBeat: n.startBeat, pitch: n.pitch, durationBeats: n.durationBeats }] as const),
             );
@@ -1269,7 +1255,7 @@ export const PianoRoll = memo(function PianoRoll({
         }));
         onNotesChange(enforceNoOverlap([...notes, ...clones], new Set(clones.map((n) => n.id))));
         setSelectedNotes(new Set(clones.map((n) => n.id)));
-    }, [selectedNotes, notes, currentGridInterval, clipBeats, onNotesChange, enforceNoOverlap]);
+    }, [selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap]);
 
     const selectSamePitch = useCallback(() => {
         if (selectedNotes.size === 0) return;
@@ -1639,19 +1625,6 @@ export const PianoRoll = memo(function PianoRoll({
         return `${bars} bar${bars !== 1 ? 's' : ''}`;
     }, [clipBeats, beatsPerBar]);
 
-    // ── Toolbar select style ──
-    const selectStyle: React.CSSProperties = {
-        padding: '2px 4px',
-        background: 'var(--color-bg-input)',
-        color: 'var(--color-text-secondary)',
-        border: '1px solid var(--color-control-border)',
-        borderRadius: 'var(--radius-sm)',
-        fontSize: 'var(--font-size-2xs)',
-        cursor: 'pointer',
-        outline: 'none',
-        fontFamily: 'var(--font-family)',
-    };
-
     return (
         <div
             ref={(el) => {
@@ -1673,496 +1646,74 @@ export const PianoRoll = memo(function PianoRoll({
                 fontSize: 'var(--font-size-xs)',
             }}
         >
-            {/* ── Toolbar ── */}
-            {/* Bug #42: Clicking toolbar buttons/selects steals focus from the editor root,
-                silencing keyboard shortcuts. Re-focus the root on any mousedown in the toolbar. */}
-            <div
-                onMouseDown={(e) => {
-                    // Don't prevent default so buttons/selects still work,
-                    // but schedule a focus restore after the browser processes the click.
-                    const target = e.target as HTMLElement;
-                    if (target.tagName !== 'SELECT') {
-                        e.preventDefault(); // prevents focus shift for buttons
-                    }
-                    requestAnimationFrame(() => editorRootRef.current?.focus());
-                }}
-                style={{
-                    height: 'var(--daw-transport-height)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '0 var(--space-2)',
-                    gap: 'var(--space-1)',
-                    background: 'var(--color-bg-elevated)',
-                    borderBottom: '1px solid var(--color-divider)',
-                    flexShrink: 0,
-                }}>
-                {/* Tool buttons */}
-                {(['draw', 'paint'] as const).map((t) => {
-                    const isActive = tool === t;
-                    let Icon;
-                    let label;
-                    if (t === 'draw') { Icon = Pencil; label = 'Draw'; }
-                    else { Icon = Brush; label = 'Paint'; }
-
-                    return (
-                        <button
-                            key={t}
-                            onClick={() => setTool(t)}
-                            style={{
-                                padding: '3px 8px',
-                                background: isActive ? color : 'var(--color-bg-secondary)',
-                                color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                                border: isActive ? 'none' : '1px solid var(--color-control-border)',
-                                borderRadius: 'var(--radius-sm)',
-                                fontSize: 'var(--font-size-2xs)',
-                                fontFamily: 'var(--font-family)',
-                                fontWeight: isActive ? 600 : 400,
-                                cursor: 'pointer',
-                                transition: 'all var(--transition-fast)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                            }}
-                            title={`${label} Tool`}
-                        >
-                            <Icon size={13} fill={isActive ? 'currentColor' : 'none'} fillOpacity={0.2} />
-                            <span style={{ marginTop: 1 }}>{label}</span>
-                        </button>
-                    );
-                })}
-
-                {/* Divider */}
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-
-                {/* MIDI Grid Presets */}
-                <span style={{
-                    fontSize: 'var(--font-size-micro)',
-                    color: 'var(--color-text-tertiary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: 'var(--letter-spacing-wide)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                    marginRight: 2,
-                }}>
-                    Grid
-                </span>
-                {MIDI_GRID_PRESETS.map((preset) => (
-                    <button
-                        key={preset.division}
-                        onClick={() => setGridDivision(preset.division)}
-                        style={{
-                            padding: '2px 8px',
-                            background: gridDivision === preset.division ? color : 'var(--color-bg-secondary)',
-                            color: gridDivision === preset.division ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            border: gridDivision === preset.division ? 'none' : '1px solid var(--color-control-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--font-size-2xs)',
-                            fontFamily: 'var(--font-mono)',
-                            cursor: 'pointer',
-                            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                        }}
-                        title={`Set MIDI grid to ${preset.label}`}
-                    >
-                        {preset.label}
-                    </button>
-                ))}
-
-                {/* Divider */}
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-
-                {/* Scale highlight toggle */}
-                <button
-                    onClick={() => setHighlightScale((v) => !v)}
-                    style={{
-                        padding: '3px 10px',
-                        background: highlightScale ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-secondary)',
-                        color: highlightScale ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        border: highlightScale
-                            ? '1px solid var(--color-accent-primary)'
-                            : '1px solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 'var(--font-size-2xs)',
-                        fontFamily: 'var(--font-family)',
-                        fontWeight: highlightScale ? 600 : 400,
-                        cursor: 'pointer',
-                        transition: 'all var(--transition-fast)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                    }}
-                    title="Highlight notes in the selected scale"
-                >
-                    <Music size={13} fill={highlightScale ? 'currentColor' : 'none'} fillOpacity={0.2} />
-                    <span style={{ marginTop: 1 }}>Scale</span>
-                </button>
-
-                {/* Root + Scale selectors (shown when active) */}
-                {highlightScale && (
-                    <>
-                        <select
-                            value={rootNote}
-                            onChange={(e) => setRootNote(e.target.value as RootNote)}
-                            style={selectStyle}
-                        >
-                            {ROOT_NOTES.map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                        </select>
-                        <select
-                            value={scaleName}
-                            onChange={(e) => setScaleName(e.target.value as ScaleName)}
-                            style={selectStyle}
-                        >
-                            {SCALE_NAMES.map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                            ))}
-                        </select>
-                    </>
-                )}
-
-                {/* Divider */}
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-
-                {/* Clip length badge */}
-                <div style={{
-                    padding: '2px 8px',
-                    background: `${color}1a`,
-                    border: `1px solid ${color}40`,
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 'var(--font-size-2xs)',
-                    color: color,
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                    fontFamily: 'var(--font-mono)',
-                    letterSpacing: '0.3px',
-                }}>
-                    {clipDurationLabel}
-                </div>
-
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-
-                <button onClick={duplicateSelection} style={actionBtnStyle} title="Duplicate selected notes (Cmd/Ctrl + D)">
-                    Duplicate
-                </button>
-                <button onClick={() => quantizeAllNotesToGrid()} style={actionBtnStyle} title="Quantize selected notes (Q)">
-                    Quantize
-                </button>
-                <button onClick={selectSamePitch} style={actionBtnStyle} title="Select same pitch (Shift+P)">
-                    Same Pitch
-                </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
-                    <span>Amt</span>
-                    <select
-                        value={quantizeAmount}
-                        onChange={(e) => setQuantizeAmount(Number(e.target.value))}
-                        style={{ ...selectStyle, width: 58, padding: '2px 3px' }}
-                        title="Quantize amount"
-                    >
-                        <option value={100}>100%</option>
-                        <option value={75}>75%</option>
-                        <option value={50}>50%</option>
-                        <option value={25}>25%</option>
-                    </select>
-                </label>
-                <button onClick={applyLegato} style={actionBtnStyle} title="Legato selected notes (L)">
-                    Legato
-                </button>
-                <button onClick={humanizeSelection} style={actionBtnStyle} title="Humanize selected notes (H)">
-                    Humanize
-                </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
-                    <span>Ratchet</span>
-                    <select
-                        value={ratchetCount}
-                        onChange={(e) => setRatchetCount(Number(e.target.value))}
-                        style={{ ...selectStyle, width: 52, padding: '2px 3px' }}
-                        title="Ratchet repeats"
-                    >
-                        <option value={2}>x2</option>
-                        <option value={3}>x3</option>
-                        <option value={4}>x4</option>
-                        <option value={6}>x6</option>
-                        <option value={8}>x8</option>
-                    </select>
-                </label>
-                <button onClick={applyRatchet} style={actionBtnStyle} title="Split selected notes by repeats">
-                    Ratchet
-                </button>
-                <button
-                    onClick={() => setFoldToUsedNotes((v) => !v)}
-                    style={{
-                        ...actionBtnStyle,
-                        background: foldToUsedNotes ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background,
-                        color: foldToUsedNotes ? 'var(--color-accent-primary)' : actionBtnStyle.color,
-                        border: foldToUsedNotes ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                    }}
-                    title="Fold to used notes"
-                >
-                    <Filter size={12} />
-                    Fold
-                </button>
-                <button
-                    onClick={() => setDrumMode((v) => !v)}
-                    style={{
-                        ...actionBtnStyle,
-                        background: drumMode ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background,
-                        color: drumMode ? 'var(--color-accent-primary)' : actionBtnStyle.color,
-                        border: drumMode ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border,
-                    }}
-                    title="Drum mode with named lanes"
-                >
-                    Drum
-                </button>
-
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Step</span>
-                <button
-                    onClick={() => setStepInputOctave((prev) => Math.max(0, prev - 1))}
-                    style={{ ...actionBtnStyle, padding: '2px 6px' }}
-                    title="Step octave down ([)"
-                >
-                    <ChevronDown size={12} />
-                </button>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', minWidth: 30, textAlign: 'center' }}>
-                    C{stepInputOctave}
-                </span>
-                <button
-                    onClick={() => setStepInputOctave((prev) => Math.min(9, prev + 1))}
-                    style={{ ...actionBtnStyle, padding: '2px 6px' }}
-                    title="Step octave up (])"
-                >
-                    <ChevronUp size={12} />
-                </button>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                    @{stepInputCursorBeat.toFixed(2)}
-                </span>
-
-                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Lane</span>
-                <select
-                    value={activeLane}
-                    onChange={(e) => setActiveLane(e.target.value as PianoLaneType)}
-                    style={{ ...selectStyle, width: 96, padding: '2px 4px' }}
-                    title="Control lane"
-                >
-                    <option value="velocity">Velocity</option>
-                    <option value="modWheel">Mod Wheel (CC1)</option>
-                    <option value="expression">Expression (CC11)</option>
-                </select>
-
-                <div style={{ flex: 1 }} />
-
-                <button
-                    onClick={() => { void onGenerateVariation?.(); }}
-                    disabled={!onGenerateVariation || aiVariationBusy}
-                    style={{
-                        padding: '3px 12px',
-                        background: aiVariationBusy ? 'var(--color-bg-secondary)' : 'var(--color-accent-primary)',
-                        color: aiVariationBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-on-accent)',
-                        border: aiVariationBusy ? '1px solid var(--color-control-border)' : 'none',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 'var(--font-size-2xs)',
-                        fontFamily: 'var(--font-family)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                        cursor: !onGenerateVariation || aiVariationBusy ? 'not-allowed' : 'pointer',
-                        opacity: !onGenerateVariation ? 0.6 : 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        boxShadow: aiVariationBusy ? 'none' : '0 2px 8px color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
-                    }}
-                    title="Generate AI variation for this MIDI clip"
-                >
-                    <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />
-                    <span style={{ marginTop: 1 }}>{aiVariationBusy ? 'Generating…' : 'AI Variation'}</span>
-                </button>
-
-                {/* Zoom hint */}
-                <span style={{
-                    fontSize: 'var(--font-size-micro)',
-                    color: 'var(--color-text-tertiary)',
-                    opacity: 0.5,
-                    fontFamily: 'var(--font-mono)',
-                }}>
-                    ⌘Scroll H · Alt V
-                </span>
-
-                {/* Reset zoom */}
-                {(zoomOverrideH || noteHeight !== DEFAULT_NOTE_HEIGHT) && (
-                    <button
-                        onClick={() => { setZoomOverrideH(null); setNoteHeight(DEFAULT_NOTE_HEIGHT); }}
-                        style={{
-                            padding: '2px 8px',
-                            background: 'var(--color-bg-secondary)',
-                            border: '1px solid var(--color-control-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--font-size-micro)',
-                            fontFamily: 'var(--font-family)',
-                            color: 'var(--color-text-secondary)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            transition: 'all var(--transition-fast)',
-                        }}
-                        title="Reset zoom to auto-fit"
-                    >
-                        <RotateCw size={11} />
-                        <span style={{ marginTop: 1 }}>Fit</span>
-                    </button>
-                )}
-
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-tertiary)',
-                    fontFamily: 'var(--font-mono)',
-                }}>
-                    {selectedNotes.size > 0 ? `${selectedNotes.size} selected` : `${notes.length} notes`}
-                </span>
-            </div>
+            <PianoRollToolbar
+                editorRootRef={editorRootRef}
+                tool={tool}
+                setTool={setTool}
+                color={color}
+                gridDivision={gridDivision}
+                setGridDivision={setGridDivision}
+                highlightScale={highlightScale}
+                setHighlightScale={setHighlightScale}
+                rootNote={rootNote}
+                setRootNote={setRootNote}
+                scaleName={scaleName}
+                setScaleName={setScaleName}
+                clipDurationLabel={clipDurationLabel}
+                duplicateSelection={duplicateSelection}
+                quantizeAllNotesToGrid={quantizeAllNotesToGrid}
+                selectSamePitch={selectSamePitch}
+                quantizeAmount={quantizeAmount}
+                setQuantizeAmount={setQuantizeAmount}
+                applyLegato={applyLegato}
+                humanizeSelection={humanizeSelection}
+                ratchetCount={ratchetCount}
+                setRatchetCount={setRatchetCount}
+                applyRatchet={applyRatchet}
+                foldToUsedNotes={foldToUsedNotes}
+                setFoldToUsedNotes={setFoldToUsedNotes}
+                drumMode={drumMode}
+                setDrumMode={setDrumMode}
+                stepInputOctave={stepInputOctave}
+                setStepInputOctave={setStepInputOctave}
+                stepInputCursorBeat={stepInputCursorBeat}
+                activeLane={activeLane}
+                setActiveLane={setActiveLane}
+                onGenerateVariation={onGenerateVariation}
+                aiVariationBusy={aiVariationBusy}
+                zoomOverrideH={zoomOverrideH}
+                noteHeight={noteHeight}
+                setZoomOverrideH={setZoomOverrideH}
+                setNoteHeight={setNoteHeight}
+                selectedCount={selectedNotes.size}
+                noteCount={notes.length}
+            />
 
             {/* ── Main area ── */}
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                <ClipEditorSidebar>
-                    <ClipEditorSection title="Clip Setup">
-                        <ClipEditorMetaRow label="Length" value={clipDurationLabel} />
-                        <ClipEditorMetaRow label="Grid" value={`${gridDivision}${gridTriplet ? 'T' : ''}`} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose</span>
-                            <button
-                                onClick={() => transposeNotes(-1)}
-                                style={miniBtnStyle}
-                            >
-                                -1
-                            </button>
-                            <button
-                                onClick={() => transposeNotes(1)}
-                                style={miniBtnStyle}
-                            >
-                                +1
-                            </button>
-                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
-                                {clipTranspose >= 0 ? `+${clipTranspose}` : clipTranspose}
-                            </span>
-                        </div>
-                    </ClipEditorSection>
+                <PianoRollSidebarPanel
+                    clipDurationLabel={clipDurationLabel}
+                    gridDivision={gridDivision}
+                    gridTriplet={gridTriplet}
+                    transposeNotes={transposeNotes}
+                    clipTranspose={clipTranspose}
+                    quantizeAllNotesToGrid={quantizeAllNotesToGrid}
+                    setZoomOverrideH={setZoomOverrideH}
+                    selectedNotes={selectedNotes}
+                    notes={notes}
+                    onNotesChange={onNotesChange}
+                />
 
-                    <ClipEditorSection title="Performance">
-                        <button onClick={() => quantizeAllNotesToGrid()} style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}>
-                            Quantize To Grid
-                        </button>
-                        <button
-                            onClick={() => setZoomOverrideH(null)}
-                            style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}
-                        >
-                            Fit To Clip
-                        </button>
-                        <button
-                            onClick={() => {
-                                // Audit #4 fix: respect selection — only nudge selected notes.
-                                // If nothing selected, do nothing (matches transpose/quantize behavior).
-                                if (selectedNotes.size === 0) return;
-                                const nudged = notes.map((n) => (
-                                    selectedNotes.has(n.id)
-                                        ? { ...n, velocity: Math.max(1, Math.min(127, n.velocity + 8)) }
-                                        : n
-                                ));
-                                onNotesChange(nudged);
-                            }}
-                            style={{ ...miniBtnStyle, width: '100%' }}
-                        >
-                            Velocity +8
-                        </button>
-                    </ClipEditorSection>
-                </ClipEditorSidebar>
-
-                {/* Piano Keyboard */}
-                <div style={{
-                    width: KEYBOARD_WIDTH,
-                    flexShrink: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                }}>
-                    {/* Ruler spacer */}
-                    <div style={{
-                        height: RULER_HEIGHT,
-                        background: 'var(--color-bg-tertiary)',
-                        borderBottom: '1px solid var(--color-divider)',
-                        borderRight: '1px solid var(--color-divider)',
-                        flexShrink: 0,
-                    }} />
-
-                    {/* Keys */}
-                    <div
-                        ref={keyboardScrollRef}
-                        style={{
-                            flex: 1,
-                            overflowY: 'hidden',
-                            background: 'var(--color-bg-base)',
-                            borderRight: '1px solid var(--color-divider)',
-                        }}
-                    >
-                        {/* Total scrollable height must match the grid's scrollable height:
-                            grid scrolls RULER_HEIGHT + canvasHeight + VELOCITY_LANE_HEIGHT,
-                            but RULER_HEIGHT is a sticky spacer above this div (not scrolled),
-                            so we need canvasHeight + VELOCITY_LANE_HEIGHT here. */}
-                        <div style={{ height: canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
-                            {pianoKeys.map((k) => {
-                                // Keyboard key colors from design tokens
-                                let bg: string;
-                                if (highlightScale && k.inScale) {
-                                    // In-scale keys get a subtle accent tint
-                                    bg = k.isBlack ? 'var(--color-bg-hover)' : 'var(--color-meter-silent)';
-                                } else if (highlightScale && !k.inScale) {
-                                    // Out-of-scale keys are dimmed
-                                    bg = k.isBlack ? 'var(--color-bg-base)' : 'var(--color-bg-tertiary)';
-                                } else {
-                                    // Default: use design tokens
-                                    bg = k.isBlack ? 'var(--color-piano-black)' : 'var(--color-piano-white)';
-                                }
-
-                                return (
-                                    <div
-                                        key={k.pitch}
-                                        onMouseDown={() => auditionNote(k.pitch, 110, 220)}
-                                        onMouseUp={() => stopAudition(k.pitch)}
-                                        onMouseLeave={() => stopAudition(k.pitch)}
-                                        style={{
-                                            position: 'absolute',
-                                            top: k.y,
-                                            left: 0,
-                                            width: KEYBOARD_WIDTH,
-                                            height: noteHeight,
-                                            background: bg,
-                                            borderBottom: '1px solid var(--color-border-subtle)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'flex-end',
-                                            paddingRight: 4,
-                                            zIndex: k.isBlack ? 2 : 1,
-                                            transition: `background var(--transition-fast)`,
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        {/* Show label on C notes (octave markers) + every 12th on zoom */}
-                                        {(drumMode || k.isC) && noteHeight >= 8 && (
-                                            <span style={{
-                                                fontSize: Math.min(9, noteHeight - 2),
-                                                color: 'var(--color-text-secondary)',
-                                                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                                                fontFamily: 'var(--font-mono)',
-                                                letterSpacing: '-0.02em',
-                                            }}>
-                                                {drumMode ? (k.drumName ?? k.name) : k.name}
-                                            </span>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
+                <PianoKeyboard
+                    keyboardScrollRef={keyboardScrollRef}
+                    canvasHeight={canvasHeight}
+                    pianoKeys={pianoKeys}
+                    highlightScale={highlightScale}
+                    drumMode={drumMode}
+                    noteHeight={noteHeight}
+                    auditionNote={auditionNote}
+                    stopAudition={stopAudition}
+                />
 
                 {/* Grid area */}
                 <div
@@ -2540,28 +2091,5 @@ export const PianoRoll = memo(function PianoRoll({
         </div>
     );
 });
-
-const miniBtnStyle: React.CSSProperties = {
-    border: '1px solid var(--color-control-border)',
-    borderRadius: 'var(--radius-xs)',
-    background: 'var(--color-bg-input)',
-    color: 'var(--color-text-secondary)',
-    fontSize: 'var(--font-size-xs)',
-    fontFamily: 'var(--font-family)',
-    padding: '4px 6px',
-    cursor: 'pointer',
-};
-
-const actionBtnStyle: React.CSSProperties = {
-    border: '1px solid var(--color-control-border)',
-    borderRadius: 'var(--radius-sm)',
-    background: 'var(--color-bg-secondary)',
-    color: 'var(--color-text-secondary)',
-    fontSize: 'var(--font-size-2xs)',
-    fontFamily: 'var(--font-family)',
-    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-    padding: '3px 8px',
-    cursor: 'pointer',
-};
 
 export default PianoRoll;

@@ -44,6 +44,19 @@ pub struct PluginSandboxSnapshot {
     pub instances: Vec<PluginSandboxRuntimeInfo>,
 }
 
+/// Event emitted when a sandboxed plugin crashes or times out.
+/// The Tauri layer should drain these via `drain_crash_events()` and emit
+/// them as IPC events so the frontend can display crash indicators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginCrashEvent {
+    pub instance_id: Uuid,
+    pub plugin_name: String,
+    pub plugin_path: String,
+    pub reason: String,
+    pub crash_count: u32,
+    pub auto_restarted: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct PluginSandboxConfig {
     pub host_binary: PathBuf,
@@ -123,6 +136,8 @@ pub struct PluginSandboxSupervisor {
     enabled: bool,
     config: Option<PluginSandboxConfig>,
     instances: HashMap<Uuid, PluginSandboxInstance>,
+    /// Accumulated crash events for the Tauri layer to drain and forward to frontend.
+    crash_events: Vec<PluginCrashEvent>,
 }
 
 impl PluginSandboxSupervisor {
@@ -240,6 +255,7 @@ impl PluginSandboxSupervisor {
             enabled: config.is_some(),
             config,
             instances: HashMap::new(),
+            crash_events: Vec::new(),
         }
     }
 
@@ -456,6 +472,14 @@ impl PluginSandboxSupervisor {
                         }
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.bypass_requested = true;
+                        self.crash_events.push(PluginCrashEvent {
+                            instance_id: *id,
+                            plugin_name: instance.descriptor.name.clone(),
+                            plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                            reason: instance.last_error.clone().unwrap_or_default(),
+                            crash_count: instance.crash_count,
+                            auto_restarted: false,
+                        });
                         bypass.push(*id);
                     }
                     Ok(None) => {
@@ -529,6 +553,14 @@ impl PluginSandboxSupervisor {
                                 timeout.as_millis()
                             ));
                         }
+                        self.crash_events.push(PluginCrashEvent {
+                            instance_id: *id,
+                            plugin_name: instance.descriptor.name.clone(),
+                            plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                            reason: instance.last_error.clone().unwrap_or_default(),
+                            crash_count: instance.crash_count,
+                            auto_restarted: false,
+                        });
                         bypass.push(*id);
                     }
                     Err(err) => {
@@ -649,6 +681,18 @@ impl PluginSandboxSupervisor {
                     PluginSandboxStatus::Running | PluginSandboxStatus::Spawning
                 )
         })
+    }
+
+    /// Drains accumulated crash events. The Tauri layer should call this
+    /// periodically and emit each event as a frontend IPC notification
+    /// (e.g., `tauri::Emitter::emit("plugin-crashed", event)`).
+    pub fn drain_crash_events(&mut self) -> Vec<PluginCrashEvent> {
+        std::mem::take(&mut self.crash_events)
+    }
+
+    /// Returns true if there are pending crash events to process.
+    pub fn has_pending_crash_events(&self) -> bool {
+        !self.crash_events.is_empty()
     }
 
     pub fn send_open_editor(&mut self, instance_id: Uuid) -> Result<(), PluginError> {

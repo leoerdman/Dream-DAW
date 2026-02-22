@@ -910,13 +910,17 @@ export const DawShell = () => {
     }, [timelineClips]);
 
     useEffect(() => {
+        const midiSaveThrottles = midiSaveThrottlesRef.current;
+        const midiEnvelopeSaveThrottles = midiEnvelopeSaveThrottlesRef.current;
+        const dirtyMidiNotes = dirtyMidiNotesClipIdsRef.current;
+        const dirtyMidiEnvelopes = dirtyMidiEnvelopeClipIdsRef.current;
         return () => {
-            midiSaveThrottlesRef.current.forEach((send) => send.cancel());
-            midiEnvelopeSaveThrottlesRef.current.forEach((send) => send.cancel());
-            midiSaveThrottlesRef.current.clear();
-            midiEnvelopeSaveThrottlesRef.current.clear();
-            dirtyMidiNotesClipIdsRef.current.clear();
-            dirtyMidiEnvelopeClipIdsRef.current.clear();
+            midiSaveThrottles.forEach((send) => send.cancel());
+            midiEnvelopeSaveThrottles.forEach((send) => send.cancel());
+            midiSaveThrottles.clear();
+            midiEnvelopeSaveThrottles.clear();
+            dirtyMidiNotes.clear();
+            dirtyMidiEnvelopes.clear();
         };
     }, []);
 
@@ -1321,7 +1325,7 @@ export const DawShell = () => {
                     `Clip move failed: ${err instanceof Error ? err.message : String(err)}`
                 );
             });
-    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCount]);
+    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCountRaw]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
@@ -1686,7 +1690,7 @@ export const DawShell = () => {
                                         clipStartBeat={selectedTimelineClip.startBeat}
                                         totalBars={selectedMidiTotalBars}
                                         clipLengthBeats={selectedTimelineClip.durationBeats}
-                                        color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || '#4a9eff'}
+                                        color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || 'var(--color-accent-primary)'}
                                     />
                                 </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (
@@ -1706,9 +1710,9 @@ export const DawShell = () => {
                     <div
                         className="z-50"
                         style={{
-                            borderTop: '1px solid color-mix(in srgb, #ff6b6b 55%, transparent)',
-                            borderBottom: '1px solid color-mix(in srgb, #ff6b6b 35%, transparent)',
-                            background: 'linear-gradient(90deg, color-mix(in srgb, #ff5f5f 18%, var(--color-bg-panel)) 0%, color-mix(in srgb, #ff5f5f 8%, var(--color-bg-panel)) 100%)',
+                            borderTop: '1px solid color-mix(in srgb, var(--color-status-error) 55%, transparent)',
+                            borderBottom: '1px solid color-mix(in srgb, var(--color-status-error) 35%, transparent)',
+                            background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-status-error) 18%, var(--color-bg-panel)) 0%, color-mix(in srgb, var(--color-status-error) 8%, var(--color-bg-panel)) 100%)',
                             minHeight: 24,
                             display: 'flex',
                             alignItems: 'center',
@@ -1724,9 +1728,9 @@ export const DawShell = () => {
                             <button
                                 onClick={() => setMissingAssetsOpen((v) => !v)}
                                 style={{
-                                    border: '1px solid color-mix(in srgb, #ff9b9b 45%, transparent)',
-                                    background: 'color-mix(in srgb, #ff6b6b 20%, transparent)',
-                                    color: '#ffd5d5',
+                                    border: '1px solid color-mix(in srgb, var(--color-status-error) 45%, transparent)',
+                                    background: 'color-mix(in srgb, var(--color-status-error) 20%, transparent)',
+                                    color: 'color-mix(in srgb, var(--color-status-error) 30%, var(--color-text-primary))',
                                     borderRadius: 'var(--radius-lg)',
                                     fontSize: 'var(--font-size-xs)',
                                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
@@ -1854,10 +1858,12 @@ const SessionWorkspace = ({
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
                             const slotKey = (sceneIndex: number) => `${track.id}:${sceneIndex}`;
-                            const contrast = getContrastColor(track.color) === 'black' ? '#151515' : '#f4f6f8';
+                            const contrast = getContrastColor(track.color) === 'black'
+                                ? 'var(--color-text-primary)'
+                                : 'var(--color-bg-panel)';
                             const isSelectedTrack = selectedTrackId === track.id;
                             return (
-                                <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2b2b2b', display: 'flex', flexDirection: 'column' }}>
+                                <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column' }}>
                                     <button
                                         onClick={() => onSelectTrack(track.id)}
                                         style={{
@@ -1879,7 +1885,9 @@ const SessionWorkspace = ({
                                     {scenes.map((sceneIndex) => {
                                         const clip = sessionClips[slotKey(sceneIndex)] ?? null;
                                         const isSelected = clip ? selectedSessionClipId === clip.id : false;
-                                        const clipText = clip ? (getContrastColor(clip.color) === 'black' ? '#1a1a1a' : '#f3f5f8') : 'var(--color-text-tertiary)';
+                                        const clipText = clip
+                                            ? (getContrastColor(clip.color) === 'black' ? 'var(--color-text-primary)' : 'var(--color-bg-panel)')
+                                            : 'var(--color-text-tertiary)';
                                         const isPlayingClip = clip ? playingSessionClipId === clip.id && isPlaying : false;
                                         return (
                                             <div
@@ -1963,12 +1971,12 @@ const SessionWorkspace = ({
                         })}
                     </div>
                 </div>
-                <div style={{ width: SESSION_MASTER_WIDTH, borderLeft: '1px solid #3a3a3a', background: 'color-mix(in srgb, var(--color-bg-panel) 80%, #111)' }}>
+                <div style={{ width: SESSION_MASTER_WIDTH, borderLeft: '1px solid var(--color-divider)', background: 'var(--color-bg-panel)' }}>
                     <div style={{
                         height: 28,
                         borderBottom: '1px solid var(--color-overlay-medium)',
-                        background: '#f2f2f2',
-                        color: '#111111',
+                        background: 'var(--color-bg-header)',
+                        color: 'var(--color-text-primary)',
                         fontSize: 'var(--font-size-sm)',
                         fontWeight: 800,
                         display: 'flex',
@@ -2024,7 +2032,7 @@ const SessionWorkspace = ({
                                         minHeight: 82,
                                         borderRadius: 'var(--radius-xs)',
                                         border: '1px solid #3d3d3d',
-                                        background: '#171717',
+                                        background: 'var(--color-bg-canvas)',
                                         position: 'relative',
                                         overflow: 'hidden',
                                     }}>

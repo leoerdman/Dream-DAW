@@ -475,8 +475,7 @@ export const Timeline = (props: TimelineProps) => {
 
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [fitHorizontalToken, engineRef, beatsPerBar]);
+    }, [fitHorizontalToken, engineRef, beatsPerBar, clips]);
 
     // Selection is now applied atomically inside the clips effect above.
     // This separate effect handles only explicit selection changes (e.g. click, Shift+click)
@@ -544,8 +543,8 @@ export const Timeline = (props: TimelineProps) => {
 
     // ── Scroll sync cleanup ──────────────────────────────────────────
     useEffect(() => {
+        const engine = engineRef.current;
         return () => {
-            const engine = engineRef.current;
             if (engine) {
                 const unsub = (engine as unknown as Record<string, () => void>)._scrollSyncUnsub;
                 unsub?.();

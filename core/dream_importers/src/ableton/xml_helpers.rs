@@ -329,6 +329,19 @@ pub fn collect_devices_in_container<'a, 'input>(
     device_container: roxmltree::Node<'a, 'input>,
     out: &mut Vec<roxmltree::Node<'a, 'input>>,
 ) {
+    let mut visited = std::collections::HashSet::new();
+    collect_devices_in_container_inner(device_container, out, &mut visited);
+}
+
+fn collect_devices_in_container_inner<'a, 'input>(
+    device_container: roxmltree::Node<'a, 'input>,
+    out: &mut Vec<roxmltree::Node<'a, 'input>>,
+    visited: &mut std::collections::HashSet<roxmltree::NodeId>,
+) {
+    if !visited.insert(device_container.id()) {
+        return;
+    }
+
     for device in device_container.children().filter(|n| n.is_element()) {
         out.push(device);
 
@@ -341,7 +354,7 @@ pub fn collect_devices_in_container<'a, 'input>(
             .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
         {
             if let Some(nested_devices) = find_first_devices_container(nested_chain) {
-                collect_devices_in_container(nested_devices, out);
+                collect_devices_in_container_inner(nested_devices, out, visited);
             }
         }
     }

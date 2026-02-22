@@ -127,7 +127,7 @@ export interface ProjectTrack {
     }>;
 }
 
-// ── Backend response shape (what getProject() actually returns) ──────────
+// ── Backend response shape (project payload from backend snapshot) ───────
 //
 // NOTE: This is intentionally loose — the backend JSON may not exactly match
 // the ts-rs types due to Tauri serialization quirks (missing fields, bigint→number

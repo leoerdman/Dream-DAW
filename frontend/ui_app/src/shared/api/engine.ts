@@ -208,6 +208,13 @@ export const addTrackAdvanced = (
         insertAfterIndex: insertAfterIndex ?? null,
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
+export const addTrackAdvancedWithSnapshotDelta = (
+    trackType: TrackCreateType,
+    insertAfterIndex?: number | null,
+    name?: string,
+    inheritFromTrackId?: string | null,
+) =>
+    mutateThenSnapshotDelta(() => addTrackAdvanced(trackType, insertAfterIndex, name, inheritFromTrackId));
 
 export const addTrackWithDeltasAdvanced = (
     trackType: TrackCreateType,
@@ -279,15 +286,25 @@ export const moveTrackWithParent = (
         targetIndex,
         targetParentGroupId: targetParentGroupId ?? null,
     });
+export const moveTrackWithParentWithSnapshotDelta = (
+    trackId: string,
+    targetIndex: number,
+    targetParentGroupId?: string | null,
+) =>
+    mutateThenSnapshotDelta(() => moveTrackWithParent(trackId, targetIndex, targetParentGroupId));
 
 export const setTrackGroup = (trackId: string, groupId?: string | null) =>
     invoke<void>('set_track_group_cmd', {
         trackId,
         groupId: groupId ?? null,
     });
+export const setTrackGroupWithSnapshotDelta = (trackId: string, groupId?: string | null) =>
+    mutateThenSnapshotDelta(() => setTrackGroup(trackId, groupId));
 
 export const ungroupTrack = (groupId: string) =>
     invoke<void>('ungroup_track_cmd', { groupId });
+export const ungroupTrackWithSnapshotDelta = (groupId: string) =>
+    mutateThenSnapshotDelta(() => ungroupTrack(groupId));
 
 export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
     invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
@@ -523,6 +540,11 @@ export const getRecentProjects = () =>
 export const getProjectSnapshotDelta = () =>
     invoke<DeltaMutationResponse>('get_project_snapshot_delta_cmd');
 
+async function mutateThenSnapshotDelta(mutate: () => Promise<void>): Promise<DeltaMutationResponse> {
+    await mutate();
+    return getProjectSnapshotDelta();
+}
+
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
 
 export const createBackup = () => invoke<string>('create_backup_cmd');
@@ -748,6 +770,8 @@ export const setClipsMutedWithDeltas = (clipIds: string[], muted: boolean) =>
 
 export const paintTrackClipsWithTrackColor = (trackId: string) =>
     invoke<void>('paint_track_clips_with_track_color_cmd', { trackId });
+export const paintTrackClipsWithTrackColorWithSnapshotDelta = (trackId: string) =>
+    mutateThenSnapshotDelta(() => paintTrackClipsWithTrackColor(trackId));
 
 export interface AudioDevices {
     outputs: string[];

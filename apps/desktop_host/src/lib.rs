@@ -64,7 +64,6 @@ use dream_plugins::format::PluginFormat;
 use dream_plugins::{MidiEvent as PluginMidiEvent, PluginSandboxSnapshot};
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
 // Audio Engine State and Spectrum Analyzer State
@@ -343,99 +342,7 @@ pub fn run() {
         .manage(spectrum_state)
         .invoke_handler(commands::invoke_handler())
         .setup(move |app| {
-            state_managers::spawn_background_runtime_threads(&app.handle(), stream_error_rx);
-
-            // ── macOS NSEvent Local Monitor (Space → Play/Stop) ────────
-            // When a native VST3 plugin editor window has focus, the WebView
-            // doesn't receive keyDown events, so the Space shortcut stops
-            // working. This local event monitor intercepts Space at the
-            // application level before it reaches any window.
-            #[cfg(target_os = "macos")]
-            {
-                use std::sync::Arc;
-                let transport_app = Arc::new(app.handle().clone());
-                unsafe {
-                    use objc::runtime::{Class, Object, BOOL, YES};
-                    use objc::{msg_send, sel, sel_impl};
-                    use std::os::raw::c_ulong;
-
-                    // NSEventMaskKeyDown = 1 << 10
-                    let mask: c_ulong = 1 << 10;
-
-                    let transport_app_clone = Arc::clone(&transport_app);
-                    let block = objc::rc::autoreleasepool(|| {
-                        let block = block::ConcreteBlock::new(move |event: *mut Object| -> *mut Object {
-                            let keycode: u16 = msg_send![event, keyCode];
-                            // keyCode 49 = Space bar on macOS
-                            if keycode == 49 {
-                                let window: *mut Object = msg_send![event, window];
-                                if !window.is_null() {
-                                    let first_responder: *mut Object = msg_send![window, firstResponder];
-                                    if !first_responder.is_null() {
-                                        let class_ptr: *const Class = msg_send![first_responder, class];
-                                        let c_name = objc::runtime::class_getName(class_ptr);
-                                        let name = std::ffi::CStr::from_ptr(c_name).to_string_lossy();
-                                        if name.contains("WebView") {
-                                            // Let the frontend JS handle it (which has proper text input guards)
-                                            return event;
-                                        }
-                                    }
-                                }
-
-                                let is_repeat: BOOL = msg_send![event, isARepeat];
-                                if is_repeat != YES {
-                                    let app_ref = Arc::clone(&transport_app_clone);
-                                    // Mirror toggle_playback logic exactly
-                                    let handle: tauri::State<'_, AudioEngineHandle> = app_ref.state();
-                                    if let Ok(mut state) = handle.playback_state.lock() {
-                                        let new_state = !state.is_playing;
-                                        let sr = state.sample_rate;
-                                        state.is_playing = new_state;
-                                        drop(state);
-
-                                        if let Ok(mut prod) = handle.producer.lock() {
-                                            if new_state {
-                                                let _ = prod.push(EngineCommand::SetTimelineSampleRate(sr));
-                                            }
-                                            let _ = prod.push(EngineCommand::SetPlay(new_state));
-                                        }
-
-                                        log::info!(
-                                            "[NSEventMonitor] Space → {}",
-                                            if new_state { "play" } else { "stop" }
-                                        );
-                                    }
-                                    // Swallow the event so the plugin doesn't also receive Space
-                                    return std::ptr::null_mut();
-                                }
-                            }
-                            event
-                        });
-                        block.copy()
-                    });
-
-                    if let Some(ns_event_class) = Class::get("NSEvent") {
-                        let _: *mut Object = msg_send![
-                            ns_event_class,
-                            addLocalMonitorForEventsMatchingMask: mask
-                            handler: &*block
-                        ];
-                        // Intentionally leak the block — it must live for the app's lifetime.
-                        std::mem::forget(block);
-                    } else {
-                        log::warn!(
-                            "[NSEventMonitor] NSEvent class unavailable; skipping transport monitor install"
-                        );
-                    }
-                }
-                log::info!("[NSEventMonitor] Installed Space key local monitor for transport control");
-            }
-
-            log::info!(
-                "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
-                app.package_info().version,
-                33
-            );
+            state_managers::configure_app_runtime(app, stream_error_rx);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -443,24 +350,7 @@ pub fn run() {
             log::error!("Fatal: failed to build Dream DAW: {err}");
             std::process::exit(1);
         })
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                // ── Graceful plugin shutdown ──────────────────────────────
-                // Third-party VST3 plugins (e.g. Slate Digital's SlateCore)
-                // register C++ static destructors / atexit handlers that
-                // try to use Objective-C objects during `exit()` teardown.
-                // If plugins are still loaded when `process::exit()` fires,
-                // their destructors hit nil ObjC pointers → SIGSEGV.
-                //
-                // By deactivating and dropping all plugin instances HERE
-                // (before the process exits), their COM release / C++
-                // destructor code runs in a safe, well-defined order.
-                log::info!("[Dream DAW] RunEvent::Exit — initiating graceful shutdown");
-                let plugin_state: tauri::State<'_, PluginHostState> = app_handle.state();
-                plugin_state.shutdown_all_plugins();
-                log::info!("[Dream DAW] Graceful shutdown complete, exiting");
-            }
-        });
+        .run(state_managers::shutdown_plugins_on_exit);
 }
 
 #[cfg(test)]

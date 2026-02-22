@@ -1,0 +1,197 @@
+import type React from 'react';
+import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
+
+interface TrackRowRoutingProps {
+    track: TrackData;
+    allTracks: TrackData[];
+    isMasterFixed?: boolean;
+    layout: TrackRowLayoutMetrics;
+    onOutputChange?: (targetId: string) => void;
+    onInputChange?: (inputId: string) => void;
+}
+
+export function TrackRowRouting({
+    track,
+    allTracks,
+    isMasterFixed,
+    layout,
+    onOutputChange,
+    onInputChange,
+}: TrackRowRoutingProps) {
+    const availableRoutingTargets = allTracks.filter((t) => t.id !== track.id && t.type !== 'master');
+    const outputValue =
+        track.output &&
+        (track.output === 'master' || availableRoutingTargets.some((t) => t.id === track.output))
+            ? track.output
+            : 'master';
+    const inputValue =
+        track.input &&
+        (track.input === 'none' ||
+            track.input === 'ext-1' ||
+            track.input === 'ext-2' ||
+            availableRoutingTargets.some((t) => t.id === track.input))
+            ? track.input
+            : 'none';
+
+    if (isMasterFixed) {
+        return (
+            <div
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: 4,
+                    padding: 4,
+                    borderRight: '1px solid var(--color-border-subtle)',
+                    width: layout.routingColWidth,
+                    minWidth: layout.routingColWidth,
+                    maxWidth: layout.routingColWidth,
+                    boxSizing: 'border-box',
+                }}
+            >
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        color: 'var(--color-text-tertiary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 8px 0 6px',
+                        lineHeight: '15px',
+                        height: 15,
+                        cursor: 'default',
+                        userSelect: 'none',
+                    }}
+                >
+                    <span style={{ marginRight: 4, fontSize: 'var(--font-size-micro)' }}>←</span>
+                    No Input
+                </div>
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        color: 'var(--color-text-secondary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 8px 0 6px',
+                        lineHeight: '15px',
+                        height: 15,
+                        cursor: 'default',
+                        userSelect: 'none',
+                    }}
+                >
+                    <span style={{ marginRight: 4, fontSize: 'var(--font-size-micro)' }}>→</span>
+                    Out 1-2
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: 4,
+                padding: 4,
+                borderRight: '1px solid var(--color-border-subtle)',
+                width: layout.routingColWidth,
+                minWidth: layout.routingColWidth,
+                maxWidth: layout.routingColWidth,
+                boxSizing: 'border-box',
+            }}
+        >
+            <RoutingSelect
+                arrow="←"
+                value={inputValue}
+                title="Audio From"
+                options={[
+                    { value: 'none', label: 'No Input' },
+                    { value: 'ext-1', label: 'Ext. In 1' },
+                    { value: 'ext-2', label: 'Ext. In 2' },
+                    ...availableRoutingTargets.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onChange={onInputChange}
+            />
+            <RoutingSelect
+                arrow="→"
+                value={outputValue}
+                title="Audio To"
+                options={[
+                    { value: 'master', label: 'Master' },
+                    ...availableRoutingTargets.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onChange={onOutputChange}
+            />
+        </div>
+    );
+}
+
+interface RoutingSelectProps {
+    arrow: string;
+    value: string;
+    title: string;
+    options: Array<{ value: string; label: string }>;
+    onChange?: (value: string) => void;
+}
+
+function RoutingSelect({ arrow, value, title, options, onChange }: RoutingSelectProps) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ position: 'relative', display: 'flex', flex: 1, minWidth: 0 }}>
+                <span
+                    style={{
+                        position: 'absolute',
+                        left: 6,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontSize: 'var(--font-size-micro)',
+                        color: 'var(--color-text-tertiary)',
+                        pointerEvents: 'none',
+                        zIndex: 'var(--z-local)' as unknown as number,
+                    }}
+                >
+                    {arrow}
+                </span>
+                <select
+                    onClick={(e) => e.stopPropagation()}
+                    value={value}
+                    onChange={(e) => {
+                        e.stopPropagation();
+                        onChange?.(e.target.value);
+                    }}
+                    title={title}
+                    style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        color: 'var(--color-text-primary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 16px 0 14px',
+                        cursor: 'pointer',
+                        minWidth: 0,
+                        flexShrink: 1,
+                        flex: 1,
+                        appearance: 'auto' as React.CSSProperties['appearance'],
+                        lineHeight: '15px',
+                        height: 15,
+                    }}
+                >
+                    {options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+        </div>
+    );
+}

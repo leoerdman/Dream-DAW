@@ -43,7 +43,7 @@ cargo test -p dream_engine --release --locked
 echo "[7/8] Release tests (dream_graph)"
 cargo test -p dream_graph --release --locked
 
-echo "[8/8] Stress loops (${STRESS_ITERS}x each)"
+echo "[8/9] Stress loops (${STRESS_ITERS}x each)"
 for i in $(seq 1 "$STRESS_ITERS"); do
   cargo test -p dream_plugins --release --locked \
     sandbox_host::tests::crashed_then_ready_toggles_shared_crash_flag_and_emits_both_events \
@@ -59,5 +59,8 @@ for i in $(seq 1 "$STRESS_ITERS"); do
     pdc::tests::randomized_dag_compensation_property_holds \
     -- --exact >/tmp/strike2_graph_"$i".log
 done
+
+echo "[9/9] Static molecular audit"
+bash scripts/strike2_static_audit.sh
 
 echo "✅ Strike 2 verification passed (iters=$STRESS_ITERS)"

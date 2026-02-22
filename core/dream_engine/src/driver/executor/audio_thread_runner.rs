@@ -108,7 +108,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     //   At 44.1kHz: ~0.00455, at 96kHz: ~0.00208.
     let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
-    // Previously these were completely bypassed (TODO stub at the master FX processing point).
+    // Historically this path was bypassed; now it is active in the master FX stage.
     let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];

@@ -234,3 +234,105 @@ pub(crate) fn spawn_background_runtime_threads(
         log::warn!("Failed to spawn audio stream error relay: {err}");
     }
 }
+
+pub(crate) fn configure_app_runtime(app: &tauri::App, stream_error_rx: Receiver<String>) {
+    spawn_background_runtime_threads(&app.handle(), stream_error_rx);
+    install_macos_transport_monitor(&app.handle());
+    log::info!(
+        "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
+        app.package_info().version,
+        33
+    );
+}
+
+pub(crate) fn shutdown_plugins_on_exit(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
+    if let tauri::RunEvent::Exit = event {
+        log::info!("[Dream DAW] RunEvent::Exit — initiating graceful shutdown");
+        let plugin_state: tauri::State<'_, PluginHostState> = app_handle.state();
+        plugin_state.shutdown_all_plugins();
+        log::info!("[Dream DAW] Graceful shutdown complete, exiting");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_macos_transport_monitor(app_handle: &tauri::AppHandle) {
+    use std::os::raw::c_ulong;
+    use std::sync::Arc;
+
+    use objc::runtime::{BOOL, Class, Object, YES};
+    use objc::{msg_send, sel, sel_impl};
+
+    let transport_app = Arc::new(app_handle.clone());
+    // SAFETY: Cocoa local event monitor must be installed through Objective-C runtime APIs.
+    unsafe {
+        // NSEventMaskKeyDown = 1 << 10
+        let mask: c_ulong = 1 << 10;
+
+        let transport_app_clone = Arc::clone(&transport_app);
+        let block = objc::rc::autoreleasepool(|| {
+            let block = block::ConcreteBlock::new(move |event: *mut Object| -> *mut Object {
+                let keycode: u16 = msg_send![event, keyCode];
+                if keycode == 49 {
+                    let window: *mut Object = msg_send![event, window];
+                    if !window.is_null() {
+                        let first_responder: *mut Object = msg_send![window, firstResponder];
+                        if !first_responder.is_null() {
+                            let class_ptr: *const Class = msg_send![first_responder, class];
+                            let c_name = objc::runtime::class_getName(class_ptr);
+                            let name = std::ffi::CStr::from_ptr(c_name).to_string_lossy();
+                            if name.contains("WebView") {
+                                return event;
+                            }
+                        }
+                    }
+
+                    let is_repeat: BOOL = msg_send![event, isARepeat];
+                    if is_repeat != YES {
+                        let app_ref = Arc::clone(&transport_app_clone);
+                        let handle: tauri::State<'_, AudioEngineHandle> = app_ref.state();
+                        if let Ok(mut state) = handle.playback_state.lock() {
+                            let new_state = !state.is_playing;
+                            let sr = state.sample_rate;
+                            state.is_playing = new_state;
+                            drop(state);
+
+                            if let Ok(mut prod) = handle.producer.lock() {
+                                if new_state {
+                                    let _ = prod
+                                        .push(dream_ipc::EngineCommand::SetTimelineSampleRate(sr));
+                                }
+                                let _ = prod.push(dream_ipc::EngineCommand::SetPlay(new_state));
+                            }
+
+                            log::info!(
+                                "[NSEventMonitor] Space → {}",
+                                if new_state { "play" } else { "stop" }
+                            );
+                        }
+                        return std::ptr::null_mut();
+                    }
+                }
+                event
+            });
+            block.copy()
+        });
+
+        if let Some(ns_event_class) = Class::get("NSEvent") {
+            let _: *mut Object = msg_send![
+                ns_event_class,
+                addLocalMonitorForEventsMatchingMask: mask
+                handler: &*block
+            ];
+            // Must outlive app lifetime.
+            std::mem::forget(block);
+        } else {
+            log::warn!(
+                "[NSEventMonitor] NSEvent class unavailable; skipping transport monitor install"
+            );
+        }
+    }
+    log::info!("[NSEventMonitor] Installed Space key local monitor for transport control");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_macos_transport_monitor(_app_handle: &tauri::AppHandle) {}

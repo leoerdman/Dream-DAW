@@ -320,22 +320,6 @@ fn get_recent_projects(
     Ok(recent.projects)
 }
 
-/// Returns the current project state.
-#[tauri::command]
-fn get_project(
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<Project, String> {
-    // PERF-FIX: Removed refresh_offline_flags() from this hot path.
-    // get_project is called after EVERY UI action (mute, solo, add track, etc.).
-    // refresh_offline_flags() does PathBuf::exists() syscalls per clip per track
-    // under the project Mutex — creating memory pressure and Mutex contention
-    // that can preempt the CoreAudio real-time thread.
-    // Offline flags are now only refreshed on project load/open/new where they
-    // are actually needed.
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    Ok(project.clone())
-}
-
 /// Returns current project wrapped as a snapshot delta event.
 #[tauri::command]
 fn get_project_snapshot_delta_cmd(

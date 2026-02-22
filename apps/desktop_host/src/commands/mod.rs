@@ -1,6 +1,7 @@
 use super::*;
 use crate::state_managers::sync_engine::*;
 use std::time::Duration;
+use tauri::{Emitter, Manager};
 
 type DeviceNode = dream_models::project::DeviceNode;
 type DeviceRack = dream_models::project::DeviceRack;
@@ -98,7 +99,6 @@ pub(crate) fn invoke_handler()
         open_project,
         import_ableton_project,
         get_recent_projects,
-        get_project,
         get_project_snapshot_delta_cmd,
         get_project_status,
         set_arrangement_grid_cmd,

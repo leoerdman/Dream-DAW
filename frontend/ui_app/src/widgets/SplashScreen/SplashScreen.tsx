@@ -29,6 +29,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     const cancelledRef = useRef(false)
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
+    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas)
 
     const dismiss = useCallback(async () => {
         console.log('[Splash] dismiss() START')
@@ -55,7 +56,8 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 const lastProject = recent[0]
                 if (lastProject?.path) {
                     console.log('[Splash] step 2b: openProject...', lastProject.path)
-                    await engineApi.openProject(lastProject.path)
+                    const project = await engineApi.openProject(lastProject.path)
+                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'splash:open-last-project')
                     console.log('[Splash] step 2b: openProject DONE')
                     if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
                     // Eagerly activate external VST3 plugins and restore their saved state
@@ -77,18 +79,6 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         startTelemetryLoop()
         console.log('[Splash] step 3: startTelemetryLoop DONE')
 
-        // 3. Await initial project snapshot-delta sync — ensures tracks/clips are in the store
-        //    before the Workspace component mounts
-        const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta
-        try {
-            console.log('[Splash] step 4: syncProjectSnapshotDelta...')
-            await syncProjectSnapshotDelta('splash:start')
-            console.log('[Splash] step 4: syncProjectSnapshotDelta DONE')
-        } catch (e) {
-            console.warn('[Splash] snapshot sync failed:', e)
-        }
-        if (cancelledRef.current) { console.log('[Splash] cancelled after snapshot sync'); return }
-
         // 4. Now fade out the splash overlay
         console.log('[Splash] step 5: FADING OUT')
         setProgress(100)
@@ -101,7 +91,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             onComplete?.()
             setPhase('done')
         }, 400) // fade animation is 400ms
-    }, [onComplete, startTelemetryLoop])
+    }, [onComplete, startTelemetryLoop, applyProjectDeltas])
 
     useEffect(() => {
         // Reset cancellation flag on (re-)mount — required for React StrictMode

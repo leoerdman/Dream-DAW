@@ -1,8 +1,6 @@
 # kind path max_lines
 # ── Rust ─────────────────────────────────────────────────────────────────
 # Desktop host command handlers (Tauri IPC boundary, inherently verbose)
-rust apps/desktop_host/src/commands/sections/clip_mutators.rs 3217
-rust apps/desktop_host/src/commands/sections/plugins_routing.rs 3019
 # Core engine (RT hot path — cannot be safely split further)
 rust core/dream_engine/src/offline_bounce.rs 1701
 rust core/dream_engine/src/sampler.rs 1340
@@ -40,9 +38,6 @@ ts frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx 736
 ts frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx 406
 ts frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx 377
 ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
-ts frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx 424
-ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx 1905
-ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurfaceStandard.tsx 1000
 # Widgets — ExportModal
 ts frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx 667
 # Widgets — FileMenu

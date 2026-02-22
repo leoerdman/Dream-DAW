@@ -6,6 +6,62 @@ use dream_models::project::{DeviceNode, PluginSlot, TrackType};
 use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
 
+#[derive(Debug, Clone)]
+pub struct NormalizedPluginTarget {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub canonical_slot_hint: Option<String>, // "instrument" | "effect"
+}
+
+fn is_external_plugin_reference(plugin_id: &str) -> bool {
+    !plugin_id.starts_with("internal://")
+        && (plugin_id.contains('/')
+            || plugin_id.contains('\\')
+            || plugin_id.ends_with(".vst3")
+            || plugin_id.ends_with(".vst")
+            || plugin_id.ends_with(".component")
+            || plugin_id.starts_with("com.")
+            || plugin_id.starts_with("vst3:")
+            || plugin_id.starts_with("au:")
+            || plugin_id.starts_with("vst2:"))
+}
+
+pub fn normalize_plugin_target_for_add(
+    plugin_id: &str,
+    plugin_name: &str,
+) -> NormalizedPluginTarget {
+    if is_external_plugin_reference(plugin_id) {
+        return NormalizedPluginTarget {
+            plugin_id: plugin_id.to_string(),
+            plugin_name: plugin_name.to_string(),
+            canonical_slot_hint: None,
+        };
+    }
+
+    if let Some((canonical_id, canonical_name, canonical_slot_hint)) =
+        dream_importers::ableton::normalization::canonical_internal_plugin_for_import(
+            plugin_id,
+            plugin_name,
+        )
+    {
+        return NormalizedPluginTarget {
+            plugin_id: canonical_id.to_string(),
+            plugin_name: if plugin_name.trim().is_empty() {
+                canonical_name.to_string()
+            } else {
+                plugin_name.to_string()
+            },
+            canonical_slot_hint: Some(canonical_slot_hint.to_string()),
+        };
+    }
+
+    NormalizedPluginTarget {
+        plugin_id: plugin_id.to_string(),
+        plugin_name: plugin_name.to_string(),
+        canonical_slot_hint: None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PluginSlotPreference {
     Instrument,
@@ -43,6 +99,26 @@ pub struct AddPluginToTrackResult {
 }
 
 impl AddPluginToTrackCommand {
+    pub fn from_transport_payload(
+        track_id: &str,
+        plugin_id: &str,
+        plugin_name: &str,
+        slot_preference: &str,
+        external_audio_inputs: Option<u32>,
+        external_supports_sidechain_input: Option<bool>,
+    ) -> OrchestratorResult<Self> {
+        let normalized = normalize_plugin_target_for_add(plugin_id, plugin_name);
+        Self::from_str_track_id(
+            track_id,
+            normalized.plugin_id,
+            normalized.plugin_name,
+            slot_preference,
+            normalized.canonical_slot_hint.as_deref(),
+            external_audio_inputs,
+            external_supports_sidechain_input,
+        )
+    }
+
     pub fn from_str_track_id(
         track_id: &str,
         plugin_id: String,
@@ -195,5 +271,26 @@ mod tests {
         let result = ctx.execute(&cmd).unwrap();
         assert!(!result.placed_as_instrument);
         assert_eq!(ctx.lock_project().unwrap().tracks[0].effects.len(), 1);
+    }
+
+    #[test]
+    fn normalize_plugin_target_maps_internal_aliases() {
+        let normalized =
+            normalize_plugin_target_for_add("PluginDevice", "Synthesizer V Studio 2 Plugin");
+        assert!(normalized.plugin_id.starts_with("internal://"));
+        assert!(!normalized.plugin_name.is_empty());
+        assert!(normalized.canonical_slot_hint.is_some());
+    }
+
+    #[test]
+    fn normalize_plugin_target_keeps_external_references() {
+        let normalized =
+            normalize_plugin_target_for_add("/Library/Audio/Plug-Ins/VST3/Foo.vst3", "Foo");
+        assert_eq!(
+            normalized.plugin_id,
+            "/Library/Audio/Plug-Ins/VST3/Foo.vst3"
+        );
+        assert_eq!(normalized.plugin_name, "Foo");
+        assert!(normalized.canonical_slot_hint.is_none());
     }
 }

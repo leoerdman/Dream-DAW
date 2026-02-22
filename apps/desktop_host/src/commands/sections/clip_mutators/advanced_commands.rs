@@ -34,6 +34,25 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
+    let track_uuid =
+        Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
+    let before_colors = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        let mut map = std::collections::HashMap::new();
+        for clip in &track.clips {
+            map.insert(clip.id, clip.color_hex.clone());
+        }
+        for clip in &track.midi_clips {
+            map.insert(clip.id, clip.color_hex.clone());
+        }
+        map
+    };
+
     paint_track_clips_with_track_color_cmd(
         track_id,
         project_state.clone(),
@@ -42,11 +61,36 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
         app,
     )
     .await?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+
+    let deltas = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found after paint: {track_uuid}"))?;
+        let mut out = Vec::new();
+        for clip in &track.clips {
+            if before_colors.get(&clip.id) != Some(&clip.color_hex) {
+                out.push(dream_models::delta::ProjectDelta::ClipColorChanged {
+                    clip_id: clip.id,
+                    color: clip.color_hex.clone(),
+                });
+            }
+        }
+        for clip in &track.midi_clips {
+            if before_colors.get(&clip.id) != Some(&clip.color_hex) {
+                out.push(dream_models::delta::ProjectDelta::ClipColorChanged {
+                    clip_id: clip.id,
+                    color: clip.color_hex.clone(),
+                });
+            }
+        }
+        out
+    };
+
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas,
     })
 }
 
@@ -125,14 +169,23 @@ async fn resolve_missing_file_with_deltas_cmd(
         });
     }
 
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    let updated_clip = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == clip_uuid)
+        .ok_or_else(|| format!("Audio clip not found after resolve: {clip_uuid}"))?;
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
+        deltas: vec![dream_models::delta::ProjectDelta::ClipFilePathChanged {
+            clip_id: clip_uuid,
+            file_path: updated_clip.file_path.clone(),
+            is_offline: updated_clip.is_offline,
         }],
     })
 }

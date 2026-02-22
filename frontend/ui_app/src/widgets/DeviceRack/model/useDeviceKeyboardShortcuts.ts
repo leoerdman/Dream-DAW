@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import type { ProjectDelta } from '@/shared/api/engine';
 
 export function useDeviceKeyboardShortcuts(
@@ -7,7 +7,6 @@ export function useDeviceKeyboardShortcuts(
     setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>,
     selectedTrack: any,
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
-    _syncProjectSnapshotDelta: (reason?: string) => Promise<void>,
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear: () => void,
     statusError: (msg: string) => void

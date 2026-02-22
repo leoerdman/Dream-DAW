@@ -261,6 +261,7 @@ impl Drop for Vst3Instance {
         if self.connection_point_component != 0 && self.connection_point_controller != 0 {
             let cp_comp = self.connection_point_component as *mut IConnectionPoint;
             let cp_ctrl = self.connection_point_controller as *mut IConnectionPoint;
+            // SAFETY: both connection points were QI'd during activation and remain valid until drop.
             unsafe {
                 let _ = ((*(*cp_comp).vtbl).disconnect)(cp_comp, cp_ctrl);
                 let _ = ((*(*cp_ctrl).vtbl).disconnect)(cp_ctrl, cp_comp);
@@ -268,6 +269,7 @@ impl Drop for Vst3Instance {
         }
         if self.connection_point_component != 0 {
             let cp = self.connection_point_component as *mut IConnectionPoint;
+            // SAFETY: connection point pointer is owned by this instance and released once in drop.
             unsafe {
                 ((*(*cp).vtbl).release)(cp);
             }
@@ -275,6 +277,7 @@ impl Drop for Vst3Instance {
         }
         if self.connection_point_controller != 0 {
             let cp = self.connection_point_controller as *mut IConnectionPoint;
+            // SAFETY: connection point pointer is owned by this instance and released once in drop.
             unsafe {
                 ((*(*cp).vtbl).release)(cp);
             }
@@ -291,6 +294,7 @@ impl Drop for Vst3Instance {
 
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer belongs to this instance and is valid during teardown sequence.
             unsafe {
                 ((*(*processor).vtbl).set_processing)(processor, 0);
                 // Only release if processor is a separate COM object from component.
@@ -304,6 +308,7 @@ impl Drop for Vst3Instance {
 
         if self.component_ptr != 0 {
             let component = self.component_ptr as *mut IComponent;
+            // SAFETY: component pointer belongs to this instance and is valid during teardown sequence.
             unsafe {
                 ((*(*component).vtbl).set_active)(component, 0);
                 // BUG-9 FIX: terminate() is called here in drop() — the ONLY
@@ -318,6 +323,7 @@ impl Drop for Vst3Instance {
         // For single-component plugins (QI'd), the component already handled it above.
         if self.controller_ptr != 0 && !controller_is_component {
             let controller = self.controller_ptr as *mut IEditController;
+            // SAFETY: controller pointer is valid and not aliased with component in this branch.
             unsafe {
                 let _ = ((*(*controller).vtbl).terminate)(controller);
                 ((*(*controller).vtbl).release)(controller);
@@ -327,6 +333,7 @@ impl Drop for Vst3Instance {
 
         if self.factory_ptr != 0 {
             let factory = self.factory_ptr as *mut IPluginFactory;
+            // SAFETY: factory pointer is valid and released once during drop.
             unsafe {
                 ((*(*factory).vtbl).release)(factory);
             }
@@ -340,8 +347,10 @@ impl Drop for Vst3Instance {
             #[cfg(target_os = "macos")]
             {
                 if let Ok(exit_fn) =
+                    // SAFETY: optional symbol lookup on loaded module with declared ABI.
                     unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"bundleExit\0") }
                 {
+                    // SAFETY: function pointer came from symbol lookup and is called with matching ABI.
                     let result = unsafe { exit_fn() };
                     info!(
                         "[VST3] bundleExit called for '{}': result={}",
@@ -352,8 +361,10 @@ impl Drop for Vst3Instance {
             #[cfg(not(target_os = "macos"))]
             {
                 if let Ok(exit_fn) =
+                    // SAFETY: optional symbol lookup on loaded module with declared ABI.
                     unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"ExitDll\0") }
                 {
+                    // SAFETY: function pointer came from symbol lookup and is called with matching ABI.
                     let result = unsafe { exit_fn() };
                     info!(
                         "[VST3] ExitDll called for '{}': result={}",

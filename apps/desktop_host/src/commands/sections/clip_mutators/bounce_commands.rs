@@ -192,6 +192,38 @@ async fn bounce_selection_to_track_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn bounce_selection_to_track_with_deltas_cmd(
+    payload: BounceSelectionPayload,
+    app: tauri::AppHandle,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<DeltaMutationResponse, String> {
+    let before_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    bounce_selection_to_track_cmd(
+        payload,
+        app,
+        project_state.clone(),
+        clip_pool_state,
+        handle,
+    )
+    .await?;
+    let after_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
+    Ok(DeltaMutationResponse {
+        deltas,
+    })
+}
+
 /// Bounce an entire track to a new audio track.
 #[tauri::command]
 async fn bounce_track_cmd(
@@ -632,6 +664,11 @@ async fn bounce_group_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<DeltaMutationResponse, String> {
+    let before_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     bounce_group_cmd(
         group_track_id,
         app,
@@ -640,10 +677,13 @@ async fn bounce_group_with_deltas_cmd(
         handle,
     )
     .await?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let after_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let deltas = collect_added_track_and_clip_deltas(&before_project, &after_project);
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas,
     })
 }

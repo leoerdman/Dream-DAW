@@ -64,7 +64,11 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         }));
         setDraftPitch(nextPitch);
         try {
-            await engineApi.setClipPitch({ clipId: clip.id, pitchShiftSemitones: nextPitch });
+            const response = await engineApi.setClipPitchWithDeltas({
+                clipId: clip.id,
+                pitchShiftSemitones: nextPitch,
+            });
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-clip-editor:pitch');
         } catch (err) {
             useEngineStore.setState({
                 timelineClips: previousClips,

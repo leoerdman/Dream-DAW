@@ -68,12 +68,14 @@ unsafe extern "C" fn plug_frame_query_interface(
         return K_NO_INTERFACE;
     }
     if tuid_matches(iid, &IID_IPLUG_FRAME) || tuid_matches(iid, &IID_FUNKNOWN) {
+        // SAFETY: `obj` is validated non-null above and receives current COM object pointer.
         unsafe {
             *obj = this;
             plug_frame_add_ref(this);
         }
         return K_RESULT_OK;
     }
+    // SAFETY: `obj` is validated non-null above and points to caller out-param storage.
     unsafe {
         *obj = ptr::null_mut();
     }
@@ -84,6 +86,7 @@ unsafe extern "C" fn plug_frame_add_ref(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostPlugFrame` for this vtable callback.
     let frame = unsafe { &mut *(this as *mut HostPlugFrame) };
     frame.ref_count = frame.ref_count.saturating_add(1);
     frame.ref_count
@@ -93,6 +96,7 @@ unsafe extern "C" fn plug_frame_release(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostPlugFrame` for this vtable callback.
     let frame = unsafe { &mut *(this as *mut HostPlugFrame) };
     frame.ref_count = frame.ref_count.saturating_sub(1);
     frame.ref_count
@@ -115,16 +119,19 @@ unsafe extern "C" fn plug_frame_resize_view(
         return K_RESULT_FALSE;
     }
 
+    // SAFETY: `this` is non-null and points to `HostPlugFrame` for this vtable callback.
     let frame = unsafe { &*(this as *const HostPlugFrame) };
     if frame.window_ptr == 0 {
         return K_RESULT_FALSE;
     }
 
+    // SAFETY: `new_rect` is validated non-null above and points to plugin-provided view rect.
     let rect = unsafe { &*new_rect };
     let width = (rect.right - rect.left).max(100) as f64;
     let height = (rect.bottom - rect.top).max(100) as f64;
     let window = frame.window_ptr as id;
 
+    // SAFETY: `window` is an NSWindow id provided by our host; AppKit methods are called on main thread.
     unsafe {
         let current_frame = NSWindow::frame(window);
         window.setContentSize_(NSSize::new(width, height));
@@ -143,6 +150,7 @@ unsafe extern "C" fn plug_frame_resize_view(
     if !view.is_null() && !in_attached {
         IN_RESIZE.with(|c| c.set(true));
         let plug_view = view as *mut IPlugView;
+        // SAFETY: `plug_view` comes from plugin callback and is valid during resize handshake.
         unsafe {
             let _ = ((*(*plug_view).vtbl).on_size)(plug_view, new_rect);
         }
@@ -195,6 +203,7 @@ unsafe extern "C" {
 }
 
 extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notification: id) {
+    // SAFETY: called by ObjC runtime with valid delegate object; ivar access and VST3 cleanup are guarded.
     unsafe {
         let mut plug_view_raw: *mut c_void = std::ptr::null_mut();
         object_getInstanceVariable(this, c"_plugView".as_ptr() as _, &mut plug_view_raw);
@@ -235,17 +244,19 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
     }
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
-pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
+pub(crate) fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
     use std::os::raw::c_char;
 
     let class_name = c"DreamDAWPluginWindowDelegate".as_ptr() as *const c_char;
 
     DELEGATE_CLASS_INIT.call_once(|| {
+        // SAFETY: Objective-C runtime functions are called with static class names and validated handles.
         let ns_object_class = unsafe { objc_getClass(c"NSObject".as_ptr() as _) };
+        // SAFETY: superclass handle above is valid for dynamic subclass creation.
         let new_class = unsafe { objc_allocateClassPair(ns_object_class, class_name, 0) };
         assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
 
+        // SAFETY: ivar declarations use stable C layouts/types and newly-created class handle.
         unsafe {
             class_addIvar(
                 new_class,
@@ -266,7 +277,9 @@ pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut 
         unsafe extern "C" {
             fn sel_registerName(name: *const c_char) -> *mut c_void;
         }
+        // SAFETY: selector name is a static C string and runtime returns canonical SEL.
         let sel = unsafe { sel_registerName(c"windowWillClose:".as_ptr() as _) };
+        // SAFETY: method signature matches callback ABI and class handle is valid.
         unsafe {
             class_addMethod(
                 new_class,
@@ -286,19 +299,29 @@ pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut 
     type MsgSendInit = unsafe extern "C" fn(id, *mut c_void) -> id;
     type MsgSendSetDelegate = unsafe extern "C" fn(id, *mut c_void, id);
 
+    // SAFETY: class was registered above during `call_once`; lookup by same static name is valid.
     let delegate_class = unsafe { objc_getClass(class_name) };
+    // SAFETY: selector names are static C strings and runtime returns canonical SEL values.
     let sel_alloc = unsafe { sel_registerName(c"alloc".as_ptr() as _) };
+    // SAFETY: selector names are static C strings and runtime returns canonical SEL values.
     let sel_init = unsafe { sel_registerName(c"init".as_ptr() as _) };
+    // SAFETY: selector names are static C strings and runtime returns canonical SEL values.
     let sel_set_delegate = unsafe { sel_registerName(c"setDelegate:".as_ptr() as _) };
 
+    // SAFETY: `objc_msgSend` is cast to signatures matching corresponding Objective-C selectors.
     let send_alloc: MsgSendAlloc = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    // SAFETY: `objc_msgSend` is cast to signatures matching corresponding Objective-C selectors.
     let send_init: MsgSendInit = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
     let send_set_delegate: MsgSendSetDelegate =
+        // SAFETY: `objc_msgSend` is cast to signatures matching corresponding Objective-C selectors.
         unsafe { std::mem::transmute(objc_msgSend as *const ()) };
 
+    // SAFETY: calling alloc/init on valid delegate class produced above.
     let delegate = unsafe { send_alloc(delegate_class, sel_alloc) };
+    // SAFETY: object from alloc is valid receiver for init.
     let delegate = unsafe { send_init(delegate, sel_init) };
 
+    // SAFETY: ivar names and delegate/window ids are valid in this setup code path.
     unsafe {
         object_setInstanceVariable(
             delegate,
@@ -319,17 +342,19 @@ pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut 
     );
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
-pub(crate) unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
+pub(crate) fn plugin_window_delegate_already_cleaned(window: id) -> bool {
     unsafe extern "C" {
         fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
         fn objc_msgSend() -> id;
     }
     type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
 
+    // SAFETY: selector name is static and runtime returns canonical SEL value.
     let sel_delegate = unsafe { sel_registerName(c"delegate".as_ptr() as _) };
     let send_delegate: MsgSendGetDelegate =
+        // SAFETY: signature matches `-delegate` Objective-C selector.
         unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    // SAFETY: `window` is valid NSWindow id and selector matches getter method.
     let delegate = unsafe { send_delegate(window, sel_delegate) };
 
     if delegate.is_null() {
@@ -337,29 +362,33 @@ pub(crate) unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool 
     }
 
     let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
+    // SAFETY: delegate object exists and `_cleaned` ivar is installed in class setup.
     unsafe {
         object_getInstanceVariable(delegate, c"_cleaned".as_ptr() as _, &mut cleaned_raw);
     }
     cleaned_raw as usize != 0
 }
 
-#[allow(unsafe_op_in_unsafe_fn)]
-pub(crate) unsafe fn mark_delegate_cleaned(window: id) {
+pub(crate) fn mark_delegate_cleaned(window: id) {
     unsafe extern "C" {
         fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
         fn objc_msgSend() -> id;
     }
     type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
 
+    // SAFETY: selector name is static and runtime returns canonical SEL value.
     let sel_delegate = unsafe { sel_registerName(c"delegate".as_ptr() as _) };
     let send_delegate: MsgSendGetDelegate =
+        // SAFETY: signature matches `-delegate` Objective-C selector.
         unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    // SAFETY: `window` is valid NSWindow id and selector matches getter method.
     let delegate = unsafe { send_delegate(window, sel_delegate) };
 
     if delegate.is_null() {
         return;
     }
 
+    // SAFETY: delegate object exists and ivars were declared during class initialization.
     unsafe {
         object_setInstanceVariable(
             delegate,

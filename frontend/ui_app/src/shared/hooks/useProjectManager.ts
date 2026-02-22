@@ -1,15 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════════════
 // useProjectManager — Enterprise Project Management Hook
-// ═══════════════════════════════════════════════════════════════════════════
-//
 // Encapsulates all project management operations:
 //   - Save / Save As / New / Open with keyboard shortcuts
 //   - Dirty state tracking with title bar indicator
 //   - Auto-backup timer (every 5 minutes)
 //   - Unsaved changes confirmation
-//
 // Mirrors the Swift ProjectFileManager workflow in React.
-//
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -45,6 +40,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
 
     const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const syncProjectHistory = useEngineStore((s) => s.syncProjectHistory);
+    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
 
     // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
     const filePathRef = useRef<string | null>(null);
@@ -152,14 +148,18 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         }
 
         try {
-            await engineApi.newProject();
+            const project = await engineApi.newProject();
+            await applyProjectDeltas(
+                [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
+                'project-manager:new',
+            );
             await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
         } catch (err) {
             console.error('[ProjectManager] New project failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory]);
+    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
 
     // ── Open Project ──────────────────────────────────────────────────
 
@@ -177,13 +177,18 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             if (path) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
-                    await engineApi.importAbletonProject(path);
+                    const project = await engineApi.importAbletonProject(path);
+                    await applyProjectDeltas(
+                        [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
+                        'project-manager:open',
+                    );
                 } else {
-                    await engineApi.openProject(path);
+                    const project = await engineApi.openProject(path);
+                    await applyProjectDeltas(
+                        [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
+                        'project-manager:open',
+                    );
                 }
-                // Snapshot-delta sync after project load/import.
-                const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta;
-                await syncProjectSnapshotDelta('project-manager:open');
                 await syncProjectHistory();
                 await refreshStatus();
                 // Eagerly activate external VST3 plugins and restore their saved state
@@ -195,7 +200,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } catch (err) {
             console.error('[ProjectManager] Open failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory]);
+    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
 
     // ── Backup ────────────────────────────────────────────────────────
 

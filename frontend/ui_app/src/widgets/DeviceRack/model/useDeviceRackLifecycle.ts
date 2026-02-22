@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 interface DeviceLike {

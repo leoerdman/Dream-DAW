@@ -185,6 +185,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // Mutating the OS audio thread's FPU state permanently breaks IEEE-754
                         // for the entire host process (logic pro, bitwig, ableton, etc.)
                         #[cfg(target_arch = "x86_64")]
+                        // SAFETY: reading/updating MXCSR is thread-local CPU state for current callback thread.
                         let original_csr = unsafe {
                             use std::arch::x86_64::*;
                             let csr = _mm_getcsr();
@@ -193,6 +194,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         };
 
                         #[cfg(target_arch = "aarch64")]
+                        // SAFETY: FPCR read/write targets current thread FPU control register only.
                         let original_fpcr = unsafe {
                             let mut fpcr: u64;
                             std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
@@ -793,9 +795,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         // MEGA-03 FIX: Restore original FPU semantics for OS audio thread
                         #[cfg(target_arch = "x86_64")]
+                        // SAFETY: value was captured from this same thread before mutation in this callback.
                         unsafe { std::arch::x86_64::_mm_setcsr(original_csr); }
 
                         #[cfg(target_arch = "aarch64")]
+                        // SAFETY: value was captured from this same thread before mutation in this callback.
                         unsafe { std::arch::asm!("msr fpcr, {}", in(reg) original_fpcr); }
                     };
 

@@ -14,37 +14,13 @@ fn add_plugin_to_track_cmd(
     push_undo(&project_state)?;
 
     let slot = payload.slot.to_lowercase();
-    
-    // BUG-5 FIX: Only apply internal-plugin fuzzy mapping when the plugin_id
-    // looks like an ALS migration tag or an internal convention.
-    let is_external_plugin = !payload.plugin_id.starts_with("internal://")
-        && (payload.plugin_id.contains('/')
-            || payload.plugin_id.contains('\\')
-            || payload.plugin_id.ends_with(".vst3")
-            || payload.plugin_id.ends_with(".vst")
-            || payload.plugin_id.ends_with(".component")
-            || payload.plugin_id.starts_with("com.")
-            || payload.plugin_id.starts_with("vst3:")
-            || payload.plugin_id.starts_with("au:")
-            || payload.plugin_id.starts_with("vst2:"));
-            
-    let canonical = if is_external_plugin {
-        None
-    } else {
-        dream_importers::ableton::normalization::canonical_internal_plugin_for_import(&payload.plugin_id, &payload.plugin_name)
-    };
-    
-    let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
-    let effective_plugin_name = canonical
-        .map(|v| {
-            if payload.plugin_name.trim().is_empty() {
-                v.1.to_string()
-            } else {
-                payload.plugin_name.clone()
-            }
-        })
-        .unwrap_or_else(|| payload.plugin_name.clone());
-    let canonical_slot_hint = canonical.map(|v| v.2);
+    let normalized_target = dream_orchestrator::commands::normalize_plugin_target_for_add(
+        &payload.plugin_id,
+        &payload.plugin_name,
+    );
+    let effective_plugin_id = normalized_target.plugin_id;
+    let effective_plugin_name = normalized_target.plugin_name;
+    let canonical_slot_hint = normalized_target.canonical_slot_hint;
     
     let mut external_audio_inputs = None;
     let mut external_supports_sidechain_input = None;
@@ -62,7 +38,7 @@ fn add_plugin_to_track_cmd(
         effective_plugin_id.clone(),
         effective_plugin_name.clone(),
         &slot,
-        canonical_slot_hint,
+        canonical_slot_hint.as_deref(),
         external_audio_inputs,
         external_supports_sidechain_input,
     )

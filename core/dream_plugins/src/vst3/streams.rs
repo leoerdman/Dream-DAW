@@ -44,6 +44,7 @@ unsafe extern "C" fn stream_query_interface(
 ) -> Tresult {
     // COM spec: *obj MUST be NULLed on failure.
     if !_obj.is_null() {
+        // SAFETY: `_obj` was checked for null and points to caller-owned out-slot.
         unsafe {
             *_obj = ptr::null_mut();
         }
@@ -52,12 +53,14 @@ unsafe extern "C" fn stream_query_interface(
 }
 
 unsafe extern "C" fn stream_add_ref(this: *mut IBStream) -> u32 {
+    // SAFETY: `this` originates from our COM object construction and is HostReadStream.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
     stream.ref_count = stream.ref_count.saturating_add(1);
     stream.ref_count
 }
 
 unsafe extern "C" fn stream_release(this: *mut IBStream) -> u32 {
+    // SAFETY: `this` originates from our COM object construction and is HostReadStream.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
     stream.ref_count = stream.ref_count.saturating_sub(1);
     stream.ref_count
@@ -72,11 +75,13 @@ pub(crate) unsafe extern "C" fn stream_read(
     if this.is_null() || buffer.is_null() || num_bytes < 0 {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` validated above and points to HostReadStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
     let requested = num_bytes as usize;
     let remaining = stream.data.len().saturating_sub(stream.pos);
     let to_copy = requested.min(remaining);
     if to_copy > 0 {
+        // SAFETY: destination `buffer` validated non-null; source slice bounds are clamped by `to_copy`.
         unsafe {
             ptr::copy_nonoverlapping(
                 stream.data.as_ptr().add(stream.pos),
@@ -87,6 +92,7 @@ pub(crate) unsafe extern "C" fn stream_read(
         stream.pos = stream.pos.saturating_add(to_copy);
     }
     if !num_bytes_read.is_null() {
+        // SAFETY: checked for null; writes exactly one i32 out-parameter.
         unsafe {
             *num_bytes_read = to_copy as i32;
         }
@@ -101,6 +107,7 @@ unsafe extern "C" fn stream_write_noop(
     num_bytes_written: *mut i32,
 ) -> Tresult {
     if !num_bytes_written.is_null() {
+        // SAFETY: checked for null; writes one i32 out-parameter for noop write.
         unsafe {
             *num_bytes_written = 0;
         }
@@ -117,6 +124,7 @@ pub(crate) unsafe extern "C" fn stream_seek(
     if this.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` validated above and points to HostReadStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
     let len = stream.data.len() as i64;
     let base = match mode {
@@ -134,6 +142,7 @@ pub(crate) unsafe extern "C" fn stream_seek(
     }
     stream.pos = next as usize;
     if !result.is_null() {
+        // SAFETY: checked for null; writes one i64 out-parameter.
         unsafe {
             *result = next;
         }
@@ -145,7 +154,9 @@ unsafe extern "C" fn stream_tell(this: *mut IBStream, result: *mut i64) -> Tresu
     if this.is_null() || result.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: pointers validated above; immutable borrow is valid for call duration.
     let stream = unsafe { &*(this as *mut HostReadStream) };
+    // SAFETY: `result` validated non-null above.
     unsafe {
         *result = stream.pos as i64;
     }
@@ -199,6 +210,7 @@ unsafe extern "C" fn write_stream_query_interface(
 ) -> Tresult {
     // COM spec: *obj MUST be NULLed on failure.
     if !_obj.is_null() {
+        // SAFETY: `_obj` was checked for null and points to caller-owned out-slot.
         unsafe {
             *_obj = ptr::null_mut();
         }
@@ -210,6 +222,7 @@ unsafe extern "C" fn write_stream_add_ref(this: *mut IBStream) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` validated non-null and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     stream.ref_count += 1;
     stream.ref_count
@@ -219,6 +232,7 @@ unsafe extern "C" fn write_stream_release(this: *mut IBStream) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` validated non-null and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     stream.ref_count = stream.ref_count.saturating_sub(1);
     stream.ref_count
@@ -232,6 +246,7 @@ unsafe extern "C" fn write_stream_read(
 ) -> Tresult {
     // Write-only stream — reads are not supported.
     if !num_bytes_read.is_null() {
+        // SAFETY: checked for null; writes one i32 out-parameter.
         unsafe {
             *num_bytes_read = 0;
         }
@@ -247,13 +262,16 @@ unsafe extern "C" fn write_stream_write(
 ) -> Tresult {
     if this.is_null() || buffer.is_null() || num_bytes <= 0 {
         if !num_bytes_written.is_null() {
+            // SAFETY: checked for null; writes one i32 out-parameter.
             unsafe {
                 *num_bytes_written = 0;
             }
         }
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` validated above and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    // SAFETY: `buffer` validated non-null and `count` bytes provided by caller for this call.
     let count = num_bytes as usize;
     let src = unsafe { std::slice::from_raw_parts(buffer as *const u8, count) };
 
@@ -275,6 +293,7 @@ unsafe extern "C" fn write_stream_write(
     stream.pos += count;
 
     if !num_bytes_written.is_null() {
+        // SAFETY: checked for null; writes one i32 out-parameter.
         unsafe {
             *num_bytes_written = num_bytes;
         }
@@ -291,6 +310,7 @@ unsafe extern "C" fn write_stream_seek(
     if this.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` validated above and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     let new_pos: i64 = match mode {
         K_SEEK_SET => pos,
@@ -303,6 +323,7 @@ unsafe extern "C" fn write_stream_seek(
     }
     stream.pos = new_pos as usize;
     if !result.is_null() {
+        // SAFETY: checked for null; writes one i64 out-parameter.
         unsafe {
             *result = stream.pos as i64;
         }
@@ -314,7 +335,9 @@ unsafe extern "C" fn write_stream_tell(this: *mut IBStream, result: *mut i64) ->
     if this.is_null() || result.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: pointers validated above; immutable borrow is valid for call duration.
     let stream = unsafe { &*(this as *const HostWriteStream) };
+    // SAFETY: `result` validated non-null above.
     unsafe {
         *result = stream.pos as i64;
     }

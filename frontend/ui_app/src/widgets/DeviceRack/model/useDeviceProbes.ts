@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import type { DeviceSlot, PluginParam } from '../model/types';
 
 export function useDeviceProbes(

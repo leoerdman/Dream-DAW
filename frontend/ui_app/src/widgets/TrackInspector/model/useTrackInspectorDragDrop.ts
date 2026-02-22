@@ -84,7 +84,7 @@ export function useTrackInspectorDragDrop({
 
         if (draggingTrack.type === 'group') {
             const rawInsertIndex = computeRawInsert(visibleIndex);
-            void engineApi.moveTrackBlockToIndexWithSnapshotDelta(dragId, rawInsertIndex)
+            void engineApi.moveTrackBlockToIndexWithDeltas(dragId, rawInsertIndex)
                 .then(async (response) => {
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-group-block');
                 })
@@ -110,7 +110,7 @@ export function useTrackInspectorDragDrop({
         }
 
         trackMoveInFlightRef.current = true;
-        void engineApi.moveTrackWithParentWithSnapshotDelta(trackId, targetIndex, groupId)
+        void engineApi.moveTrackWithParentWithDeltas(trackId, targetIndex, groupId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-to-group');
             })

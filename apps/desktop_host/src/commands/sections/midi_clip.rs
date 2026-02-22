@@ -18,11 +18,6 @@ struct CreateMidiClipWithDeltasResponse {
     deltas: Vec<dream_models::delta::ProjectDelta>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct MidiDeltaMutationResponse {
-    deltas: Vec<dream_models::delta::ProjectDelta>,
-}
-
 /// Creates an empty MIDI clip on a track at a specified position.
 ///
 /// Used when the user double-clicks on a MIDI track to create a new

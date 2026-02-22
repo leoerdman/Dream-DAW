@@ -11,6 +11,7 @@ impl Vst3Instance {
             unsafe extern "C" {
                 fn pthread_main_np() -> i32;
             }
+            // SAFETY: libc call has no arguments and is safe to query current thread role.
             let is_main = unsafe { pthread_main_np() } != 0;
             debug_assert!(
                 is_main || cfg!(test),
@@ -39,41 +40,12 @@ impl Vst3Instance {
             self.host_initialized, self.com_initialized
         );
 
-        // ── File-based step-by-step diagnostics ──
-        // Each step writes to diag file with flush, so the last written line
-        // pinpoints exactly where the crash occurs.
-        macro_rules! diag_step {
-            ($($arg:tt)*) => {{
-                use std::io::Write;
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
-                    .open("/tmp/dream-daw-diag.txt") {
-                    let _ = writeln!(f, $($arg)*);
-                    let _ = f.flush();
-                }
-            }}
-        }
-
-        diag_step!(
-            "[open_editor:{}] Step 1: createView about to call, controller={:#x}",
-            self.descriptor.name,
-            self.controller_ptr
-        );
-
         let controller = self.controller_ptr as *mut IEditController;
-        eprintln!(
-            "[CRASH-DIAG] >>> createView about to call vtbl at {:p}",
-            controller
-        );
         info!("[VST3-EDITOR] Step 1: Calling createView('editor')...");
+        // SAFETY: controller pointer comes from COM bootstrap and remains valid while editor is opening.
         let view_raw = unsafe {
             ((*(*controller).vtbl).create_view)(controller, c"editor".as_ptr() as *const c_char)
         };
-        eprintln!("[CRASH-DIAG] <<< createView returned {:p}", view_raw);
-        diag_step!(
-            "[open_editor:{}] Step 1: createView returned {:p}",
-            self.descriptor.name,
-            view_raw
-        );
         if view_raw.is_null() {
             return Err(PluginError::UnsupportedFormat(
                 "Plugin did not provide an editor view".to_string(),
@@ -85,28 +57,20 @@ impl Vst3Instance {
             plug_view
         );
 
-        eprintln!("[CRASH-DIAG] >>> isPlatformTypeSupported about to call");
         info!("[VST3-EDITOR] Step 2: Calling isPlatformTypeSupported('NSView')...");
+        // SAFETY: plug_view pointer is returned by createView above and is valid until released.
         let nsview_supported = unsafe {
             ((*(*plug_view).vtbl).is_platform_type_supported)(
                 plug_view,
                 c"NSView".as_ptr() as *const c_char,
             )
         } == K_RESULT_OK;
-        eprintln!(
-            "[CRASH-DIAG] <<< isPlatformTypeSupported returned {}",
-            nsview_supported
-        );
-        diag_step!(
-            "[open_editor:{}] Step 2: isPlatformTypeSupported={}",
-            self.descriptor.name,
-            nsview_supported
-        );
         info!(
             "[VST3-EDITOR] Step 2: isPlatformTypeSupported → {}",
             nsview_supported
         );
         if !nsview_supported {
+            // SAFETY: plug_view is valid and needs explicit COM release on unsupported platform type.
             unsafe {
                 let _ = ((*(*plug_view).vtbl).release)(plug_view);
             }
@@ -115,11 +79,11 @@ impl Vst3Instance {
             ));
         }
 
+        // SAFETY: AppKit/UI calls are guarded by main-thread check above and use valid Cocoa handles.
         unsafe {
             let app = NSApp();
             app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
 
-            eprintln!("[CRASH-DIAG] >>> getSize about to call");
             info!("[VST3-EDITOR] Step 3: Calling getSize...");
             let mut rect = ViewRect {
                 left: 0,
@@ -130,20 +94,11 @@ impl Vst3Instance {
             let _ = ((*(*plug_view).vtbl).get_size)(plug_view, &mut rect);
             let width = (rect.right - rect.left).max(420) as f64;
             let height = (rect.bottom - rect.top).max(300) as f64;
-            eprintln!("[CRASH-DIAG] <<< getSize returned {}x{}", width, height);
-            diag_step!(
-                "[open_editor:{}] Step 3: getSize={}x{}",
-                self.descriptor.name,
-                width,
-                height
-            );
             info!("[VST3-EDITOR] Step 3: getSize → {}x{}", width, height);
 
             // BUG-E3 FIX: Check canResize() before adding the resize style mask.
             // Plugins like FabFilter Pro-Q break when resized if they don't support it.
-            eprintln!("[CRASH-DIAG] >>> canResize about to call");
             let can_resize = ((*(*plug_view).vtbl).can_resize)(plug_view) == K_RESULT_OK;
-            eprintln!("[CRASH-DIAG] <<< canResize returned {}", can_resize);
             info!("[VST3-EDITOR] Step 3b: canResize = {}", can_resize);
 
             info!("[VST3-EDITOR] Step 4: Creating NSWindow...");
@@ -179,11 +134,6 @@ impl Vst3Instance {
                     | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle,
             );
 
-            diag_step!(
-                "[open_editor:{}] Step 4: NSWindow created at {:p}",
-                self.descriptor.name,
-                window
-            );
             info!("[VST3-EDITOR] Step 4: NSWindow created OK");
 
             // BUG-E2 FIX: Set the window title to the plugin name.
@@ -232,10 +182,6 @@ impl Vst3Instance {
             // frame pointer is NULL → Serum2 dereferences offset 0x60 → SIGSEGV.
             window.center();
             window.makeKeyAndOrderFront_(nil);
-            diag_step!(
-                "[open_editor:{}] Step 5c: window visible",
-                self.descriptor.name
-            );
             info!("[VST3-EDITOR] Step 5c: window centered + makeKeyAndOrderFront");
 
             // ── Wire IPlugFrame for editor resize notifications ──
@@ -251,17 +197,7 @@ impl Vst3Instance {
                 frame_ptr,
                 frame_box.vtable_ptr()
             );
-            eprintln!(
-                "[CRASH-DIAG] >>> setFrame about to call, frame_ptr={:p}, plug_view={:p}",
-                frame_ptr, plug_view
-            );
             let set_frame_result = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
-            eprintln!("[CRASH-DIAG] <<< setFrame returned {}", set_frame_result);
-            diag_step!(
-                "[open_editor:{}] Step 6: setFrame returned {}",
-                self.descriptor.name,
-                set_frame_result
-            );
             info!(
                 "[VST3-EDITOR] Step 6: setFrame returned {}",
                 set_frame_result
@@ -335,21 +271,6 @@ impl Vst3Instance {
                 plugin_host_view, width, height, content_view
             );
 
-            diag_step!(
-                "[open_editor:{}] Step 6b: pluginHostView {:p} ({}x{})",
-                self.descriptor.name,
-                plugin_host_view,
-                width,
-                height
-            );
-            diag_step!(
-                "[open_editor:{}] Step 7: attached() about to call",
-                self.descriptor.name
-            );
-            eprintln!(
-                "[CRASH-DIAG] >>> attached about to call, plugin_host_view={:p} (child of content_view={:p})",
-                plugin_host_view, content_view
-            );
             info!("[VST3-EDITOR] Step 7: Calling attached(pluginHostView, 'NSView')...");
 
             // Set IN_ATTACHED guard so resizeView callbacks during attached()
@@ -361,12 +282,6 @@ impl Vst3Instance {
                 c"NSView".as_ptr() as *const c_char,
             );
             set_editor_in_attached(false);
-            diag_step!(
-                "[open_editor:{}] Step 7: attached returned {}",
-                self.descriptor.name,
-                attached
-            );
-            eprintln!("[CRASH-DIAG] <<< attached returned {}", attached);
             info!("[VST3-EDITOR] Step 7: attached returned {}", attached);
             if attached != K_RESULT_OK {
                 // Clean up: unset frame before releasing view
@@ -452,98 +367,6 @@ impl Vst3Instance {
                 }
             }
 
-            // ── Diagnostic: inspect NSView hierarchy after attached() ──
-            // Write diagnostics directly to a file (Tauri captures stdout/stderr)
-            {
-                use std::io::Write;
-                let mut diag_file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/tmp/dream-daw-diag.txt")
-                    .ok();
-
-                macro_rules! diag {
-                    ($($arg:tt)*) => {
-                        if let Some(ref mut f) = diag_file {
-                            let _ = writeln!(f, $($arg)*);
-                            let _ = f.flush();
-                        }
-                    }
-                }
-
-                diag!("=== EDITOR DIAG for '{}' ===", self.descriptor.name);
-                diag!("attached() returned OK, onSize returned {}", on_size_result);
-
-                type MsgSendId = unsafe extern "C" fn(id, *mut c_void) -> id;
-                type MsgSendUsize = unsafe extern "C" fn(id, *mut c_void) -> usize;
-                type MsgSendNSRect = unsafe extern "C" fn(id, *mut c_void) -> NSRect;
-                type MsgSendBoolRet = unsafe extern "C" fn(id, *mut c_void) -> i8;
-                let send_id: MsgSendId = std::mem::transmute(objc_msgSend as *const ());
-                let send_usize: MsgSendUsize = std::mem::transmute(objc_msgSend as *const ());
-                let send_bool: MsgSendBoolRet = std::mem::transmute(objc_msgSend as *const ());
-                let send_rect: MsgSendNSRect = std::mem::transmute(objc_msgSend as *const ());
-
-                let sel_subviews = sel_registerName(c"subviews".as_ptr() as _);
-                let sel_count = sel_registerName(c"count".as_ptr() as _);
-                let sel_object_at = sel_registerName(c"objectAtIndex:".as_ptr() as _);
-                let sel_frame = sel_registerName(c"frame".as_ptr() as _);
-                let sel_wants_layer = sel_registerName(c"wantsLayer".as_ptr() as _);
-                let sel_is_hidden = sel_registerName(c"isHidden".as_ptr() as _);
-                let sel_class_name = sel_registerName(c"className".as_ptr() as _);
-                let sel_utf8 = sel_registerName(c"UTF8String".as_ptr() as _);
-
-                let cv_frame = send_rect(content_view, sel_frame);
-                let cv_wants_layer = send_bool(content_view, sel_wants_layer);
-
-                diag!(
-                    "contentView ptr={:p}, frame=({}, {}, {}, {}), wantsLayer={}",
-                    content_view,
-                    cv_frame.origin.x,
-                    cv_frame.origin.y,
-                    cv_frame.size.width,
-                    cv_frame.size.height,
-                    cv_wants_layer
-                );
-
-                let subviews_array = send_id(content_view, sel_subviews);
-                let subview_count = send_usize(subviews_array, sel_count);
-                diag!("contentView subview count: {}", subview_count);
-
-                type MsgSendIdUsize = unsafe extern "C" fn(id, *mut c_void, usize) -> id;
-                let send_id_usize: MsgSendIdUsize = std::mem::transmute(objc_msgSend as *const ());
-
-                type MsgSendPtr =
-                    unsafe extern "C" fn(id, *mut c_void) -> *const std::os::raw::c_char;
-                let send_ptr: MsgSendPtr = std::mem::transmute(objc_msgSend as *const ());
-
-                for i in 0..subview_count.min(5) {
-                    let subview = send_id_usize(subviews_array, sel_object_at, i);
-                    let sv_frame = send_rect(subview, sel_frame);
-                    let sv_hidden = send_bool(subview, sel_is_hidden);
-                    let sv_wants_layer = send_bool(subview, sel_wants_layer);
-                    // Get class name
-                    let class_ns_string = send_id(subview, sel_class_name);
-                    let class_cstr = send_ptr(class_ns_string, sel_utf8);
-                    let class_name = if !class_cstr.is_null() {
-                        std::ffi::CStr::from_ptr(class_cstr).to_str().unwrap_or("?")
-                    } else {
-                        "null"
-                    };
-                    diag!(
-                        "  subview[{}]: class={}, frame=({}, {}, {}, {}), hidden={}, wantsLayer={}",
-                        i,
-                        class_name,
-                        sv_frame.origin.x,
-                        sv_frame.origin.y,
-                        sv_frame.size.width,
-                        sv_frame.size.height,
-                        sv_hidden,
-                        sv_wants_layer
-                    );
-                }
-                diag!("=== END DIAG ===");
-            }
-
             // ── Install NSWindowDelegate for proper VST3 cleanup on close ──
             // When the user clicks the red close button, macOS calls
             // windowWillClose: on the delegate. We perform the full VST3
@@ -584,24 +407,24 @@ impl Vst3Instance {
         let window = window_state.window as id;
 
         // Check if the delegate already performed cleanup (user clicked red X).
-        let already_cleaned = unsafe { plugin_window_delegate_already_cleaned(window) };
+        let already_cleaned = plugin_window_delegate_already_cleaned(window);
 
         if !already_cleaned {
             // CRITICAL: Mark the delegate as cleaned BEFORE doing VST3 cleanup.
             // When we call window.close() below, macOS fires windowWillClose:
             // on the delegate. If we don't mark it first, the delegate will try
             // to use the plug_view pointer that we're about to free → crash.
-            unsafe {
-                mark_delegate_cleaned(window);
-            }
+            mark_delegate_cleaned(window);
 
             // BUG-14 FIX: Per VST3 SDK, call setFrame(null) BEFORE dropping the
             // HostPlugFrame. Some plugins (UAD, Waves) cache the IPlugFrame pointer
             // and call resizeView during removed(), which would dereference freed memory.
+            // SAFETY: plug_view is valid and accepts null frame during controlled teardown.
             unsafe {
                 let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
             }
             self.plug_frame.take();
+            // SAFETY: plug_view is still alive and teardown order follows VST3 contract.
             unsafe {
                 let _ = ((*(*plug_view).vtbl).removed)(plug_view);
                 let _ = ((*(*plug_view).vtbl).release)(plug_view);
@@ -611,6 +434,7 @@ impl Vst3Instance {
             self.plug_frame.take();
         }
 
+        // SAFETY: window handle belongs to this editor instance and can be closed once.
         unsafe {
             window.close();
         }

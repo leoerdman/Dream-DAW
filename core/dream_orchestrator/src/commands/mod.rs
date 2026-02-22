@@ -28,6 +28,7 @@ pub mod plugin_set_bypass;
 pub mod plugin_set_external_param_lane;
 pub mod plugin_set_internal_param;
 pub mod plugin_set_sampler_sample;
+pub mod plugin_update_external_state_blob;
 pub mod recording_insert_clip;
 pub mod track_grouping;
 pub mod track_move_to_index;
@@ -57,7 +58,10 @@ pub use clip_resolve_missing_file::ResolveMissingClipFileCommand;
 pub use clip_source_offset::SetClipSourceOffsetCommand;
 pub use clip_split::SplitClipCommand;
 pub use clip_warp::SetClipWarpCommand;
-pub use plugin_add::{AddPluginToTrackCommand, AddPluginToTrackResult, PluginSlotPreference};
+pub use plugin_add::{
+    AddPluginToTrackCommand, AddPluginToTrackResult, NormalizedPluginTarget, PluginSlotPreference,
+    normalize_plugin_target_for_add,
+};
 pub use plugin_move_effect::{EffectTrackTarget, MoveEffectSlotCommand, MoveEffectSlotResult};
 pub use plugin_paste_device::{
     PasteDeviceToTrackCommand, PasteDeviceToTrackResult, RuntimeAddDevice,
@@ -68,6 +72,7 @@ pub use plugin_set_bypass::{SetPluginSlotBypassCommand, SetPluginSlotBypassResul
 pub use plugin_set_external_param_lane::SetExternalPluginParamLaneCommand;
 pub use plugin_set_internal_param::{SetInternalPluginParamCommand, SetInternalPluginParamResult};
 pub use plugin_set_sampler_sample::{SetSamplerSampleCommand, SetSamplerSampleResult};
+pub use plugin_update_external_state_blob::UpdatePluginExternalStateBlobCommand;
 pub use recording_insert_clip::InsertRecordedClipCommand;
 pub use track_grouping::{
     CreateGroupCommand, CreateGroupResult, SetGroupExpandedCommand, snapshot_track_order_and_parent,

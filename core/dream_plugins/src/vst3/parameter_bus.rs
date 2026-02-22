@@ -65,6 +65,7 @@ unsafe extern "C" fn host_param_queue_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null per guard above and points to out-param storage from caller.
         unsafe {
             *obj = ptr::null_mut();
         }
@@ -76,6 +77,7 @@ unsafe extern "C" fn host_param_queue_add_ref(this: *mut IParamValueQueue) -> u3
     if this.is_null() {
         return 1;
     }
+    // SAFETY: VST3 host passes a valid `IParamValueQueue` allocated as `HostParamValueQueue`.
     let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
     queue.ref_count = queue.ref_count.saturating_add(1);
     queue.ref_count
@@ -85,6 +87,7 @@ unsafe extern "C" fn host_param_queue_release(this: *mut IParamValueQueue) -> u3
     if this.is_null() {
         return 1;
     }
+    // SAFETY: VST3 host passes a valid `IParamValueQueue` allocated as `HostParamValueQueue`.
     let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
     queue.ref_count = queue.ref_count.saturating_sub(1);
     queue.ref_count
@@ -94,6 +97,7 @@ unsafe extern "C" fn host_param_queue_get_parameter_id(this: *mut IParamValueQue
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostParamValueQueue` per COM vtbl contract.
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
     queue.param_id
 }
@@ -102,6 +106,7 @@ unsafe extern "C" fn host_param_queue_get_point_count(this: *mut IParamValueQueu
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostParamValueQueue` per COM vtbl contract.
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
     queue.point_count
 }
@@ -115,10 +120,12 @@ unsafe extern "C" fn host_param_queue_get_point(
     if this.is_null() || sample_offset.is_null() || value.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostParamValueQueue` per COM vtbl contract.
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
     if index < 0 || index >= queue.point_count || (index as usize) >= MAX_POINTS_PER_QUEUE {
         return K_RESULT_FALSE;
     }
+    // SAFETY: output pointers are validated non-null above; writes are in-bounds scalar stores.
     unsafe {
         *sample_offset = queue.sample_offsets[index as usize];
         *value = queue.values[index as usize];
@@ -135,6 +142,7 @@ unsafe extern "C" fn host_param_queue_add_point(
     if this.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: VST3 host passes a valid `IParamValueQueue` allocated as `HostParamValueQueue`.
     let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
     let slot = queue.point_count as usize;
     if slot >= MAX_POINTS_PER_QUEUE {
@@ -144,6 +152,7 @@ unsafe extern "C" fn host_param_queue_add_point(
     queue.values[slot] = value.clamp(0.0, 1.0);
     queue.point_count += 1;
     if !index.is_null() {
+        // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
         unsafe {
             *index = slot as i32;
         }
@@ -157,6 +166,7 @@ unsafe extern "C" fn host_param_changes_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null per guard above and points to out-param storage from caller.
         unsafe {
             *obj = ptr::null_mut();
         }
@@ -168,6 +178,7 @@ unsafe extern "C" fn host_param_changes_add_ref(this: *mut IParameterChanges) ->
     if this.is_null() {
         return 1;
     }
+    // SAFETY: VST3 host passes a valid `IParameterChanges` allocated as `HostParameterChanges`.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
     changes.ref_count = changes.ref_count.saturating_add(1);
     changes.ref_count
@@ -177,6 +188,7 @@ unsafe extern "C" fn host_param_changes_release(this: *mut IParameterChanges) ->
     if this.is_null() {
         return 1;
     }
+    // SAFETY: VST3 host passes a valid `IParameterChanges` allocated as `HostParameterChanges`.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
     changes.ref_count = changes.ref_count.saturating_sub(1);
     changes.ref_count
@@ -186,6 +198,7 @@ unsafe extern "C" fn host_param_changes_get_parameter_count(this: *mut IParamete
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostParameterChanges` per COM vtbl contract.
     let changes = unsafe { &*(this as *mut HostParameterChanges) };
     changes.queue_count
 }
@@ -197,6 +210,7 @@ unsafe extern "C" fn host_param_changes_get_parameter_data(
     if this.is_null() || index < 0 {
         return ptr::null_mut();
     }
+    // SAFETY: `this` is non-null and points to `HostParameterChanges` per COM vtbl contract.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
     let idx = index as usize;
     if idx >= changes.queue_count as usize || idx >= MAX_HOST_PARAM_CHANGES {
@@ -213,9 +227,11 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     if this.is_null() {
         return ptr::null_mut();
     }
+    // SAFETY: `this` is non-null and points to `HostParameterChanges` per COM vtbl contract.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
     if changes.queue_count as usize >= MAX_HOST_PARAM_CHANGES {
         if !index.is_null() {
+            // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
             unsafe {
                 *index = -1;
             }
@@ -224,10 +240,16 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     }
     let slot = changes.queue_count as usize;
     changes.queue_count += 1;
-    let param_id = if id.is_null() { 0 } else { unsafe { *id } };
+    let param_id = if id.is_null() {
+        0
+    } else {
+        // SAFETY: `id` is non-null in this branch; we read a single scalar param id.
+        unsafe { *id }
+    };
     changes.queues[slot].param_id = param_id;
     changes.queues[slot].point_count = 0;
     if !index.is_null() {
+        // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
         unsafe {
             *index = slot as i32;
         }

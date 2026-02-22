@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useDragStore } from '@/shared/stores/useDragStore';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
@@ -8,30 +8,33 @@ import type { ProjectDelta } from '@/shared/api/engine';
 export function useDeviceRackDnD(
     rackRef: React.RefObject<HTMLDivElement | null>,
     selectedTrack: any,
-    onDropPluginToTrack?: (item: BrowserDragItem, trackId: string) => Promise<void>,
-    syncProjectSnapshotDelta?: (reason?: string) => Promise<void>,
-    applyProjectDeltas?: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
+    onDropPluginToTrack: ((item: BrowserDragItem, trackId: string) => Promise<void>) | undefined,
+    applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear?: () => void,
-    statusError?: (msg: string) => void
+    statusError?: (msg: string) => void,
 ) {
     const [isDropActive, setIsDropActive] = useState(false);
     const draggingItem = useDragStore((s) => s.draggingItem);
 
     const dropTargetTrackRef = useRef<any>(selectedTrack);
     const onDropPluginToTrackRef = useRef(onDropPluginToTrack);
-    const syncProjectSnapshotDeltaRef = useRef(syncProjectSnapshotDelta);
     const applyProjectDeltasRef = useRef(applyProjectDeltas);
     const statusClearRef = useRef(statusClear);
     const statusErrorRef = useRef(statusError);
 
-    useEffect(() => { dropTargetTrackRef.current = selectedTrack; }, [selectedTrack]);
-    useEffect(() => { onDropPluginToTrackRef.current = onDropPluginToTrack; }, [onDropPluginToTrack]);
     useEffect(() => {
-        syncProjectSnapshotDeltaRef.current = syncProjectSnapshotDelta;
+        dropTargetTrackRef.current = selectedTrack;
+    }, [selectedTrack]);
+
+    useEffect(() => {
+        onDropPluginToTrackRef.current = onDropPluginToTrack;
+    }, [onDropPluginToTrack]);
+
+    useEffect(() => {
         applyProjectDeltasRef.current = applyProjectDeltas;
         statusClearRef.current = statusClear;
         statusErrorRef.current = statusError;
-    }, [syncProjectSnapshotDelta, applyProjectDeltas, statusClear, statusError]);
+    }, [applyProjectDeltas, statusClear, statusError]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -41,11 +44,15 @@ export function useDeviceRackDnD(
                 setIsDropActive(false);
                 return;
             }
+
             const rect = rackRef.current?.getBoundingClientRect();
             if (!rect) return;
+
             const inside =
-                e.clientX >= rect.left && e.clientX <= rect.right &&
-                e.clientY >= rect.top && e.clientY <= rect.bottom;
+                e.clientX >= rect.left &&
+                e.clientX <= rect.right &&
+                e.clientY >= rect.top &&
+                e.clientY <= rect.bottom;
             setIsDropActive(inside);
         };
 
@@ -53,11 +60,15 @@ export function useDeviceRackDnD(
             const dragging = useDragStore.getState().draggingItem;
             const targetTrack = dropTargetTrackRef.current;
             if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
+
             const rect = rackRef.current?.getBoundingClientRect();
             if (!rect) return;
+
             const inside =
-                e.clientX >= rect.left && e.clientX <= rect.right &&
-                e.clientY >= rect.top && e.clientY <= rect.bottom;
+                e.clientX >= rect.left &&
+                e.clientX <= rect.right &&
+                e.clientY >= rect.top &&
+                e.clientY <= rect.bottom;
             if (!inside) {
                 setIsDropActive(false);
                 return;
@@ -77,22 +88,20 @@ export function useDeviceRackDnD(
                                 : targetTrack.track_type === 'Midi' && !targetTrack.instrument
                                     ? 'instrument'
                                     : 'effect';
+
                     const response = await engineApi.addPluginToTrackWithDeltas(
                         targetTrack.id,
                         dragging.path,
                         dragging.name,
                         slot,
                     );
-                    if (applyProjectDeltasRef.current) {
-                        await applyProjectDeltasRef.current(response.deltas, 'device-rack:dnd-add-plugin');
-                    } else if (syncProjectSnapshotDeltaRef.current) {
-                        await syncProjectSnapshotDeltaRef.current('device-rack:dnd-add-plugin');
-                    }
+                    await applyProjectDeltasRef.current(response.deltas, 'device-rack:dnd-add-plugin');
                 }
-                if (statusClearRef.current) statusClearRef.current();
+
+                statusClearRef.current?.();
             } catch (err) {
                 console.error('[DeviceRack] addPluginToTrack failed:', err);
-                if (statusErrorRef.current) statusErrorRef.current('Failed to add plugin to track.');
+                statusErrorRef.current?.('Failed to add plugin to track.');
             } finally {
                 useDragStore.getState().endDrag();
                 setIsDropActive(false);
@@ -101,6 +110,7 @@ export function useDeviceRackDnD(
 
         window.addEventListener('mousemove', onMouseMove, true);
         window.addEventListener('mouseup', onMouseUp, true);
+
         return () => {
             window.removeEventListener('mousemove', onMouseMove, true);
             window.removeEventListener('mouseup', onMouseUp, true);

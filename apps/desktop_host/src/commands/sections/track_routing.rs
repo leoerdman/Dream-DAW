@@ -119,23 +119,34 @@ async fn move_track_with_parent_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    move_track_with_parent_cmd(
-        track_id,
+    let cmd = dream_orchestrator::commands::MoveTrackWithParentCommand::from_str_ids(
+        &track_id,
         target_index,
-        target_parent_group_id,
-        project_state.clone(),
-        clip_pool_state,
-        plugin_host_state,
-        handle,
-        app,
+        target_parent_group_id.as_deref(),
     )
-    .await?;
+    .map_err(|e| e.to_string())?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    push_undo(&project_state)?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas: vec![
+            dream_models::delta::ProjectDelta::TrackMoved {
+                track_id: cmd.track_id,
+                old_index: result.old_index,
+                new_index: result.new_index,
+            },
+            dream_models::delta::ProjectDelta::TrackParentChanged {
+                track_id: cmd.track_id,
+                parent_track_id: cmd.target_parent_group_id,
+            },
+        ],
     })
 }
 
@@ -180,21 +191,25 @@ async fn set_track_group_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    set_track_group_cmd(
-        track_id,
-        group_id,
-        project_state.clone(),
-        clip_pool_state,
-        plugin_host_state,
-        handle,
-        app,
+    let cmd = dream_orchestrator::commands::SetTrackGroupCommand::from_str_ids(
+        &track_id,
+        group_id.as_deref(),
     )
-    .await?;
+    .map_err(|e| e.to_string())?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
+        deltas: vec![dream_models::delta::ProjectDelta::TrackParentChanged {
+            track_id: cmd.track_id,
+            parent_track_id: cmd.target_group_id,
         }],
     })
 }
@@ -241,21 +256,58 @@ async fn ungroup_track_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    ungroup_track_cmd(
-        group_id,
-        project_state.clone(),
-        clip_pool_state,
-        plugin_host_state,
-        handle,
-        app,
-    )
-    .await?;
+    let group_uuid = Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group_id: {e}"))?;
+    let (child_ids_before, parent_of_group_before) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let parent = project
+            .tracks
+            .iter()
+            .find(|t| t.id == group_uuid)
+            .and_then(|t| t.parent_track_id);
+        let children = project
+            .tracks
+            .iter()
+            .filter(|t| t.parent_track_id == Some(group_uuid))
+            .map(|t| t.id)
+            .collect::<Vec<_>>();
+        (children, parent)
+    };
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let cmd = dream_orchestrator::commands::UngroupTrackCommand::from_str_group_id(&group_id)
+        .map_err(|e| e.to_string())?;
+    push_undo(&project_state)?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
+    let mut deltas = vec![dream_models::delta::ProjectDelta::TrackRemoved {
+        track_id: group_uuid,
+        track_index: result.removed_index,
+    }];
+    for child_id in child_ids_before {
+        let current_parent = project
+            .tracks
+            .iter()
+            .find(|t| t.id == child_id)
+            .and_then(|t| t.parent_track_id);
+        if current_parent != Some(group_uuid) {
+            deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
+                track_id: child_id,
+                parent_track_id: current_parent.or(parent_of_group_before),
+            });
+        }
+    }
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas,
     })
 }
 
@@ -307,22 +359,44 @@ async fn move_track_block_to_index_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    move_track_block_to_index_cmd(
-        root_track_id,
+    let cmd = dream_orchestrator::commands::MoveTrackBlockToIndexCommand::from_str_root_track_id(
+        &root_track_id,
         target_index,
-        project_state.clone(),
-        clip_pool_state,
-        plugin_host_state,
-        handle,
-        app,
     )
-    .await?;
+    .map_err(|e| e.to_string())?;
+    let before_order = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.tracks.iter().map(|t| t.id).collect::<Vec<_>>()
+    };
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let after_order = project.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    let project_name = project.name.clone();
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    let mut deltas = Vec::new();
+    for (new_index, track_id) in after_order.iter().enumerate() {
+        if let Some(old_index) = before_order.iter().position(|id| id == track_id)
+            && old_index != new_index
+        {
+            deltas.push(dream_models::delta::ProjectDelta::TrackMoved {
+                track_id: *track_id,
+                old_index,
+                new_index,
+            });
+        }
+    }
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas,
     })
 }
 

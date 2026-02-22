@@ -53,7 +53,7 @@ export function useTrackInspectorKeyboardShortcuts({
                 const selected = tracks.find((t) => t.id === selectedTrackId);
                 const groupToUngroup = selected?.type === 'group' ? selected.id : (selected?.groupId ?? null);
                 if (groupToUngroup) {
-                    void engineApi.ungroupTrackWithSnapshotDelta(groupToUngroup).then(async (response) => {
+                    void engineApi.ungroupTrackWithDeltas(groupToUngroup).then(async (response) => {
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup-shortcut');
                     }).catch((err) => {
                         console.error('[TrackInspector] ungroupTrack failed:', err);

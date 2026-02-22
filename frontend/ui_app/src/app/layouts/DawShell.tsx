@@ -22,7 +22,7 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
+import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { EmptyClipEditor, SampleClipEditor, SessionWorkspace } from './DawShellPanels';
@@ -194,7 +194,7 @@ export const DawShell = () => {
     );
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
-    const { filePath: projectFilePath } = useProjectManager(syncProjectSnapshotDelta);
+    const { filePath: projectFilePath } = useProjectManager();
 
     // ── Native macOS Menu Bar (File, Edit, Window) ──
     // NOTE: onProjectChange callback not needed here.
@@ -212,7 +212,6 @@ export const DawShell = () => {
         editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
-        onProjectMutated: () => void syncProjectSnapshotDelta('keyboard-shortcut'),
         onTogglePlayback: togglePlay,
         onClipSelectionChanged: setSelectedClipIds,
     });

@@ -112,11 +112,21 @@ fn set_track_input_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
+    let track_uuid =
+        Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let normalized_input = input_id.trim().to_string();
     set_track_input_cmd(track_id, input_id, project_state.clone(), app)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
+        deltas: vec![dream_models::delta::ProjectDelta::TrackInputChanged {
+            track_id: track_uuid,
+            input_source_id: if normalized_input.is_empty()
+                || normalized_input.eq_ignore_ascii_case("none")
+            {
+                None
+            } else {
+                Some(normalized_input)
+            },
         }],
     })
 }

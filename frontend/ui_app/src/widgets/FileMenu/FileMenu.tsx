@@ -1,14 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — FileMenu
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Dropdown menu for File operations: New, Open, Open Recent, Save, Save As.
-// Triggered from a small "☰" or "Dream DAW" branding button in TransportBar.
-//
-// Uses native OS dialogs for file open/save via Rust IPC.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -52,21 +41,28 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         }
     }, [open]);
 
-    const syncProjectSnapshotDelta = useEngineStore.getState().syncProjectSnapshotDelta;
+    const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
+
+    const applyProjectSnapshot = useCallback(async (project: unknown, reason: string) => {
+        await applyProjectDeltas(
+            [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
+            reason,
+        );
+    }, [applyProjectDeltas]);
 
     const handleNew = useCallback(async () => {
         setOpen(false);
         try {
-            await engineApi.newProject();
-            await syncProjectSnapshotDelta('file-menu:new');
+            const project = await engineApi.newProject();
+            await applyProjectSnapshot(project, 'file-menu:new');
             await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
-    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
+    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
 
     const handleOpen = useCallback(async () => {
         setOpen(false);
@@ -75,11 +71,12 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (!path) return; // Cancelled
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
-                await engineApi.importAbletonProject(path);
+                const project = await engineApi.importAbletonProject(path);
+                await applyProjectSnapshot(project, 'file-menu:open');
             } else {
-                await engineApi.openProject(path);
+                const project = await engineApi.openProject(path);
+                await applyProjectSnapshot(project, 'file-menu:open');
             }
-            await syncProjectSnapshotDelta('file-menu:open');
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
             engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -90,18 +87,19 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
-    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
+    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
 
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
         try {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
-                await engineApi.importAbletonProject(path);
+                const project = await engineApi.importAbletonProject(path);
+                await applyProjectSnapshot(project, 'file-menu:open-recent');
             } else {
-                await engineApi.openProject(path);
+                const project = await engineApi.openProject(path);
+                await applyProjectSnapshot(project, 'file-menu:open-recent');
             }
-            await syncProjectSnapshotDelta('file-menu:open-recent');
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
             engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -112,7 +110,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
-    }, [onProjectChange, syncProjectSnapshotDelta, syncProjectHistory]);
+    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);

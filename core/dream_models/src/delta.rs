@@ -116,10 +116,23 @@ pub enum ProjectDelta {
         warp_base_bpm: f64,
     },
 
+    /// Pitch shift for an audio clip changed.
+    ClipPitchChanged {
+        clip_id: Uuid,
+        pitch_shift_semitones: f64,
+    },
+
     /// A clip's color was changed.
     ClipColorChanged {
         clip_id: Uuid,
         color: Option<String>,
+    },
+
+    /// Audio clip media path/offline state was updated (missing file resolved).
+    ClipFilePathChanged {
+        clip_id: Uuid,
+        file_path: String,
+        is_offline: bool,
     },
 
     /// A clip's name was changed.
@@ -151,6 +164,12 @@ pub enum ProjectDelta {
     TrackRoutingChanged {
         track_id: Uuid,
         output_destination_id: Option<Uuid>,
+    },
+
+    /// Track input source changed (`None` means no explicit input).
+    TrackInputChanged {
+        track_id: Uuid,
+        input_source_id: Option<String>,
     },
 
     /// Track sampler sample path changed.
@@ -206,6 +225,12 @@ pub enum ProjectDelta {
 
     /// A track's color changed.
     TrackColorChanged { track_id: Uuid, color: String },
+
+    /// A track's UI height changed.
+    TrackHeightChanged { track_id: Uuid, height: f64 },
+
+    /// A group track was expanded/collapsed.
+    TrackGroupExpandedChanged { track_id: Uuid, expanded: bool },
 
     /// A new track was added.
     TrackAdded {
@@ -265,6 +290,14 @@ pub enum ProjectDelta {
         track_id: Uuid,
         slot_id: Uuid,
         param_id: String,
+        value: f64,
+    },
+
+    /// External (VST) plugin parameter changed.
+    ExternalPluginParamChanged {
+        track_id: Uuid,
+        slot_id: Uuid,
+        param_index: u32,
         value: f64,
     },
 

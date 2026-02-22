@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 interface UseTrackInspectorResizeArgs {
     applyTrackHeightOptimistic: (trackId: string, height: number) => void;
@@ -49,7 +50,14 @@ export function useTrackInspectorResize({
             setResizingTrackId(null);
             if (finalTrackId && finalTrackId !== 'master') {
                 applyTrackHeightOptimistic(finalTrackId, finalHeight);
-                void engineApi.setTrackHeight(finalTrackId, finalHeight).catch((err) => {
+                void engineApi
+                    .setTrackHeightWithDeltas(finalTrackId, finalHeight)
+                    .then((response) =>
+                        useEngineStore
+                            .getState()
+                            .applyProjectDeltas(response.deltas, 'track-inspector:resize-track-height'),
+                    )
+                    .catch((err) => {
                     console.error('[TrackInspector] setTrackHeight failed:', err);
                 });
             }

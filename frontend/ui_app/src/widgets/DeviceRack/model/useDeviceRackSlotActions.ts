@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import { errorMessage } from '@/shared/lib/helpers';
 import type { ProjectDelta } from '@/shared/api/engine';
 

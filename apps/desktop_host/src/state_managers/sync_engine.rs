@@ -10,9 +10,6 @@ use dream_models::project::{Project, Track};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::plugin_sandbox_recovery::{
-    bypass_plugin_slots_in_project, set_plugin_slots_bypass_in_project,
-};
 use crate::snapshot::SharedProjectSnapshot;
 use crate::state_managers::audio_engine::AudioEngineHandle;
 use crate::state_managers::clip_pool::ClipPoolState;
@@ -22,9 +19,7 @@ use crate::state_managers::recording::AutomationRuntime;
 mod runtime_device_chains;
 #[path = "sync_engine/sampler_snapshot.rs"]
 mod sampler_snapshot;
-pub use runtime_device_chains::{
-    builtin_effect_type_from_plugin_id, rebuild_runtime_device_chains_from_project,
-};
+pub use runtime_device_chains::rebuild_runtime_device_chains_from_project;
 pub use sampler_snapshot::rebuild_sampler_snapshot_from_project;
 
 /// BUG-063 FIX: Macro for best-effort command pushes that logs failures

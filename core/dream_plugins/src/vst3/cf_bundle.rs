@@ -38,6 +38,7 @@ pub struct CFBundleRefGuard(pub *mut core::ffi::c_void);
 impl Drop for CFBundleRefGuard {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: pointer is a live CoreFoundation object retained by this guard and released once.
             unsafe { CFRelease(self.0) };
         }
     }
@@ -51,6 +52,7 @@ unsafe impl Sync for CFBundleRefGuard {}
 /// Returns null on failure.
 pub fn create_cf_bundle_ref(path: &str) -> *mut core::ffi::c_void {
     let path_bytes = path.as_bytes();
+    // SAFETY: CoreFoundation APIs are called with stable pointers for the duration of each call.
     unsafe {
         let url = CFURLCreateFromFileSystemRepresentation(
             kCFAllocatorDefault,

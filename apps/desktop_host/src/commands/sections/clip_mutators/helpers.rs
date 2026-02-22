@@ -232,3 +232,45 @@ pub(super) fn place_stem_files_on_new_tracks(
     project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
+
+pub(super) fn collect_added_track_and_clip_deltas(
+    before: &Project,
+    after: &Project,
+) -> Vec<dream_models::delta::ProjectDelta> {
+    let mut deltas = Vec::new();
+    let before_track_ids: std::collections::HashSet<Uuid> =
+        before.tracks.iter().map(|t| t.id).collect();
+    let before_clip_ids: std::collections::HashSet<Uuid> = before
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter().map(|c| c.id))
+        .collect();
+
+    for (track_index, track) in after.tracks.iter().enumerate() {
+        if !before_track_ids.contains(&track.id) {
+            deltas.push(dream_models::delta::ProjectDelta::TrackAdded {
+                track_index,
+                track_id: track.id,
+                name: track.name.clone(),
+                track_type: format!("{:?}", track.track_type),
+            });
+        }
+
+        for clip in &track.clips {
+            if before_clip_ids.contains(&clip.id) {
+                continue;
+            }
+            deltas.push(dream_models::delta::ProjectDelta::ClipAdded {
+                clip_id: clip.id,
+                track_index,
+                name: clip.name.clone(),
+                clip_type: "audio".to_string(),
+                file_path: Some(clip.file_path.clone()),
+                position: clip.position.sample_frame,
+                duration: clip.duration.sample_frame,
+            });
+        }
+    }
+
+    deltas
+}

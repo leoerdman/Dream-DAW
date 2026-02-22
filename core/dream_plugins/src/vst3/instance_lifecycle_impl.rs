@@ -37,6 +37,7 @@ impl Vst3Instance {
         );
 
         // Load the native dynamic library
+        // SAFETY: loading a dynamic library is inherently unsafe; path comes from scanned plugin descriptor.
         let library = unsafe {
             libloading::Library::new(&binary_path).map_err(|e| {
                 PluginError::LoadFailed(format!("Failed to load {}: {e}", binary_path.display()))
@@ -55,6 +56,7 @@ impl Vst3Instance {
         // EResource C++ exception → crash on attached().
         #[cfg(target_os = "macos")]
         let _bundle_ref_guard: Option<CFBundleRefGuard> = {
+            // SAFETY: symbol lookup reads from loaded module and typed signature matches VST3 entrypoint.
             if let Ok(entry_fn) = unsafe {
                 library.get::<unsafe extern "C" fn(*mut c_void) -> bool>(b"bundleEntry\0")
             } {
@@ -65,6 +67,7 @@ impl Vst3Instance {
                     ptr::null_mut()
                 };
 
+                // SAFETY: `bundle_ref` is null or valid CFBundleRef created above; ABI matches bundleEntry.
                 let result = unsafe { entry_fn(bundle_ref) };
                 info!(
                     "[VST3] bundleEntry called for '{}': result={}, cfBundle={:p}",
@@ -88,8 +91,10 @@ impl Vst3Instance {
         #[cfg(not(target_os = "macos"))]
         {
             if let Ok(init_fn) =
+                // SAFETY: symbol lookup reads from loaded module and typed signature matches VST3 InitDll.
                 unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"InitDll\0") }
             {
+                // SAFETY: function pointer above is validated by symbol lookup and called with matching ABI.
                 let result = unsafe { init_fn() };
                 info!(
                     "[VST3] InitDll called for '{}': result={}",
@@ -117,18 +122,21 @@ impl Vst3Instance {
             }
         };
 
+        // SAFETY: optional bridge symbol lookup with declared function signature.
         let process_fn = unsafe {
             library
                 .get::<DreamDawProcessF32Fn>(b"dream_daw_process_f32\0")
                 .ok()
                 .map(|f| *f)
         };
+        // SAFETY: optional bridge symbol lookup with declared function signature.
         let open_editor_fn = unsafe {
             library
                 .get::<DreamDawOpenEditorFn>(b"dream_daw_open_editor\0")
                 .ok()
                 .map(|f| *f)
         };
+        // SAFETY: optional bridge symbol lookup with declared function signature.
         let set_parameter_fn = unsafe {
             library
                 .get::<DreamDawSetParameterFn>(b"dream_daw_set_parameter\0")

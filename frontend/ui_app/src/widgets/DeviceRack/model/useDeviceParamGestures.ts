@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { DeviceSlot } from '../model/types';
 import { clampAndSnapParamValue } from '../model/deviceRackCatalog';

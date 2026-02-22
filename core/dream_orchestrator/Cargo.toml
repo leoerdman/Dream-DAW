@@ -12,6 +12,7 @@ dream_ipc = { path = "../dream_ipc" }
 dream_clip_engine = { path = "../dream_clip_engine" }
 dream_io = { path = "../dream_io" }
 dream_graph = { path = "../dream_graph" }
+dream_importers = { path = "../dream_importers" }
 serde = { workspace = true }
 uuid = { workspace = true }
 log = { workspace = true }

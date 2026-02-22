@@ -18,12 +18,14 @@ use crate::vst3::host_objects::host_application_ptr;
 pub(crate) fn init_vst3_com(
     library: &libloading::Library,
 ) -> Result<(usize, usize, usize, usize, bool, bool), PluginError> {
+    // SAFETY: symbol lookup is performed against a loaded dynamic library and type matches VST3 ABI.
     let get_factory: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = unsafe {
         library.get(b"GetPluginFactory\0").map_err(|e| {
             PluginError::LoadFailed(format!("GetPluginFactory symbol lookup failed: {e}"))
         })?
     };
 
+    // SAFETY: `get_factory` points to a VST3-exported function with declared ABI.
     let factory = unsafe { get_factory() as *mut IPluginFactory };
     if factory.is_null() {
         return Err(PluginError::LoadFailed(
@@ -36,6 +38,7 @@ pub(crate) fn init_vst3_com(
     let mut processor_qi_from_component = false;
     let mut controller_qi_from_component = false;
 
+    // SAFETY: factory pointer is validated non-null above and vtbl function follows VST3 ABI.
     let count = unsafe { ((*(*factory).vtbl).count_classes)(factory) }.max(0);
     info!("[VST3-COM] Factory returned {} classes", count);
 
@@ -47,6 +50,7 @@ pub(crate) fn init_vst3_com(
             name: [0; 64],
         };
         let class_ok =
+            // SAFETY: factory pointer and class index are valid for VST3 `get_class_info` call.
             unsafe { ((*(*factory).vtbl).get_class_info)(factory, idx, &mut cls) } == K_RESULT_OK;
         if !class_ok {
             continue;
@@ -85,6 +89,7 @@ pub(crate) fn init_vst3_com(
             idx, class_name, class_category
         );
 
+        // SAFETY: factory pointer/cid/iid are valid under VST3 ABI; out pointer is writable.
         let comp_ok = unsafe {
             ((*(*factory).vtbl).create_instance)(
                 factory,
@@ -100,6 +105,7 @@ pub(crate) fn init_vst3_com(
                 "[VST3-COM]   -> IComponent (factory, Strategy A): OK ({:p})",
                 component_ptr
             );
+            // SAFETY: `component_ptr` is a live COM object supporting `FUnknown`.
             let qi_result = unsafe {
                 let comp_as_unk = component_ptr as *mut FUnknown;
                 ((*(*comp_as_unk).vtbl).query_interface)(
@@ -121,6 +127,7 @@ pub(crate) fn init_vst3_com(
                     "[VST3-COM]   -> IAudioProcessor (QI from component): FAILED (result={})",
                     qi_result
                 );
+                // SAFETY: `comp_as_unk` is a valid COM object acquired above and can be released once.
                 unsafe {
                     let comp_as_unk = component_ptr as *mut FUnknown;
                     ((*(*comp_as_unk).vtbl).release)(comp_as_unk);
@@ -131,6 +138,7 @@ pub(crate) fn init_vst3_com(
             }
         }
 
+        // SAFETY: factory pointer/cid/iid are valid under VST3 ABI; out pointer is writable.
         let proc_ok = unsafe {
             ((*(*factory).vtbl).create_instance)(
                 factory,
@@ -146,6 +154,7 @@ pub(crate) fn init_vst3_com(
                 "[VST3-COM]   -> IAudioProcessor (factory, Strategy B): OK ({:p})",
                 processor_ptr
             );
+            // SAFETY: `processor_ptr` is a live COM object supporting `FUnknown`.
             let qi_result = unsafe {
                 let proc_as_unk = processor_ptr as *mut FUnknown;
                 ((*(*proc_as_unk).vtbl).query_interface)(
@@ -170,6 +179,7 @@ pub(crate) fn init_vst3_com(
     }
 
     if processor_ptr.is_null() {
+        // SAFETY: factory is a valid COM object obtained above and must be released on failure path.
         unsafe {
             ((*(*factory).vtbl).release)(factory);
         }
@@ -180,6 +190,7 @@ pub(crate) fn init_vst3_com(
 
     if !component_ptr.is_null() {
         let component = component_ptr as *mut IComponent;
+        // SAFETY: component pointer is live and host_application_ptr returns valid host interface.
         let init_result =
             unsafe { ((*(*component).vtbl).initialize)(component, host_application_ptr()) };
         info!(
@@ -193,12 +204,14 @@ pub(crate) fn init_vst3_com(
     if !component_ptr.is_null() {
         let component = component_ptr as *mut IComponent;
         let mut controller_cid: Tuid = [0; 16];
+        // SAFETY: component is live and controller_cid points to writable storage.
         let cid_ok = unsafe {
             ((*(*component).vtbl).get_controller_class_id)(component, &mut controller_cid)
         } == K_RESULT_OK;
         info!("[VST3-COM] getControllerClassId: ok={}", cid_ok);
 
         if cid_ok {
+            // SAFETY: factory pointer/cid/iid are valid under VST3 ABI; out pointer is writable.
             let create_result = unsafe {
                 ((*(*factory).vtbl).create_instance)(
                     factory,
@@ -222,6 +235,7 @@ pub(crate) fn init_vst3_com(
         }
 
         if controller_ptr.is_null() {
+            // SAFETY: component is live; query_interface follows VST3 COM contract.
             let qi_result = unsafe {
                 ((*(*component).vtbl).query_interface)(
                     component,
@@ -246,6 +260,7 @@ pub(crate) fn init_vst3_com(
     }
 
     if controller_ptr.is_null() && !processor_ptr.is_null() {
+        // SAFETY: processor pointer is live; query_interface follows VST3 COM contract.
         let qi_result = unsafe {
             let proc_as_unk = processor_ptr as *mut FUnknown;
             ((*(*proc_as_unk).vtbl).query_interface)(

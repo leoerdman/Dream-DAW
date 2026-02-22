@@ -1,26 +1,7 @@
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
-
-const TRACK_PALETTE = [
-    '#F05C4D', '#FF8A1A', '#FFBF33', '#FFE14D',
-    '#A3D94D', '#4DC775', '#4DC7B0', '#4DC7CC',
-    '#4DA6E3', '#4D7AE3', '#6B5CE3', '#9B59D9',
-    '#D94DA6', '#E36B96', '#E66673', '#8C949E',
-] as const;
-
-function colorForTrackIndex(index: number): string {
-    const safe = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : 0;
-    return TRACK_PALETTE[safe % TRACK_PALETTE.length] ?? '#667788';
-}
-
-function normalizeTrackType(trackType: string): string {
-    const normalized = (trackType || 'audio').trim().toLowerCase();
-    if (normalized === 'midi') return 'Midi';
-    if (normalized === 'group') return 'Group';
-    if (normalized === 'master') return 'Master';
-    return 'Audio';
-}
+import { colorForTrackIndex, normalizeTrackType } from './trackDeltaUtils';
 
 function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
     const track = state.tracksById[id];
@@ -96,6 +77,10 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
         patchTrack(state, delta.data.track_id, { output: delta.data.output_destination_id ?? 'master' });
         return true;
     }
+    if (delta.kind === 'TrackInputChanged') {
+        patchTrack(state, delta.data.track_id, { input: delta.data.input_source_id ?? 'none' });
+        return true;
+    }
     if (delta.kind === 'TrackSamplerSampleChanged') {
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;
@@ -161,6 +146,14 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
     }
     if (delta.kind === 'TrackColorChanged') {
         patchTrack(state, delta.data.track_id, { color: delta.data.color });
+        return true;
+    }
+    if (delta.kind === 'TrackHeightChanged') {
+        patchTrack(state, delta.data.track_id, { height: delta.data.height });
+        return true;
+    }
+    if (delta.kind === 'TrackGroupExpandedChanged') {
+        patchTrack(state, delta.data.track_id, { is_expanded: delta.data.expanded });
         return true;
     }
     if (delta.kind === 'AutomationPointsChanged') {

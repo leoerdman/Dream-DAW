@@ -92,7 +92,7 @@ export function useTrackInspectorTrackActions({
 
     const setTrackInput = useCallback(async (trackId: string, inputId: string) => {
         try {
-            const response = await engineApi.setTrackInputWithSnapshotDelta(trackId, inputId);
+            const response = await engineApi.setTrackInputWithDeltas(trackId, inputId);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:set-input');
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
         } catch (err) {

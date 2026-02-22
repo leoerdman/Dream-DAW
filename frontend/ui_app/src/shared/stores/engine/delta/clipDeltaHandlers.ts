@@ -206,5 +206,45 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         return true;
     }
 
+    if (delta.kind === 'ClipPitchChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = {
+            ...clip,
+            pitchShiftSemitones: delta.data.pitch_shift_semitones,
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'ClipColorChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = {
+            ...clip,
+            color: delta.data.color ?? clip.color,
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'ClipFilePathChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = {
+            ...clip,
+            filePath: delta.data.file_path,
+            isOffline: delta.data.is_offline,
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
     return false;
 }

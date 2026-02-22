@@ -3,7 +3,7 @@ use dream_plugins::PluginHost;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::PluginHostState;
+use crate::{ClipPoolState, PluginHostState, ProjectState};
 
 pub fn bind_runtime_instance_for_plugin_slots(
     project: &Project,
@@ -104,3 +104,22 @@ pub fn apply_imported_external_state_blob(
     Ok(())
 }
 
+pub fn sync_plugin_runtime_and_mark_dirty(
+    project_state: &State<'_, ProjectState>,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+    app: &tauri::AppHandle,
+    rebuild_routing: bool,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    if rebuild_routing {
+        clip_pool_state.rebuild_routing_only(&project);
+    }
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
+    Ok(())
+}

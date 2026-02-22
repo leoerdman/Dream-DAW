@@ -1,4 +1,5 @@
-fn close_plugin_window(
+#[tauri::command]
+fn close_plugin_window_cmd(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
@@ -114,11 +115,16 @@ fn close_plugin_window_for_slot(
                     // Update the project's stored blob immediately so the
                     // next Cmd+S captures the correct state.
                     drop(host); // release PluginHost lock before acquiring project lock
-                    if let Ok(mut project) = project_state.project.lock() {
-                        if let Some(slot_ref) = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid) {
-                            slot_ref.external_state_blob = Some(live_b64);
-                            slot_ref.external_state_blob_kind = Some("ProcessorState".to_string());
-                        }
+                    let cmd =
+                        dream_orchestrator::commands::UpdatePluginExternalStateBlobCommand {
+                            track_id: track_uuid,
+                            slot_id: slot_uuid,
+                            external_state_blob: Some(live_b64),
+                            external_state_blob_kind: Some("ProcessorState".to_string()),
+                        };
+                    if execute_orchestrator_command(&project_state, &cmd).unwrap_or(false)
+                        && let Ok(project) = project_state.project.lock()
+                    {
                         let _ = project_state.mark_dirty(&project.name, Some(&app));
                     }
                 }
@@ -279,6 +285,46 @@ fn set_external_plugin_param_for_slot_cmd(
         should_commit_snapshot
     );
     Ok(())
+}
+
+#[tauri::command]
+fn set_external_plugin_param_for_slot_with_deltas_cmd(
+    track_id: String,
+    slot_id: String,
+    param_index: u32,
+    value: f64,
+    push_undo_step: Option<bool>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let normalized = value.clamp(0.0, 1.0);
+
+    set_external_plugin_param_for_slot_cmd(
+        track_id,
+        slot_id,
+        param_index,
+        value,
+        push_undo_step,
+        plugin_host_state,
+        project_state,
+        clip_pool_state,
+        automation_runtime,
+        app,
+    )?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ExternalPluginParamChanged {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            param_index,
+            value: normalized,
+        }],
+    })
 }
 
 /// Returns externally controllable plugin params for inline UI.

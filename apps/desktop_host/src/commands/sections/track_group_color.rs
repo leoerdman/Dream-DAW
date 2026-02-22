@@ -280,3 +280,21 @@ async fn set_group_expanded_cmd(
     log::info!("[IPC] set_group_expanded_cmd({group_id} -> {expanded})");
     Ok(())
 }
+
+#[tauri::command]
+async fn set_group_expanded_with_deltas_cmd(
+    group_id: String,
+    expanded: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let track_uuid =
+        Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group id: {e}"))?;
+    set_group_expanded_cmd(group_id, expanded, project_state, app).await?;
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackGroupExpandedChanged {
+            track_id: track_uuid,
+            expanded,
+        }],
+    })
+}

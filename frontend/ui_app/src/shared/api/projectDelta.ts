@@ -19,6 +19,7 @@ export type ProjectDelta =
     | { kind: 'ClipFadesChanged'; data: { clip_id: string; fade_in_frames: number; fade_out_frames: number } }
     | { kind: 'ClipWarpChanged'; data: { clip_id: string; is_warped: boolean; warp_mode: number | null; warp_base_bpm: number } }
     | { kind: 'ClipColorChanged'; data: { clip_id: string; color: string | null } }
+    | { kind: 'ClipFilePathChanged'; data: { clip_id: string; file_path: string; is_offline: boolean } }
     | { kind: 'ClipRenamed'; data: { clip_id: string; new_name: string } }
     | { kind: 'TrackVolumeChanged'; data: { track_id: string; volume: number } }
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
@@ -26,6 +27,7 @@ export type ProjectDelta =
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
     | { kind: 'TrackArmChanged'; data: { track_index: number; armed: boolean } }
     | { kind: 'TrackRoutingChanged'; data: { track_id: string; output_destination_id: string | null } }
+    | { kind: 'TrackInputChanged'; data: { track_id: string; input_source_id: string | null } }
     | { kind: 'TrackSamplerSampleChanged'; data: { track_id: string; sample_path: string } }
     | { kind: 'SampleRackPadSampleChanged'; data: { track_id: string; pad_index: number; sample_path: string } }
     | { kind: 'SampleRackPadVolumeChanged'; data: { track_id: string; pad_index: number; volume: number } }
@@ -39,11 +41,14 @@ export type ProjectDelta =
     | { kind: 'TrackRenamed'; data: { track_id: string; new_name: string } }
     | { kind: 'TrackMoved'; data: { track_id: string; old_index: number; new_index: number } }
     | { kind: 'TrackParentChanged'; data: { track_id: string; parent_track_id: string | null } }
+    | { kind: 'TrackHeightChanged'; data: { track_id: string; height: number } }
+    | { kind: 'TrackGroupExpandedChanged'; data: { track_id: string; expanded: boolean } }
     | { kind: 'PluginAdded'; data: { track_id: string; slot_id: string; slot_index: number; is_instrument: boolean; plugin_name: string; plugin_uid: string } }
     | { kind: 'PluginRemoved'; data: { track_id: string; slot_id: string } }
     | { kind: 'PluginBypassChanged'; data: { track_id: string; slot_id: string; bypassed: boolean } }
     | { kind: 'PluginMoved'; data: { track_id: string; slot_id: string; old_slot_index: number; new_slot_index: number } }
     | { kind: 'InternalPluginParamChanged'; data: { track_id: string; slot_id: string; param_id: string; value: number } }
+    | { kind: 'ExternalPluginParamChanged'; data: { track_id: string; slot_id: string; param_index: number; value: number } }
     | { kind: 'PluginSidechainChanged'; data: { track_id: string; slot_id: string; source_track_id: string | null } }
     | { kind: 'AutomationPointsChanged'; data: { track_id: string; param_id: string; points: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> } }
     | { kind: 'TempoChanged'; data: { bpm: number } }
@@ -52,6 +57,7 @@ export type ProjectDelta =
     | { kind: 'KeySignatureChanged'; data: { enabled: boolean; tonic: string; mode: string } }
     | { kind: 'ProjectRenamed'; data: { new_name: string } }
     | { kind: 'LoopRegionChanged'; data: { start: number; end: number; enabled: boolean } }
+    | { kind: 'ClipPitchChanged'; data: { clip_id: string; pitch_shift_semitones: number } }
     | { kind: 'ProjectSnapshotReplaced'; data: { project: unknown } };
 
 export interface DeltaMutationResponse {

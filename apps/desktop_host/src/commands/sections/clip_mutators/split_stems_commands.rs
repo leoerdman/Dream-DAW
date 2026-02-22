@@ -14,50 +14,14 @@ async fn split_track_to_stems_cmd(
         .clone();
     let track_uuid =
         Uuid::parse_str(&payload.track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
-    let source_index = project
-        .tracks
-        .iter()
-        .position(|t| t.id == track_uuid)
-        .ok_or_else(|| "Track not found".to_string())?;
-    let source_track = &project.tracks[source_index];
-
-    let mut included_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
-    included_ids.insert(source_track.id);
-    if source_track.track_type == TrackType::Group {
-        loop {
-            let mut changed = false;
-            for track in &project.tracks {
-                if let Some(parent_id) = track.parent_track_id
-                    && included_ids.contains(&parent_id)
-                    && included_ids.insert(track.id)
-                {
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-    }
-
-    let mut start_frame = i64::MAX;
-    let mut end_frame = i64::MIN;
-    for track in &project.tracks {
-        if !included_ids.contains(&track.id) {
-            continue;
-        }
-        for c in &track.clips {
-            start_frame = start_frame.min(c.position.sample_frame);
-            end_frame = end_frame.max(c.position.sample_frame + c.duration.sample_frame);
-        }
-        for c in &track.midi_clips {
-            start_frame = start_frame.min(c.position.sample_frame);
-            end_frame = end_frame.max(c.position.sample_frame + c.duration.sample_frame);
-        }
-    }
-    if start_frame == i64::MAX || end_frame == i64::MIN || end_frame <= start_frame {
-        return Err("Track has no content to split into stems".to_string());
-    }
+    let split_plan = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::PrepareStemSplitQuery { track_id: track_uuid },
+    )?;
+    let included_ids: std::collections::HashSet<Uuid> =
+        split_plan.included_track_ids.iter().copied().collect();
+    let start_frame = split_plan.start_frame;
+    let end_frame = split_plan.end_frame;
 
     let mut bounce_project = project.clone();
     for track in &mut bounce_project.tracks {
@@ -167,7 +131,10 @@ async fn split_track_to_stems_cmd(
                 "vocals" => "Vocals",
                 _ => stem,
             };
-            stem_tracks.push((path.clone(), format!("{} {}", source_track.name, label)));
+            stem_tracks.push((
+                path.clone(),
+                format!("{} {}", split_plan.source_track_name, label),
+            ));
         }
     }
 
@@ -212,6 +179,11 @@ async fn split_track_to_stems_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<DeltaMutationResponse, String> {
+    let before_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     split_track_to_stems_cmd(
         payload,
         app,
@@ -220,10 +192,12 @@ async fn split_track_to_stems_with_deltas_cmd(
         handle,
     )
     .await?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let after_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project),
-        }],
+        deltas: collect_added_track_and_clip_deltas(&before_project, &after_project),
     })
 }

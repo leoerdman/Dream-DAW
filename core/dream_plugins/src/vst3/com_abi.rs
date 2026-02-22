@@ -92,6 +92,7 @@ pub unsafe fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
     if a.is_null() {
         return false;
     }
+    // SAFETY: null is guarded above; `a` points to readable TUID memory per caller contract.
     unsafe { *a == *b }
 }
 #[repr(C)]

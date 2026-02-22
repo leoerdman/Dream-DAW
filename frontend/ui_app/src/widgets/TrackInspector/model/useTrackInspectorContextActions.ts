@@ -190,8 +190,8 @@ export function useTrackInspectorContextActions({
     const handleUngroupTrack = useCallback((trackId: string) => {
         const target = tracks.find((t) => t.id === trackId);
         const op = target?.type === 'group'
-            ? engineApi.ungroupTrackWithSnapshotDelta(trackId)
-            : engineApi.setTrackGroupWithSnapshotDelta(trackId, null);
+            ? engineApi.ungroupTrackWithDeltas(trackId)
+            : engineApi.setTrackGroupWithDeltas(trackId, null);
         void op.then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
         }).catch((err) => {
@@ -223,7 +223,7 @@ export function useTrackInspectorContextActions({
     }, [setLocalOverrides]);
 
     const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
-        void engineApi.paintTrackClipsWithTrackColorWithSnapshotDelta(trackId)
+        void engineApi.paintTrackClipsWithTrackColorWithDeltas(trackId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-clips-with-track-color');
             })
@@ -263,7 +263,7 @@ export function useTrackInspectorContextActions({
     }, []);
 
     const handleBounceGroup = useCallback((groupTrackId: string) => {
-        void engineApi.bounceGroupWithSnapshotDelta(groupTrackId)
+        void engineApi.bounceGroupWithDeltas(groupTrackId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:bounce-group');
             })
@@ -274,7 +274,7 @@ export function useTrackInspectorContextActions({
     }, []);
 
     const handleSplitTrackToStems = useCallback((trackId: string) => {
-        void engineApi.splitTrackToStemsWithSnapshotDelta(trackId)
+        void engineApi.splitTrackToStemsWithDeltas(trackId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:split-to-stems');
             })

@@ -13,4 +13,5 @@ env_logger = { workspace = true }
 memmap2 = "0.9"
 bytemuck = { workspace = true }
 uuid = { workspace = true }
+base64 = "0.22"
 dream_plugins = { path = "../../core/dream_plugins" }

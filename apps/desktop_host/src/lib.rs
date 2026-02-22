@@ -40,10 +40,6 @@ use crate::state_managers::sync_engine::*;
 
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
-use dream_engine::driver::{
-    AutomationPoint, ExternalParamAutomationLane, MidiFxRuntimeConfig, MidiTrackRuntime,
-    TrackAutomationState, parse_external_param_target,
-};
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
 use dream_engine::render_callback::MAX_TRACKS;
@@ -53,8 +49,7 @@ use dream_io::project_file::ProjectFile;
 use dream_io::project_manager::ProjectManager;
 use dream_io::wav_writer::WavWriter;
 use dream_ipc::EngineCommand;
-use dream_models::midi::{MidiClip, MidiNote, SampleRackConfig, SamplerConfig};
-use dream_models::mutators::{self};
+use dream_models::midi::{MidiClip, MidiNote, SampleRackConfig};
 use dream_models::project::{AudioClip, PluginSlot, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::PluginFormat;

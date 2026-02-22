@@ -489,3 +489,44 @@ async fn set_track_height_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_track_height_with_deltas_cmd(
+    track_id: String,
+    height: f64,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<TrackManagementDeltaResponse, String> {
+    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let clamped_height = height.clamp(24.0, 120.0);
+
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parsed_id)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        if (track.height - clamped_height).abs() < f64::EPSILON {
+            return Ok(TrackManagementDeltaResponse { deltas: Vec::new() });
+        }
+    }
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == parsed_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+    track.height = clamped_height;
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(TrackManagementDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackHeightChanged {
+            track_id: parsed_id,
+            height: clamped_height,
+        }],
+    })
+}

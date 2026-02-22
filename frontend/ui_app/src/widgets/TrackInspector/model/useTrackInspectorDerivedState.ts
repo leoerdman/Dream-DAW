@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { isTrackActive } from '@/shared/utils/routing';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { MeteringSnapshot } from '@/shared/api/engine';
@@ -131,9 +132,16 @@ export function useTrackInspectorDerivedState({
                 next.add(groupId);
                 expanded = false;
             }
-            void engineApi.setGroupExpanded(groupId, expanded).catch((err) => {
-                console.error('[TrackInspector] setGroupExpanded failed:', err);
-            });
+            void engineApi
+                .setGroupExpandedWithDeltas(groupId, expanded)
+                .then((response) =>
+                    useEngineStore
+                        .getState()
+                        .applyProjectDeltas(response.deltas, 'track-inspector:set-group-expanded'),
+                )
+                .catch((err) => {
+                    console.error('[TrackInspector] setGroupExpanded failed:', err);
+                });
             return next;
         });
     }, [onToggleGroupCollapseProp, backendCollapsedGroups, setLocalCollapsedGroups]);

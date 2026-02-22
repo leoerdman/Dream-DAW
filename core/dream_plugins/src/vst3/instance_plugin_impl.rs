@@ -24,6 +24,7 @@ impl PluginInstance for Vst3Instance {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             if self.component_ptr != 0 {
                 let component = self.component_ptr as *mut IComponent;
+                // SAFETY: component/processor pointers were created via successful VST3 COM bootstrap.
                 unsafe {
                     // NOTE: IComponent::initialize() is NOT called here.
                     // It is already called in init_vst3_com() during load().
@@ -99,6 +100,7 @@ impl PluginInstance for Vst3Instance {
                 // COM thunks that return adjusted pointers for multi-inherited
                 // interfaces on the same underlying COM object.
                 let controller_is_component = self.controller_from_component_qi;
+                // SAFETY: controller/component pointers are valid COM interfaces during active plugin lifetime.
                 unsafe {
                     // BUG-19 FIX: Only initialize controller once, and only if it's
                     // a separate COM object from the component.
@@ -213,6 +215,7 @@ impl PluginInstance for Vst3Instance {
                 let out_bus_count = self.audio_output_bus_count.max(1);
                 let mut in_arrangements = vec![K_SPEAKER_STEREO; in_bus_count as usize];
                 let mut out_arrangements = vec![K_SPEAKER_STEREO; out_bus_count as usize];
+                // SAFETY: processor pointer is valid and arrangement arrays are alive for call duration.
                 let _ = unsafe {
                     ((*(*processor).vtbl).set_bus_arrangements)(
                         processor,
@@ -234,6 +237,7 @@ impl PluginInstance for Vst3Instance {
             // BUG-C5 FIX: Verify the plugin supports 32-bit float before
             // calling setupProcessing. Without this, plugins that only support
             // 64-bit double processing will silently produce garbage.
+            // SAFETY: processor pointer is valid during activation path.
             let can_32 =
                 unsafe { ((*(*processor).vtbl).can_process_sample_size)(processor, K_SAMPLE32) };
             if can_32 != K_RESULT_OK {
@@ -243,11 +247,14 @@ impl PluginInstance for Vst3Instance {
                 );
             }
 
+            // SAFETY: processor pointer is valid and setup points to initialized POD config.
             let setup_res = unsafe { ((*(*processor).vtbl).setup_processing)(processor, &setup) };
             if setup_res == K_RESULT_OK {
+                // SAFETY: processor pointer remains valid while plugin is active.
                 let _ = unsafe { ((*(*processor).vtbl).set_processing)(processor, 1) };
                 self.com_initialized = true;
                 self.host_initialized = true; // BUG-19: mark as initialized
+                // SAFETY: processor pointer remains valid while plugin is active.
                 self.latency = unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
             } else {
                 self.com_initialized = false;
@@ -266,12 +273,14 @@ impl PluginInstance for Vst3Instance {
     fn deactivate(&mut self) -> Result<(), PluginError> {
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer belongs to this instance and is valid until drop.
             unsafe {
                 let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
             }
         }
         if self.component_ptr != 0 {
             let component = self.component_ptr as *mut IComponent;
+            // SAFETY: component pointer belongs to this instance and is valid until drop.
             unsafe {
                 let _ = ((*(*component).vtbl).set_active)(component, 0);
             }
@@ -390,6 +399,7 @@ impl PluginInstance for Vst3Instance {
                     // Activate sidechain bus
                     let component = self.component_ptr as *mut IComponent;
                     if !component.is_null() {
+                        // SAFETY: component pointer is checked non-null and points to valid COM object.
                         unsafe {
                             let _ = ((*(*component).vtbl).activate_bus)(
                                 component, K_AUDIO, K_INPUT, 1, 1,
@@ -401,6 +411,7 @@ impl PluginInstance for Vst3Instance {
                     // Deactivate sidechain bus
                     let component = self.component_ptr as *mut IComponent;
                     if !component.is_null() {
+                        // SAFETY: component pointer is checked non-null and points to valid COM object.
                         unsafe {
                             let _ = ((*(*component).vtbl).activate_bus)(
                                 component, K_AUDIO, K_INPUT, 1, 0,
@@ -421,6 +432,7 @@ impl PluginInstance for Vst3Instance {
             let in_sidechain_bus = AudioBusBuffers {
                 num_channels: 2,
                 silence_flags: 0,
+                // SAFETY: `in_ptrs` contains 4 channel pointers; offset 2 addresses sidechain L/R entries.
                 channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
             };
 
@@ -525,6 +537,7 @@ impl PluginInstance for Vst3Instance {
             };
 
             let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer is valid and `data` references buffers alive for the call.
             let status = unsafe { ((*(*processor).vtbl).process)(processor, &mut data) };
             if status != K_RESULT_OK {
                 passthrough(inputs, outputs, num_frames);
@@ -554,6 +567,7 @@ impl PluginInstance for Vst3Instance {
                 output_ptrs[idx] = output.as_mut_ptr();
             }
 
+            // SAFETY: function pointer originates from optional bridge symbol with matching ABI.
             let status = unsafe {
                 process_fn(
                     input_ptrs.as_ptr(),
@@ -615,6 +629,7 @@ impl PluginInstance for Vst3Instance {
         // Previously hardcoded to 0, cutting off reverb/delay tails immediately.
         if self.processor_ptr != 0 && self.com_initialized {
             let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer is valid while instance is active/initialized.
             unsafe { ((*(*processor).vtbl).get_tail_samples)(processor) }
         } else {
             0
@@ -665,6 +680,7 @@ impl PluginInstance for Vst3Instance {
         self.parameter_count_hint = self.parameter_count_hint.max(index.saturating_add(1));
 
         if let Some(set_parameter) = self.set_parameter_fn {
+            // SAFETY: function pointer originates from optional bridge symbol with matching ABI.
             let status = unsafe { set_parameter(index, normalized) };
             if status == 0 {
                 return Ok(());

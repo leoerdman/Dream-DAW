@@ -61,16 +61,20 @@ unsafe extern "system" fn host_query_interface(
         return K_NO_INTERFACE;
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IHOST_APPLICATION) {
+        // SAFETY: `obj` validated non-null above; returning the same singleton COM object pointer.
         unsafe {
             *obj = this;
         }
         K_RESULT_OK
     } else if tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+        // SAFETY: `HostApplicationInstance` is laid out as two adjacent vtable pointers.
+        // Offset by one pointer-size yields the embedded IPlugInterfaceSupport vtable slot.
         unsafe {
             *obj = (this as *mut u8).add(std::mem::size_of::<*const c_void>()) as *mut c_void;
         }
         K_RESULT_OK
     } else {
+        // SAFETY: `obj` validated non-null above and points to caller-owned out storage.
         unsafe {
             *obj = ptr::null_mut();
         }
@@ -101,6 +105,7 @@ unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> T
         b'W' as u16,
         0,
     ];
+    // SAFETY: destination `name` is validated non-null and caller guarantees enough UTF-16 capacity.
     unsafe {
         ptr::copy_nonoverlapping(text.as_ptr(), name, text.len());
     }
@@ -158,6 +163,7 @@ fn cstr_to_string_safe(p: *const c_char) -> String {
     if p.is_null() {
         return String::new();
     }
+    // SAFETY: `p` is validated non-null above and expected to be NUL-terminated key from VST3.
     unsafe { std::ffi::CStr::from_ptr(p) }
         .to_str()
         .unwrap_or("")
@@ -170,14 +176,17 @@ unsafe extern "C" fn host_attr_qi(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null by guard above and points to caller out-param storage.
         unsafe {
             *obj = ptr::null_mut();
         }
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IATTRIBUTE_LIST) {
+        // SAFETY: return same COM object pointer for requested interface.
         unsafe {
             *obj = this;
         }
+        // SAFETY: `this` points to HostAttrList object for this vtable callback.
         unsafe {
             host_attr_add_ref(this);
         }
@@ -189,6 +198,7 @@ unsafe extern "C" fn host_attr_add_ref(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.ref_count += 1;
     a.ref_count
@@ -197,10 +207,12 @@ unsafe extern "C" fn host_attr_release(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.ref_count = a.ref_count.saturating_sub(1);
     let rc = a.ref_count;
     if rc == 0 {
+        // SAFETY: refcount reached zero; `this` was allocated by `Box::into_raw` and is reclaimed once.
         unsafe {
             let _ = Box::from_raw(this as *mut HostAttrList);
         }
@@ -211,6 +223,7 @@ unsafe extern "C" fn host_attr_set_int(this: *mut c_void, key: *const c_char, va
     if this.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.set(cstr_to_string_safe(key), HostAttrValue::Int(val));
     K_RESULT_OK
@@ -223,9 +236,11 @@ unsafe extern "C" fn host_attr_get_int(
     if this.is_null() || out.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::Int(v)) => {
+            // SAFETY: `out` validated non-null above and points to caller-owned output storage.
             unsafe {
                 *out = *v;
             }
@@ -242,6 +257,7 @@ unsafe extern "C" fn host_attr_set_float(
     if this.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.set(cstr_to_string_safe(key), HostAttrValue::Float(val));
     K_RESULT_OK
@@ -254,9 +270,11 @@ unsafe extern "C" fn host_attr_get_float(
     if this.is_null() || out.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::Float(v)) => {
+            // SAFETY: `out` validated non-null above and points to caller-owned output storage.
             unsafe {
                 *out = *v;
             }
@@ -273,10 +291,12 @@ unsafe extern "C" fn host_attr_set_string(
     if this.is_null() || val.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     let mut buf = Vec::new();
     let mut i = 0;
     loop {
+        // SAFETY: `val` validated non-null above; bounded scan terminates at NUL or hard cap.
         let ch = unsafe { *val.add(i) };
         buf.push(ch);
         if ch == 0 {
@@ -300,10 +320,12 @@ unsafe extern "C" fn host_attr_get_string(
     if this.is_null() || out.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::String(v)) => {
             let copy_len = v.len().min(size as usize);
+            // SAFETY: `out` validated non-null above; copy_len bounds both source and destination windows.
             unsafe {
                 ptr::copy_nonoverlapping(v.as_ptr(), out, copy_len);
             }
@@ -321,7 +343,9 @@ unsafe extern "C" fn host_attr_set_binary(
     if this.is_null() || data.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &mut *(this as *mut HostAttrList) };
+    // SAFETY: `data` validated non-null above; caller supplies readable buffer for `size` bytes.
     let slice = unsafe { std::slice::from_raw_parts(data as *const u8, size as usize) };
     a.set(
         cstr_to_string_safe(key),
@@ -338,12 +362,15 @@ unsafe extern "C" fn host_attr_get_binary(
     if this.is_null() || out.is_null() || size.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to `HostAttrList` under this COM callback contract.
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::Binary(v)) => {
+            // SAFETY: `out` validated non-null above and points to caller-owned out pointer slot.
             unsafe {
                 *out = v.as_ptr() as *const c_void;
             }
+            // SAFETY: `size` validated non-null above and points to caller-owned out size slot.
             unsafe {
                 *size = v.len() as u32;
             }
@@ -395,14 +422,17 @@ unsafe extern "C" fn host_msg_qi(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null by guard above and points to caller out-param storage.
         unsafe {
             *obj = ptr::null_mut();
         }
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IMESSAGE) {
+        // SAFETY: return same COM object pointer for requested interface.
         unsafe {
             *obj = this;
         }
+        // SAFETY: `this` points to HostMsg object for this vtable callback.
         unsafe {
             host_msg_add_ref(this);
         }
@@ -414,6 +444,7 @@ unsafe extern "C" fn host_msg_add_ref(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostMsg` under this COM callback contract.
     let m = unsafe { &mut *(this as *mut HostMsg) };
     m.ref_count += 1;
     m.ref_count
@@ -422,15 +453,18 @@ unsafe extern "C" fn host_msg_release(this: *mut c_void) -> u32 {
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to `HostMsg` under this COM callback contract.
     let m = unsafe { &mut *(this as *mut HostMsg) };
     m.ref_count = m.ref_count.saturating_sub(1);
     let rc = m.ref_count;
     if rc == 0 {
         if !m.attr_list.is_null() {
+            // SAFETY: attr list was retained by this message and is released exactly once at refcount zero.
             unsafe {
                 host_attr_release(m.attr_list as *mut c_void);
             }
         }
+        // SAFETY: refcount reached zero; `this` was allocated by `Box::into_raw` and is reclaimed once.
         unsafe {
             let _ = Box::from_raw(this as *mut HostMsg);
         }
@@ -438,14 +472,17 @@ unsafe extern "C" fn host_msg_release(this: *mut c_void) -> u32 {
     rc
 }
 unsafe extern "C" fn host_msg_get_id(this: *mut c_void) -> *const c_char {
+    // SAFETY: `this` points to valid `HostMsg` for this callback.
     let m = unsafe { &*(this as *const HostMsg) };
     m.message_id.as_ptr() as *const c_char
 }
 unsafe extern "C" fn host_msg_set_id(this: *mut c_void, id: *const c_char) {
+    // SAFETY: `this` points to valid `HostMsg` for this callback.
     let m = unsafe { &mut *(this as *mut HostMsg) };
     if !id.is_null() {
         let mut i = 0;
         loop {
+            // SAFETY: `id` is validated non-null above and loop bounds prevent runaway reads.
             let b = unsafe { *id.add(i) } as u8;
             if b == 0 || i >= 255 {
                 break;
@@ -457,6 +494,7 @@ unsafe extern "C" fn host_msg_set_id(this: *mut c_void, id: *const c_char) {
     }
 }
 unsafe extern "C" fn host_msg_get_attrs(this: *mut c_void) -> *mut c_void {
+    // SAFETY: `this` points to valid `HostMsg` for this callback.
     let m = unsafe { &*(this as *const HostMsg) };
     m.attr_list as *mut c_void
 }
@@ -503,11 +541,13 @@ unsafe extern "C" fn host_iface_support_qi(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null by guard above and points to caller out-param storage.
         unsafe {
             *obj = ptr::null_mut();
         }
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+        // SAFETY: return same COM object pointer for requested interface.
         unsafe {
             *obj = this;
         }
@@ -546,10 +586,12 @@ unsafe extern "system" fn host_create_instance(
     if obj.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `obj` validated non-null above; writing null initializes caller out pointer.
     unsafe {
         *obj = ptr::null_mut();
     }
     if tuid_matches(cid, &IID_IMESSAGE) && tuid_matches(iid, &IID_IMESSAGE) {
+        // SAFETY: `obj` is valid out pointer and host_create_message returns heap-owned COM message.
         unsafe {
             *obj = host_create_message();
         }
@@ -706,23 +748,28 @@ unsafe extern "C" fn handler_query_interface(
         return K_NO_INTERFACE;
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_ICOMPONENT_HANDLER) {
+        // SAFETY: static singleton handler; add_ref is a no-op that preserves COM contract semantics.
         unsafe {
             handler_add_ref(this);
         }
+        // SAFETY: `obj` validated non-null above and points to caller out-param storage.
         unsafe {
             *obj = this;
         }
         K_RESULT_OK
     } else if tuid_matches(iid, &IID_ICOMPONENT_HANDLER_2) {
+        // SAFETY: static singleton handler; add_ref is a no-op that preserves COM contract semantics.
         unsafe {
             handler_add_ref(this);
         }
         let inst = this as *const ComponentHandlerInstance;
+        // SAFETY: `this` points to `ComponentHandlerInstance`; taking address of second vtable is valid.
         unsafe {
             *obj = &(*inst).vtbl2 as *const _ as *mut c_void;
         }
         K_RESULT_OK
     } else {
+        // SAFETY: `obj` validated non-null above and points to caller out-param storage.
         unsafe {
             *obj = ptr::null_mut();
         }
@@ -780,9 +827,11 @@ unsafe extern "C" fn handler2_qi(
     iid: *const Tuid,
     obj: *mut *mut c_void,
 ) -> Tresult {
+    // SAFETY: `this` is interface-2 pointer placed immediately after first vtable pointer in instance.
     let base = unsafe {
         (this as *const u8).sub(std::mem::size_of::<*const IComponentHandlerVtbl>()) as *mut c_void
     };
+    // SAFETY: `base` reconstructed from same singleton allocation and valid for query_interface dispatch.
     unsafe { handler_query_interface(base, iid, obj) }
 }
 

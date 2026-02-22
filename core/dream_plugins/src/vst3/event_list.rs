@@ -202,6 +202,7 @@ unsafe extern "C" fn host_event_list_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
+        // SAFETY: `obj` is non-null per guard above and points to caller-owned out-param storage.
         unsafe {
             *obj = ptr::null_mut();
         }
@@ -213,6 +214,7 @@ unsafe extern "C" fn host_event_list_add_ref(this: *mut HostEventList) -> u32 {
     if this.is_null() {
         return 1;
     }
+    // SAFETY: `this` is non-null and points to a valid `HostEventList` per COM vtbl contract.
     let list = unsafe { &mut *this };
     list.ref_count = list.ref_count.saturating_add(1);
     list.ref_count
@@ -222,6 +224,7 @@ unsafe extern "C" fn host_event_list_release(this: *mut HostEventList) -> u32 {
     if this.is_null() {
         return 1;
     }
+    // SAFETY: `this` is non-null and points to a valid `HostEventList` per COM vtbl contract.
     let list = unsafe { &mut *this };
     list.ref_count = list.ref_count.saturating_sub(1);
     list.ref_count
@@ -231,6 +234,7 @@ unsafe extern "C" fn host_event_list_get_event_count(this: *mut HostEventList) -
     if this.is_null() {
         return 0;
     }
+    // SAFETY: `this` is non-null and points to a valid `HostEventList` per COM vtbl contract.
     let list = unsafe { &*this };
     list.count
 }
@@ -243,10 +247,12 @@ unsafe extern "C" fn host_event_list_get_event(
     if this.is_null() || event.is_null() || index < 0 {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to a valid `HostEventList` per COM vtbl contract.
     let list = unsafe { &*this };
     if index >= list.count {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `event` is validated non-null above and we copy a POD event by value.
     unsafe {
         *event = list.events[index as usize];
     }
@@ -260,10 +266,12 @@ unsafe extern "C" fn host_event_list_add_event(
     if this.is_null() || event.is_null() {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `this` is non-null and points to a valid `HostEventList` per COM vtbl contract.
     let list = unsafe { &mut *this };
     if list.count as usize >= MAX_INPUT_EVENTS {
         return K_RESULT_FALSE;
     }
+    // SAFETY: `event` is validated non-null above and points to a readable `Vst3Event`.
     list.events[list.count as usize] = unsafe { *event };
     list.count += 1;
     K_RESULT_OK

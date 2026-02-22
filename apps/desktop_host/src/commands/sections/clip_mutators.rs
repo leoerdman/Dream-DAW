@@ -56,8 +56,9 @@ struct SplitTrackToStemsPayload {
 #[path = "clip_mutators/helpers.rs"]
 mod helpers;
 use helpers::{
-    build_local_pool_for_project, find_audio_clip_delta_state, find_clip_position_frames,
-    find_clip_track_index, place_bounced_file_on_new_track, place_stem_files_on_new_tracks,
+    build_local_pool_for_project, collect_added_track_and_clip_deltas, find_audio_clip_delta_state,
+    find_clip_position_frames, find_clip_track_index, place_bounced_file_on_new_track,
+    place_stem_files_on_new_tracks,
 };
 
 #[path = "clip_mutators/jobs.rs"]
@@ -637,6 +638,25 @@ async fn set_clip_pitch_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn set_clip_pitch_with_deltas_cmd(
+    payload: SetClipPitchPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let clip_uuid =
+        Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let pitch = payload.pitch_shift_semitones;
+    set_clip_pitch_cmd(payload, project_state, clip_pool_state, app).await?;
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ClipPitchChanged {
+            clip_id: clip_uuid,
+            pitch_shift_semitones: pitch,
+        }],
+    })
 }
 
 /// Set clip warp state/mode/base BPM and recalculate timeline duration.

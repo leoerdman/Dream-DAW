@@ -35,9 +35,6 @@ export interface KeyboardShortcutsConfig {
     timelineClips: TimelineClip[];
     marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
 
-    /** Callback after a successful clip operation (to refresh project state). */
-    onProjectMutated: () => void;
-
     /** Callback to toggle playback. */
     onTogglePlayback: () => void;
 
@@ -117,7 +114,6 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 editCursorBeat = -1,
                 timelineClips,
                 marqueeSelection,
-                onProjectMutated,
                 onTogglePlayback,
                 onClipSelectionChanged,
             } = configRef.current;
@@ -248,13 +244,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.addTrackAdvanced(
+                    const response = await engine.addTrackWithDeltasAdvanced(
                         'audio',
                         insertAfterIndex,
                         undefined,
                         selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null,
                     );
-                    onProjectMutated();
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:add-track-audio');
                 } catch (err) {
                     console.error('[Shortcuts] New audio track failed:', err);
                 }
@@ -266,13 +262,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.addTrackAdvanced(
+                    const response = await engine.addTrackWithDeltasAdvanced(
                         'midi',
                         insertAfterIndex,
                         undefined,
                         selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null,
                     );
-                    onProjectMutated();
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:add-track-midi');
                 } catch (err) {
                     console.error('[Shortcuts] New MIDI track failed:', err);
                 }
@@ -319,10 +315,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 try {
                     await Promise.all(
                         midiTrackIndices.map((trackIndex) =>
-                            engine.createMidiClip(trackIndex, positionFrames, durationFrames),
+                            engine.createMidiClipWithDeltas(trackIndex, positionFrames, durationFrames)
+                                .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:create-midi-clip-range')),
                         ),
                     );
-                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Create MIDI clips from box failed:', err);
                 }
@@ -682,8 +678,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 // Bug #56: await the command and propagate errors properly.
                 const newSoloed = !track.is_solo;
                 try {
-                    await engine.setTrackSolo(selectedTrackIndex, newSoloed);
-                    onProjectMutated();
+                    const response = await engine.setTrackSoloWithDeltas(selectedTrackIndex, newSoloed);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-solo');
                 } catch (err) {
                     console.error('[Shortcuts] setTrackSolo failed:', err);
                 }
@@ -706,8 +702,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 // Bug #56: await the command and propagate errors properly.
                 const newMuted = !track.is_mute;
                 try {
-                    await engine.setTrackMute(selectedTrackIndex, newMuted);
-                    onProjectMutated();
+                    const response = await engine.setTrackMuteWithDeltas(selectedTrackIndex, newMuted);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-mute');
                 } catch (err) {
                     console.error('[Shortcuts] setTrackMute failed:', err);
                 }
@@ -726,8 +722,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
                 try {
                     if (targets.length > 0) {
-                        await engine.bounceSelectionToTrack({ clipIds: targets });
-                        onProjectMutated();
+                        const response = await engine.bounceSelectionToTrackWithDeltas({ clipIds: targets });
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:bounce-selection');
                         return;
                     }
 
@@ -740,13 +736,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
                     if (endBeat - startBeat <= 1e-6) return;
 
-                    await engine.bounceSelectionToTrack({
+                    const response = await engine.bounceSelectionToTrackWithDeltas({
                         rangeStartFrames: Math.max(0, beatsToFrames(startBeat)),
                         rangeEndFrames: Math.max(1, beatsToFrames(endBeat)),
                         startTrackIndex: Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack),
                         endTrackIndex: Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack),
                     });
-                    onProjectMutated();
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:bounce-time-range');
                 } catch (err) {
                     console.error('[Shortcuts] Bounce selection failed:', err);
                 }

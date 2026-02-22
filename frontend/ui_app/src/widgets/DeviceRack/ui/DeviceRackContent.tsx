@@ -1,4 +1,4 @@
-import * as engineApi from '@/shared/api/engineApi';
+import * as engineApi from '@/shared/api/engine';
 import { MeterStrip } from '@/widgets/MeterStrip';
 import { DeviceNode } from '@/widgets/DeviceRack/ui/DeviceNode';
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';

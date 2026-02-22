@@ -23,6 +23,20 @@ fn execute_orchestrator_command<C: dream_orchestrator::Command>(
     Ok(result)
 }
 
+fn execute_orchestrator_query<Q: dream_orchestrator::Query>(
+    project_state: &ProjectState,
+    query: &Q,
+) -> Result<Q::Result, String> {
+    let ctx = dream_orchestrator::OrchestratorContext::new(
+        project_state
+            .project
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone(),
+    );
+    ctx.query(query).map_err(|e| e.to_string())
+}
+
 pub mod payloads;
 pub use payloads::*;
 
@@ -150,11 +164,13 @@ pub(crate) fn invoke_handler()
         rename_track_cmd,
         rename_track_with_deltas_cmd,
         set_track_height_cmd,
+        set_track_height_with_deltas_cmd,
         set_track_color_cmd,
         set_track_color_with_deltas_cmd,
         create_group_cmd,
         create_group_with_deltas_cmd,
         set_group_expanded_cmd,
+        set_group_expanded_with_deltas_cmd,
         move_track_to_index_cmd,
         move_track_to_index_with_deltas_cmd,
         move_track_with_parent_cmd,
@@ -187,6 +203,7 @@ pub(crate) fn invoke_handler()
         set_clip_warp_cmd,
         set_clip_warp_with_deltas_cmd,
         set_clip_pitch_cmd,
+        set_clip_pitch_with_deltas_cmd,
         set_clip_muted_cmd,
         set_clip_muted_with_deltas_cmd,
         set_clips_muted_cmd,
@@ -208,6 +225,7 @@ pub(crate) fn invoke_handler()
         cancel_background_job_cmd,
         clear_finished_background_jobs_cmd,
         bounce_selection_to_track_cmd,
+        bounce_selection_to_track_with_deltas_cmd,
         bounce_track_cmd,
         bounce_track_with_deltas_cmd,
         bounce_group_cmd,
@@ -236,7 +254,7 @@ pub(crate) fn invoke_handler()
         unload_plugin_slot_cmd,
         replace_missing_plugin_slot_cmd,
         replace_missing_plugin_slot_with_deltas_cmd,
-        close_plugin_window,
+        close_plugin_window_cmd,
         close_plugin_window_for_slot,
         get_external_plugin_params,
         get_external_plugin_params_for_slot,
@@ -261,6 +279,7 @@ pub(crate) fn invoke_handler()
         set_internal_plugin_param_with_deltas_cmd,
         set_external_plugin_param_cmd,
         set_external_plugin_param_for_slot_cmd,
+        set_external_plugin_param_for_slot_with_deltas_cmd,
         set_sampler_sample_cmd,
         set_sampler_sample_with_deltas_cmd,
         eager_activate_external_plugins,

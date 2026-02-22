@@ -71,7 +71,6 @@ export function createTelemetryActions(
 
             queueMicrotask(() => {
                 set({ telemetryRunning: true });
-                void get().syncProjectSnapshotDelta('telemetry-startup');
             });
             let tickCounter = 0;
 

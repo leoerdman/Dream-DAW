@@ -2,23 +2,6 @@ use super::*;
 
 impl Vst3Instance {
     pub(super) fn open_editor_impl(&mut self) -> Result<(), PluginError> {
-        // Diagnostic: trace editor open flow
-        {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/dream-daw-diag.txt")
-            {
-                let _ = writeln!(
-                    f,
-                    "[open_editor] name='{}', is_active={}, editor_open={}, controller_ptr=0x{:x}",
-                    self.descriptor.name, self.is_active, self.editor_open, self.controller_ptr
-                );
-                let _ = f.flush();
-            }
-        }
-
         if !self.is_active {
             return Err(PluginError::InvalidState(
                 "Cannot open editor: plugin is not active".to_string(),
@@ -42,6 +25,7 @@ impl Vst3Instance {
                 "Native plugin editor bridge symbol is unavailable".to_string(),
             )
         })?;
+        // SAFETY: function pointer comes from validated optional bridge symbol lookup.
         let status = unsafe { open() };
         if status != 0 {
             return Err(PluginError::ProcessError(format!(
@@ -86,6 +70,7 @@ impl Vst3Instance {
 
         let mut stream = HostReadStream::new(component_data.to_vec());
         let component = self.component_ptr as *mut IComponent;
+        // SAFETY: component pointer is validated by non-zero guard above and stream lives for call duration.
         let status = unsafe {
             ((*(*component).vtbl).set_state)(
                 component,
@@ -112,6 +97,7 @@ impl Vst3Instance {
         if self.controller_ptr != 0 {
             let controller = self.controller_ptr as *mut IEditController;
             let mut controller_stream = HostReadStream::new(component_data.to_vec());
+            // SAFETY: controller pointer is non-zero guard checked and stream lives for call duration.
             let _ = unsafe {
                 ((*(*controller).vtbl).set_component_state)(
                     controller,
@@ -123,6 +109,7 @@ impl Vst3Instance {
             // IEditController::setState to restore preset name, UI state, etc.
             if !controller_data.is_empty() {
                 let mut ctrl_state_stream = HostReadStream::new(controller_data.to_vec());
+                // SAFETY: controller pointer is valid and stream lives for call duration.
                 let ctrl_status = unsafe {
                     ((*(*controller).vtbl).set_state)(
                         controller,
@@ -164,6 +151,7 @@ impl Vst3Instance {
         // 1. Save IComponent state (DSP parameters)
         let component = self.component_ptr as *mut IComponent;
         let mut comp_stream = HostWriteStream::new();
+        // SAFETY: component pointer is validated by non-zero guard above and stream outlives callback.
         let status = unsafe {
             ((*(*component).vtbl).get_state)(
                 component,
@@ -182,6 +170,7 @@ impl Vst3Instance {
         let ctrl_bytes = if self.controller_ptr != 0 {
             let controller = self.controller_ptr as *mut IEditController;
             let mut ctrl_stream = HostWriteStream::new();
+            // SAFETY: controller pointer is validated by non-zero check and stream outlives callback.
             let ctrl_status = unsafe {
                 ((*(*controller).vtbl).get_state)(
                     controller,

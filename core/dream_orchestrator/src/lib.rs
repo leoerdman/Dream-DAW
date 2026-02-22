@@ -24,6 +24,7 @@
 pub mod commands;
 pub mod context;
 pub mod error;
+pub mod queries;
 
 // Re-export for convenience
 pub use context::{Command, OrchestratorContext, Query};

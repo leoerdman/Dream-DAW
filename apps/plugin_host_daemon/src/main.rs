@@ -390,24 +390,38 @@ fn main() {
                     }
                     // ── LAZARUS PROTOCOL: Save/Restore State ────────────────
                     PluginHostControlMessage::SaveState { instance_id } => {
-                        // Attempt to get plugin state as raw bytes.
-                        // For now, VST3 state serialization is not yet
-                        // exposed via the PluginInstance trait — emit an
-                        // empty blob so the protocol handshake works.
-                        // TODO: Wire Vst3Instance::save_preset_data()
-                        let state_blob_b64 =
-                            if let Some(_plugin) = loaded_instances.get(&instance_id) {
-                                // Placeholder: real implementation would call plugin.save_state()
-                                use std::io::Write;
-                                let mut buf = Vec::new();
-                                let _ = write!(buf, "lazarus_placeholder_state");
-                                // base64-encode for IPC transport
-                                let encoded: String =
-                                    buf.iter().map(|b| format!("{:02x}", b)).collect();
-                                encoded
-                            } else {
-                                String::new()
-                            };
+                        use base64::Engine;
+                        let state_blob_b64 = if let Some(plugin) =
+                            loaded_instances.get(&instance_id)
+                        {
+                            match plugin.save_state() {
+                                Ok(bytes) if !bytes.is_empty() => {
+                                    log::info!(
+                                        "[plugin_host_daemon][Lazarus] Saved state for {} ({} bytes raw)",
+                                        instance_id,
+                                        bytes.len()
+                                    );
+                                    base64::engine::general_purpose::STANDARD.encode(&bytes)
+                                }
+                                Ok(_) => {
+                                    log::info!(
+                                        "[plugin_host_daemon][Lazarus] Plugin {} returned empty state",
+                                        instance_id
+                                    );
+                                    String::new()
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[plugin_host_daemon][Lazarus] save_state failed for {}: {}",
+                                        instance_id,
+                                        e
+                                    );
+                                    String::new()
+                                }
+                            }
+                        } else {
+                            String::new()
+                        };
                         let evt = PluginHostEventMessage::StateSaved {
                             instance_id,
                             state_blob_b64,
@@ -420,15 +434,42 @@ fn main() {
                         instance_id,
                         state_blob_b64,
                     } => {
-                        // TODO: Wire Vst3Instance::load_preset_data()
-                        // For now, log the restore attempt — the state blob
-                        // will be used when VST3 state serialization is exposed.
-                        if loaded_instances.contains_key(&instance_id) {
-                            log::info!(
-                                "[plugin_host_daemon][Lazarus] Restore state for {} ({} bytes)",
-                                instance_id,
-                                state_blob_b64.len()
-                            );
+                        use base64::Engine;
+                        if let Some(plugin) = loaded_instances.get_mut(&instance_id) {
+                            if state_blob_b64.is_empty() {
+                                log::info!(
+                                    "[plugin_host_daemon][Lazarus] Skipping empty state restore for {}",
+                                    instance_id
+                                );
+                            } else {
+                                match base64::engine::general_purpose::STANDARD
+                                    .decode(&state_blob_b64)
+                                {
+                                    Ok(bytes) => match plugin.load_state_blob(None, &bytes) {
+                                        Ok(()) => {
+                                            log::info!(
+                                                "[plugin_host_daemon][Lazarus] Restored state for {} ({} bytes raw)",
+                                                instance_id,
+                                                bytes.len()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "[plugin_host_daemon][Lazarus] load_state_blob failed for {}: {}",
+                                                instance_id,
+                                                e
+                                            );
+                                        }
+                                    },
+                                    Err(e) => {
+                                        log::warn!(
+                                            "[plugin_host_daemon][Lazarus] base64 decode failed for {}: {}",
+                                            instance_id,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
                         } else {
                             log::warn!(
                                 "[plugin_host_daemon][Lazarus] Cannot restore state — instance {} not loaded",

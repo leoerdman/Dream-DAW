@@ -72,7 +72,6 @@ export interface EngineStore {
     importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<ImportAudioResponse | null>;
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
-    syncProjectSnapshotDelta: (reason?: string) => Promise<void>;
     syncProjectHistory: () => Promise<void>;
     expandWindow: () => Promise<void>;
     startTelemetryLoop: () => void;
@@ -240,12 +239,4 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         });
     },
 
-    syncProjectSnapshotDelta: async (reason: string = 'snapshot-sync') => {
-        try {
-            const response = await engine.getProjectSnapshotDelta();
-            await get().applyProjectDeltas(response.deltas, reason);
-        } catch (e) {
-            console.error('[Engine] syncProjectSnapshotDelta failed:', e);
-        }
-    },
 }));

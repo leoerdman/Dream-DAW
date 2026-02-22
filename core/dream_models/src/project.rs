@@ -306,6 +306,151 @@ impl TimeSignature {
     }
 }
 
+/// Resolves an internal/builtin effect plugin ID (or known alias) into
+/// `dream_dsp::BuiltinEffectType` discriminant (`u8`).
+///
+/// This is the shared backend mapping used by both realtime and offline paths.
+pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
+    // Must stay aligned with dream_dsp::dsp_processor::BuiltinEffectType.
+    const FX_EQ: u8 = 0;
+    const FX_COMPRESSOR: u8 = 1;
+    const FX_DELAY: u8 = 2;
+    const FX_REVERB: u8 = 3;
+    const FX_CHORUS: u8 = 4;
+    const FX_UTILITY: u8 = 5;
+    const FX_SATURATOR: u8 = 6;
+    const FX_LIMITER: u8 = 7;
+    const FX_GATE: u8 = 8;
+    const FX_AUTO_FILTER: u8 = 9;
+    const FX_PHASER: u8 = 10;
+    const FX_FLANGER: u8 = 11;
+    const FX_DISTORTION: u8 = 12;
+    const FX_BITCRUSHER: u8 = 13;
+    const FX_NOISE_MACHINE: u8 = 14;
+    const FX_AUTO_PAN: u8 = 15;
+    const FX_ANALYZER: u8 = 16;
+
+    let key = plugin_id.trim().to_lowercase();
+
+    if key.starts_with("internal://effect/") {
+        return match key.as_str() {
+            "internal://effect/eq-eight"
+            | "internal://effect/channel-eq"
+            | "internal://effect/eq-three" => Some(FX_EQ),
+            "internal://effect/compressor"
+            | "internal://effect/glue-compressor"
+            | "internal://effect/multiband-dynamics"
+            | "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
+            "internal://effect/delay"
+            | "internal://effect/echo"
+            | "internal://effect/simple-delay"
+            | "internal://effect/filter-delay"
+            | "internal://effect/grain-delay"
+            | "internal://effect/beat-repeat"
+            | "internal://effect/looper"
+            | "internal://effect/spectral-time" => Some(FX_DELAY),
+            "internal://effect/reverb"
+            | "internal://effect/hybrid-reverb"
+            | "internal://effect/corpus"
+            | "internal://effect/resonators"
+            | "internal://effect/spectral-resonator" => Some(FX_REVERB),
+            "internal://effect/chorus" => Some(FX_CHORUS),
+            "internal://effect/utility"
+            | "internal://effect/tuner"
+            | "internal://effect/external-audio-effect"
+            | "internal://effect/auto-shift"
+            | "internal://effect/shifter" => Some(FX_UTILITY),
+            "internal://effect/saturator"
+            | "internal://effect/drum-buss"
+            | "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
+            "internal://effect/limiter" => Some(FX_LIMITER),
+            "internal://effect/gate" => Some(FX_GATE),
+            "internal://effect/auto-filter" | "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
+            "internal://effect/phaser" | "internal://effect/phaser-flanger" => Some(FX_PHASER),
+            "internal://effect/flanger" => Some(FX_FLANGER),
+            "internal://effect/distortion"
+            | "internal://effect/amp"
+            | "internal://effect/cabinet"
+            | "internal://effect/overdrive"
+            | "internal://effect/pedal"
+            | "internal://effect/roar"
+            | "internal://effect/erosion" => Some(FX_DISTORTION),
+            "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+            "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+            "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+            "internal://effect/analyzer" | "internal://effect/spectrum" => Some(FX_ANALYZER),
+            _ => None,
+        };
+    }
+
+    if key.contains("eq eight")
+        || key.contains("eq8")
+        || key.contains("eq3")
+        || key.contains("channel eq")
+        || key == "eq"
+        || key.contains(" equalizer ")
+        || key.starts_with("equalizer ")
+        || key.ends_with(" equalizer")
+    {
+        return Some(FX_EQ);
+    }
+    if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
+        return Some(FX_COMPRESSOR);
+    }
+    if key.contains("delay") || key.contains("echo") || key.contains("ping pong") {
+        return Some(FX_DELAY);
+    }
+    if key.contains("reverb") || key.contains("hybrid reverb") {
+        return Some(FX_REVERB);
+    }
+    if key.contains("chorus") || key.contains("chorus-ensemble") {
+        return Some(FX_CHORUS);
+    }
+    if key.contains("saturator") || key.contains("drum buss") || key.contains("dynamic tube") {
+        return Some(FX_SATURATOR);
+    }
+    if key.contains("limiter") {
+        return Some(FX_LIMITER);
+    }
+    if key.contains("gate") {
+        return Some(FX_GATE);
+    }
+    if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
+        return Some(FX_AUTO_FILTER);
+    }
+    if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
+        return Some(FX_AUTO_PAN);
+    }
+    if key.contains("noise-machine") || key.contains("noisemachine") || key.contains("noise machine")
+    {
+        return Some(FX_NOISE_MACHINE);
+    }
+    if key.contains("phaser") || key.contains("phaser-flanger") {
+        return Some(FX_PHASER);
+    }
+    if key.contains("flanger") {
+        return Some(FX_FLANGER);
+    }
+    if key.contains("distortion")
+        || key.contains("overdrive")
+        || key.contains("pedal")
+        || key.contains("cabinet")
+        || key.contains("amp")
+    {
+        return Some(FX_DISTORTION);
+    }
+    if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
+        return Some(FX_BITCRUSHER);
+    }
+    if key.contains("utility") || key.contains("tuner") || key.contains("shifter") {
+        return Some(FX_UTILITY);
+    }
+    if key.contains("analyzer") || key.contains("spectrum") {
+        return Some(FX_ANALYZER);
+    }
+    None
+}
+
 // ── Plugin Slot ────────────────────────────────────────────────────────
 
 /// A slot for an audio plugin (instrument or effect) in a track's chain.

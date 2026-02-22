@@ -49,6 +49,8 @@ mod executor;
 mod graph_topology;
 #[path = "driver/midi_dispatcher.rs"]
 mod midi_dispatcher;
+#[path = "driver/rt_debug.rs"]
+mod rt_debug;
 #[path = "driver/snapshots.rs"]
 mod snapshots;
 #[cfg(test)]
@@ -58,7 +60,6 @@ use automation::{
     apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
 };
 use cpal_backend::{list_audio_devices_backend, resolve_output_setup};
-pub use executor::{RtDebugSnapshot, SharedRtDebugStats};
 pub use graph_topology::{
     PreparedGraphSnapshot, SharedPreparedGraphSnapshot, prepare_graph_snapshot_for_routing,
     resolve_master_runtime_slots,
@@ -66,6 +67,7 @@ pub use graph_topology::{
 use midi_dispatcher::{
     ActiveMappedNote, MidiNoteMapState, Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale,
 };
+pub use rt_debug::{RtDebugSnapshot, SharedRtDebugStats};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 pub use snapshots::{
@@ -273,7 +275,6 @@ pub fn start_audio_thread_on_device(
 pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
     list_audio_devices_backend()
 }
-
 
 #[cfg(test)]
 #[path = "driver/tests.rs"]

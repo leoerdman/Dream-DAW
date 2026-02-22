@@ -456,13 +456,17 @@ mod tests {
             }
 
             // Property 1: No double-compensation (max node delay in any path component <= edge delays)
-            // (Replaced the source-only linear DAG tests as BUG-077 correctly identifies 
+            // (Replaced the source-only linear DAG tests as BUG-077 correctly identifies
             // that parallel chains mandate non-source node compensation).
             for idx in dag.graph().node_indices() {
                 let comp_val = comp[idx.index()];
-                let max_out_edge = dag.graph().edges_directed(idx, petgraph::Direction::Outgoing)
+                let max_out_edge = dag
+                    .graph()
+                    .edges_directed(idx, petgraph::Direction::Outgoing)
                     .map(|e| {
-                        edge_comp.iter().find(|c| c.from == e.source() && c.to == e.target())
+                        edge_comp
+                            .iter()
+                            .find(|c| c.from == e.source() && c.to == e.target())
                             .map(|c| c.delay_samples)
                             .unwrap_or(0)
                     })

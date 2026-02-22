@@ -7,3 +7,4 @@ license.workspace = true
 
 [dependencies]
 log = { workspace = true }
+wide = "0.7"

@@ -9,4 +9,5 @@ license.workspace = true
 dream_ipc = { path = "../dream_ipc" }
 petgraph = "0.8"
 arc-swap = "1.8"
+rayon = "1.10"
 log = { workspace = true }

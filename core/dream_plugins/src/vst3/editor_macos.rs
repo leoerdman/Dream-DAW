@@ -8,8 +8,8 @@ use cocoa::foundation::{NSPoint, NSRect, NSSize};
 use log::info;
 
 use crate::vst3::com_abi::{
-    IPlugView, IID_FUNKNOWN, IID_IPLUG_FRAME, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK,
-    Tresult, Tuid, ViewRect, tuid_eq,
+    IID_FUNKNOWN, IID_IPLUG_FRAME, IPlugView, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK, Tresult,
+    Tuid, ViewRect, tuid_eq,
 };
 
 #[inline]
@@ -29,12 +29,10 @@ pub(crate) fn set_editor_in_attached(value: bool) {
 
 #[repr(C)]
 struct IPlugFrameVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
     release: unsafe extern "C" fn(*mut c_void) -> u32,
-    resize_view:
-        unsafe extern "C" fn(*mut c_void, *mut c_void, *mut ViewRect) -> Tresult,
+    resize_view: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut ViewRect) -> Tresult,
 }
 
 #[repr(C)]
@@ -162,7 +160,6 @@ static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
 };
 
 static DELEGATE_CLASS_INIT: Once = Once::new();
-static mut DELEGATE_CLASS: *const std::os::raw::c_char = std::ptr::null();
 
 unsafe extern "C" {
     fn objc_allocateClassPair(
@@ -278,7 +275,6 @@ pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut 
                 c"v@:@".as_ptr() as _,
             );
             objc_registerClassPair(new_class);
-            DELEGATE_CLASS = class_name;
         }
     });
 
@@ -304,7 +300,11 @@ pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut 
     let delegate = unsafe { send_init(delegate, sel_init) };
 
     unsafe {
-        object_setInstanceVariable(delegate, c"_plugView".as_ptr() as _, plug_view as *mut c_void);
+        object_setInstanceVariable(
+            delegate,
+            c"_plugView".as_ptr() as _,
+            plug_view as *mut c_void,
+        );
         object_setInstanceVariable(
             delegate,
             c"_cleaned".as_ptr() as _,

@@ -447,10 +447,8 @@ mod tests {
 
     #[test]
     fn inline_midi_roundtrip() {
-        let path = std::env::temp_dir().join(format!(
-            "dream_daw_test_midi_{}.bin",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("dream_daw_test_midi_{}.bin", uuid::Uuid::new_v4()));
         let layout = SharedAudioBufferLayout {
             num_inputs: 2,
             num_outputs: 2,

@@ -484,7 +484,7 @@ pub struct SampleRackPadConfig {
     /// ADSR envelope — sustain level (0.0–1.0).
     #[serde(default = "default_rack_pad_sustain")]
     pub sustain: f64,
-    
+
     /// ADSR envelope — release time in seconds.
     #[serde(default = "default_rack_pad_release")]
     pub release: f64,
@@ -519,12 +519,21 @@ impl SampleRackPadConfig {
     }
 }
 
-fn default_rack_pad_volume() -> f64 { 1.0 }
-fn default_rack_pad_attack() -> f64 { 0.005 }
-fn default_rack_pad_decay() -> f64 { 0.1 }
-fn default_rack_pad_sustain() -> f64 { 1.0 }
-fn default_rack_pad_release() -> f64 { 0.1 }
-
+fn default_rack_pad_volume() -> f64 {
+    1.0
+}
+fn default_rack_pad_attack() -> f64 {
+    0.005
+}
+fn default_rack_pad_decay() -> f64 {
+    0.1
+}
+fn default_rack_pad_sustain() -> f64 {
+    1.0
+}
+fn default_rack_pad_release() -> f64 {
+    0.1
+}
 
 /// Configuration for a 16-pad Drum Rack / Sample Rack instrument.
 ///

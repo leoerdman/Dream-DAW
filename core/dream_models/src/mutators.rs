@@ -170,9 +170,8 @@ pub fn resize_clip(
     // the source_offset must advance by the same amount.
     let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
     if left_edge_delta != 0 {
-        clip.source_offset = AbsoluteTime::new(
-            (clip.source_offset.sample_frame + left_edge_delta).max(0)
-        );
+        clip.source_offset =
+            AbsoluteTime::new((clip.source_offset.sample_frame + left_edge_delta).max(0));
     }
 
     // Update bounds
@@ -647,21 +646,19 @@ pub fn upsert_static_automation_lane(
         return;
     }
 
-    track
-        .automation_lanes
-        .push(crate::project::AutomationLane {
-            param_id: param_id.to_string(),
-            points: vec![crate::project::AutomationPoint {
-                beat: 0.0,
-                value,
-                curve_type: "linear".to_string(),
-                tension: None,
-                bezier_cp1x: None,
-                bezier_cp1y: None,
-                bezier_cp2x: None,
-                bezier_cp2y: None,
-            }],
-        });
+    track.automation_lanes.push(crate::project::AutomationLane {
+        param_id: param_id.to_string(),
+        points: vec![crate::project::AutomationPoint {
+            beat: 0.0,
+            value,
+            curve_type: "linear".to_string(),
+            tension: None,
+            bezier_cp1x: None,
+            bezier_cp1y: None,
+            bezier_cp2x: None,
+            bezier_cp2y: None,
+        }],
+    });
 }
 
 // ── Internal Helpers ──────────────────────────────────────────────────────

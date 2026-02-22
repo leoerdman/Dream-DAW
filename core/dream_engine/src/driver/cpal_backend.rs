@@ -18,7 +18,9 @@ pub(crate) fn resolve_output_setup(
     let host = cpal::default_host();
     info!("Audio host: {:?}", host.id());
 
-    let requested_device_name = preferred_output_device.map(str::trim).filter(|s| !s.is_empty());
+    let requested_device_name = preferred_output_device
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let device = if let Some(wanted_name) = requested_device_name {
         if wanted_name.eq_ignore_ascii_case("Default Output") {
@@ -71,16 +73,20 @@ pub(crate) fn resolve_output_setup(
     let supported_config = if default_config.sample_format() == cpal::SampleFormat::F32 {
         default_config
     } else {
-        let fallback = device.supported_output_configs().ok().and_then(|mut ranges| {
-            ranges.find_map(|range| {
-                if range.sample_format() != cpal::SampleFormat::F32 {
-                    return None;
-                }
-                let desired_rate = default_config.sample_rate();
-                let clamped_rate = desired_rate.clamp(range.min_sample_rate(), range.max_sample_rate());
-                Some(range.with_sample_rate(clamped_rate))
-            })
-        });
+        let fallback = device
+            .supported_output_configs()
+            .ok()
+            .and_then(|mut ranges| {
+                ranges.find_map(|range| {
+                    if range.sample_format() != cpal::SampleFormat::F32 {
+                        return None;
+                    }
+                    let desired_rate = default_config.sample_rate();
+                    let clamped_rate =
+                        desired_rate.clamp(range.min_sample_rate(), range.max_sample_rate());
+                    Some(range.with_sample_rate(clamped_rate))
+                })
+            });
 
         if let Some(cfg) = fallback {
             warn!(
@@ -114,4 +120,46 @@ pub(crate) fn resolve_output_setup(
         channels,
         config,
     })
+}
+
+/// Enumerates all available audio input and output devices on the system.
+///
+/// Returns `(output_device_names, input_device_names)`.
+/// Uses `cpal::default_host()` which maps to CoreAudio on macOS,
+/// WASAPI on Windows, and ALSA/PulseAudio on Linux.
+pub(crate) fn list_audio_devices_backend() -> (Vec<String>, Vec<String>) {
+    let host = cpal::default_host();
+
+    let mut outputs: Vec<String> = host
+        .output_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut inputs: Vec<String> = host
+        .input_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    outputs.sort();
+    outputs.dedup();
+    inputs.sort();
+    inputs.dedup();
+
+    outputs.insert(0, String::from("Default Output"));
+    inputs.insert(0, String::from("Default Input"));
+
+    info!(
+        "Audio devices: {} outputs, {} inputs",
+        outputs.len(),
+        inputs.len()
+    );
+    (outputs, inputs)
 }

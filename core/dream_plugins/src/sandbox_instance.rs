@@ -13,9 +13,9 @@
 // IPC control channel as a fallback.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 
 use uuid::Uuid;
 
@@ -23,7 +23,7 @@ use crate::descriptor::PluginDescriptor;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::sandbox_ipc::PluginHostControlMessage;
 use crate::shared_memory::{
-    InlineMidiEvent, SharedAudioBufferLayout, SharedAudioBufferRegion, MAX_INLINE_MIDI_EVENTS,
+    InlineMidiEvent, MAX_INLINE_MIDI_EVENTS, SharedAudioBufferLayout, SharedAudioBufferRegion,
 };
 
 /// PluginInstance implementation backed by an out-of-process sandbox bridge.
@@ -159,7 +159,8 @@ impl SandboxedPluginInstance {
                 data: evt.data,
             };
         }
-        self.shared_region.write_midi_events(&inline_buf[..inline_count]);
+        self.shared_region
+            .write_midi_events(&inline_buf[..inline_count]);
 
         // ── Overflow fallback: send via IPC channel (rare, >4 events/block) ───
         if midi_events.len() > MAX_INLINE_MIDI_EVENTS

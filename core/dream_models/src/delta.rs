@@ -28,7 +28,6 @@ use uuid::Uuid;
 #[serde(tag = "kind", content = "data")]
 pub enum ProjectDelta {
     // ── Clip Mutations ──────────────────────────────────────────────────
-
     /// A clip was moved to a new track and/or position.
     ClipMoved {
         clip_id: Uuid,
@@ -53,10 +52,7 @@ pub enum ProjectDelta {
     },
 
     /// A clip was deleted.
-    ClipDeleted {
-        clip_id: Uuid,
-        track_index: usize,
-    },
+    ClipDeleted { clip_id: Uuid, track_index: usize },
 
     /// A clip was duplicated.
     ClipDuplicated {
@@ -66,10 +62,7 @@ pub enum ProjectDelta {
     },
 
     /// A clip's mute state changed.
-    ClipMuteChanged {
-        clip_id: Uuid,
-        muted: bool,
-    },
+    ClipMuteChanged { clip_id: Uuid, muted: bool },
 
     /// A clip's color was changed.
     ClipColorChanged {
@@ -78,10 +71,7 @@ pub enum ProjectDelta {
     },
 
     /// A clip's name was changed.
-    ClipRenamed {
-        clip_id: Uuid,
-        new_name: String,
-    },
+    ClipRenamed { clip_id: Uuid, new_name: String },
 
     /// Clips were merged into a single clip.
     ClipsMerged {
@@ -90,48 +80,26 @@ pub enum ProjectDelta {
     },
 
     // ── Track Mutations ─────────────────────────────────────────────────
-
     /// A track's volume changed.
-    TrackVolumeChanged {
-        track_id: Uuid,
-        volume: f32,
-    },
+    TrackVolumeChanged { track_id: Uuid, volume: f32 },
 
     /// A track's pan changed.
-    TrackPanChanged {
-        track_id: Uuid,
-        pan: f32,
-    },
+    TrackPanChanged { track_id: Uuid, pan: f32 },
 
     /// A track was muted/unmuted.
-    TrackMuteChanged {
-        track_id: Uuid,
-        muted: bool,
-    },
+    TrackMuteChanged { track_id: Uuid, muted: bool },
 
     /// A track was soloed/unsoloed.
-    TrackSoloChanged {
-        track_id: Uuid,
-        soloed: bool,
-    },
+    TrackSoloChanged { track_id: Uuid, soloed: bool },
 
     /// A track was armed/disarmed for recording.
-    TrackArmChanged {
-        track_index: usize,
-        armed: bool,
-    },
+    TrackArmChanged { track_index: usize, armed: bool },
 
     /// A track was renamed.
-    TrackRenamed {
-        track_id: Uuid,
-        new_name: String,
-    },
+    TrackRenamed { track_id: Uuid, new_name: String },
 
     /// A track's color changed.
-    TrackColorChanged {
-        track_id: Uuid,
-        color: String,
-    },
+    TrackColorChanged { track_id: Uuid, color: String },
 
     /// A new track was added.
     TrackAdded {
@@ -142,10 +110,7 @@ pub enum ProjectDelta {
     },
 
     /// A track was removed.
-    TrackRemoved {
-        track_id: Uuid,
-        track_index: usize,
-    },
+    TrackRemoved { track_id: Uuid, track_index: usize },
 
     /// Track order changed (drag reorder).
     TrackMoved {
@@ -155,7 +120,6 @@ pub enum ProjectDelta {
     },
 
     // ── Plugin Mutations ────────────────────────────────────────────────
-
     /// A plugin was added to a track.
     PluginAdded {
         track_id: Uuid,
@@ -165,10 +129,7 @@ pub enum ProjectDelta {
     },
 
     /// A plugin was removed from a track.
-    PluginRemoved {
-        track_id: Uuid,
-        slot_index: usize,
-    },
+    PluginRemoved { track_id: Uuid, slot_index: usize },
 
     /// A plugin was bypassed/enabled.
     PluginBypassChanged {
@@ -185,43 +146,26 @@ pub enum ProjectDelta {
     },
 
     // ── Automation ──────────────────────────────────────────────────────
-
     /// Automation points were updated for a parameter.
     /// The lane data is not included — the frontend should re-fetch automation
     /// for this specific param_id.
     /// for this specific param_id.
-    AutomationPointsChanged {
-        track_id: Uuid,
-        param_id: String,
-    },
+    AutomationPointsChanged { track_id: Uuid, param_id: String },
 
     // ── Transport/Project ───────────────────────────────────────────────
-
     /// Tempo changed.
-    TempoChanged {
-        bpm: f64,
-    },
+    TempoChanged { bpm: f64 },
 
     /// Time signature changed.
-    TimeSignatureChanged {
-        numerator: u32,
-        denominator: u32,
-    },
+    TimeSignatureChanged { numerator: u32, denominator: u32 },
 
     /// Project was renamed.
-    ProjectRenamed {
-        new_name: String,
-    },
+    ProjectRenamed { new_name: String },
 
     /// Loop region changed.
-    LoopRegionChanged {
-        start: i64,
-        end: i64,
-        enabled: bool,
-    },
+    LoopRegionChanged { start: i64, end: i64, enabled: bool },
 
     // ── Full Refresh (escape hatch) ─────────────────────────────────────
-
     /// Force a full project refresh. Used for complex mutations that
     /// produce too many deltas (e.g., import, undo/redo, template load).
     FullRefreshRequired,

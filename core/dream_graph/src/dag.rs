@@ -254,7 +254,7 @@ impl GraphBuilder {
     pub fn add_node(mut self, node: AudioNode) -> Self {
         let id = node.id;
         let idx = self.graph.add_node(node);
-        self.id_map.insert(id, idx);  // GR-001 FIX: O(1) lookup
+        self.id_map.insert(id, idx); // GR-001 FIX: O(1) lookup
         self
     }
 
@@ -278,13 +278,18 @@ impl GraphBuilder {
         to_id: NodeId,
         kind: AudioEdgeKind,
     ) -> Result<Self, GraphError> {
-        let from_idx = *self.id_map.get(&from_id)
-            .ok_or(GraphError::NodeNotFound(from_id))?;  // GR-001 FIX: O(1)
-        let to_idx = *self.id_map.get(&to_id)
-            .ok_or(GraphError::NodeNotFound(to_id))?;     // GR-001 FIX: O(1)
+        let from_idx = *self
+            .id_map
+            .get(&from_id)
+            .ok_or(GraphError::NodeNotFound(from_id))?; // GR-001 FIX: O(1)
+        let to_idx = *self
+            .id_map
+            .get(&to_id)
+            .ok_or(GraphError::NodeNotFound(to_id))?; // GR-001 FIX: O(1)
 
         // GR-030 FIX: Prevent duplicate edges (would cause double-summing).
-        let already_exists = self.graph
+        let already_exists = self
+            .graph
             .edges_directed(to_idx, petgraph::Direction::Incoming)
             .any(|e| e.source() == from_idx);
         if already_exists {
@@ -345,7 +350,10 @@ impl GraphBuilder {
             let mut max_depth = 0usize;
             for &node_idx in &topo {
                 let mut node_depth = 0usize;
-                for edge in self.graph.edges_directed(node_idx, petgraph::Direction::Incoming) {
+                for edge in self
+                    .graph
+                    .edges_directed(node_idx, petgraph::Direction::Incoming)
+                {
                     let src = edge.source();
                     node_depth = node_depth.max(depth[src.index()] + 1);
                 }
@@ -356,7 +364,8 @@ impl GraphBuilder {
                 log::warn!(
                     "[AudioDag] Graph depth {} exceeds MAX_GRAPH_DEPTH {}. \
                      This may cause excessive latency or stack overflow.",
-                    max_depth, MAX_GRAPH_DEPTH
+                    max_depth,
+                    MAX_GRAPH_DEPTH
                 );
             }
         }

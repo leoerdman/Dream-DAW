@@ -227,8 +227,8 @@ impl AdsrEnvelope {
             }
             EnvelopeStage::Decay => {
                 // Exponential decay: level converges to sustain in the specified time.
-                self.level = self.sustain_level
-                    + (self.level - self.sustain_level) * self.decay_rate;
+                self.level =
+                    self.sustain_level + (self.level - self.sustain_level) * self.decay_rate;
                 if self.level <= self.sustain_level + 0.0001 {
                     self.level = self.sustain_level;
                     self.stage = EnvelopeStage::Sustain;
@@ -656,9 +656,10 @@ impl SamplerEngine {
         // When note-off and note-on for the same pitch arrive at the same frame
         // (common in rapid drum patterns and adjacent MIDI notes), re-using the
         // releasing voice avoids wasting a voice slot on a silent release tail.
-        let retrigger = self.voices.iter_mut().find(|v| {
-            v.active && v.note == note && v.envelope.is_releasing()
-        });
+        let retrigger = self
+            .voices
+            .iter_mut()
+            .find(|v| v.active && v.note == note && v.envelope.is_releasing());
         if let Some(voice) = retrigger {
             voice.envelope.set_params(&self.adsr_params);
             voice.trigger(note, velocity, self.root_note, self.sample_sr_ratio);
@@ -922,22 +923,20 @@ fn render_oscillator_voice(
     // Previously `SvfCoeffs::new()` (involves tan() + division) was computed per-sample
     // inside the loop. At 44.1kHz: ~15ns × 512 frames × 32 voices = ~245µs per buffer.
     // LFO rate is max 20Hz, so the modulation changes negligibly within one buffer.
-    let lfo_filter_coeffs = if filter_enabled
-        && lfo_target == LfoTarget::FilterCutoff
-        && lfo_depth > 0.0001
-    {
-        // Sample the LFO at the voice's current phase for the buffer midpoint.
-        let lfo_mid = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32 * lfo_depth;
-        let mod_factor = 2.0_f32.powf(lfo_mid * 4.0);
-        let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
-        SvfCoeffs::new(
-            modulated_cutoff.into(),
-            filter_resonance.into(),
-            sample_rate,
-        )
-    } else {
-        *filter_coeffs_base
-    };
+    let lfo_filter_coeffs =
+        if filter_enabled && lfo_target == LfoTarget::FilterCutoff && lfo_depth > 0.0001 {
+            // Sample the LFO at the voice's current phase for the buffer midpoint.
+            let lfo_mid = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32 * lfo_depth;
+            let mod_factor = 2.0_f32.powf(lfo_mid * 4.0);
+            let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
+            SvfCoeffs::new(
+                modulated_cutoff.into(),
+                filter_resonance.into(),
+                sample_rate,
+            )
+        } else {
+            *filter_coeffs_base
+        };
 
     // Per-oscillator triangle integrator state
     let mut tri1 = 0.0_f64;
@@ -1010,8 +1009,12 @@ fn render_oscillator_voice(
             // The svf.rs SvfFilter::process_all() has this flush, but the inline
             // copy here was missing it — causing 100x CPU slowdown during note
             // release tails when filter state values go below 1e-18.
-            if s.ic1eq.abs() < 1e-18 { s.ic1eq = 0.0; }
-            if s.ic2eq.abs() < 1e-18 { s.ic2eq = 0.0; }
+            if s.ic1eq.abs() < 1e-18 {
+                s.ic1eq = 0.0;
+            }
+            if s.ic2eq.abs() < 1e-18 {
+                s.ic2eq = 0.0;
+            }
 
             sample = match filter_type {
                 SynthFilterType::Lowpass => v2,

@@ -67,17 +67,10 @@ fn main() {
 
     for (idx, plugin_path) in plugins.iter().enumerate() {
         let path = Path::new(plugin_path);
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("???");
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("???");
 
         if !path.exists() {
-            println!(
-                "  {:3}. SKIP  {:40} (not found)",
-                idx + 1,
-                name
-            );
+            println!("  {:3}. SKIP  {:40} (not found)", idx + 1, name);
             results.push((name.to_string(), "SKIP", Duration::ZERO));
             continue;
         }
@@ -141,20 +134,16 @@ fn main() {
             let input_data: Vec<Vec<f32>> = (0..num_inputs.max(1))
                 .map(|_| vec![0.1f32; buffer_size])
                 .collect();
-            let mut output_data: Vec<Vec<f32>> =
-                (0..num_outputs.max(1)).map(|_| vec![0.0f32; buffer_size]).collect();
+            let mut output_data: Vec<Vec<f32>> = (0..num_outputs.max(1))
+                .map(|_| vec![0.0f32; buffer_size])
+                .collect();
 
             let input_refs: Vec<&[f32]> = input_data.iter().map(|v| v.as_slice()).collect();
             let mut output_refs: Vec<&mut [f32]> =
                 output_data.iter_mut().map(|v| v.as_mut_slice()).collect();
 
             if let Err(e) = instance.process(&input_refs, &mut output_refs, buffer_size, &[]) {
-                println!(
-                    "  {:3}. FAIL  {:40} | process error: {}",
-                    idx + 1,
-                    name,
-                    e
-                );
+                println!("  {:3}. FAIL  {:40} | process error: {}", idx + 1, name, e);
                 process_ok = false;
                 break;
             }
@@ -168,23 +157,13 @@ fn main() {
 
         if !process_ok {
             if elapsed > timeout {
-                println!(
-                    "  {:3}. TIMEOUT {:38} | {:?}",
-                    idx + 1,
-                    name,
-                    elapsed
-                );
+                println!("  {:3}. TIMEOUT {:38} | {:?}", idx + 1, name, elapsed);
                 results.push((name.to_string(), "TIMEOUT", elapsed));
             } else {
                 results.push((name.to_string(), "FAIL", elapsed));
             }
         } else {
-            println!(
-                "  {:3}. ✓ PASS  {:40} | {:?}",
-                idx + 1,
-                name,
-                elapsed
-            );
+            println!("  {:3}. ✓ PASS  {:40} | {:?}", idx + 1, name, elapsed);
             results.push((name.to_string(), "PASS", elapsed));
         }
     }
@@ -195,17 +174,9 @@ fn main() {
     let timeouts = results.iter().filter(|r| r.1 == "TIMEOUT").count();
     let skips = results.iter().filter(|r| r.1 == "SKIP").count();
 
-    let max_time = results
-        .iter()
-        .map(|r| r.2)
-        .max()
-        .unwrap_or(Duration::ZERO);
+    let max_time = results.iter().map(|r| r.2).max().unwrap_or(Duration::ZERO);
     let avg_time = if pass > 0 {
-        let total: Duration = results
-            .iter()
-            .filter(|r| r.1 == "PASS")
-            .map(|r| r.2)
-            .sum();
+        let total: Duration = results.iter().filter(|r| r.1 == "PASS").map(|r| r.2).sum();
         total / pass as u32
     } else {
         Duration::ZERO

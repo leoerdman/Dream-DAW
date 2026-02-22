@@ -98,7 +98,7 @@ impl LiveGraph {
         let new_plan = Self::compute_plan(dag)?;
         let new_arc = Arc::new(new_plan);
         let old_arc = self.current_plan.swap(new_arc);
-        
+
         // GR-013 FIX: Defer dropping the old execution plan to the UI thread.
         // If the RT thread is holding a guard, it would drop the last reference
         // and pay the deallocation cost. By pushing to `garbage`, we guarantee
@@ -107,7 +107,7 @@ impl LiveGraph {
             trash.clear(); // Drop previous plans on the UI thread
             trash.push(old_arc);
         }
-        
+
         // GR-027 FIX: Increment generation counter for staleness tracking.
         self.generation.fetch_add(1, AtomicOrdering::Release);
         Ok(())

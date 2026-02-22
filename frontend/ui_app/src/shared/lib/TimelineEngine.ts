@@ -23,123 +23,21 @@ import { ViewportMatrix, type ViewportConfig, type ViewportSnapshot } from './Vi
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames } from './audioMath';
-
-// ── Types ─────────────────────────────────────────────────────────────────
-
-export interface TimelineEngineConfig {
-    /** Beats per bar (time signature numerator). */
-    beatsPerBar: number;
-    /** BPM for samples↔beats conversion. */
-    bpm: number;
-    /** Sample rate (Hz). */
-    sampleRate: number;
-    /** Viewport config (total beats, track count, track height, ruler height). */
-    viewport: ViewportConfig;
-    /** Grid snap resolution in beats (e.g. 1 = snap to beats, 0.25 = snap to 16ths). */
-    snapBeats?: number;
-    /** Whether magnetic snap is enabled. */
-    snapEnabled?: boolean;
-}
-
-export interface HitTestResult {
-    type: 'clip' | 'ruler' | 'track' | 'empty';
-    clipId?: string;
-    beat: number;
-    trackIndex: number;
-    /** Clip hit region: header (select/drag) or body (cursor placement). */
-    region?: 'header' | 'body';
-    /** If the cursor is near a clip edge, indicates which edge. */
-    edge?: 'left' | 'right';
-    /** If the cursor is on a clip fade handle hotspot. */
-    fadeHandle?: 'in' | 'out';
-    /** If the cursor is on a fade curve control point. */
-    fadeCurveHandle?: 'in' | 'out';
-    /** If cursor is inside fade region body. */
-    fadeZone?: 'in' | 'out';
-    /** If the cursor is near a loop marker handle on the ruler. */
-    loopHandle?: 'start' | 'end';
-}
-
-interface MarqueeSelection {
-    startBeat: number;
-    endBeat: number;
-    startTrack: number;
-    endTrack: number;
-}
-
-interface TrimPreviewState {
-    clipId: string;
-    startBeat: number;
-    durationBeats: number;
-}
-
-/** Edge detection threshold in screen pixels. */
-const EDGE_GRIP_PX = 8;
-/** Must match clip header visual height from CanvasClipRenderer. */
-const CLIP_HEADER_HEIGHT_PX = 22;
-/** Minimum loop region length in beats (1 bar in 4/4 time). */
-const MIN_LOOP_BEATS = 4;
-/** Fade handle hotspot width inside clip (in screen pixels). */
-const FADE_HANDLE_HOTSPOT_PX = 12;
-const FADE_CURVE_HANDLE_RADIUS_PX = 6;
-const FADE_CURVE_PRESETS = [0.2, 0.35, 0.5, 0.65, 0.8] as const;
-
-/** Drag state machine. */
-type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
-const DragMode = {
-    None: 0 as const,
-    ClipMove: 1 as const,
-    ClipMoveArmed: 12 as const,
-    RulerScrub: 2 as const,
-    MarqueeSelect: 3 as const,
-    ClipResizeLeft: 4 as const,
-    ClipResizeRight: 5 as const,
-    LoopStartMove: 6 as const,
-    LoopEndMove: 7 as const,
-    ClipFadeIn: 8 as const,
-    ClipFadeOut: 9 as const,
-    ClipFadeInCurve: 10 as const,
-    ClipFadeOutCurve: 11 as const,
-    MultiCursorSelect: 13 as const,
-};
-
-const CLIP_DRAG_START_THRESHOLD_PX = 4;
-
-interface DragState {
-    mode: DragMode;
-    /** ID of the clip being dragged. */
-    clipId: string | null;
-    /** Beat position at drag start. */
-    startBeat: number;
-    /** Track index at drag start. */
-    startTrack: number;
-    /** Current beat under cursor. */
-    currentBeat: number;
-    /** Current track under cursor. */
-    currentTrack: number;
-    /** Original clip startBeat (for computing delta). */
-    clipOriginalBeat: number;
-    /** Original clip trackIndex (for computing delta). */
-    clipOriginalTrack: number;
-    /** Original clip durationBeats (for resize operations). */
-    clipOriginalDuration: number;
-    /** Initial pointer position for drag threshold gating. */
-    startClientX?: number;
-    startClientY?: number;
-    /** Original clip fade-in amount (fraction 0..1). */
-    clipOriginalFadeIn?: number;
-    /** Original clip fade-out amount (fraction 0..1). */
-    clipOriginalFadeOut?: number;
-    /** Original clip fade-in curve (0.05..0.95). */
-    clipOriginalFadeInCurve?: number;
-    /** Original clip fade-out curve (0.05..0.95). */
-    clipOriginalFadeOutCurve?: number;
-    /**
-     * Original positions of OTHER selected clips that should move together.
-     * Maps clipId → { beat, track }. Populated when a group-move starts.
-     */
-    coMoverOrigins?: Map<string, { beat: number; track: number }>;
-}
+import {
+    CLIP_DRAG_START_THRESHOLD_PX,
+    CLIP_HEADER_HEIGHT_PX,
+    DragMode,
+    EDGE_GRIP_PX,
+    FADE_CURVE_HANDLE_RADIUS_PX,
+    FADE_CURVE_PRESETS,
+    FADE_HANDLE_HOTSPOT_PX,
+    MIN_LOOP_BEATS,
+    type DragState,
+    type HitTestResult,
+    type MarqueeSelection,
+    type TimelineEngineConfig,
+    type TrimPreviewState,
+} from './TimelineEngine.types';
 
 // ── Engine Class ──────────────────────────────────────────────────────────
 

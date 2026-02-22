@@ -32,6 +32,26 @@ const READ_ONLY_TOOLS = new Set([
     'get_arrangement_overview', 'preview_audio_file', 'stop_preview',
 ]);
 
+// Mutating tools that already apply ProjectDelta locally and therefore
+// do not require a follow-up full fetchProject roundtrip.
+const DELTA_APPLIED_TOOLS = new Set([
+    'move_clip',
+    'resize_clip',
+    'split_clip',
+    'delete_clip',
+    'delete_clips_batch',
+    'delete_all_clips_on_track',
+    'set_clip_muted',
+    'set_clips_muted_batch',
+    'duplicate_clip',
+    'merge_clips',
+    'set_track_volume',
+    'set_track_pan',
+    'set_track_mute',
+    'set_track_solo',
+    'auto_gain_stage',
+]);
+
 export async function executeTool(
     name: string,
     args: Record<string, unknown>,
@@ -55,7 +75,7 @@ export async function executeTool(
     // CRITICAL: Refresh frontend store after any mutation so UI shows
     // updated BPM, tracks, clips, etc. Without this, the Zustand store
     // stays stale and the timeline doesn't show newly created clips.
-    if (!READ_ONLY_TOOLS.has(name)) {
+    if (!READ_ONLY_TOOLS.has(name) && !DELTA_APPLIED_TOOLS.has(name)) {
         try {
             await useEngineStore.getState().fetchProject(`agent-tool:${name}`);
         } catch (e) {
@@ -173,24 +193,30 @@ async function executeToolInner(
         case 'set_track_volume': {
             // BUG-13 FIX: Clamp volume to valid range
             const vol = Math.max(0, Math.min(1, args.volume as number));
-            await engineApi.setTrackVolume(args.trackIndex as number, vol);
+            const response = await engineApi.setTrackVolumeWithDeltas(args.trackIndex as number, vol);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-volume');
             return JSON.stringify({ trackIndex: args.trackIndex, volume: vol });
         }
 
         case 'set_track_pan': {
             // BUG-13 FIX: Clamp pan to valid range
             const pan = Math.max(-1, Math.min(1, args.pan as number));
-            await engineApi.setTrackPan(args.trackIndex as number, pan);
+            const response = await engineApi.setTrackPanWithDeltas(args.trackIndex as number, pan);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-pan');
             return JSON.stringify({ trackIndex: args.trackIndex, pan: pan });
         }
 
-        case 'set_track_mute':
-            await engineApi.setTrackMute(args.trackIndex as number, args.muted as boolean);
+        case 'set_track_mute': {
+            const response = await engineApi.setTrackMuteWithDeltas(args.trackIndex as number, args.muted as boolean);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-mute');
             return JSON.stringify({ trackIndex: args.trackIndex, muted: args.muted });
+        }
 
-        case 'set_track_solo':
-            await engineApi.setTrackSolo(args.trackIndex as number, args.soloed as boolean);
+        case 'set_track_solo': {
+            const response = await engineApi.setTrackSoloWithDeltas(args.trackIndex as number, args.soloed as boolean);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-solo');
             return JSON.stringify({ trackIndex: args.trackIndex, soloed: args.soloed });
+        }
 
         case 'add_track': {
             const result = await engineApi.addTrack(args.name as string | undefined);
@@ -755,7 +781,8 @@ async function executeToolInner(
         case 'auto_gain_stage': {
             const target = (args.targetVolume as number) ?? 0.7;
             for (let i = 0; i < tracks.length; i++) {
-                await engineApi.setTrackVolume(i, target);
+                const response = await engineApi.setTrackVolumeWithDeltas(i, target);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-auto-gain-stage');
             }
             return JSON.stringify({ success: true, tracksNormalized: tracks.length, targetVolume: target });
         }

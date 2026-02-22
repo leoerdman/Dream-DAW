@@ -19,7 +19,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{CStr, c_char, c_void};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -29,300 +29,7 @@ use uuid::Uuid;
 use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
-
-// ── VST2.4 C ABI Definitions ──────────────────────────────────────────
-
-/// The magic value in `AEffect.magic` (ASCII "VstP" reversed).
-const K_EFFECT_MAGIC: i32 = 0x56737450u32 as i32;
-
-/// Pointer-sized integer type for VST2 ABI.
-type VstIntPtr = isize;
-
-// ── VST2 Dispatcher Opcodes ──
-
-const EFF_OPEN: i32 = 0;
-const EFF_CLOSE: i32 = 1;
-#[allow(dead_code)]
-const EFF_SET_PROGRAM: i32 = 2;
-#[allow(dead_code)]
-const EFF_GET_PROGRAM: i32 = 3;
-#[allow(dead_code)]
-const EFF_SET_PROGRAM_NAME: i32 = 4;
-#[allow(dead_code)]
-const EFF_GET_PROGRAM_NAME: i32 = 5;
-const EFF_GET_PARAM_LABEL: i32 = 6;
-const EFF_GET_PARAM_DISPLAY: i32 = 7;
-const EFF_GET_PARAM_NAME: i32 = 8;
-const EFF_SET_SAMPLE_RATE: i32 = 10;
-const EFF_SET_BLOCK_SIZE: i32 = 11;
-const EFF_MAINS_CHANGED: i32 = 12;
-#[allow(dead_code)]
-const EFF_EDIT_GET_RECT: i32 = 13;
-#[allow(dead_code)]
-const EFF_EDIT_OPEN: i32 = 14;
-#[allow(dead_code)]
-const EFF_EDIT_CLOSE: i32 = 15;
-#[allow(dead_code)]
-const EFF_GET_CHUNK: i32 = 23;
-#[allow(dead_code)]
-const EFF_SET_CHUNK: i32 = 24;
-const EFF_PROCESS_EVENTS: i32 = 25;
-#[allow(dead_code)]
-const EFF_CAN_BE_AUTOMATED: i32 = 26;
-const EFF_GET_VENDOR_STRING: i32 = 47;
-const EFF_GET_PRODUCT_STRING: i32 = 48;
-#[allow(dead_code)]
-const EFF_GET_VENDOR_VERSION: i32 = 49;
-const EFF_CAN_DO: i32 = 51;
-const EFF_GET_TAIL_SIZE: i32 = 52;
-const EFF_BEGIN_SET_PROGRAM: i32 = 67;
-const EFF_END_SET_PROGRAM: i32 = 68;
-const EFF_START_PROCESS: i32 = 71;
-const EFF_STOP_PROCESS: i32 = 72;
-
-// ── Host Callback Opcodes ──
-
-const AUDIO_MASTER_VERSION: i32 = 1;
-const AUDIO_MASTER_CURRENT_ID: i32 = 2;
-const AUDIO_MASTER_IDLE: i32 = 3;
-#[allow(dead_code)]
-const AUDIO_MASTER_PIN_CONNECTED: i32 = 4;
-const AUDIO_MASTER_AUTOMATE: i32 = 0;
-const AUDIO_MASTER_GET_SAMPLE_RATE: i32 = 16;
-const AUDIO_MASTER_GET_BLOCK_SIZE: i32 = 17;
-#[allow(dead_code)]
-const AUDIO_MASTER_GET_INPUT_LATENCY: i32 = 18;
-#[allow(dead_code)]
-const AUDIO_MASTER_GET_OUTPUT_LATENCY: i32 = 19;
-const AUDIO_MASTER_GET_CURRENT_PROCESS_LEVEL: i32 = 23;
-#[allow(dead_code)]
-const AUDIO_MASTER_GET_AUTOMATION_STATE: i32 = 24;
-const AUDIO_MASTER_GET_VENDOR_STRING: i32 = 32;
-const AUDIO_MASTER_GET_PRODUCT_STRING: i32 = 33;
-const AUDIO_MASTER_GET_VENDOR_VERSION: i32 = 34;
-const AUDIO_MASTER_CAN_DO: i32 = 37;
-const AUDIO_MASTER_GET_LANGUAGE: i32 = 38;
-const AUDIO_MASTER_GET_TIME: i32 = 7;
-const AUDIO_MASTER_BEGIN_EDIT: i32 = 43;
-const AUDIO_MASTER_END_EDIT: i32 = 44;
-const AUDIO_MASTER_IO_CHANGED: i32 = 13;
-const AUDIO_MASTER_SIZE_WINDOW: i32 = 15;
-const AUDIO_MASTER_UPDATE_DISPLAY: i32 = 42;
-
-// ── AEffect Flags ──
-
-const EFF_FLAGS_CAN_REPLACING: i32 = 1 << 4;
-#[allow(dead_code)]
-const EFF_FLAGS_CAN_DOUBLE_REPLACING: i32 = 1 << 12;
-const EFF_FLAGS_HAS_EDITOR: i32 = 1;
-const EFF_FLAGS_IS_SYNTH: i32 = 1 << 8;
-const EFF_FLAGS_PROGRAM_CHUNKS: i32 = 1 << 5;
-
-// ── MIDI Event Type ──
-
-const K_VST_MIDI_TYPE: i32 = 1;
-
-// ── VstTimeInfo Flags ──
-const K_VST_TRANSPORT_PLAYING: i32 = 1 << 1;
-const K_VST_TRANSPORT_RECORDING: i32 = 1 << 3;
-const K_VST_TEMPO_VALID: i32 = 1 << 10;
-const K_VST_TIME_SIG_VALID: i32 = 1 << 13;
-const K_VST_NANOSEC_VALID: i32 = 1 << 8;
-const K_VST_PPQ_POS_VALID: i32 = 1 << 9;
-const K_VST_BARS_VALID: i32 = 1 << 11;
-
-// ── VST2 C ABI Structs ──
-
-/// The main VST2 plugin struct returned by VSTPluginMain.
-/// This is an exact match to the Steinberg VST2.4 SDK `AEffect` layout.
-#[repr(C)]
-pub struct AEffect {
-    /// Must be `kEffectMagic` (0x56737450).
-    pub magic: i32,
-
-    /// Dispatcher function: host → plugin communication via opcodes.
-    pub dispatcher: Option<
-        unsafe extern "C" fn(
-            effect: *mut AEffect,
-            opcode: i32,
-            index: i32,
-            value: VstIntPtr,
-            ptr: *mut c_void,
-            opt: f32,
-        ) -> VstIntPtr,
-    >,
-
-    /// Deprecated `process` function (pre-2.4). May be null.
-    pub _process: Option<
-        unsafe extern "C" fn(
-            effect: *mut AEffect,
-            inputs: *const *const f32,
-            outputs: *mut *mut f32,
-            sample_frames: i32,
-        ),
-    >,
-
-    /// Set a parameter value by index.
-    pub set_parameter:
-        Option<unsafe extern "C" fn(effect: *mut AEffect, index: i32, value: f32)>,
-
-    /// Get a parameter value by index.
-    pub get_parameter: Option<unsafe extern "C" fn(effect: *mut AEffect, index: i32) -> f32>,
-
-    /// Number of programs (presets).
-    pub num_programs: i32,
-
-    /// Number of parameters.
-    pub num_params: i32,
-
-    /// Number of audio input channels.
-    pub num_inputs: i32,
-
-    /// Number of audio output channels.
-    pub num_outputs: i32,
-
-    /// Capability flags bitmask.
-    pub flags: i32,
-
-    /// Reserved for host (pointer storage 1).
-    pub reserved1: VstIntPtr,
-
-    /// Reserved for host (pointer storage 2).
-    pub reserved2: VstIntPtr,
-
-    /// Initial delay (latency) in samples.
-    pub initial_delay: i32,
-
-    /// Deprecated real qualities flags.
-    pub _real_qualities: i32,
-
-    /// Deprecated off qualities flags.
-    pub _off_qualities: i32,
-
-    /// Deprecated IO ratio.
-    pub _io_ratio: f32,
-
-    /// Plugin-private object pointer.
-    pub object: *mut c_void,
-
-    /// User-defined pointer (host storage).
-    pub user: *mut c_void,
-
-    /// Unique plugin ID (FourCC).
-    pub unique_id: i32,
-
-    /// Plugin version.
-    pub version: i32,
-
-    /// processReplacing function (VST 2.4).
-    pub process_replacing: Option<
-        unsafe extern "C" fn(
-            effect: *mut AEffect,
-            inputs: *const *const f32,
-            outputs: *mut *mut f32,
-            sample_frames: i32,
-        ),
-    >,
-
-    /// processDoubleReplacing function (optional, 64-bit).
-    pub process_double_replacing: Option<
-        unsafe extern "C" fn(
-            effect: *mut AEffect,
-            inputs: *const *const f64,
-            outputs: *mut *mut f64,
-            sample_frames: i32,
-        ),
-    >,
-
-    /// Reserved for expansion.
-    pub _future: [u8; 56],
-}
-
-/// VstMidiEvent — a single MIDI event in VST2 format.
-#[repr(C)]
-#[derive(Clone)]
-struct VstMidiEvent {
-    /// Event type — must be `kVstMidiType` (1).
-    event_type: i32,
-    /// Size of this struct in bytes.
-    byte_size: i32,
-    /// Sample offset (frames from start of buffer).
-    delta_frames: i32,
-    /// Flags (unused, set to 0).
-    flags: i32,
-    /// Length of MIDI note (unused, 0).
-    note_length: i32,
-    /// Offset into note from note start if note (unused, 0).
-    note_offset: i32,
-    /// MIDI data: [status, data1, data2, 0].
-    midi_data: [u8; 4],
-    /// Detune: -64 to +63 cents (unused, 0).
-    detune: i8,
-    /// Note off velocity (0-127, unused, 0).
-    note_off_velocity: u8,
-    /// Reserved padding.
-    _reserved1: u8,
-    /// Reserved padding.
-    _reserved2: u8,
-}
-
-/// VstEvents — container for an array of VstEvent pointers.
-#[repr(C)]
-struct VstEvents {
-    /// Number of events in the array.
-    num_events: i32,
-    /// Reserved (must be 0).
-    reserved: VstIntPtr,
-    /// Flexible array of event pointers. In practice we'll use a separate
-    /// allocation that includes enough space after this header.
-    events: [*mut c_void; 2], // At least 2 for alignment; actual count = num_events
-}
-
-/// VstTimeInfo — transport and tempo information returned to the plugin.
-#[repr(C)]
-#[derive(Clone)]
-struct VstTimeInfo {
-    /// Current position in sample frames.
-    sample_pos: f64,
-    /// Current sample rate.
-    sample_rate: f64,
-    /// System time in nanoseconds (not supported, set to 0).
-    nano_seconds: f64,
-    /// Musical position in quarter notes (beats).
-    ppq_pos: f64,
-    /// Current tempo in BPM.
-    tempo: f64,
-    /// Bar start position in PPQ.
-    bar_start_pos: f64,
-    /// Cycle start position in PPQ.
-    cycle_start_pos: f64,
-    /// Cycle end position in PPQ.
-    cycle_end_pos: f64,
-    /// Time signature numerator.
-    time_sig_numerator: i32,
-    /// Time signature denominator.
-    time_sig_denominator: i32,
-    /// SMPTE offset (subframes).
-    smpte_offset: i32,
-    /// SMPTE frame rate.
-    smpte_frame_rate: i32,
-    /// MIDI clock resolution (samples per beat / 24).
-    samples_to_next_clock: i32,
-    /// Flags (VstTimeInfo flags).
-    flags: i32,
-}
-
-/// Type alias for the VSTPluginMain entry point.
-type VstPluginMainFn = unsafe extern "C" fn(
-    callback: unsafe extern "C" fn(
-        effect: *mut AEffect,
-        opcode: i32,
-        index: i32,
-        value: VstIntPtr,
-        ptr: *mut c_void,
-        opt: f32,
-    ) -> VstIntPtr,
-) -> *mut AEffect;
+use crate::vst2_host_abi::*;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
@@ -367,8 +74,12 @@ impl ParamEditRing {
     fn push(&self, param_id: u32, value: f64) {
         let head = self.head.load(Ordering::Relaxed);
         let next = (head + 1) % PARAM_RING_SIZE;
-        self.entries[head].param_id.store(param_id, Ordering::Relaxed);
-        self.entries[head].value_bits.store(value.to_bits() as usize, Ordering::Relaxed);
+        self.entries[head]
+            .param_id
+            .store(param_id, Ordering::Relaxed);
+        self.entries[head]
+            .value_bits
+            .store(value.to_bits() as usize, Ordering::Relaxed);
         self.head.store(next, Ordering::Release);
     }
 
@@ -383,7 +94,8 @@ impl ParamEditRing {
             let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
             let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
             f(pid, f64::from_bits(vbits as u64));
-            self.tail.store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
+            self.tail
+                .store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
             count += 1;
         }
         count
@@ -460,14 +172,10 @@ unsafe extern "C" fn audio_master_callback(
         }
 
         // Return current sample rate
-        AUDIO_MASTER_GET_SAMPLE_RATE => {
-            HOST_SAMPLE_RATE.with(|sr| sr.get() as VstIntPtr)
-        }
+        AUDIO_MASTER_GET_SAMPLE_RATE => HOST_SAMPLE_RATE.with(|sr| sr.get() as VstIntPtr),
 
         // Return current block size
-        AUDIO_MASTER_GET_BLOCK_SIZE => {
-            HOST_BLOCK_SIZE.with(|bs| bs.get() as VstIntPtr)
-        }
+        AUDIO_MASTER_GET_BLOCK_SIZE => HOST_BLOCK_SIZE.with(|bs| bs.get() as VstIntPtr),
 
         // Process level: 0 = not in real-time, 1 = real-time
         AUDIO_MASTER_GET_CURRENT_PROCESS_LEVEL => 2, // kVstProcessLevelRealtime
@@ -502,10 +210,18 @@ unsafe extern "C" fn audio_master_callback(
                     .to_str()
                     .unwrap_or("");
                 match capability {
-                    "sendVstEvents" | "sendVstMidiEvent" | "sendVstTimeInfo"
-                    | "receiveVstEvents" | "receiveVstMidiEvent" | "sizeWindow"
-                    | "supplyIdle" | "openFileSelector" | "closeFileSelector"
-                    | "startStopProcess" | "shellCategory" | "sendVstMidiEventFlagIsRealtime" => 1,
+                    "sendVstEvents"
+                    | "sendVstMidiEvent"
+                    | "sendVstTimeInfo"
+                    | "receiveVstEvents"
+                    | "receiveVstMidiEvent"
+                    | "sizeWindow"
+                    | "supplyIdle"
+                    | "openFileSelector"
+                    | "closeFileSelector"
+                    | "startStopProcess"
+                    | "shellCategory"
+                    | "sendVstMidiEventFlagIsRealtime" => 1,
                     _ => 0,
                 }
             } else {
@@ -517,12 +233,10 @@ unsafe extern "C" fn audio_master_callback(
         AUDIO_MASTER_GET_LANGUAGE => 0, // kVstLangEnglish
 
         // Return VstTimeInfo pointer
-        AUDIO_MASTER_GET_TIME => {
-            HOST_TIME_INFO.with(|ti| {
-                let ptr = ti.as_ptr();
-                ptr as VstIntPtr
-            })
-        }
+        AUDIO_MASTER_GET_TIME => HOST_TIME_INFO.with(|ti| {
+            let ptr = ti.as_ptr();
+            ptr as VstIntPtr
+        }),
 
         // Parameter edit begin/end — acknowledge
         AUDIO_MASTER_BEGIN_EDIT | AUDIO_MASTER_END_EDIT => 0,
@@ -602,10 +316,10 @@ pub struct Vst2Instance {
 // ── Mathematical Invariants for Unsafe FFI Boundary ──
 // SAFETY PROOF (Phase 35 Enterprise Audit):
 // 1. NON-NULL: `effect` is verified non-null immediately upon return from `VSTPluginMain`.
-// 2. LIFETIME BOUND: The `_library` handle outlives `effect`. The OS loader guarantees 
+// 2. LIFETIME BOUND: The `_library` handle outlives `effect`. The OS loader guarantees
 //    the library's static code and heap segments remain pinned in memory.
 // 3. THREAD SAFETY: VST2 is fundamentally single-threaded for processing. Dream DAW
-//    enforces this via `Send` wrapping and strictly serializing RT callbacks. 
+//    enforces this via `Send` wrapping and strictly serializing RT callbacks.
 // Thus, all `unsafe { (*self.effect).field }` dereferences are trivially safe.
 unsafe impl Send for Vst2Instance {}
 
@@ -711,8 +425,17 @@ impl Vst2Instance {
 
         info!(
             "[VST2] Loaded: '{}' by '{}' | inputs={} outputs={} params={} synth={} editor={} replacing={} latency={} uid=0x{:08X} v{}",
-            plugin_name, vendor_name, num_inputs, num_outputs, num_params,
-            is_synth, has_editor, can_replacing, latency, unique_id, version
+            plugin_name,
+            vendor_name,
+            num_inputs,
+            num_outputs,
+            num_params,
+            is_synth,
+            has_editor,
+            can_replacing,
+            latency,
+            unique_id,
+            version
         );
 
         // 10. Build descriptor
@@ -738,8 +461,9 @@ impl Vst2Instance {
 
         // 11. Pre-allocate MIDI event buffers
         let max_midi = Self::MAX_MIDI_EVENTS;
-        let events_header_size =
-            std::mem::size_of::<i32>() + std::mem::size_of::<VstIntPtr>() + std::mem::size_of::<*mut c_void>() * max_midi;
+        let events_header_size = std::mem::size_of::<i32>()
+            + std::mem::size_of::<VstIntPtr>()
+            + std::mem::size_of::<*mut c_void>() * max_midi;
         let vst_events_buffer = vec![0u8; events_header_size];
 
         Ok(Self {
@@ -774,10 +498,7 @@ impl Vst2Instance {
                 ))
             })?;
 
-        let binary = bundle_path
-            .join("Contents")
-            .join("MacOS")
-            .join(bundle_name);
+        let binary = bundle_path.join("Contents").join("MacOS").join(bundle_name);
 
         if binary.exists() {
             return Ok(binary);
@@ -889,8 +610,11 @@ impl Vst2Instance {
             info.bar_start_pos = (info.ppq_pos / bar_beats).floor() * bar_beats;
 
             // Flags
-            let mut flags = K_VST_TEMPO_VALID | K_VST_TIME_SIG_VALID
-                | K_VST_PPQ_POS_VALID | K_VST_BARS_VALID | K_VST_NANOSEC_VALID;
+            let mut flags = K_VST_TEMPO_VALID
+                | K_VST_TIME_SIG_VALID
+                | K_VST_PPQ_POS_VALID
+                | K_VST_BARS_VALID
+                | K_VST_NANOSEC_VALID;
             if self.transport.is_playing {
                 flags |= K_VST_TRANSPORT_PLAYING;
             }
@@ -975,7 +699,13 @@ impl PluginInstance for Vst2Instance {
         HOST_BLOCK_SIZE.with(|bs| bs.set(max_buffer_size as i32));
 
         // Set sample rate
-        self.dispatch(EFF_SET_SAMPLE_RATE, 0, 0, ptr::null_mut(), sample_rate as f32);
+        self.dispatch(
+            EFF_SET_SAMPLE_RATE,
+            0,
+            0,
+            ptr::null_mut(),
+            sample_rate as f32,
+        );
 
         // Set block size
         self.dispatch(
@@ -1009,7 +739,8 @@ impl PluginInstance for Vst2Instance {
         // rather than doing lazy allocations in the RT thread process() loop.
         self.dummy_output_buffers.clear();
         for _ in 0..num_plugin_outputs {
-            self.dummy_output_buffers.push(vec![0.0f32; max_buffer_size]);
+            self.dummy_output_buffers
+                .push(vec![0.0f32; max_buffer_size]);
         }
 
         // Resume processing (effMainsChanged with value=1)
@@ -1071,13 +802,7 @@ impl PluginInstance for Vst2Instance {
         if !midi_events.is_empty()
             && let Some(events_ptr) = self.marshal_midi_events(midi_events)
         {
-            self.dispatch(
-                EFF_PROCESS_EVENTS,
-                0,
-                0,
-                events_ptr as *mut c_void,
-                0.0,
-            );
+            self.dispatch(EFF_PROCESS_EVENTS, 0, 0, events_ptr as *mut c_void, 0.0);
         }
 
         // Prepare input channel pointers (no allocations — reuse pre-allocated vecs)
@@ -1108,7 +833,7 @@ impl PluginInstance for Vst2Instance {
         // Build an array of output channel pointers
         // Use the provided output buffers for channels we have, and dummy buffers for the rest
         self.output_ptrs.clear();
-        
+
         // BUG-VP1 FIX: Removed while dummy_output_buffers.len() < extra_outputs_needed RT allocs.
         // It relies on activate() providing enough preallocated dummy buffers.
         let mut dummy_idx = 0;
@@ -1116,7 +841,8 @@ impl PluginInstance for Vst2Instance {
             if i < outputs.len() {
                 self.output_ptrs.push(outputs[i].as_mut_ptr());
             } else if dummy_idx < self.dummy_output_buffers.len() {
-                self.output_ptrs.push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
+                self.output_ptrs
+                    .push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
                 dummy_idx += 1;
             } else {
                 // Safety net for malformed plugin channel layouts:
@@ -1179,11 +905,7 @@ impl PluginInstance for Vst2Instance {
 
     fn tail_samples(&self) -> u32 {
         let result = self.dispatch(EFF_GET_TAIL_SIZE, 0, 0, ptr::null_mut(), 0.0);
-        if result > 0 {
-            result as u32
-        } else {
-            0
-        }
+        if result > 0 { result as u32 } else { 0 }
     }
 
     fn reset(&mut self) {
@@ -1351,7 +1073,10 @@ mod tests {
     fn aeffect_struct_layout() {
         // Verify AEffect has the expected field offsets.
         // This is critical for C ABI compatibility.
-        assert!(std::mem::size_of::<AEffect>() > 100, "AEffect struct too small");
+        assert!(
+            std::mem::size_of::<AEffect>() > 100,
+            "AEffect struct too small"
+        );
         assert_eq!(
             std::mem::offset_of!(AEffect, magic),
             0,

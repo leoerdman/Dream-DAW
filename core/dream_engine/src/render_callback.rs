@@ -22,7 +22,9 @@ use dream_clip_engine::reader::{ClipReader, WarpResampleMode};
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
-use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, peak_decay_for_block, MeterBank};
+use dream_ipc::metering::{
+    MeterBank, compute_peak, compute_rms, linear_to_db, peak_decay_for_block,
+};
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_transport::Playhead;
 
@@ -38,7 +40,8 @@ pub static SPECTRUM_DROP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic
 /// AUDIT-S1-01: RT-safe counter for zero-duration clips encountered during rendering.
 /// Replaces the previous log::warn! which acquired a global Mutex in the log backend,
 /// violating RT-safety constraints on the audio thread.
-pub static ZERO_DURATION_CLIP_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static ZERO_DURATION_CLIP_COUNT: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 
 /// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
 /// Returns the total number of clips that could not be found in the clip pool
@@ -114,7 +117,9 @@ impl TrackSlot {
     pub fn clear(&mut self, frame_count: usize) {
         // AUD-001 FIX: Guard against frame_count exceeding buffer size.
         // Prevents panic if cpal delivers a larger-than-expected buffer.
-        let n = frame_count.min(self.buf_left.len()).min(self.buf_right.len());
+        let n = frame_count
+            .min(self.buf_left.len())
+            .min(self.buf_right.len());
         self.buf_left[..n].fill(0.0);
         self.buf_right[..n].fill(0.0);
         self.active = false;
@@ -192,9 +197,9 @@ pub fn soft_clip(sample: f32) -> f32 {
         return 0.0;
     }
     let abs = sample.abs();
-    
-    // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5. 
-    // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old 
+
+    // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5.
+    // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old
     // soft_clip actually permitted destructive digital clipping for loud signals!
     // This fast rational soft-clipper applies 0% compression below 0.8 (-1.9 dBFS)
     // and C1-smoothly limits excess to form a strict, mathematical 1.0 ceiling.
@@ -303,7 +308,7 @@ impl RenderContext {
     /// Reads all active overlapping Audio Clips into the track slots.
     /// Phase 1: Clears the track slots.
     /// Phase 2: Writes the audio data, applying fades.
-    /// 
+    ///
     /// NOTE: This function NO LONGER applies per-track internal FX (DeviceChain)
     /// or volume/pan/metering (ChannelStrip). These must be applied by the caller
     /// AFTER synthesizing any MIDI instruments into the same track buffers!
@@ -384,7 +389,7 @@ impl RenderContext {
                     clip.duration.sample_frame.max(1) as f64
                 };
                 let is_warped = clip.is_warped && clip_source_len > 1.0;
-                
+
                 let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
 
                 let mut playback_rate = if is_warped {
@@ -395,7 +400,7 @@ impl RenderContext {
                 } else {
                     pitch_multiplier
                 };
-                
+
                 playback_rate = playback_rate.clamp(0.125, 8.0);
 
                 let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
@@ -413,20 +418,20 @@ impl RenderContext {
 
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
-                    
+
                     let source_to_device_rate = (audio.sample_rate.max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
-                    
-                    let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
+
+                    let source_to_timeline_ratio =
+                        audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {
-                        let clip_local_timeline_start = (ac.source_start_frame
-                            - clip.source_offset.sample_frame)
-                            .max(0) as f64;
+                        let clip_local_timeline_start =
+                            (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                             + clip_local_timeline_start * playback_rate * source_to_timeline_ratio;
-                            
+
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
                             audio.right(),
@@ -442,11 +447,12 @@ impl RenderContext {
                     } else {
                         // Unwarped: timeline maps to source directly, but modified by pitch_multiplier.
                         // So local timeline duration T corresponds to T * pitch_multiplier in source frames.
-                        let clip_local_timeline_start = (ac.source_start_frame
-                            - clip.source_offset.sample_frame)
-                            .max(0) as f64;
+                        let clip_local_timeline_start =
+                            (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * pitch_multiplier * source_to_timeline_ratio;
+                            + clip_local_timeline_start
+                                * pitch_multiplier
+                                * source_to_timeline_ratio;
 
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
@@ -461,20 +467,24 @@ impl RenderContext {
                             WarpResampleMode::Standard,
                         );
                     }
-                } else if let Some((_, window)) = self.streaming_windows.iter().find(|(p, _)| p == &clip.file_path) {
+                } else if let Some((_, window)) = self
+                    .streaming_windows
+                    .iter()
+                    .find(|(p, _)| p == &clip.file_path)
+                {
                     total_pool_hits += 1;
                     let source_to_device_rate = (window.sample_rate().max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
-                        
-                    let source_to_timeline_ratio = window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
+
+                    let source_to_timeline_ratio =
+                        window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.
-                        let clip_local_timeline_start = (ac.source_start_frame
-                            - clip.source_offset.sample_frame)
-                            .max(0) as f64;
+                        let clip_local_timeline_start =
+                            (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                             + clip_local_timeline_start * playback_rate * source_to_timeline_ratio;
                         window.read_into_rate(
@@ -491,11 +501,12 @@ impl RenderContext {
                         // (L443-463). Previously ignored pitch_shift_semitones and
                         // source_offset, causing pitch-shifted or trimmed streaming
                         // clips to play back at wrong pitch/position.
-                        let clip_local_timeline_start = (ac.source_start_frame
-                            - clip.source_offset.sample_frame)
-                            .max(0) as f64;
+                        let clip_local_timeline_start =
+                            (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * pitch_multiplier * source_to_timeline_ratio;
+                            + clip_local_timeline_start
+                                * pitch_multiplier
+                                * source_to_timeline_ratio;
                         window.read_into_rate(
                             source_start,
                             pitch_multiplier * source_to_device_rate,
@@ -517,7 +528,9 @@ impl RenderContext {
                 // AUD-004 FIX: Guard against offset + read_len exceeding buffer bounds.
                 // This can happen if ClipScheduler returns stale buffer offsets after
                 // a sample rate change or buffer size switch mid-stream.
-                let safe_end = (offset + read_len).min(slot.buf_left.len()).min(slot.buf_right.len());
+                let safe_end = (offset + read_len)
+                    .min(slot.buf_left.len())
+                    .min(slot.buf_right.len());
                 let safe_read_len = safe_end.saturating_sub(offset);
                 if safe_read_len > 0 {
                     let user_fade_in = clip.fade_in_frames.max(0) as usize;
@@ -525,9 +538,8 @@ impl RenderContext {
                     let clip_len_frames = clip.duration.sample_frame.max(1) as usize;
                     // MEGA-02 FIX: Base fade automation envelope on robust source offset
                     // so fades don't jump/reset when a clip crosses a loop wrap boundary.
-                    let clip_local_start = (ac.source_start_frame
-                        - clip.source_offset.sample_frame)
-                        .max(0) as usize;
+                    let clip_local_start =
+                        (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as usize;
 
                     let has_user_fades = user_fade_in > 0 || user_fade_out > 0;
                     if has_user_fades {
@@ -602,22 +614,22 @@ impl RenderContext {
         let _ = (total_active, total_pool_hits);
     }
 
-
     /// Advances the playhead with exact fractional sample rate interpolation.
     #[inline]
     pub fn advance_playhead_by_frames(&mut self, frame_count: usize) {
-        let transport_loop = self.loop_region.as_ref().map(|r| {
-            dream_transport::LoopRegion {
+        let transport_loop = self
+            .loop_region
+            .as_ref()
+            .map(|r| dream_transport::LoopRegion {
                 start: r.start,
                 end: r.end,
                 enabled: true,
-            }
-        });
+            });
         let ratio = (self.timeline_sample_rate / self.sample_rate.max(1.0)).clamp(0.125, 8.0);
         let advance_exact = frame_count as f64 * ratio + self.timeline_advance_accumulator;
         let advance_frames = advance_exact.floor().max(0.0) as usize;
         self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
-        
+
         if self.timeline_advance_accumulator.abs() > 1.0 {
             self.timeline_advance_accumulator = self.timeline_advance_accumulator.fract();
         }
@@ -660,7 +672,7 @@ impl RenderContext {
                 &mut slot.buf_left[..frame_count],
                 &mut slot.buf_right[..frame_count],
             );
-            
+
             if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
                 let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
                 let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));

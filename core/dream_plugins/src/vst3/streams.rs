@@ -9,9 +9,8 @@ use std::ffi::{c_char, c_void};
 use std::ptr;
 
 use crate::vst3::com_abi::{
-    IBStream, IBStreamVtbl, Tresult,
-    K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_NOT_IMPLEMENTED, K_RESULT_OK,
-    K_SEEK_CUR, K_SEEK_END, K_SEEK_SET,
+    IBStream, IBStreamVtbl, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_NOT_IMPLEMENTED, K_RESULT_OK,
+    K_SEEK_CUR, K_SEEK_END, K_SEEK_SET, Tresult,
 };
 
 // ── HostReadStream (IBStream for setState) ─────────────────────────────
@@ -45,7 +44,9 @@ unsafe extern "C" fn stream_query_interface(
 ) -> Tresult {
     // COM spec: *obj MUST be NULLed on failure.
     if !_obj.is_null() {
-        unsafe { *_obj = ptr::null_mut(); }
+        unsafe {
+            *_obj = ptr::null_mut();
+        }
     }
     K_NO_INTERFACE
 }
@@ -198,20 +199,26 @@ unsafe extern "C" fn write_stream_query_interface(
 ) -> Tresult {
     // COM spec: *obj MUST be NULLed on failure.
     if !_obj.is_null() {
-        unsafe { *_obj = ptr::null_mut(); }
+        unsafe {
+            *_obj = ptr::null_mut();
+        }
     }
     K_NO_INTERFACE
 }
 
 unsafe extern "C" fn write_stream_add_ref(this: *mut IBStream) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     stream.ref_count += 1;
     stream.ref_count
 }
 
 unsafe extern "C" fn write_stream_release(this: *mut IBStream) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     stream.ref_count = stream.ref_count.saturating_sub(1);
     stream.ref_count
@@ -225,7 +232,9 @@ unsafe extern "C" fn write_stream_read(
 ) -> Tresult {
     // Write-only stream — reads are not supported.
     if !num_bytes_read.is_null() {
-        unsafe { *num_bytes_read = 0; }
+        unsafe {
+            *num_bytes_read = 0;
+        }
     }
     K_RESULT_NOT_IMPLEMENTED
 }
@@ -238,7 +247,9 @@ unsafe extern "C" fn write_stream_write(
 ) -> Tresult {
     if this.is_null() || buffer.is_null() || num_bytes <= 0 {
         if !num_bytes_written.is_null() {
-            unsafe { *num_bytes_written = 0; }
+            unsafe {
+                *num_bytes_written = 0;
+            }
         }
         return K_RESULT_FALSE;
     }
@@ -264,7 +275,9 @@ unsafe extern "C" fn write_stream_write(
     stream.pos += count;
 
     if !num_bytes_written.is_null() {
-        unsafe { *num_bytes_written = num_bytes; }
+        unsafe {
+            *num_bytes_written = num_bytes;
+        }
     }
     K_RESULT_OK
 }
@@ -290,7 +303,9 @@ unsafe extern "C" fn write_stream_seek(
     }
     stream.pos = new_pos as usize;
     if !result.is_null() {
-        unsafe { *result = stream.pos as i64; }
+        unsafe {
+            *result = stream.pos as i64;
+        }
     }
     K_RESULT_OK
 }
@@ -300,7 +315,9 @@ unsafe extern "C" fn write_stream_tell(this: *mut IBStream, result: *mut i64) ->
         return K_RESULT_FALSE;
     }
     let stream = unsafe { &*(this as *const HostWriteStream) };
-    unsafe { *result = stream.pos as i64; }
+    unsafe {
+        *result = stream.pos as i64;
+    }
     K_RESULT_OK
 }
 

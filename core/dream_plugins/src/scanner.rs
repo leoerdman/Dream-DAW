@@ -119,7 +119,11 @@ impl PluginScanner {
         // Two different vendors can ship plugins with the same name (e.g. "Compressor").
         let mut seen = HashSet::new();
         all.retain(|desc| {
-            let key = format!("{}::{}", desc.name.to_lowercase(), desc.vendor.to_lowercase());
+            let key = format!(
+                "{}::{}",
+                desc.name.to_lowercase(),
+                desc.vendor.to_lowercase()
+            );
             seen.insert(key)
         });
 
@@ -202,12 +206,33 @@ impl PluginScanner {
         // BUG-039 FIX: Expanded effect keywords for better categorization.
         // Note: 'analyzer' and 'meter' are in analyzer_keywords below, not here.
         let effect_keywords = [
-            "eq", "compressor", "comp", "limiter", "reverb", "delay",
-            "chorus", "flanger", "phaser", "distortion", "saturator",
-            "gate", "de-esser", "deesser", "filter", "exciter",
-            "multi", "stereo", "utility",
-            "pro-q", "pro-c", "pro-l", "pro-r", "pro-mb",
-            "ozone", "neutron", "nectar",
+            "eq",
+            "compressor",
+            "comp",
+            "limiter",
+            "reverb",
+            "delay",
+            "chorus",
+            "flanger",
+            "phaser",
+            "distortion",
+            "saturator",
+            "gate",
+            "de-esser",
+            "deesser",
+            "filter",
+            "exciter",
+            "multi",
+            "stereo",
+            "utility",
+            "pro-q",
+            "pro-c",
+            "pro-l",
+            "pro-r",
+            "pro-mb",
+            "ozone",
+            "neutron",
+            "nectar",
         ];
 
         // Analyzer keywords

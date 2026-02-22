@@ -18,13 +18,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use log::info;
 
 use crate::vst3::com_abi::{
-    Tresult, Tuid, tuid_eq,
-    IID_FUNKNOWN, IID_IHOST_APPLICATION, IID_IPLUG_INTERFACE_SUPPORT,
-    IID_IATTRIBUTE_LIST, IID_IMESSAGE,
-    IID_ICOMPONENT_HANDLER, IID_ICOMPONENT_HANDLER_2,
-    K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK,
-    K_RESTART_LATENCY_CHANGED, K_RESTART_PARAM_VALUES_CHANGED,
-    K_RESTART_IO_CHANGED, K_RESTART_PARAM_TITLES_CHANGED,
+    IID_FUNKNOWN, IID_IATTRIBUTE_LIST, IID_ICOMPONENT_HANDLER, IID_ICOMPONENT_HANDLER_2,
+    IID_IHOST_APPLICATION, IID_IMESSAGE, IID_IPLUG_INTERFACE_SUPPORT, K_NO_INTERFACE,
+    K_RESTART_IO_CHANGED, K_RESTART_LATENCY_CHANGED, K_RESTART_PARAM_TITLES_CHANGED,
+    K_RESTART_PARAM_VALUES_CHANGED, K_RESULT_FALSE, K_RESULT_OK, Tresult, Tuid, tuid_eq,
 };
 
 #[inline]
@@ -64,7 +61,9 @@ unsafe extern "system" fn host_query_interface(
         return K_NO_INTERFACE;
     }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IHOST_APPLICATION) {
-        unsafe { *obj = this; }
+        unsafe {
+            *obj = this;
+        }
         K_RESULT_OK
     } else if tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
         unsafe {
@@ -72,23 +71,39 @@ unsafe extern "system" fn host_query_interface(
         }
         K_RESULT_OK
     } else {
-        unsafe { *obj = ptr::null_mut(); }
+        unsafe {
+            *obj = ptr::null_mut();
+        }
         K_NO_INTERFACE
     }
 }
 
-unsafe extern "system" fn host_add_ref(_this: *mut c_void) -> u32 { 1 }
-unsafe extern "system" fn host_release(_this: *mut c_void) -> u32 { 1 }
+unsafe extern "system" fn host_add_ref(_this: *mut c_void) -> u32 {
+    1
+}
+unsafe extern "system" fn host_release(_this: *mut c_void) -> u32 {
+    1
+}
 
 unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> Tresult {
     if name.is_null() {
         return K_NO_INTERFACE;
     }
     let text: &[u16] = &[
-        b'D' as u16, b'r' as u16, b'e' as u16, b'a' as u16, b'm' as u16,
-        b' ' as u16, b'D' as u16, b'A' as u16, b'W' as u16, 0,
+        b'D' as u16,
+        b'r' as u16,
+        b'e' as u16,
+        b'a' as u16,
+        b'm' as u16,
+        b' ' as u16,
+        b'D' as u16,
+        b'A' as u16,
+        b'W' as u16,
+        0,
     ];
-    unsafe { ptr::copy_nonoverlapping(text.as_ptr(), name, text.len()); }
+    unsafe {
+        ptr::copy_nonoverlapping(text.as_ptr(), name, text.len());
+    }
     K_RESULT_OK
 }
 
@@ -115,7 +130,8 @@ struct HostAttrListVtbl {
     set_string: unsafe extern "C" fn(*mut c_void, *const c_char, *const u16) -> Tresult,
     get_string: unsafe extern "C" fn(*mut c_void, *const c_char, *mut u16, u32) -> Tresult,
     set_binary: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_void, u32) -> Tresult,
-    get_binary: unsafe extern "C" fn(*mut c_void, *const c_char, *mut *const c_void, *mut u32) -> Tresult,
+    get_binary:
+        unsafe extern "C" fn(*mut c_void, *const c_char, *mut *const c_void, *mut u32) -> Tresult,
 }
 
 #[repr(C)]
@@ -139,114 +155,216 @@ impl HostAttrList {
 }
 
 fn cstr_to_string_safe(p: *const c_char) -> String {
-    if p.is_null() { return String::new(); }
-    unsafe { std::ffi::CStr::from_ptr(p) }.to_str().unwrap_or("").to_string()
+    if p.is_null() {
+        return String::new();
+    }
+    unsafe { std::ffi::CStr::from_ptr(p) }
+        .to_str()
+        .unwrap_or("")
+        .to_string()
 }
 
-unsafe extern "C" fn host_attr_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
-    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+unsafe extern "C" fn host_attr_qi(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe {
+            *obj = ptr::null_mut();
+        }
+    }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IATTRIBUTE_LIST) {
-        unsafe { *obj = this; }
-        unsafe { host_attr_add_ref(this); }
+        unsafe {
+            *obj = this;
+        }
+        unsafe {
+            host_attr_add_ref(this);
+        }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
 }
 unsafe extern "C" fn host_attr_add_ref(this: *mut c_void) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.ref_count += 1;
     a.ref_count
 }
 unsafe extern "C" fn host_attr_release(this: *mut c_void) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.ref_count = a.ref_count.saturating_sub(1);
     let rc = a.ref_count;
-    if rc == 0 { unsafe { let _ = Box::from_raw(this as *mut HostAttrList); } }
+    if rc == 0 {
+        unsafe {
+            let _ = Box::from_raw(this as *mut HostAttrList);
+        }
+    }
     rc
 }
 unsafe extern "C" fn host_attr_set_int(this: *mut c_void, key: *const c_char, val: i64) -> Tresult {
-    if this.is_null() { return K_RESULT_FALSE; }
+    if this.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.set(cstr_to_string_safe(key), HostAttrValue::Int(val));
     K_RESULT_OK
 }
-unsafe extern "C" fn host_attr_get_int(this: *mut c_void, key: *const c_char, out: *mut i64) -> Tresult {
-    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_get_int(
+    this: *mut c_void,
+    key: *const c_char,
+    out: *mut i64,
+) -> Tresult {
+    if this.is_null() || out.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
-        Some(HostAttrValue::Int(v)) => { unsafe { *out = *v; } K_RESULT_OK }
-        _ => K_RESULT_FALSE
+        Some(HostAttrValue::Int(v)) => {
+            unsafe {
+                *out = *v;
+            }
+            K_RESULT_OK
+        }
+        _ => K_RESULT_FALSE,
     }
 }
-unsafe extern "C" fn host_attr_set_float(this: *mut c_void, key: *const c_char, val: f64) -> Tresult {
-    if this.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_set_float(
+    this: *mut c_void,
+    key: *const c_char,
+    val: f64,
+) -> Tresult {
+    if this.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     a.set(cstr_to_string_safe(key), HostAttrValue::Float(val));
     K_RESULT_OK
 }
-unsafe extern "C" fn host_attr_get_float(this: *mut c_void, key: *const c_char, out: *mut f64) -> Tresult {
-    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_get_float(
+    this: *mut c_void,
+    key: *const c_char,
+    out: *mut f64,
+) -> Tresult {
+    if this.is_null() || out.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
-        Some(HostAttrValue::Float(v)) => { unsafe { *out = *v; } K_RESULT_OK }
-        _ => K_RESULT_FALSE
+        Some(HostAttrValue::Float(v)) => {
+            unsafe {
+                *out = *v;
+            }
+            K_RESULT_OK
+        }
+        _ => K_RESULT_FALSE,
     }
 }
-unsafe extern "C" fn host_attr_set_string(this: *mut c_void, key: *const c_char, val: *const u16) -> Tresult {
-    if this.is_null() || val.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_set_string(
+    this: *mut c_void,
+    key: *const c_char,
+    val: *const u16,
+) -> Tresult {
+    if this.is_null() || val.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     let mut buf = Vec::new();
     let mut i = 0;
     loop {
         let ch = unsafe { *val.add(i) };
         buf.push(ch);
-        if ch == 0 { break; }
+        if ch == 0 {
+            break;
+        }
         i += 1;
-        if i > 10000 { buf.push(0); break; }
+        if i > 10000 {
+            buf.push(0);
+            break;
+        }
     }
     a.set(cstr_to_string_safe(key), HostAttrValue::String(buf));
     K_RESULT_OK
 }
-unsafe extern "C" fn host_attr_get_string(this: *mut c_void, key: *const c_char, out: *mut u16, size: u32) -> Tresult {
-    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_get_string(
+    this: *mut c_void,
+    key: *const c_char,
+    out: *mut u16,
+    size: u32,
+) -> Tresult {
+    if this.is_null() || out.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::String(v)) => {
             let copy_len = v.len().min(size as usize);
-            unsafe { ptr::copy_nonoverlapping(v.as_ptr(), out, copy_len); }
+            unsafe {
+                ptr::copy_nonoverlapping(v.as_ptr(), out, copy_len);
+            }
             K_RESULT_OK
         }
-        _ => K_RESULT_FALSE
+        _ => K_RESULT_FALSE,
     }
 }
-unsafe extern "C" fn host_attr_set_binary(this: *mut c_void, key: *const c_char, data: *const c_void, size: u32) -> Tresult {
-    if this.is_null() || data.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_set_binary(
+    this: *mut c_void,
+    key: *const c_char,
+    data: *const c_void,
+    size: u32,
+) -> Tresult {
+    if this.is_null() || data.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &mut *(this as *mut HostAttrList) };
     let slice = unsafe { std::slice::from_raw_parts(data as *const u8, size as usize) };
-    a.set(cstr_to_string_safe(key), HostAttrValue::Binary(slice.to_vec()));
+    a.set(
+        cstr_to_string_safe(key),
+        HostAttrValue::Binary(slice.to_vec()),
+    );
     K_RESULT_OK
 }
-unsafe extern "C" fn host_attr_get_binary(this: *mut c_void, key: *const c_char, out: *mut *const c_void, size: *mut u32) -> Tresult {
-    if this.is_null() || out.is_null() || size.is_null() { return K_RESULT_FALSE; }
+unsafe extern "C" fn host_attr_get_binary(
+    this: *mut c_void,
+    key: *const c_char,
+    out: *mut *const c_void,
+    size: *mut u32,
+) -> Tresult {
+    if this.is_null() || out.is_null() || size.is_null() {
+        return K_RESULT_FALSE;
+    }
     let a = unsafe { &*(this as *const HostAttrList) };
     match a.find(&cstr_to_string_safe(key)) {
         Some(HostAttrValue::Binary(v)) => {
-            unsafe { *out = v.as_ptr() as *const c_void; }
-            unsafe { *size = v.len() as u32; }
+            unsafe {
+                *out = v.as_ptr() as *const c_void;
+            }
+            unsafe {
+                *size = v.len() as u32;
+            }
             K_RESULT_OK
         }
-        _ => K_RESULT_FALSE
+        _ => K_RESULT_FALSE,
     }
 }
 
 static HOST_ATTR_LIST_VTBL: HostAttrListVtbl = HostAttrListVtbl {
-    query_interface: host_attr_qi, add_ref: host_attr_add_ref, release: host_attr_release,
-    set_int: host_attr_set_int, get_int: host_attr_get_int,
-    set_float: host_attr_set_float, get_float: host_attr_get_float,
-    set_string: host_attr_set_string, get_string: host_attr_get_string,
-    set_binary: host_attr_set_binary, get_binary: host_attr_get_binary,
+    query_interface: host_attr_qi,
+    add_ref: host_attr_add_ref,
+    release: host_attr_release,
+    set_int: host_attr_set_int,
+    get_int: host_attr_get_int,
+    set_float: host_attr_set_float,
+    get_float: host_attr_get_float,
+    set_string: host_attr_set_string,
+    get_string: host_attr_get_string,
+    set_binary: host_attr_set_binary,
+    get_binary: host_attr_get_binary,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -271,31 +389,51 @@ struct HostMsg {
     attr_list: *mut HostAttrList,
 }
 
-unsafe extern "C" fn host_msg_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
-    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+unsafe extern "C" fn host_msg_qi(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe {
+            *obj = ptr::null_mut();
+        }
+    }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IMESSAGE) {
-        unsafe { *obj = this; }
-        unsafe { host_msg_add_ref(this); }
+        unsafe {
+            *obj = this;
+        }
+        unsafe {
+            host_msg_add_ref(this);
+        }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
 }
 unsafe extern "C" fn host_msg_add_ref(this: *mut c_void) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let m = unsafe { &mut *(this as *mut HostMsg) };
     m.ref_count += 1;
     m.ref_count
 }
 unsafe extern "C" fn host_msg_release(this: *mut c_void) -> u32 {
-    if this.is_null() { return 0; }
+    if this.is_null() {
+        return 0;
+    }
     let m = unsafe { &mut *(this as *mut HostMsg) };
     m.ref_count = m.ref_count.saturating_sub(1);
     let rc = m.ref_count;
     if rc == 0 {
         if !m.attr_list.is_null() {
-            unsafe { host_attr_release(m.attr_list as *mut c_void); }
+            unsafe {
+                host_attr_release(m.attr_list as *mut c_void);
+            }
         }
-        unsafe { let _ = Box::from_raw(this as *mut HostMsg); }
+        unsafe {
+            let _ = Box::from_raw(this as *mut HostMsg);
+        }
     }
     rc
 }
@@ -309,7 +447,9 @@ unsafe extern "C" fn host_msg_set_id(this: *mut c_void, id: *const c_char) {
         let mut i = 0;
         loop {
             let b = unsafe { *id.add(i) } as u8;
-            if b == 0 || i >= 255 { break; }
+            if b == 0 || i >= 255 {
+                break;
+            }
             m.message_id[i] = b;
             i += 1;
         }
@@ -357,17 +497,34 @@ struct IPlugInterfaceSupportVtbl {
     is_plug_interface_supported: unsafe extern "C" fn(*mut c_void, *const Tuid) -> Tresult,
 }
 
-unsafe extern "C" fn host_iface_support_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
-    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+unsafe extern "C" fn host_iface_support_qi(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe {
+            *obj = ptr::null_mut();
+        }
+    }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
-        unsafe { *obj = this; }
+        unsafe {
+            *obj = this;
+        }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
 }
-unsafe extern "C" fn host_iface_support_add_ref(_: *mut c_void) -> u32 { 1 }
-unsafe extern "C" fn host_iface_support_release(_: *mut c_void) -> u32 { 1 }
-unsafe extern "C" fn host_is_plug_interface_supported(_: *mut c_void, _iid: *const Tuid) -> Tresult {
+unsafe extern "C" fn host_iface_support_add_ref(_: *mut c_void) -> u32 {
+    1
+}
+unsafe extern "C" fn host_iface_support_release(_: *mut c_void) -> u32 {
+    1
+}
+unsafe extern "C" fn host_is_plug_interface_supported(
+    _: *mut c_void,
+    _iid: *const Tuid,
+) -> Tresult {
     K_RESULT_OK
 }
 
@@ -389,9 +546,13 @@ unsafe extern "system" fn host_create_instance(
     if obj.is_null() {
         return K_RESULT_FALSE;
     }
-    unsafe { *obj = ptr::null_mut(); }
+    unsafe {
+        *obj = ptr::null_mut();
+    }
     if tuid_matches(cid, &IID_IMESSAGE) && tuid_matches(iid, &IID_IMESSAGE) {
-        unsafe { *obj = host_create_message(); }
+        unsafe {
+            *obj = host_create_message();
+        }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
@@ -465,8 +626,12 @@ impl ParamEditRing {
     fn push(&self, param_id: u32, value: f64) {
         let head = self.head.load(Ordering::Relaxed);
         let next = (head + 1) % PARAM_RING_SIZE;
-        self.entries[head].param_id.store(param_id, Ordering::Relaxed);
-        self.entries[head].value_bits.store(value.to_bits() as usize, Ordering::Relaxed);
+        self.entries[head]
+            .param_id
+            .store(param_id, Ordering::Relaxed);
+        self.entries[head]
+            .value_bits
+            .store(value.to_bits() as usize, Ordering::Relaxed);
         self.head.store(next, Ordering::Release);
     }
 
@@ -475,11 +640,14 @@ impl ParamEditRing {
         loop {
             let tail = self.tail.load(Ordering::Acquire);
             let head = self.head.load(Ordering::Acquire);
-            if tail == head { break; }
+            if tail == head {
+                break;
+            }
             let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
             let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
             f(pid, f64::from_bits(vbits as u64));
-            self.tail.store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
+            self.tail
+                .store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
             count += 1;
         }
         count
@@ -500,8 +668,7 @@ static PLUGIN_STATE_DIRTY: AtomicBool = AtomicBool::new(false);
 
 #[repr(C)]
 struct IComponentHandlerVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
     release: unsafe extern "C" fn(*mut c_void) -> u32,
     begin_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
@@ -512,8 +679,7 @@ struct IComponentHandlerVtbl {
 
 #[repr(C)]
 struct IComponentHandler2Vtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
     release: unsafe extern "C" fn(*mut c_void) -> u32,
     set_dirty: unsafe extern "C" fn(*mut c_void, i8) -> Tresult,
@@ -536,24 +702,40 @@ unsafe extern "C" fn handler_query_interface(
     iid: *const Tuid,
     obj: *mut *mut c_void,
 ) -> Tresult {
-    if obj.is_null() { return K_NO_INTERFACE; }
+    if obj.is_null() {
+        return K_NO_INTERFACE;
+    }
     if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_ICOMPONENT_HANDLER) {
-        unsafe { handler_add_ref(this); }
-        unsafe { *obj = this; }
+        unsafe {
+            handler_add_ref(this);
+        }
+        unsafe {
+            *obj = this;
+        }
         K_RESULT_OK
     } else if tuid_matches(iid, &IID_ICOMPONENT_HANDLER_2) {
-        unsafe { handler_add_ref(this); }
+        unsafe {
+            handler_add_ref(this);
+        }
         let inst = this as *const ComponentHandlerInstance;
-        unsafe { *obj = &(*inst).vtbl2 as *const _ as *mut c_void; }
+        unsafe {
+            *obj = &(*inst).vtbl2 as *const _ as *mut c_void;
+        }
         K_RESULT_OK
     } else {
-        unsafe { *obj = ptr::null_mut(); }
+        unsafe {
+            *obj = ptr::null_mut();
+        }
         K_NO_INTERFACE
     }
 }
 
-unsafe extern "C" fn handler_add_ref(_this: *mut c_void) -> u32 { 1 }
-unsafe extern "C" fn handler_release(_this: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn handler_add_ref(_this: *mut c_void) -> u32 {
+    1
+}
+unsafe extern "C" fn handler_release(_this: *mut c_void) -> u32 {
+    1
+}
 
 unsafe extern "C" fn handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
     info!("[VST3-Handler] beginEdit(paramId={})", id);
@@ -604,20 +786,33 @@ unsafe extern "C" fn handler2_qi(
     unsafe { handler_query_interface(base, iid, obj) }
 }
 
-unsafe extern "C" fn handler2_add_ref(_this: *mut c_void) -> u32 { 1 }
-unsafe extern "C" fn handler2_release(_this: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn handler2_add_ref(_this: *mut c_void) -> u32 {
+    1
+}
+unsafe extern "C" fn handler2_release(_this: *mut c_void) -> u32 {
+    1
+}
 
 unsafe extern "C" fn handler2_set_dirty(_this: *mut c_void, state: i8) -> Tresult {
-    if state != 0 { PLUGIN_STATE_DIRTY.store(true, Ordering::Release); }
+    if state != 0 {
+        PLUGIN_STATE_DIRTY.store(true, Ordering::Release);
+    }
     K_RESULT_OK
 }
 
-unsafe extern "C" fn handler2_request_open_editor(_this: *mut c_void, _name: *const c_char) -> Tresult {
+unsafe extern "C" fn handler2_request_open_editor(
+    _this: *mut c_void,
+    _name: *const c_char,
+) -> Tresult {
     K_RESULT_OK
 }
 
-unsafe extern "C" fn handler2_start_group_edit(_this: *mut c_void) -> Tresult { K_RESULT_OK }
-unsafe extern "C" fn handler2_finish_group_edit(_this: *mut c_void) -> Tresult { K_RESULT_OK }
+unsafe extern "C" fn handler2_start_group_edit(_this: *mut c_void) -> Tresult {
+    K_RESULT_OK
+}
+unsafe extern "C" fn handler2_finish_group_edit(_this: *mut c_void) -> Tresult {
+    K_RESULT_OK
+}
 
 static COMPONENT_HANDLER_VTBL: IComponentHandlerVtbl = IComponentHandlerVtbl {
     query_interface: handler_query_interface,

@@ -2,8 +2,9 @@ use core::ffi::{c_char, c_void};
 use std::ptr;
 
 use crate::vst3::com_abi::{
-    IParamValueQueue, IParamValueQueueVtbl, IParameterChanges, IParameterChangesVtbl, K_NO_INTERFACE,
-    K_RESULT_FALSE, K_RESULT_OK, MAX_HOST_PARAM_CHANGES, MAX_POINTS_PER_QUEUE, Tresult,
+    IParamValueQueue, IParamValueQueueVtbl, IParameterChanges, IParameterChangesVtbl,
+    K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK, MAX_HOST_PARAM_CHANGES, MAX_POINTS_PER_QUEUE,
+    Tresult,
 };
 
 #[repr(C)]

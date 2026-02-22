@@ -170,6 +170,11 @@ impl ChannelStrip {
     ///
     /// # Real-Time Safety
     /// Real-time safe — no allocations, bounded iteration, no locks.
+    ///
+    /// # STRIKE-6 SIMD Optimization
+    /// When volume has converged (steady state), uses `wide::f32x8`
+    /// to apply gain as a bulk scalar multiply (8 samples per SIMD op).
+    /// During transitions, falls back to per-sample IIR smoother.
     #[inline]
     pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32]) {
         let len = left.len().min(right.len());
@@ -182,14 +187,43 @@ impl ChannelStrip {
         // at the graph summing phase, so meters remain alive on disabled tracks.
         let combined_target = self.target_volume * self.effective_gain;
 
-        // Apply smoothed gain to BOTH channels simultaneously.
-        // Per-sample smoothing ensures identical L/R gain at every sample,
-        // preventing stereo image shift during volume transitions.
-        let coeff = self.volume_smooth_coeff;
-        for i in 0..len {
-            self.current_volume += (combined_target - self.current_volume) * coeff;
-            left[i] *= self.current_volume;
-            right[i] *= self.current_volume;
+        // ═══════════════════════════════════════════════════════════════
+        // STRIKE-6 SIMD: Fast path when volume has converged.
+        // During steady-state playback (not during fader drag), the
+        // smoother has settled and every sample gets the same gain.
+        // This lets us use SIMD bulk multiply instead of per-sample IIR.
+        // ═══════════════════════════════════════════════════════════════
+        let delta = (combined_target - self.current_volume).abs();
+        if delta < 1e-6 {
+            // Converged — snap to target and use SIMD bulk multiply.
+            self.current_volume = combined_target;
+            let gain = combined_target;
+
+            // SIMD path: 8 samples per op using wide::f32x8.
+            let gain_v = wide::f32x8::splat(gain);
+            let chunks = len / 8;
+            for i in 0..chunks {
+                let offset = i * 8;
+                let lv = wide::f32x8::from(&left[offset..offset + 8]);
+                let rv = wide::f32x8::from(&right[offset..offset + 8]);
+                let l_out = (lv * gain_v).to_array();
+                let r_out = (rv * gain_v).to_array();
+                left[offset..offset + 8].copy_from_slice(&l_out);
+                right[offset..offset + 8].copy_from_slice(&r_out);
+            }
+            // Scalar tail (0-7 remaining samples).
+            for i in (chunks * 8)..len {
+                left[i] *= gain;
+                right[i] *= gain;
+            }
+        } else {
+            // Transitioning — per-sample IIR smoother (serial dependency).
+            let coeff = self.volume_smooth_coeff;
+            for i in 0..len {
+                self.current_volume += (combined_target - self.current_volume) * coeff;
+                left[i] *= self.current_volume;
+                right[i] *= self.current_volume;
+            }
         }
 
         // Apply smoothed panning

@@ -236,7 +236,7 @@ impl MidiScheduler {
         }
 
         out.clear();
-        
+
         let mut current_playhead = playhead_pos;
         let mut frames_remaining = frame_count;
         let mut current_buffer_offset = 0;
@@ -244,7 +244,7 @@ impl MidiScheduler {
         while frames_remaining > 0 {
             let frames_to_end = (lr.end - current_playhead).max(0) as usize;
             let chunk_frames = frames_remaining.min(frames_to_end);
-            
+
             // STAGE3-02 FIX: Same infinite loop guard as scheduler.rs STAGE3-01.
             // If current_playhead == lr.end, chunk_frames is 0 and the loop spins forever.
             if chunk_frames == 0 {
@@ -260,15 +260,17 @@ impl MidiScheduler {
                 note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
                 out.push(note);
             }
-            
+
             frames_remaining -= chunk_frames;
             current_buffer_offset += chunk_frames;
-            
+
             if frames_remaining > 0 {
                 // Loop boundary safety: explicitly turn off notes that cross the wrap point.
                 let mut forced_off_by_pitch = [false; 128];
                 for clip in clips {
-                    if clip.is_muted { continue; }
+                    if clip.is_muted {
+                        continue;
+                    }
                     let clip_start = clip.position.sample_frame;
                     for note in &clip.notes {
                         let note_abs_start = clip_start + note.start_frame;
@@ -290,7 +292,7 @@ impl MidiScheduler {
                         }
                     }
                 }
-                
+
                 // Wrap around to loop start
                 current_playhead = lr.start;
             }
@@ -304,7 +306,9 @@ impl MidiScheduler {
     /// # ⚠ RT-Safety Warning
     /// This allocates a temporary `Vec` internally. For real-time audio callbacks,
     /// use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
+    #[deprecated(
+        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
+    )]
     pub fn fill_active_looped(
         clips: &[MidiClip],
         playhead_pos: i64,
@@ -339,7 +343,9 @@ impl MidiScheduler {
     /// # ⚠ RT-Safety Warning
     /// This allocates `Vec`s — do NOT use on the audio thread.
     /// Use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
+    #[deprecated(
+        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
+    )]
     pub fn find_active_looped(
         clips: &[MidiClip],
         playhead_pos: i64,

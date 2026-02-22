@@ -3,9 +3,9 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -439,9 +439,7 @@ impl PluginSandboxSupervisor {
                     instance.ticks_since_last_save = 0;
                     let _ = Self::send_control_message(
                         stdin,
-                        &PluginHostControlMessage::SaveState {
-                            instance_id: *id,
-                        },
+                        &PluginHostControlMessage::SaveState { instance_id: *id },
                     );
                 }
             }
@@ -470,7 +468,11 @@ impl PluginSandboxSupervisor {
                                 self.crash_events.push(PluginCrashEvent {
                                     instance_id: *id,
                                     plugin_name: instance.descriptor.name.clone(),
-                                    plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                                    plugin_path: instance
+                                        .descriptor
+                                        .path
+                                        .to_string_lossy()
+                                        .to_string(),
                                     reason,
                                     crash_count: instance.crash_count,
                                     auto_restarted: false,
@@ -482,14 +484,15 @@ impl PluginSandboxSupervisor {
                             PluginHostEventMessage::Loaded { .. }
                             | PluginHostEventMessage::EditorOpened { .. }
                             | PluginHostEventMessage::EditorClosed { .. } => {}
-                            PluginHostEventMessage::StateSaved {
-                                state_blob_b64, ..
-                            } => {
+                            PluginHostEventMessage::StateSaved { state_blob_b64, .. } => {
                                 instance.last_known_state_blob = Some(state_blob_b64);
                                 log::info!(
                                     "[Lazarus] Cached state blob for plugin '{}' ({} bytes b64)",
                                     instance.descriptor.name,
-                                    instance.last_known_state_blob.as_ref().map_or(0, |b| b.len())
+                                    instance
+                                        .last_known_state_blob
+                                        .as_ref()
+                                        .map_or(0, |b| b.len())
                                 );
                             }
                         },
@@ -537,9 +540,10 @@ impl PluginSandboxSupervisor {
                                     instance.spawned_at = SystemTime::now();
                                     instance.bypass_requested = false;
                                     let _ = Self::prime_instance_protocol(*id, instance);
-                                // LAZARUS: Restore cached state after respawn
-                                if let Some(ref state_blob) = instance.last_known_state_blob {
-                                    if let Some(ref mut stdin) = instance.control_stdin {
+                                    // LAZARUS: Restore cached state after respawn
+                                    if let Some(ref state_blob) = instance.last_known_state_blob
+                                        && let Some(ref mut stdin) = instance.control_stdin
+                                    {
                                         let _ = Self::send_control_message(
                                             stdin,
                                             &PluginHostControlMessage::RestoreState {
@@ -553,16 +557,22 @@ impl PluginSandboxSupervisor {
                                             instance.restart_count
                                         );
                                     }
-                                }
-                                self.crash_events.push(PluginCrashEvent {
-                                    instance_id: *id,
-                                    plugin_name: instance.descriptor.name.clone(),
-                                    plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
-                                    reason: instance.last_error.clone().unwrap_or_else(|| "process exited".to_string()),
-                                    crash_count: instance.crash_count,
-                                    auto_restarted: true,
-                                });
-                                continue;
+                                    self.crash_events.push(PluginCrashEvent {
+                                        instance_id: *id,
+                                        plugin_name: instance.descriptor.name.clone(),
+                                        plugin_path: instance
+                                            .descriptor
+                                            .path
+                                            .to_string_lossy()
+                                            .to_string(),
+                                        reason: instance
+                                            .last_error
+                                            .clone()
+                                            .unwrap_or_else(|| "process exited".to_string()),
+                                        crash_count: instance.crash_count,
+                                        auto_restarted: true,
+                                    });
+                                    continue;
                                 }
                                 Err(err) => {
                                     instance.last_error =
@@ -642,27 +652,34 @@ impl PluginSandboxSupervisor {
                                     ));
                                     let _ = Self::prime_instance_protocol(*id, instance);
                                     // LAZARUS: Restore cached state after timeout restart
-                                    if let Some(ref state_blob) = instance.last_known_state_blob {
-                                        if let Some(ref mut stdin) = instance.control_stdin {
-                                            let _ = Self::send_control_message(
-                                                stdin,
-                                                &PluginHostControlMessage::RestoreState {
-                                                    instance_id: *id,
-                                                    state_blob_b64: state_blob.clone(),
-                                                },
-                                            );
-                                            log::info!(
-                                                "[Lazarus] Restored state for '{}' after timeout restart #{}",
-                                                instance.descriptor.name,
-                                                instance.restart_count
-                                            );
-                                        }
+                                    if let Some(ref state_blob) = instance.last_known_state_blob
+                                        && let Some(ref mut stdin) = instance.control_stdin
+                                    {
+                                        let _ = Self::send_control_message(
+                                            stdin,
+                                            &PluginHostControlMessage::RestoreState {
+                                                instance_id: *id,
+                                                state_blob_b64: state_blob.clone(),
+                                            },
+                                        );
+                                        log::info!(
+                                            "[Lazarus] Restored state for '{}' after timeout restart #{}",
+                                            instance.descriptor.name,
+                                            instance.restart_count
+                                        );
                                     }
                                     self.crash_events.push(PluginCrashEvent {
                                         instance_id: *id,
                                         plugin_name: instance.descriptor.name.clone(),
-                                        plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
-                                        reason: instance.last_error.clone().unwrap_or_else(|| "heartbeat timeout".to_string()),
+                                        plugin_path: instance
+                                            .descriptor
+                                            .path
+                                            .to_string_lossy()
+                                            .to_string(),
+                                        reason: instance
+                                            .last_error
+                                            .clone()
+                                            .unwrap_or_else(|| "heartbeat timeout".to_string()),
                                         crash_count: instance.crash_count,
                                         auto_restarted: true,
                                     });
@@ -695,8 +712,10 @@ impl PluginSandboxSupervisor {
                         bypass.push(*id);
                     }
                     Err(err) => {
-                        let should_emit =
-                            !matches!(instance.status, PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut);
+                        let should_emit = !matches!(
+                            instance.status,
+                            PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut
+                        );
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.crash_count = instance.crash_count.saturating_add(1);
                         instance.bypass_requested = true;
@@ -729,9 +748,15 @@ impl PluginSandboxSupervisor {
     /// Kills the current daemon (if alive), spawns a fresh process, and
     /// restores the last known plugin state.
     pub fn manual_restart(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
-        let config = self.config.as_ref().ok_or_else(|| {
-            PluginError::InvalidState("Plugin sandbox host binary is not configured".to_string())
-        })?.clone();
+        let config = self
+            .config
+            .as_ref()
+            .ok_or_else(|| {
+                PluginError::InvalidState(
+                    "Plugin sandbox host binary is not configured".to_string(),
+                )
+            })?
+            .clone();
         let crash_flags = self.crash_flags.clone();
 
         let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
@@ -762,13 +787,13 @@ impl PluginSandboxSupervisor {
         let mut new_child = Self::spawn_daemon_process(&config, &spawn_spec)?;
 
         instance.control_stdin = new_child.stdin.take();
-        instance.event_rx =
-            if let (Some(stdout), Some(stderr)) = (new_child.stdout.take(), new_child.stderr.take())
-            {
-                Some(Self::spawn_event_reader(stdout, stderr))
-            } else {
-                None
-            };
+        instance.event_rx = if let (Some(stdout), Some(stderr)) =
+            (new_child.stdout.take(), new_child.stderr.take())
+        {
+            Some(Self::spawn_event_reader(stdout, stderr))
+        } else {
+            None
+        };
         instance.heartbeat_seq = 0;
         instance.heartbeat_seen = false;
         instance.process = Some(new_child);
@@ -782,20 +807,20 @@ impl PluginSandboxSupervisor {
         let _ = Self::prime_instance_protocol(instance_id, instance);
 
         // LAZARUS: Restore cached state if available
-        if let Some(ref state_blob) = instance.last_known_state_blob {
-            if let Some(ref mut stdin) = instance.control_stdin {
-                let _ = Self::send_control_message(
-                    stdin,
-                    &PluginHostControlMessage::RestoreState {
-                        instance_id,
-                        state_blob_b64: state_blob.clone(),
-                    },
-                );
-                log::info!(
-                    "[Lazarus] Restored state for '{}' after manual restart",
-                    instance.descriptor.name
-                );
-            }
+        if let Some(ref state_blob) = instance.last_known_state_blob
+            && let Some(ref mut stdin) = instance.control_stdin
+        {
+            let _ = Self::send_control_message(
+                stdin,
+                &PluginHostControlMessage::RestoreState {
+                    instance_id,
+                    state_blob_b64: state_blob.clone(),
+                },
+            );
+            log::info!(
+                "[Lazarus] Restored state for '{}' after manual restart",
+                instance.descriptor.name
+            );
         }
 
         // LAZARUS: Clear crash flag — audio thread will resume processing
@@ -934,7 +959,9 @@ impl PluginSandboxSupervisor {
         if instance.bypass_requested
             || matches!(
                 instance.status,
-                PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut | PluginSandboxStatus::Stopped
+                PluginSandboxStatus::Crashed
+                    | PluginSandboxStatus::TimedOut
+                    | PluginSandboxStatus::Stopped
             )
         {
             return Err(PluginError::InvalidState(format!(

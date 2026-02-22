@@ -212,9 +212,7 @@ impl RecordingSession {
         // Newer cpal versions deprecate it in favour of `.description()`,
         // but for compatibility we suppress the warning and use `.name()`.
         #[allow(deprecated)]
-        let device_name = device
-            .name()
-            .unwrap_or_else(|_| "Unknown".to_string());
+        let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         info!("[Recording] Input device: {}", device_name);
 
         let default_config = device
@@ -233,8 +231,8 @@ impl RecordingSession {
                             return None;
                         }
                         let desired_rate = default_config.sample_rate();
-                        let clamped_rate = desired_rate
-                            .clamp(range.min_sample_rate(), range.max_sample_rate());
+                        let clamped_rate =
+                            desired_rate.clamp(range.min_sample_rate(), range.max_sample_rate());
                         Some(range.with_sample_rate(clamped_rate))
                     })
                 });

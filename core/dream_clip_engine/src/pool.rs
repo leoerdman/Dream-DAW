@@ -106,7 +106,8 @@ impl ClipPool {
 
         // Remove old entry first to keep running total accurate
         if let Some(old) = self.entries.remove(&path) {
-            self.running_memory_bytes = self.running_memory_bytes.saturating_sub(old.memory_bytes());
+            self.running_memory_bytes =
+                self.running_memory_bytes.saturating_sub(old.memory_bytes());
         }
 
         // Check memory limit
@@ -140,7 +141,9 @@ impl ClipPool {
     /// Removes loaded audio data from the pool.
     pub fn remove(&mut self, source_path: &str) -> bool {
         if let Some(removed) = self.entries.remove(source_path) {
-            self.running_memory_bytes = self.running_memory_bytes.saturating_sub(removed.memory_bytes());
+            self.running_memory_bytes = self
+                .running_memory_bytes
+                .saturating_sub(removed.memory_bytes());
             true
         } else {
             false
@@ -188,7 +191,10 @@ impl ClipPool {
     ///
     /// Call this after deleting clips/tracks to reclaim memory from orphaned audio data.
     /// Returns the number of entries evicted and bytes freed.
-    pub fn evict_unreferenced(&mut self, referenced_paths: &std::collections::HashSet<String>) -> (usize, usize) {
+    pub fn evict_unreferenced(
+        &mut self,
+        referenced_paths: &std::collections::HashSet<String>,
+    ) -> (usize, usize) {
         let before_count = self.entries.len();
         let mut freed_bytes = 0usize;
 
@@ -197,7 +203,11 @@ impl ClipPool {
                 true
             } else {
                 freed_bytes += audio.memory_bytes();
-                log::info!("ClipPool: evicted '{}' — {:.1} MB freed", path, audio.memory_bytes() as f64 / 1_048_576.0);
+                log::info!(
+                    "ClipPool: evicted '{}' — {:.1} MB freed",
+                    path,
+                    audio.memory_bytes() as f64 / 1_048_576.0
+                );
                 false
             }
         });

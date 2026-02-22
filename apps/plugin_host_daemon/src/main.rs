@@ -400,7 +400,6 @@ fn main() {
                             use std::io::Write;
                             let mut buf = Vec::new();
                             let _ = write!(buf, "lazarus_placeholder_state");
-                            use std::io::Read;
                             // base64-encode for IPC transport
                             let encoded: String = buf.iter()
                                 .map(|b| format!("{:02x}", b))

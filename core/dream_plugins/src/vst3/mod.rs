@@ -1,3 +1,6 @@
+pub mod bootstrap;
+#[cfg(target_os = "macos")]
+pub mod cf_bundle;
 pub mod com_abi;
 #[cfg(target_os = "macos")]
 pub mod editor_macos;
@@ -5,4 +8,6 @@ pub mod event_list;
 pub mod factory;
 pub mod host_objects;
 pub mod parameter_bus;
+pub mod plugin_host;
+pub mod process_context;
 pub mod streams;

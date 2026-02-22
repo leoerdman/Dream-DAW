@@ -15,7 +15,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use dream_plugins::instance::{MidiEvent, PluginInstance, TransportContext};
-use dream_plugins::vst2_host::{vst2_get_param_display, vst2_get_param_label, vst2_get_param_name, Vst2Instance};
+use dream_plugins::vst2_host::{
+    Vst2Instance, vst2_get_param_display, vst2_get_param_label, vst2_get_param_name,
+};
 
 fn main() {
     // Initialize logger
@@ -84,7 +86,10 @@ fn main() {
             let display = vst2_get_param_display(&instance, i);
             let label = vst2_get_param_label(&instance, i);
             let value = instance.get_parameter(i).unwrap_or(0.0);
-            println!("    [{}] {} = {:.4} ({} {})", i, name, value, display, label);
+            println!(
+                "    [{}] {} = {:.4} ({} {})",
+                i, name, value, display, label
+            );
         }
     }
 
@@ -116,7 +121,10 @@ fn main() {
     let num_blocks = 10;
 
     println!();
-    println!("[3] Processing {} blocks of {} frames...", num_blocks, buffer_size);
+    println!(
+        "[3] Processing {} blocks of {} frames...",
+        num_blocks, buffer_size
+    );
 
     let mut total_max_amplitude = 0.0f32;
     let mut total_rms = 0.0f64;
@@ -137,8 +145,9 @@ fn main() {
             .collect();
 
         // Create output buffers
-        let mut output_data: Vec<Vec<f32>> =
-            (0..num_outputs.max(1)).map(|_| vec![0.0f32; buffer_size]).collect();
+        let mut output_data: Vec<Vec<f32>> = (0..num_outputs.max(1))
+            .map(|_| vec![0.0f32; buffer_size])
+            .collect();
 
         let input_refs: Vec<&[f32]> = input_data.iter().map(|v| v.as_slice()).collect();
         let mut output_refs: Vec<&mut [f32]> =
@@ -175,7 +184,10 @@ fn main() {
                     "    Block {:2}: process={:>6?} | max={:.6} | midi={}",
                     block,
                     process_time,
-                    output_data[0].iter().map(|s| s.abs()).fold(0.0f32, f32::max),
+                    output_data[0]
+                        .iter()
+                        .map(|s| s.abs())
+                        .fold(0.0f32, f32::max),
                     midi_events.len(),
                 );
             }

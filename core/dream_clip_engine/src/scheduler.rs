@@ -137,7 +137,7 @@ impl ClipScheduler {
         while frames_remaining > 0 {
             let frames_to_end = (loop_region.end - current_playhead).max(0) as usize;
             let chunk_frames = frames_remaining.min(frames_to_end);
-            
+
             // STAGE3-01 FIX: If current_playhead is exactly at loop_region.end,
             // frames_to_end is 0, chunk_frames is 0, and frames_remaining never
             // decreases — causing an infinite loop on the RT thread.
@@ -151,10 +151,10 @@ impl ClipScheduler {
                 clip.buffer_offset += current_buffer_offset;
                 out.push(clip);
             }
-            
+
             frames_remaining -= chunk_frames;
             current_buffer_offset += chunk_frames;
-            
+
             if frames_remaining > 0 {
                 // Wrap around to loop start
                 current_playhead = loop_region.start;
@@ -167,7 +167,9 @@ impl ClipScheduler {
     /// # ⚠ RT-Safety Warning
     /// This allocates a temporary `Vec` internally. For real-time audio callbacks,
     /// use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
+    #[deprecated(
+        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
+    )]
     pub fn fill_active_looped(
         clips: &[AudioClip],
         playhead_pos: i64,
@@ -240,7 +242,9 @@ impl ClipScheduler {
     /// # ⚠ RT-Safety Warning
     /// This allocates `Vec`s — do NOT use on the audio thread.
     /// Use [`fill_active_looped_with_tmp`](Self::fill_active_looped_with_tmp) instead.
-    #[deprecated(note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread.")]
+    #[deprecated(
+        note = "RT-unsafe: allocates Vec. Use fill_active_looped_with_tmp for audio thread."
+    )]
     pub fn find_active_looped<'a>(
         clips: &'a [AudioClip],
         playhead_pos: i64,
@@ -333,7 +337,11 @@ mod tests {
         )
     }
 
-    fn active_for<'a>(clips: &'a [AudioClip], playhead_pos: i64, buffer_size: usize) -> Vec<ActiveClip<'a>> {
+    fn active_for<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+    ) -> Vec<ActiveClip<'a>> {
         let mut scratch = Vec::new();
         ClipScheduler::fill_active(clips, playhead_pos, buffer_size, &mut scratch);
         scratch

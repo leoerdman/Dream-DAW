@@ -124,9 +124,15 @@ mod tests {
     /// `frontend/shared_bindings`.
     #[test]
     fn export_typescript_bindings() {
-        let out_dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "..", "..", "frontend", "shared_bindings"]
-            .iter()
-            .collect();
+        let out_dir: PathBuf = [
+            env!("CARGO_MANIFEST_DIR"),
+            "..",
+            "..",
+            "frontend",
+            "shared_bindings",
+        ]
+        .iter()
+        .collect();
         std::fs::create_dir_all(&out_dir).expect("create bindings dir");
         let config = ts_rs::Config::new().with_out_dir(out_dir);
         PlaybackState::export_all(&config).expect("ts-rs export failed for PlaybackState");

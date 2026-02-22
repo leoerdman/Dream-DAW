@@ -12,8 +12,8 @@ struct WavData {
 }
 
 fn read_wav_as_f32(path: &Path) -> Result<WavData, String> {
-    let mut reader = hound::WavReader::open(path)
-        .map_err(|e| format!("open wav '{}': {e}", path.display()))?;
+    let mut reader =
+        hound::WavReader::open(path).map_err(|e| format!("open wav '{}': {e}", path.display()))?;
     let spec = reader.spec();
 
     if spec.channels == 0 {
@@ -95,11 +95,7 @@ fn avg_abs_stereo(samples: &[f32], channels: u16) -> f32 {
         sum += (l + r) * 0.5;
         count += 1;
     }
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f32
-    }
+    if count == 0 { 0.0 } else { sum / count as f32 }
 }
 
 fn null_residual_rms_dbfs(candidate: &[f32], golden: &[f32]) -> Result<f32, String> {
@@ -154,15 +150,14 @@ fn null_math_detects_a_difference() {
 #[test]
 #[ignore = "requires external WAV fixtures"]
 fn audio_null_against_golden_reference() {
-    let candidate = std::env::var("DREAM_NULL_CANDIDATE_WAV")
-        .expect("DREAM_NULL_CANDIDATE_WAV is required");
-    let golden = std::env::var("DREAM_NULL_GOLDEN_WAV")
-        .expect("DREAM_NULL_GOLDEN_WAV is required");
+    let candidate =
+        std::env::var("DREAM_NULL_CANDIDATE_WAV").expect("DREAM_NULL_CANDIDATE_WAV is required");
+    let golden = std::env::var("DREAM_NULL_GOLDEN_WAV").expect("DREAM_NULL_GOLDEN_WAV is required");
 
-    let candidate_samples = read_wav_as_f32(Path::new(&candidate))
-        .expect("candidate wav should be readable");
-    let golden_samples = read_wav_as_f32(Path::new(&golden))
-        .expect("golden wav should be readable");
+    let candidate_samples =
+        read_wav_as_f32(Path::new(&candidate)).expect("candidate wav should be readable");
+    let golden_samples =
+        read_wav_as_f32(Path::new(&golden)).expect("golden wav should be readable");
 
     assert_eq!(
         candidate_samples.sample_rate, golden_samples.sample_rate,
@@ -239,7 +234,8 @@ fn offline_bounce_is_deterministic_for_silent_project() {
     assert_eq!(a.sample_rate, b.sample_rate, "bounce sample_rate mismatch");
     assert_eq!(a.channels, b.channels, "bounce channel count mismatch");
 
-    let residual_db = null_residual_rms_dbfs(&a.samples, &b.samples).expect("residual should compute");
+    let residual_db =
+        null_residual_rms_dbfs(&a.samples, &b.samples).expect("residual should compute");
 
     assert!(
         residual_db <= -110.0,

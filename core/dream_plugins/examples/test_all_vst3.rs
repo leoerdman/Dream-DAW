@@ -29,11 +29,11 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use dream_plugins::{
-    MidiEvent, PluginDescriptor, PluginFormat, PluginInstance, PluginScanner, Vst3Instance,
-    TransportContext,
-};
 use dream_plugins::format::PluginCategory;
+use dream_plugins::{
+    MidiEvent, PluginDescriptor, PluginFormat, PluginInstance, PluginScanner, TransportContext,
+    Vst3Instance,
+};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -44,7 +44,12 @@ const NUM_PROCESS_CYCLES: usize = 10;
 /// Per-plugin subprocess timeout (seconds)
 const PLUGIN_TIMEOUT_SECS: u64 = 30;
 
-fn generate_sine_buffer(freq: f32, sample_rate: f32, num_frames: usize, phase: &mut f32) -> Vec<f32> {
+fn generate_sine_buffer(
+    freq: f32,
+    sample_rate: f32,
+    num_frames: usize,
+    phase: &mut f32,
+) -> Vec<f32> {
     let mut buf = vec![0.0f32; num_frames];
     let step = 2.0 * std::f32::consts::PI * freq / sample_rate;
     for i in 0..num_frames {
@@ -83,7 +88,8 @@ fn run_single_plugin_test(plugin_path: &str) -> i32 {
     eprintln!("DIAG: Scanner created, scanning...");
     let all = scanner.scan_format(PluginFormat::VST3);
     eprintln!("DIAG: Scan complete, {} descriptors total", all.len());
-    let descriptors: Vec<_> = all.into_iter()
+    let descriptors: Vec<_> = all
+        .into_iter()
         .filter(|d| d.path.to_string_lossy() == plugin_path)
         .collect();
     eprintln!("DIAG: {} descriptors match path", descriptors.len());
@@ -310,11 +316,16 @@ fn run_single_plugin_test(plugin_path: &str) -> i32 {
                         break;
                     }
                 }
-                if !ok { break; }
+                if !ok {
+                    break;
+                }
             }
 
             if ok {
-                println!("TEST_RESULT:PASS:ParamChanges:{}:tested={}", name, test_count);
+                println!(
+                    "TEST_RESULT:PASS:ParamChanges:{}:tested={}",
+                    name, test_count
+                );
             } else {
                 println!("TEST_RESULT:FAIL:ParamChanges:{}:{}", name, err_msg);
                 exit_code = 1;
@@ -404,7 +415,10 @@ fn run_single_plugin_test(plugin_path: &str) -> i32 {
         // ── Test 13: Latency & tail ──
         let latency = instance.latency_samples();
         let tail = instance.tail_samples();
-        println!("TEST_RESULT:PASS:LatencyTail:{}:latency={},tail={}", name, latency, tail);
+        println!(
+            "TEST_RESULT:PASS:LatencyTail:{}:latency={},tail={}",
+            name, latency, tail
+        );
 
         // ── Test 14: Final deactivate ──
         match instance.deactivate() {
@@ -437,7 +451,8 @@ fn main() {
     }
 
     // Parse optional filter
-    let filter = args.iter()
+    let filter = args
+        .iter()
         .position(|a| a == "--filter")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.to_lowercase());
@@ -450,7 +465,10 @@ fn main() {
     // Scan for all VST3 plugins
     let scanner = PluginScanner::new();
     let all_plugins = scanner.scan_format(PluginFormat::VST3);
-    println!("Scanner found {} VST3 plugin descriptors", all_plugins.len());
+    println!(
+        "Scanner found {} VST3 plugin descriptors",
+        all_plugins.len()
+    );
 
     // Deduplicate by path (some bundles expose multiple descriptors)
     let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -463,9 +481,13 @@ fn main() {
     }
 
     let plugins: Vec<_> = if let Some(ref f) = filter {
-        unique_plugins.into_iter()
-            .filter(|p| p.name.to_lowercase().contains(f) || p.vendor.to_lowercase().contains(f)
-                || p.path.to_string_lossy().to_lowercase().contains(f))
+        unique_plugins
+            .into_iter()
+            .filter(|p| {
+                p.name.to_lowercase().contains(f)
+                    || p.vendor.to_lowercase().contains(f)
+                    || p.path.to_string_lossy().to_lowercase().contains(f)
+            })
             .collect()
     } else {
         unique_plugins
@@ -476,10 +498,18 @@ fn main() {
         return;
     }
 
-    println!("Testing {} unique plugin bundles{}", plugins.len(),
-        filter.as_ref().map(|f| format!(" (filter: '{}')", f)).unwrap_or_default());
-    println!("Config: {}Hz, {} frames, {} process cycles, {}s timeout",
-        SAMPLE_RATE, BUFFER_SIZE, NUM_PROCESS_CYCLES, PLUGIN_TIMEOUT_SECS);
+    println!(
+        "Testing {} unique plugin bundles{}",
+        plugins.len(),
+        filter
+            .as_ref()
+            .map(|f| format!(" (filter: '{}')", f))
+            .unwrap_or_default()
+    );
+    println!(
+        "Config: {}Hz, {} frames, {} process cycles, {}s timeout",
+        SAMPLE_RATE, BUFFER_SIZE, NUM_PROCESS_CYCLES, PLUGIN_TIMEOUT_SECS
+    );
     println!();
     println!("════════════════════════════════════════════════════════════════════");
 
@@ -502,9 +532,19 @@ fn main() {
 
     for (idx, plugin) in plugins.iter().enumerate() {
         let plugin_path = plugin.path.to_string_lossy().to_string();
-        let type_label = if plugin.category == PluginCategory::Instrument { "INST" } else { "FX" };
-        print!("\n[{}/{}] {} ({}) [{}] ... ",
-            idx + 1, total_plugins, plugin.name, plugin.vendor, type_label);
+        let type_label = if plugin.category == PluginCategory::Instrument {
+            "INST"
+        } else {
+            "FX"
+        };
+        print!(
+            "\n[{}/{}] {} ({}) [{}] ... ",
+            idx + 1,
+            total_plugins,
+            plugin.name,
+            plugin.vendor,
+            type_label
+        );
         let _ = std::io::stdout().flush();
 
         let start = Instant::now();
@@ -558,12 +598,20 @@ fn main() {
                         if !output.status.success() && pr.passed == 0 && pr.failed == 0 {
                             pr.crashed = true;
                             let stderr = String::from_utf8_lossy(&output.stderr);
-                            pr.failures.push(format!("CRASH: exit={:?}, stderr: {}",
-                                output.status.code(), stderr.chars().take(500).collect::<String>()));
+                            pr.failures.push(format!(
+                                "CRASH: exit={:?}, stderr: {}",
+                                output.status.code(),
+                                stderr.chars().take(500).collect::<String>()
+                            ));
                         }
 
                         if pr.failed == 0 && !pr.crashed {
-                            println!("✅ {}/{} pass in {:?}", pr.passed, pr.passed + pr.skipped, elapsed);
+                            println!(
+                                "✅ {}/{} pass in {:?}",
+                                pr.passed,
+                                pr.passed + pr.skipped,
+                                elapsed
+                            );
                         } else if pr.crashed {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             println!("💥 CRASHED in {:?}", elapsed);
@@ -571,7 +619,10 @@ fn main() {
                                 println!("     💥 {}", line);
                             }
                         } else {
-                            println!("❌ {} fail / {} pass in {:?}", pr.failed, pr.passed, elapsed);
+                            println!(
+                                "❌ {} fail / {} pass in {:?}",
+                                pr.failed, pr.passed, elapsed
+                            );
                             for f in &pr.failures {
                                 println!("     ❌ {}", f);
                             }
@@ -601,12 +652,18 @@ fn main() {
     println!("║                     TEST SUMMARY                                ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
 
-    let plugins_pass = results.iter().filter(|r| r.failed == 0 && !r.crashed && !r.timed_out).count();
+    let plugins_pass = results
+        .iter()
+        .filter(|r| r.failed == 0 && !r.crashed && !r.timed_out)
+        .count();
     let plugins_fail = results.iter().filter(|r| r.failed > 0).count();
     let plugins_crash = results.iter().filter(|r| r.crashed).count();
     let plugins_timeout = results.iter().filter(|r| r.timed_out).count();
 
-    let total_tests: usize = results.iter().map(|r| r.passed + r.failed + r.skipped).sum();
+    let total_tests: usize = results
+        .iter()
+        .map(|r| r.passed + r.failed + r.skipped)
+        .sum();
     let total_pass: usize = results.iter().map(|r| r.passed).sum();
     let total_fail: usize = results.iter().map(|r| r.failed).sum();
     let total_skip: usize = results.iter().map(|r| r.skipped).sum();
@@ -614,26 +671,39 @@ fn main() {
     println!();
     println!("  Plugins: {} total", results.len());
     println!("    ✅ {} all-pass", plugins_pass);
-    if plugins_fail > 0 { println!("    ❌ {} with failures", plugins_fail); }
-    if plugins_crash > 0 { println!("    💥 {} crashed", plugins_crash); }
-    if plugins_timeout > 0 { println!("    ⏱️  {} timed out", plugins_timeout); }
+    if plugins_fail > 0 {
+        println!("    ❌ {} with failures", plugins_fail);
+    }
+    if plugins_crash > 0 {
+        println!("    💥 {} crashed", plugins_crash);
+    }
+    if plugins_timeout > 0 {
+        println!("    ⏱️  {} timed out", plugins_timeout);
+    }
     println!();
-    println!("  Tests:   {} total, {} pass, {} fail, {} skip",
-        total_tests, total_pass, total_fail, total_skip);
+    println!(
+        "  Tests:   {} total, {} pass, {} fail, {} skip",
+        total_tests, total_pass, total_fail, total_skip
+    );
     println!("  Time:    {:?}", total_elapsed);
     println!();
 
     // List all failures
-    let problem_plugins: Vec<_> = results.iter()
+    let problem_plugins: Vec<_> = results
+        .iter()
         .filter(|r| r.failed > 0 || r.crashed || r.timed_out)
         .collect();
 
     if !problem_plugins.is_empty() {
         println!("  ═══ PROBLEM PLUGINS ═══");
         for r in &problem_plugins {
-            let status = if r.crashed { "💥 CRASH" }
-                        else if r.timed_out { "⏱️  TIMEOUT" }
-                        else { "❌ FAIL" };
+            let status = if r.crashed {
+                "💥 CRASH"
+            } else if r.timed_out {
+                "⏱️  TIMEOUT"
+            } else {
+                "❌ FAIL"
+            };
             println!("  {} │ {}", status, r.name);
             for f in &r.failures {
                 println!("         │ {}", f);

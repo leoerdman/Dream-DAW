@@ -31,15 +31,14 @@ use uuid::Uuid;
 use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
-use crate::sandbox_instance::SandboxedPluginInstance;
+use crate::vst3::bootstrap::init_vst3_com;
 use crate::vst3::com_abi::{
-    AudioBusBuffers, FUnknown, IAudioProcessor, IComponent, IConnectionPoint, IEditController,
-    IPlugView, IPluginFactory, IID_IAUDIO_PROCESSOR, IID_ICOMPONENT, IID_ICONNECTION_POINT,
-    IID_IEDIT_CONTROLLER, K_BAR_POSITION_VALID, K_CONT_TIME_VALID, K_PLAYING,
-    K_PROJECT_TIME_VALID, K_REALTIME, K_RECORDING, K_RESULT_OK, K_SAMPLE32, K_TEMPO_VALID,
-    K_TIME_SIG_VALID, MAX_HOST_PARAM_CHANGES, PClassInfo, ProcessData, ProcessSetup, Tuid,
-    ViewRect, Vst3Chord, Vst3FrameRate, Vst3ProcessContext,
+    AudioBusBuffers, IAudioProcessor, IComponent, IConnectionPoint, IEditController,
+    IID_ICONNECTION_POINT, IPlugView, IPluginFactory, K_REALTIME, K_RESULT_OK, K_SAMPLE32,
+    MAX_HOST_PARAM_CHANGES, ProcessData, ProcessSetup, ViewRect, Vst3ProcessContext,
 };
+#[cfg(test)]
+use crate::vst3::com_abi::{IBStream, K_SEEK_END};
 #[cfg(target_os = "macos")]
 use crate::vst3::editor_macos::{
     HostPlugFrame, install_plugin_window_delegate, mark_delegate_cleaned,
@@ -47,21 +46,21 @@ use crate::vst3::editor_macos::{
 };
 use crate::vst3::event_list::HostEventList;
 use crate::vst3::factory::resolve_vst3_binary;
-use crate::vst3::host_objects::{self, host_application_ptr, component_handler_ptr};
+use crate::vst3::host_objects::{self, component_handler_ptr, host_application_ptr};
 use crate::vst3::parameter_bus::HostParameterChanges;
+pub use crate::vst3::plugin_host::{PluginHost, PluginInstanceArc};
+use crate::vst3::process_context::process_context_from_transport;
 use crate::vst3::streams::{HostReadStream, HostWriteStream};
 #[cfg(test)]
 use crate::vst3::streams::{stream_read, stream_seek};
-#[cfg(test)]
-use crate::vst3::com_abi::{IBStream, K_SEEK_END};
 
 #[cfg(target_os = "macos")]
 use cocoa::appkit::{
-    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSScreen, NSWindow,
-    NSWindowStyleMask,
+    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSScreen,
+    NSWindow, NSWindowStyleMask,
 };
 #[cfg(target_os = "macos")]
-use cocoa::base::{id, nil, NO};
+use cocoa::base::{NO, id, nil};
 #[cfg(target_os = "macos")]
 use cocoa::foundation::{NSPoint, NSRect, NSSize};
 
@@ -92,59 +91,8 @@ pub fn take_param_values_changed() -> bool {
 pub fn take_plugin_state_dirty() -> bool {
     host_objects::take_plugin_state_dirty()
 }
-
-
-impl Vst3ProcessContext {
-    /// Creates a ProcessContext from the stored transport state.
-    fn from_transport(ctx: &TransportContext) -> Self {
-        let mut state: u32 = K_TEMPO_VALID | K_TIME_SIG_VALID | K_PROJECT_TIME_VALID
-            | K_BAR_POSITION_VALID | K_CONT_TIME_VALID;
-        if ctx.is_playing {
-            state |= K_PLAYING;
-        }
-        if ctx.is_recording {
-            state |= K_RECORDING;
-        }
-
-        // Convert position in samples to beats:
-        // beats = samples / (sample_rate * 60 / bpm)
-        let beats_per_second = if ctx.tempo > 0.0 { ctx.tempo / 60.0 } else { 2.0 };
-        let position_seconds = if ctx.sample_rate > 0.0 {
-            ctx.position_samples as f64 / ctx.sample_rate
-        } else {
-            0.0
-        };
-        let position_beats = position_seconds * beats_per_second;
-
-        // BUG-A6 FIX: Calculate bar position from transport.
-        let time_sig_num = ctx.time_sig_numerator.max(1) as f64;
-        let bar_position_music = (position_beats / time_sig_num).floor() * time_sig_num;
-
-        Self {
-            state,
-            sample_rate: ctx.sample_rate,
-            project_time_samples: ctx.position_samples,
-            system_time: 0,
-            continuous_time_samples: ctx.position_samples, // without loop = same as project time
-            project_time_music: position_beats,
-            bar_position_music,
-            cycle_start_music: 0.0,
-            cycle_end_music: 0.0,
-            tempo: ctx.tempo,
-            // BUG-A7 FIX: Use time signature from TransportContext.
-            time_sig_numerator: ctx.time_sig_numerator,
-            time_sig_denominator: ctx.time_sig_denominator,
-            chord: Vst3Chord { key_note: 0, root_note: 0, chord_mask: 0 },
-            smpte_offset_subframes: 0,
-            frame_rate: Vst3FrameRate { frames_per_second: 0, flags: 0 },
-            samples_to_next_clock: 0,
-        }
-    }
-}
 // Host COM singletons (IHostApplication, IComponentHandler, ParamEditRing)
 // moved to crate::vst3::host_objects
-
-
 
 /// VST3 bus media type constants.
 const K_AUDIO: i32 = 0;
@@ -157,92 +105,12 @@ const K_OUTPUT: i32 = 1;
 /// Previously missing — event buses were never activated.
 const K_EVENT: i32 = 1;
 
-
 /// VST3 speaker arrangement: stereo = L | R.
 const K_SPEAKER_STEREO: u64 = 0x03; // kSpeakerL | kSpeakerR
 
 // ── VST3 Bundle Resolution ────────────────────────────────────────────
-
-// ── CoreFoundation FFI for CFBundleRef creation ─────────────────────────
-// VST3 plugins on macOS expect a real CFBundleRef in bundleEntry().
-// VSTGUI-based plugins (Serum2, etc.) use it to locate GUI resources.
 #[cfg(target_os = "macos")]
-mod cf_bundle {
-    use std::ptr;
-
-    // Opaque CoreFoundation types — only used as pointers.
-    #[repr(C)]
-    pub struct __CFBundle { _private: [u8; 0] }
-    #[repr(C)]
-    pub struct __CFURL { _private: [u8; 0] }
-    #[repr(C)]
-    pub struct __CFAllocator { _private: [u8; 0] }
-
-    pub type CFBundleRef = *mut __CFBundle;
-    pub type CFURLRef = *mut __CFURL;
-    pub type CFAllocatorRef = *mut __CFAllocator;
-    pub type CFIndex = isize;
-    pub type Boolean = u8;
-
-    unsafe extern "C" {
-        pub static kCFAllocatorDefault: CFAllocatorRef;
-        pub fn CFURLCreateFromFileSystemRepresentation(
-            allocator: CFAllocatorRef,
-            buffer: *const u8,
-            buf_len: CFIndex,
-            is_directory: Boolean,
-        ) -> CFURLRef;
-        pub fn CFBundleCreate(
-            allocator: CFAllocatorRef,
-            bundle_url: CFURLRef,
-        ) -> CFBundleRef;
-        pub fn CFRelease(cf: *mut core::ffi::c_void);
-    }
-
-    /// RAII guard: releases the CFBundleRef on drop.
-    pub struct CFBundleRefGuard(pub *mut core::ffi::c_void);
-
-    impl Drop for CFBundleRefGuard {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe { CFRelease(self.0); }
-            }
-        }
-    }
-
-    // These are raw pointers managed via CoreFoundation refcounting.
-    unsafe impl Send for CFBundleRefGuard {}
-    unsafe impl Sync for CFBundleRefGuard {}
-
-    /// Creates a CFBundleRef for the given filesystem path.
-    /// Returns a raw `*mut c_void` suitable for passing to `bundleEntry()`.
-    /// Returns null on failure.
-    pub fn create_cf_bundle_ref(path: &str) -> *mut core::ffi::c_void {
-        let path_bytes = path.as_bytes();
-        unsafe {
-            let url = CFURLCreateFromFileSystemRepresentation(
-                kCFAllocatorDefault,
-                path_bytes.as_ptr(),
-                path_bytes.len() as CFIndex,
-                1, // isDirectory = true (VST3 bundles are directories)
-            );
-            if url.is_null() {
-                log::warn!("[VST3] CFURLCreate failed for path: {}", path);
-                return ptr::null_mut();
-            }
-            let bundle = CFBundleCreate(kCFAllocatorDefault, url);
-            CFRelease(url as *mut core::ffi::c_void);
-            if bundle.is_null() {
-                log::warn!("[VST3] CFBundleCreate failed for path: {}", path);
-                return ptr::null_mut();
-            }
-            bundle as *mut core::ffi::c_void
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-use cf_bundle::{CFBundleRefGuard, create_cf_bundle_ref};
+use crate::vst3::cf_bundle::{CFBundleRefGuard, create_cf_bundle_ref};
 
 // ── VST3 Instance ─────────────────────────────────────────────────────
 
@@ -256,10 +124,10 @@ use cf_bundle::{CFBundleRefGuard, create_cf_bundle_ref};
 // SAFETY PROOF (Phase 35 Enterprise Audit):
 // 1. NON-NULL: All COM pointers (component, processor, controller) are strictly verified
 //    for nullness via `query_interface` before being stored as non-zero `usize`.
-// 2. LIFETIME BOUND: The `_library` handle is stored within `Vst3Instance` to outlive 
+// 2. LIFETIME BOUND: The `_library` handle is stored within `Vst3Instance` to outlive
 //    all COM pointers, guaranteeing that the vtable and code segments remain pinned.
-// 3. THREAD SAFETY: We implement `Send` indirectly because raw pointers are cast to `usize`. 
-//    The VST3 spec guarantees thread-safety for concurrent `IEditController` param edits and 
+// 3. THREAD SAFETY: We implement `Send` indirectly because raw pointers are cast to `usize`.
+//    The VST3 spec guarantees thread-safety for concurrent `IEditController` param edits and
 //    `IAudioProcessor` rendering. Dream DAW enforces strict callback serialization.
 pub struct Vst3Instance {
     /// Unique instance ID.
@@ -383,262 +251,6 @@ struct MacEditorWindow {
     plug_view: usize,
 }
 
-// ── NSWindowDelegate for plugin editor windows ─────────────────────────────
-//
-// Prevents crashes when the user clicks the red close button. Without a
-// delegate, macOS closes the window without performing the VST3-required
-// cleanup: setFrame(null) → removed() → release(). This leaves Serum's
-// internal timers pointing at freed NSView memory → crash on next click.
-//
-// Implementation uses raw ObjC runtime C API to avoid objc crate trait
-// limitations with MethodImplementation generics.
-
-#[cfg(target_os = "macos")]
-static DELEGATE_CLASS_INIT: std::sync::Once = std::sync::Once::new();
-
-#[cfg(target_os = "macos")]
-static mut DELEGATE_CLASS: *const std::os::raw::c_char = std::ptr::null();
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    fn objc_allocateClassPair(
-        superclass: *const std::os::raw::c_void,
-        name: *const std::os::raw::c_char,
-        extra_bytes: usize,
-    ) -> *mut std::os::raw::c_void;
-    fn objc_registerClassPair(cls: *mut std::os::raw::c_void);
-    fn objc_getClass(name: *const std::os::raw::c_char) -> *const std::os::raw::c_void;
-    fn class_addIvar(
-        cls: *mut std::os::raw::c_void,
-        name: *const std::os::raw::c_char,
-        size: usize,
-        alignment: u8,
-        types: *const std::os::raw::c_char,
-    ) -> bool;
-    fn class_addMethod(
-        cls: *mut std::os::raw::c_void,
-        sel: *mut std::os::raw::c_void,
-        imp: *const std::os::raw::c_void,
-        types: *const std::os::raw::c_char,
-    ) -> bool;
-    fn object_getInstanceVariable(
-        obj: id,
-        name: *const std::os::raw::c_char,
-        out_value: *mut *mut std::os::raw::c_void,
-    ) -> *mut std::os::raw::c_void;
-    fn object_setInstanceVariable(
-        obj: id,
-        name: *const std::os::raw::c_char,
-        value: *mut std::os::raw::c_void,
-    ) -> *mut std::os::raw::c_void;
-}
-
-/// ObjC: `- (void)windowWillClose:(NSNotification *)notification`
-///
-/// Performs the full VST3 cleanup sequence before the window closes.
-#[cfg(target_os = "macos")]
-extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notification: id) {
-    unsafe {
-        // Retrieve stored IPlugView pointer from ivar
-        let mut plug_view_raw: *mut c_void = std::ptr::null_mut();
-        object_getInstanceVariable(
-            this,
-            c"_plugView".as_ptr() as _,
-            &mut plug_view_raw,
-        );
-
-        let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
-        object_getInstanceVariable(
-            this,
-            c"_cleaned".as_ptr() as _,
-            &mut cleaned_raw,
-        );
-        let already_cleaned = cleaned_raw as usize != 0;
-
-        if already_cleaned || plug_view_raw.is_null() {
-            return;
-        }
-
-        let plug_view = plug_view_raw as *mut IPlugView;
-
-        // Defensive: bail if the vtable pointer is null (plug_view was freed elsewhere)
-        if (*plug_view).vtbl.is_null() {
-            info!("[VST3-Delegate] windowWillClose: plug_view vtbl is null, skipping cleanup");
-            object_setInstanceVariable(
-                this,
-                c"_cleaned".as_ptr() as _,
-                std::ptr::dangling_mut::<c_void>(),
-            );
-            return;
-        }
-
-        info!("[VST3-Delegate] windowWillClose: performing VST3 cleanup for plug_view={:p}", plug_view);
-
-        // Per VST3 SDK: setFrame(null) → removed() → release()
-        let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, std::ptr::null_mut());
-        let _ = ((*(*plug_view).vtbl).removed)(plug_view);
-        let _ = ((*(*plug_view).vtbl).release)(plug_view);
-
-        // Mark as cleaned so close_editor_macos doesn't double-free
-        object_setInstanceVariable(
-            this,
-            c"_cleaned".as_ptr() as _,
-            std::ptr::dangling_mut::<c_void>(),
-        );
-    }
-}
-
-/// Registers the ObjC delegate class once and installs an instance on the window.
-#[cfg(target_os = "macos")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
-    use std::os::raw::c_char;
-
-    let class_name = c"DreamDAWPluginWindowDelegate".as_ptr() as *const c_char;
-
-    DELEGATE_CLASS_INIT.call_once(|| {
-        let ns_object_class = objc_getClass(c"NSObject".as_ptr() as _);
-        let new_class = objc_allocateClassPair(ns_object_class, class_name, 0);
-        assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
-
-        // Add ivars: _plugView (pointer) and _cleaned (usize used as bool)
-        class_addIvar(
-            new_class,
-            c"_plugView".as_ptr() as _,
-            std::mem::size_of::<*mut c_void>(),
-            std::mem::align_of::<*mut c_void>() as u8,
-            c"^v".as_ptr() as _,
-        );
-        class_addIvar(
-            new_class,
-            c"_cleaned".as_ptr() as _,
-            std::mem::size_of::<usize>(),
-            std::mem::align_of::<usize>() as u8,
-            c"Q".as_ptr() as _,
-        );
-
-        // Register windowWillClose:
-        unsafe extern "C" {
-            fn sel_registerName(name: *const c_char) -> *mut c_void;
-        }
-        let sel = sel_registerName(c"windowWillClose:".as_ptr() as _);
-        class_addMethod(
-            new_class,
-            sel,
-            plugin_window_will_close as *const c_void,
-            c"v@:@".as_ptr() as _,  // void, self, SEL, NSNotification*
-        );
-
-        objc_registerClassPair(new_class);
-        DELEGATE_CLASS = class_name;
-    });
-
-    // Allocate and init the delegate
-    unsafe extern "C" {
-        fn sel_registerName(name: *const c_char) -> *mut c_void;
-        fn objc_msgSend() -> id;
-    }
-    type MsgSendAlloc = unsafe extern "C" fn(*const c_void, *mut c_void) -> id;
-    type MsgSendInit = unsafe extern "C" fn(id, *mut c_void) -> id;
-    type MsgSendSetDelegate = unsafe extern "C" fn(id, *mut c_void, id);
-
-    let delegate_class = objc_getClass(class_name);
-    let sel_alloc = sel_registerName(c"alloc".as_ptr() as _);
-    let sel_init = sel_registerName(c"init".as_ptr() as _);
-    let sel_set_delegate = sel_registerName(c"setDelegate:".as_ptr() as _);
-
-    let send_alloc: MsgSendAlloc = std::mem::transmute(objc_msgSend as *const ());
-    let send_init: MsgSendInit = std::mem::transmute(objc_msgSend as *const ());
-    let send_set_delegate: MsgSendSetDelegate = std::mem::transmute(objc_msgSend as *const ());
-
-    let delegate = send_alloc(delegate_class, sel_alloc);
-    let delegate = send_init(delegate, sel_init);
-
-    // Store the plug_view pointer and cleaned flag
-    object_setInstanceVariable(
-        delegate,
-        c"_plugView".as_ptr() as _,
-        plug_view as *mut c_void,
-    );
-    object_setInstanceVariable(
-        delegate,
-        c"_cleaned".as_ptr() as _,
-        std::ptr::null_mut::<c_void>(),
-    );
-
-    // Set as the window's delegate
-    send_set_delegate(window, sel_set_delegate, delegate);
-
-    info!(
-        "[VST3-Delegate] Installed window delegate {:p} with plug_view={:p}",
-        delegate, plug_view
-    );
-}
-
-/// Checks whether the delegate's `windowWillClose:` already performed cleanup.
-#[cfg(target_os = "macos")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
-    unsafe extern "C" {
-        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
-        fn objc_msgSend() -> id;
-    }
-    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
-
-    let sel_delegate = sel_registerName(c"delegate".as_ptr() as _);
-    let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
-    let delegate = send_delegate(window, sel_delegate);
-
-    if delegate.is_null() {
-        return false;
-    }
-
-    let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
-    object_getInstanceVariable(
-        delegate,
-        c"_cleaned".as_ptr() as _,
-        &mut cleaned_raw,
-    );
-    cleaned_raw as usize != 0
-}
-
-/// Marks the delegate as cleaned and nulls the plug_view pointer.
-/// Must be called BEFORE freeing the plug_view in close_editor_macos
-/// to prevent the delegate from using a dangling pointer when
-/// macOS fires windowWillClose: during window.close().
-#[cfg(target_os = "macos")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn mark_delegate_cleaned(window: id) {
-    unsafe extern "C" {
-        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
-        fn objc_msgSend() -> id;
-    }
-    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
-
-    let sel_delegate = sel_registerName(c"delegate".as_ptr() as _);
-    let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
-    let delegate = send_delegate(window, sel_delegate);
-
-    if delegate.is_null() {
-        return;
-    }
-
-    // Set _cleaned = 1 so windowWillClose: becomes a no-op
-    object_setInstanceVariable(
-        delegate,
-        c"_cleaned".as_ptr() as _,
-        std::ptr::dangling_mut::<c_void>(),
-    );
-    // Null out the plug_view pointer for extra safety
-    object_setInstanceVariable(
-        delegate,
-        c"_plugView".as_ptr() as _,
-        std::ptr::null_mut(),
-    );
-}
-
-
-
 impl Drop for Vst3Instance {
     fn drop(&mut self) {
         let _ = self.close_editor();
@@ -656,12 +268,16 @@ impl Drop for Vst3Instance {
         }
         if self.connection_point_component != 0 {
             let cp = self.connection_point_component as *mut IConnectionPoint;
-            unsafe { ((*(*cp).vtbl).release)(cp); }
+            unsafe {
+                ((*(*cp).vtbl).release)(cp);
+            }
             self.connection_point_component = 0;
         }
         if self.connection_point_controller != 0 {
             let cp = self.connection_point_controller as *mut IConnectionPoint;
-            unsafe { ((*(*cp).vtbl).release)(cp); }
+            unsafe {
+                ((*(*cp).vtbl).release)(cp);
+            }
             self.connection_point_controller = 0;
         }
 
@@ -723,25 +339,31 @@ impl Drop for Vst3Instance {
         if let Some(ref library) = self._library {
             #[cfg(target_os = "macos")]
             {
-                if let Ok(exit_fn) = unsafe {
-                    library.get::<unsafe extern "C" fn() -> bool>(b"bundleExit\0")
-                } {
+                if let Ok(exit_fn) =
+                    unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"bundleExit\0") }
+                {
                     let result = unsafe { exit_fn() };
-                    info!("[VST3] bundleExit called for '{}': result={}", self.descriptor.name, result);
+                    info!(
+                        "[VST3] bundleExit called for '{}': result={}",
+                        self.descriptor.name, result
+                    );
                 }
             }
             #[cfg(not(target_os = "macos"))]
             {
-                if let Ok(exit_fn) = unsafe {
-                    library.get::<unsafe extern "C" fn() -> bool>(b"ExitDll\0")
-                } {
+                if let Ok(exit_fn) =
+                    unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"ExitDll\0") }
+                {
                     let result = unsafe { exit_fn() };
-                    info!("[VST3] ExitDll called for '{}': result={}", self.descriptor.name, result);
+                    info!(
+                        "[VST3] ExitDll called for '{}': result={}",
+                        self.descriptor.name, result
+                    );
                 }
             }
         }
 
-        // MACOS EXIT CRASH FIX: Unloading VST3 bundles that use Objective-C often causes 
+        // MACOS EXIT CRASH FIX: Unloading VST3 bundles that use Objective-C often causes
         // EXC_BAD_ACCESS in lookUpImpOrForward during app exit (or when dispatch queues run later).
         // By intentionally leaking the `libloading::Library` handle, dlclose() is never called,
         // preventing the crash while only "leaking" a tiny pointer handle.
@@ -755,300 +377,6 @@ impl Drop for Vst3Instance {
 }
 
 impl Vst3Instance {
-    /// VST3 COM bootstrap following the official SDK initialization sequence:
-    ///
-    /// 1. Call `GetPluginFactory` to obtain `IPluginFactory`.
-    /// 2. Enumerate classes and find the Audio Effect class (category = "Audio Module Class").
-    /// 3. Create the class via `IPluginFactory::createInstance` using `IID_ICOMPONENT`.
-    ///    This is the PRIMARY interface — every VST3 Audio Effect implements IComponent.
-    /// 4. Call `IComponent::initialize()` with a valid IHostApplication.
-    /// 5. QueryInterface the component for `IAudioProcessor`.
-    /// 6. Obtain `IEditController`:
-    ///    a. `IComponent::getControllerClassId()` → `IPluginFactory::createInstance(cid, IID_IEDIT_CONTROLLER)`.
-    ///    b. If that fails, QI the component itself for `IEditController` (single-component design).
-    ///
-    /// Tuple result order: factory_ptr, component_ptr, processor_ptr, controller_ptr,
-    /// processor_from_component_qi, controller_from_component_qi.
-    fn init_vst3_com(
-        library: &libloading::Library,
-    ) -> Result<(usize, usize, usize, usize, bool, bool), PluginError> {
-        let get_factory: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = unsafe {
-            library.get(b"GetPluginFactory\0").map_err(|e| {
-                PluginError::LoadFailed(format!("GetPluginFactory symbol lookup failed: {e}"))
-            })?
-        };
-
-        let factory = unsafe { get_factory() as *mut IPluginFactory };
-        if factory.is_null() {
-            return Err(PluginError::LoadFailed(
-                "GetPluginFactory returned null".to_string(),
-            ));
-        }
-
-        let mut component_ptr: *mut c_void = ptr::null_mut();
-        let mut processor_ptr: *mut c_void = ptr::null_mut();
-        let mut processor_qi_from_component = false;
-        let mut controller_qi_from_component = false;
-
-        let count = unsafe { ((*(*factory).vtbl).count_classes)(factory) }.max(0);
-        info!("[VST3-COM] Factory returned {} classes", count);
-
-        // ── Step 1: Find and create the IComponent ──────────────────────
-        //
-        // Per VST3 spec, the factory registers audio module classes.  We
-        // iterate all classes and try to createInstance with IID_ICOMPONENT
-        // first (the standard approach).  If that fails we fall back to
-        // IID_IAUDIO_PROCESSOR for compatibility with non-standard plugins.
-        for idx in 0..count {
-            let mut cls = PClassInfo {
-                cid: [0; 16],
-                cardinality: 0,
-                category: [0; 32],
-                name: [0; 64],
-            };
-            let class_ok = unsafe { ((*(*factory).vtbl).get_class_info)(factory, idx, &mut cls) }
-                == K_RESULT_OK;
-            if !class_ok {
-                continue;
-            }
-
-            let class_name = {
-                let end = cls.name.iter().position(|&c| c == 0).unwrap_or(cls.name.len());
-                String::from_utf8_lossy(&cls.name[..end].iter().map(|&c| c as u8).collect::<Vec<u8>>()).to_string()
-            };
-            let class_category = {
-                let end = cls.category.iter().position(|&c| c == 0).unwrap_or(cls.category.len());
-                String::from_utf8_lossy(&cls.category[..end].iter().map(|&c| c as u8).collect::<Vec<u8>>()).to_string()
-            };
-            info!("[VST3-COM] Class #{}: name='{}' category='{}'", idx, class_name, class_category);
-
-            // Strategy A: create via IID_ICOMPONENT (the standard approach)
-            let comp_ok = unsafe {
-                ((*(*factory).vtbl).create_instance)(
-                    factory,
-                    &cls.cid,
-                    IID_ICOMPONENT.as_ptr() as *const c_char,
-                    &mut component_ptr,
-                )
-            } == K_RESULT_OK
-                && !component_ptr.is_null();
-
-            if comp_ok {
-                info!("[VST3-COM]   -> IComponent (factory, Strategy A): OK ({:p})", component_ptr);
-
-                // QI the component for IAudioProcessor
-                let qi_result = unsafe {
-                    let comp_as_unk = component_ptr as *mut FUnknown;
-                    ((*(*comp_as_unk).vtbl).query_interface)(
-                        comp_as_unk,
-                        IID_IAUDIO_PROCESSOR.as_ptr() as *const c_char,
-                        &mut processor_ptr,
-                    )
-                };
-                let processor_from_qi = qi_result == K_RESULT_OK && !processor_ptr.is_null();
-                if processor_from_qi {
-                    processor_qi_from_component = true;
-                    info!("[VST3-COM]   -> IAudioProcessor (QI from component): OK ({:p})", processor_ptr);
-                    break;
-                } else {
-                    info!("[VST3-COM]   -> IAudioProcessor (QI from component): FAILED (result={})", qi_result);
-                    // Release the component and try next class
-                    unsafe {
-                        let comp_as_unk = component_ptr as *mut FUnknown;
-                        ((*(*comp_as_unk).vtbl).release)(comp_as_unk);
-                    }
-                    component_ptr = ptr::null_mut();
-                    processor_ptr = ptr::null_mut();
-                    continue;
-                }
-            }
-
-            // Strategy B: create via IID_IAUDIO_PROCESSOR (legacy/compat)
-            let proc_ok = unsafe {
-                ((*(*factory).vtbl).create_instance)(
-                    factory,
-                    &cls.cid,
-                    IID_IAUDIO_PROCESSOR.as_ptr() as *const c_char,
-                    &mut processor_ptr,
-                )
-            } == K_RESULT_OK
-                && !processor_ptr.is_null();
-
-            if proc_ok {
-                info!("[VST3-COM]   -> IAudioProcessor (factory, Strategy B): OK ({:p})", processor_ptr);
-
-                // QI the processor for IComponent
-                let qi_result = unsafe {
-                    let proc_as_unk = processor_ptr as *mut FUnknown;
-                    ((*(*proc_as_unk).vtbl).query_interface)(
-                        proc_as_unk,
-                        IID_ICOMPONENT.as_ptr() as *const c_char,
-                        &mut component_ptr,
-                    )
-                };
-                if qi_result == K_RESULT_OK && !component_ptr.is_null() {
-                    info!("[VST3-COM]   -> IComponent (QI from processor): OK ({:p})", component_ptr);
-                } else {
-                    info!("[VST3-COM]   -> IComponent (QI from processor): FAILED");
-                    component_ptr = ptr::null_mut();
-                }
-                break;
-            }
-
-            info!("[VST3-COM]   -> Both strategies failed for class #{}", idx);
-        }
-
-        // We require at least a processor (either via factory or QI)
-        if processor_ptr.is_null() {
-            unsafe {
-                ((*(*factory).vtbl).release)(factory);
-            }
-            return Err(PluginError::LoadFailed(
-                "Failed to instantiate VST3 IAudioProcessor".to_string(),
-            ));
-        }
-
-        // ── Step 2: Initialize IComponent ───────────────────────────────
-        if !component_ptr.is_null() {
-            let component = component_ptr as *mut IComponent;
-            let init_result = unsafe {
-                ((*(*component).vtbl).initialize)(component, host_application_ptr())
-            };
-            info!("[VST3-COM] IComponent::initialize() result: {}", init_result);
-        }
-
-        // ── Step 3: Obtain IEditController ──────────────────────────────
-        let mut controller_ptr: *mut c_void = ptr::null_mut();
-
-        if !component_ptr.is_null() {
-            let component = component_ptr as *mut IComponent;
-
-            // 3a. getControllerClassId → createInstance
-            let mut controller_cid: Tuid = [0; 16];
-            let cid_ok = unsafe {
-                ((*(*component).vtbl).get_controller_class_id)(component, &mut controller_cid)
-            } == K_RESULT_OK;
-            info!("[VST3-COM] getControllerClassId: ok={}", cid_ok);
-
-            if cid_ok {
-                let create_result = unsafe {
-                    ((*(*factory).vtbl).create_instance)(
-                        factory,
-                        &controller_cid,
-                        IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
-                        &mut controller_ptr,
-                    )
-                };
-                if create_result == K_RESULT_OK && !controller_ptr.is_null() {
-                    info!(
-                        "[VST3-COM] IEditController (factory by CID): OK ({:p})",
-                        controller_ptr
-                    );
-                    // NOTE: controller.initialize() is NOT called here.
-                    // It is called in activate() alongside setComponentHandler(),
-                    // guarded by host_initialized to prevent double-init.
-                } else {
-                    info!(
-                        "[VST3-COM] IEditController (factory by CID): FAILED (result={})",
-                        create_result
-                    );
-                    controller_ptr = ptr::null_mut();
-                }
-            }
-
-            // 3b. Single-component fallback: QI component for IEditController
-            if controller_ptr.is_null() {
-                let qi_result = unsafe {
-                    ((*(*component).vtbl).query_interface)(
-                        component,
-                        IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
-                        &mut controller_ptr,
-                    )
-                };
-                if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
-                    controller_qi_from_component = true;
-                    info!(
-                        "[VST3-COM] IEditController (QI from component): OK ({:p})",
-                        controller_ptr
-                    );
-                } else {
-                    info!(
-                        "[VST3-COM] IEditController (QI from component): FAILED (result={})",
-                        qi_result
-                    );
-                    controller_ptr = ptr::null_mut();
-                }
-            }
-        }
-
-        // 3c. Last-resort: QI processor directly for IEditController
-        if controller_ptr.is_null() && !processor_ptr.is_null() {
-            let qi_result = unsafe {
-                let proc_as_unk = processor_ptr as *mut FUnknown;
-                ((*(*proc_as_unk).vtbl).query_interface)(
-                    proc_as_unk,
-                    IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
-                    &mut controller_ptr,
-                )
-            };
-            if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
-                // If processor itself was QI'd from component, then this
-                // controller is also transitively from the same COM object.
-                if processor_qi_from_component {
-                    controller_qi_from_component = true;
-                }
-                info!(
-                    "[VST3-COM] IEditController (QI from processor, last-resort): OK ({:p})",
-                    controller_ptr
-                );
-            } else {
-                info!(
-                    "[VST3-COM] IEditController: ALL strategies failed — no editor support",
-                );
-                controller_ptr = ptr::null_mut();
-            }
-        }
-
-        // NOTE: setComponentHandler() is NOT called here.
-        // It is called in activate() after controller.initialize(), which is
-        // the correct order per VST3 spec.  For QI-obtained controllers (single-
-        // component plugins), calling setComponentHandler before initialize
-        // would operate on an uninitialized controller and could crash.
-
-        info!(
-            "[VST3-COM] Final pointers: factory={:p} component={:p} processor={:p} controller={:p}",
-            factory as *const c_void,
-            component_ptr,
-            processor_ptr,
-            controller_ptr
-        );
-
-        // Both processor_qi_from_component and controller_qi_from_component
-        // are set definitively during the code paths above.
-
-        Ok((
-            factory as usize,
-            component_ptr as usize,
-            processor_ptr as usize,
-            controller_ptr as usize,
-            processor_qi_from_component,
-            controller_qi_from_component,
-        ))
-    }
-
-    // ── NSWindowDelegate for plugin editor cleanup ────────────────────────
-    //
-    // When the user clicks the red close button on a plugin editor window,
-    // macOS calls `windowWillClose:` on the delegate. Without this, the
-    // window closes without performing the VST3-required cleanup sequence
-    // (setFrame(null) → removed() → release()), leaving dangling pointers
-    // that crash on the next click.
-    //
-    // We dynamically create an ObjC class at runtime with:
-    //   - An ivar `_plugView` storing the IPlugView pointer
-    //   - An ivar `_cleaned` flag to prevent double-cleanup
-    //   - A `windowWillClose:` method that performs cleanup
-
     #[cfg(target_os = "macos")]
     fn open_editor_macos(&mut self) -> Result<(), PluginError> {
         // BUG-22+E5 FIX: AppKit/Cocoa APIs MUST be called from the main thread.
@@ -1056,7 +384,9 @@ impl Vst3Instance {
         // Thread names are not guaranteed to be "main" on macOS.
         #[cfg(target_os = "macos")]
         {
-            unsafe extern "C" { fn pthread_main_np() -> i32; }
+            unsafe extern "C" {
+                fn pthread_main_np() -> i32;
+            }
             let is_main = unsafe { pthread_main_np() } != 0;
             debug_assert!(
                 is_main || cfg!(test),
@@ -1072,10 +402,18 @@ impl Vst3Instance {
             ));
         }
 
-        info!("[VST3-EDITOR] ── open_editor_macos START for '{}' ──", self.descriptor.name);
-        info!("[VST3-EDITOR] controller_ptr={:#x}, component_ptr={:#x}, processor_ptr={:#x}",
-              self.controller_ptr, self.component_ptr, self.processor_ptr);
-        info!("[VST3-EDITOR] host_initialized={}, com_initialized={}", self.host_initialized, self.com_initialized);
+        info!(
+            "[VST3-EDITOR] ── open_editor_macos START for '{}' ──",
+            self.descriptor.name
+        );
+        info!(
+            "[VST3-EDITOR] controller_ptr={:#x}, component_ptr={:#x}, processor_ptr={:#x}",
+            self.controller_ptr, self.component_ptr, self.processor_ptr
+        );
+        info!(
+            "[VST3-EDITOR] host_initialized={}, com_initialized={}",
+            self.host_initialized, self.com_initialized
+        );
 
         // ── File-based step-by-step diagnostics ──
         // Each step writes to diag file with flush, so the last written line
@@ -1091,24 +429,37 @@ impl Vst3Instance {
             }}
         }
 
-        diag_step!("[open_editor:{}] Step 1: createView about to call, controller={:#x}",
-            self.descriptor.name, self.controller_ptr);
+        diag_step!(
+            "[open_editor:{}] Step 1: createView about to call, controller={:#x}",
+            self.descriptor.name,
+            self.controller_ptr
+        );
 
         let controller = self.controller_ptr as *mut IEditController;
-        eprintln!("[CRASH-DIAG] >>> createView about to call vtbl at {:p}", controller);
+        eprintln!(
+            "[CRASH-DIAG] >>> createView about to call vtbl at {:p}",
+            controller
+        );
         info!("[VST3-EDITOR] Step 1: Calling createView('editor')...");
         let view_raw = unsafe {
             ((*(*controller).vtbl).create_view)(controller, c"editor".as_ptr() as *const c_char)
         };
         eprintln!("[CRASH-DIAG] <<< createView returned {:p}", view_raw);
-        diag_step!("[open_editor:{}] Step 1: createView returned {:p}", self.descriptor.name, view_raw);
+        diag_step!(
+            "[open_editor:{}] Step 1: createView returned {:p}",
+            self.descriptor.name,
+            view_raw
+        );
         if view_raw.is_null() {
             return Err(PluginError::UnsupportedFormat(
                 "Plugin did not provide an editor view".to_string(),
             ));
         }
         let plug_view = view_raw as *mut IPlugView;
-        info!("[VST3-EDITOR] Step 1: createView OK → plug_view={:p}", plug_view);
+        info!(
+            "[VST3-EDITOR] Step 1: createView OK → plug_view={:p}",
+            plug_view
+        );
 
         eprintln!("[CRASH-DIAG] >>> isPlatformTypeSupported about to call");
         info!("[VST3-EDITOR] Step 2: Calling isPlatformTypeSupported('NSView')...");
@@ -1118,9 +469,19 @@ impl Vst3Instance {
                 c"NSView".as_ptr() as *const c_char,
             )
         } == K_RESULT_OK;
-        eprintln!("[CRASH-DIAG] <<< isPlatformTypeSupported returned {}", nsview_supported);
-        diag_step!("[open_editor:{}] Step 2: isPlatformTypeSupported={}", self.descriptor.name, nsview_supported);
-        info!("[VST3-EDITOR] Step 2: isPlatformTypeSupported → {}", nsview_supported);
+        eprintln!(
+            "[CRASH-DIAG] <<< isPlatformTypeSupported returned {}",
+            nsview_supported
+        );
+        diag_step!(
+            "[open_editor:{}] Step 2: isPlatformTypeSupported={}",
+            self.descriptor.name,
+            nsview_supported
+        );
+        info!(
+            "[VST3-EDITOR] Step 2: isPlatformTypeSupported → {}",
+            nsview_supported
+        );
         if !nsview_supported {
             unsafe {
                 let _ = ((*(*plug_view).vtbl).release)(plug_view);
@@ -1146,7 +507,12 @@ impl Vst3Instance {
             let width = (rect.right - rect.left).max(420) as f64;
             let height = (rect.bottom - rect.top).max(300) as f64;
             eprintln!("[CRASH-DIAG] <<< getSize returned {}x{}", width, height);
-            diag_step!("[open_editor:{}] Step 3: getSize={}x{}", self.descriptor.name, width, height);
+            diag_step!(
+                "[open_editor:{}] Step 3: getSize={}x{}",
+                self.descriptor.name,
+                width,
+                height
+            );
             info!("[VST3-EDITOR] Step 3: getSize → {}x{}", width, height);
 
             // BUG-E3 FIX: Check canResize() before adding the resize style mask.
@@ -1189,14 +555,17 @@ impl Vst3Instance {
                     | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle,
             );
 
-            diag_step!("[open_editor:{}] Step 4: NSWindow created at {:p}", self.descriptor.name, window);
+            diag_step!(
+                "[open_editor:{}] Step 4: NSWindow created at {:p}",
+                self.descriptor.name,
+                window
+            );
             info!("[VST3-EDITOR] Step 4: NSWindow created OK");
 
             // BUG-E2 FIX: Set the window title to the plugin name.
             // Previously untitled — confusing when multiple editors are open.
             use cocoa::foundation::NSString;
-            let title = cocoa::foundation::NSString::alloc(nil)
-                .init_str(&self.descriptor.name);
+            let title = cocoa::foundation::NSString::alloc(nil).init_str(&self.descriptor.name);
             window.setTitle_(title);
 
             let content_view = window.contentView();
@@ -1217,9 +586,8 @@ impl Vst3Instance {
             unsafe extern "C" {
                 fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
             }
-            let sel_set_wants_layer = sel_registerName(
-                c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char,
-            );
+            let sel_set_wants_layer =
+                sel_registerName(c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char);
             // Cast objc_msgSend to the exact signature we need (non-variadic).
             // On ARM64, variadic vs non-variadic ABI differs — this typed cast
             // ensures correct register usage.
@@ -1240,7 +608,10 @@ impl Vst3Instance {
             // frame pointer is NULL → Serum2 dereferences offset 0x60 → SIGSEGV.
             window.center();
             window.makeKeyAndOrderFront_(nil);
-            diag_step!("[open_editor:{}] Step 5c: window visible", self.descriptor.name);
+            diag_step!(
+                "[open_editor:{}] Step 5c: window visible",
+                self.descriptor.name
+            );
             info!("[VST3-EDITOR] Step 5c: window centered + makeKeyAndOrderFront");
 
             // ── Wire IPlugFrame for editor resize notifications ──
@@ -1251,13 +622,26 @@ impl Vst3Instance {
             info!("[VST3-EDITOR] Step 6: Creating HostPlugFrame and calling setFrame...");
             let mut frame_box = HostPlugFrame::new(window as usize);
             let frame_ptr = (&mut *frame_box as *mut HostPlugFrame).cast::<c_void>();
-            info!("[VST3-EDITOR] Step 6: HostPlugFrame at {:p}, vtbl at {:p}",
-                  frame_ptr, frame_box.vtable_ptr());
-            eprintln!("[CRASH-DIAG] >>> setFrame about to call, frame_ptr={:p}, plug_view={:p}", frame_ptr, plug_view);
+            info!(
+                "[VST3-EDITOR] Step 6: HostPlugFrame at {:p}, vtbl at {:p}",
+                frame_ptr,
+                frame_box.vtable_ptr()
+            );
+            eprintln!(
+                "[CRASH-DIAG] >>> setFrame about to call, frame_ptr={:p}, plug_view={:p}",
+                frame_ptr, plug_view
+            );
             let set_frame_result = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
             eprintln!("[CRASH-DIAG] <<< setFrame returned {}", set_frame_result);
-            diag_step!("[open_editor:{}] Step 6: setFrame returned {}", self.descriptor.name, set_frame_result);
-            info!("[VST3-EDITOR] Step 6: setFrame returned {}", set_frame_result);
+            diag_step!(
+                "[open_editor:{}] Step 6: setFrame returned {}",
+                self.descriptor.name,
+                set_frame_result
+            );
+            info!(
+                "[VST3-EDITOR] Step 6: setFrame returned {}",
+                set_frame_result
+            );
             self.plug_frame = Some(frame_box);
 
             // ── CRITICAL: Create a dedicated child NSView for plugin embedding ──
@@ -1270,9 +654,12 @@ impl Vst3Instance {
             // window chrome), or a frame that doesn't match the plugin's expected
             // dimensions — causing VSTGUI's internal init to fail → NULL dereference.
             let sel_alloc = sel_registerName(c"alloc".as_ptr() as *const std::os::raw::c_char);
-            let sel_init_with_frame = sel_registerName(c"initWithFrame:".as_ptr() as *const std::os::raw::c_char);
-            let sel_add_subview = sel_registerName(c"addSubview:".as_ptr() as *const std::os::raw::c_char);
-            let sel_set_autoresizing = sel_registerName(c"setAutoresizingMask:".as_ptr() as *const std::os::raw::c_char);
+            let sel_init_with_frame =
+                sel_registerName(c"initWithFrame:".as_ptr() as *const std::os::raw::c_char);
+            let sel_add_subview =
+                sel_registerName(c"addSubview:".as_ptr() as *const std::os::raw::c_char);
+            let sel_set_autoresizing =
+                sel_registerName(c"setAutoresizingMask:".as_ptr() as *const std::os::raw::c_char);
 
             unsafe extern "C" {
                 fn objc_getClass(name: *const std::os::raw::c_char) -> id;
@@ -1287,10 +674,7 @@ impl Vst3Instance {
             let plugin_host_view = send_id(nsview_class, sel_alloc);
 
             // initWithFrame: with the plugin's requested size
-            let plugin_frame = NSRect::new(
-                NSPoint::new(0.0, 0.0),
-                NSSize::new(width, height),
-            );
+            let plugin_frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
             type MsgSendInitFrame = unsafe extern "C" fn(id, *mut c_void, NSRect) -> id;
             let send_init: MsgSendInitFrame = std::mem::transmute(objc_msgSend as *const ());
             let plugin_host_view = send_init(plugin_host_view, sel_init_with_frame, plugin_frame);
@@ -1306,9 +690,8 @@ impl Vst3Instance {
             }
 
             // Enable layer-backing on the plugin host view
-            let sel_set_wants_layer2 = sel_registerName(
-                c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char,
-            );
+            let sel_set_wants_layer2 =
+                sel_registerName(c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char);
             // MsgSendBool already defined above
             let send_bool2: MsgSendBool = std::mem::transmute(objc_msgSend as *const ());
             send_bool2(plugin_host_view, sel_set_wants_layer2, 1);
@@ -1323,12 +706,26 @@ impl Vst3Instance {
             let send_void_id: MsgSendVoidId = std::mem::transmute(objc_msgSend as *const ());
             send_void_id(content_view, sel_add_subview, plugin_host_view);
 
-            info!("[VST3-EDITOR] Step 6b: Created plugin host NSView {:p} ({}x{}), added to contentView {:p}",
-                  plugin_host_view, width, height, content_view);
+            info!(
+                "[VST3-EDITOR] Step 6b: Created plugin host NSView {:p} ({}x{}), added to contentView {:p}",
+                plugin_host_view, width, height, content_view
+            );
 
-            diag_step!("[open_editor:{}] Step 6b: pluginHostView {:p} ({}x{})", self.descriptor.name, plugin_host_view, width, height);
-            diag_step!("[open_editor:{}] Step 7: attached() about to call", self.descriptor.name);
-            eprintln!("[CRASH-DIAG] >>> attached about to call, plugin_host_view={:p} (child of content_view={:p})", plugin_host_view, content_view);
+            diag_step!(
+                "[open_editor:{}] Step 6b: pluginHostView {:p} ({}x{})",
+                self.descriptor.name,
+                plugin_host_view,
+                width,
+                height
+            );
+            diag_step!(
+                "[open_editor:{}] Step 7: attached() about to call",
+                self.descriptor.name
+            );
+            eprintln!(
+                "[CRASH-DIAG] >>> attached about to call, plugin_host_view={:p} (child of content_view={:p})",
+                plugin_host_view, content_view
+            );
             info!("[VST3-EDITOR] Step 7: Calling attached(pluginHostView, 'NSView')...");
 
             // Set IN_ATTACHED guard so resizeView callbacks during attached()
@@ -1340,7 +737,11 @@ impl Vst3Instance {
                 c"NSView".as_ptr() as *const c_char,
             );
             set_editor_in_attached(false);
-            diag_step!("[open_editor:{}] Step 7: attached returned {}", self.descriptor.name, attached);
+            diag_step!(
+                "[open_editor:{}] Step 7: attached returned {}",
+                self.descriptor.name,
+                attached
+            );
             eprintln!("[CRASH-DIAG] <<< attached returned {}", attached);
             info!("[VST3-EDITOR] Step 7: attached returned {}", attached);
             if attached != K_RESULT_OK {
@@ -1374,7 +775,10 @@ impl Vst3Instance {
                 bottom: height as i32,
             };
             let on_size_result = ((*(*plug_view).vtbl).on_size)(plug_view, &mut size_rect);
-            info!("[VST3-EDITOR] Step 8b: onSize({}x{}) returned {}", width, height, on_size_result);
+            info!(
+                "[VST3-EDITOR] Step 8b: onSize({}x{}) returned {}",
+                width, height, on_size_result
+            );
 
             // ── FEATURE-2 FIX: Re-query getSize() after attached() ──
             // Some plugins (e.g. Serum2) report different sizes before and after
@@ -1401,10 +805,8 @@ impl Vst3Instance {
                         "[VST3-EDITOR] Step 8c: post-attached getSize differs: {}x{} → {}x{}, resizing window",
                         width, height, post_w, post_h
                     );
-                    let new_content_rect = NSRect::new(
-                        NSPoint::new(0.0, 0.0),
-                        NSSize::new(post_w, post_h),
-                    );
+                    let new_content_rect =
+                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(post_w, post_h));
                     window.setContentSize_(NSSize::new(post_w, post_h));
                     window.center();
 
@@ -1469,11 +871,15 @@ impl Vst3Instance {
                 let cv_frame = send_rect(content_view, sel_frame);
                 let cv_wants_layer = send_bool(content_view, sel_wants_layer);
 
-                diag!("contentView ptr={:p}, frame=({}, {}, {}, {}), wantsLayer={}",
+                diag!(
+                    "contentView ptr={:p}, frame=({}, {}, {}, {}), wantsLayer={}",
                     content_view,
-                    cv_frame.origin.x, cv_frame.origin.y,
-                    cv_frame.size.width, cv_frame.size.height,
-                    cv_wants_layer);
+                    cv_frame.origin.x,
+                    cv_frame.origin.y,
+                    cv_frame.size.width,
+                    cv_frame.size.height,
+                    cv_wants_layer
+                );
 
                 let subviews_array = send_id(content_view, sel_subviews);
                 let subview_count = send_usize(subviews_array, sel_count);
@@ -1482,7 +888,8 @@ impl Vst3Instance {
                 type MsgSendIdUsize = unsafe extern "C" fn(id, *mut c_void, usize) -> id;
                 let send_id_usize: MsgSendIdUsize = std::mem::transmute(objc_msgSend as *const ());
 
-                type MsgSendPtr = unsafe extern "C" fn(id, *mut c_void) -> *const std::os::raw::c_char;
+                type MsgSendPtr =
+                    unsafe extern "C" fn(id, *mut c_void) -> *const std::os::raw::c_char;
                 let send_ptr: MsgSendPtr = std::mem::transmute(objc_msgSend as *const ());
 
                 for i in 0..subview_count.min(5) {
@@ -1498,11 +905,17 @@ impl Vst3Instance {
                     } else {
                         "null"
                     };
-                    diag!("  subview[{}]: class={}, frame=({}, {}, {}, {}), hidden={}, wantsLayer={}",
-                        i, class_name,
-                        sv_frame.origin.x, sv_frame.origin.y,
-                        sv_frame.size.width, sv_frame.size.height,
-                        sv_hidden, sv_wants_layer);
+                    diag!(
+                        "  subview[{}]: class={}, frame=({}, {}, {}, {}), hidden={}, wantsLayer={}",
+                        i,
+                        class_name,
+                        sv_frame.origin.x,
+                        sv_frame.origin.y,
+                        sv_frame.size.width,
+                        sv_frame.size.height,
+                        sv_hidden,
+                        sv_wants_layer
+                    );
                 }
                 diag!("=== END DIAG ===");
             }
@@ -1529,7 +942,10 @@ impl Vst3Instance {
                 _content_view: content_view as usize,
                 plug_view: plug_view as usize,
             });
-            info!("[VST3-EDITOR] ── open_editor_macos DONE for '{}' ──", self.descriptor.name);
+            info!(
+                "[VST3-EDITOR] ── open_editor_macos DONE for '{}' ──",
+                self.descriptor.name
+            );
         }
 
         Ok(())
@@ -1544,9 +960,7 @@ impl Vst3Instance {
         let window = window_state.window as id;
 
         // Check if the delegate already performed cleanup (user clicked red X).
-        let already_cleaned = unsafe {
-            plugin_window_delegate_already_cleaned(window)
-        };
+        let already_cleaned = unsafe { plugin_window_delegate_already_cleaned(window) };
 
         if !already_cleaned {
             // CRITICAL: Mark the delegate as cleaned BEFORE doing VST3 cleanup.
@@ -1656,33 +1070,44 @@ impl Vst3Instance {
                     None
                 }
             } else {
-                info!("[VST3] No bundleEntry symbol found for '{}' (this is OK for most plugins)", descriptor.name);
+                info!(
+                    "[VST3] No bundleEntry symbol found for '{}' (this is OK for most plugins)",
+                    descriptor.name
+                );
                 None
             }
         };
         #[cfg(not(target_os = "macos"))]
         {
-            if let Ok(init_fn) = unsafe {
-                library.get::<unsafe extern "C" fn() -> bool>(b"InitDll\0")
-            } {
+            if let Ok(init_fn) =
+                unsafe { library.get::<unsafe extern "C" fn() -> bool>(b"InitDll\0") }
+            {
                 let result = unsafe { init_fn() };
-                info!("[VST3] InitDll called for '{}': result={}", descriptor.name, result);
+                info!(
+                    "[VST3] InitDll called for '{}': result={}",
+                    descriptor.name, result
+                );
             }
         }
 
         // Attempt real VST3 COM bootstrap.
-        let (factory_ptr, component_ptr, processor_ptr, controller_ptr,
-             processor_from_component_qi, controller_from_component_qi) =
-            match Self::init_vst3_com(&library) {
-                Ok(ptrs) => ptrs,
-                Err(err) => {
-                    info!(
-                        "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
-                        descriptor.name, err
-                    );
-                    (0, 0, 0, 0, false, false)
-                }
-            };
+        let (
+            factory_ptr,
+            component_ptr,
+            processor_ptr,
+            controller_ptr,
+            processor_from_component_qi,
+            controller_from_component_qi,
+        ) = match init_vst3_com(&library) {
+            Ok(ptrs) => ptrs,
+            Err(err) => {
+                info!(
+                    "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
+                    descriptor.name, err
+                );
+                (0, 0, 0, 0, false, false)
+            }
+        };
 
         let process_fn = unsafe {
             library
@@ -1865,15 +1290,13 @@ impl PluginInstance for Vst3Instance {
                     // bus is activated but receives silence. We dynamically activate bus 1
                     // only when actual sidechain signal is present in process().
                     if self.audio_input_bus_count > 0 {
-                        let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, 0, 1,
-                        );
+                        let _ =
+                            ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 0, 1);
                     }
                     if self.audio_input_bus_count > 1 {
                         // Deactivate sidechain bus by default — will be activated dynamically.
-                        let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, 1, 0,
-                        );
+                        let _ =
+                            ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 1, 0);
                         self.sidechain_bus_active = false;
                     }
                     // ── VST3 Spec: Activate ALL audio output buses ──
@@ -1897,17 +1320,17 @@ impl PluginInstance for Vst3Instance {
 
                     // BUG-C4 FIX: Activate event (MIDI) input/output buses.
                     // Without this, some plugins silently ignore MIDI events.
-                    let event_input_count = ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_INPUT).max(0);
+                    let event_input_count =
+                        ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_INPUT).max(0);
                     if event_input_count > 0 {
-                        let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_EVENT, K_INPUT, 0, 1,
-                        );
+                        let _ =
+                            ((*(*component).vtbl).activate_bus)(component, K_EVENT, K_INPUT, 0, 1);
                     }
-                    let event_output_count = ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_OUTPUT).max(0);
+                    let event_output_count =
+                        ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_OUTPUT).max(0);
                     if event_output_count > 0 {
-                        let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_EVENT, K_OUTPUT, 0, 1,
-                        );
+                        let _ =
+                            ((*(*component).vtbl).activate_bus)(component, K_EVENT, K_OUTPUT, 0, 1);
                     }
 
                     let _ = ((*(*component).vtbl).set_active)(component, 1);
@@ -1928,8 +1351,12 @@ impl PluginInstance for Vst3Instance {
                     // BUG-19 FIX: Only initialize controller once, and only if it's
                     // a separate COM object from the component.
                     if !self.host_initialized && !controller_is_component {
-                        let init_res = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
-                        info!("[VST3] IEditController::initialize() result: {} for '{}'", init_res, self.descriptor.name);
+                        let init_res =
+                            ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
+                        info!(
+                            "[VST3] IEditController::initialize() result: {} for '{}'",
+                            init_res, self.descriptor.name
+                        );
                     }
                     // Bug 15: Register IComponentHandler so plugins can notify
                     // host about parameter edits (beginEdit/endEdit/performEdit).
@@ -1939,7 +1366,10 @@ impl PluginInstance for Vst3Instance {
                             controller,
                             component_handler_ptr(),
                         );
-                        info!("[VST3] setComponentHandler() result: {} for '{}'", sch_res, self.descriptor.name);
+                        info!(
+                            "[VST3] setComponentHandler() result: {} for '{}'",
+                            sch_res, self.descriptor.name
+                        );
                     }
 
                     // ── VST3 Spec: Wire IConnectionPoint between component and controller ──
@@ -1947,7 +1377,8 @@ impl PluginInstance for Vst3Instance {
                     // MUST connect them via IConnectionPoint so they can exchange messages.
                     // Without this, plugins like Serum2 crash in createView() because the
                     // controller cannot communicate with the component.
-                    if !self.host_initialized && !controller_is_component && self.component_ptr != 0 {
+                    if !self.host_initialized && !controller_is_component && self.component_ptr != 0
+                    {
                         let comp = self.component_ptr as *mut IComponent;
                         let mut cp_comp_raw: *mut c_void = ptr::null_mut();
                         let mut cp_ctrl_raw: *mut c_void = ptr::null_mut();
@@ -1961,8 +1392,10 @@ impl PluginInstance for Vst3Instance {
                             IID_ICONNECTION_POINT.as_ptr() as *const c_char,
                             &mut cp_ctrl_raw,
                         );
-                        if qi1 == K_RESULT_OK && qi2 == K_RESULT_OK
-                            && !cp_comp_raw.is_null() && !cp_ctrl_raw.is_null()
+                        if qi1 == K_RESULT_OK
+                            && qi2 == K_RESULT_OK
+                            && !cp_comp_raw.is_null()
+                            && !cp_ctrl_raw.is_null()
                         {
                             let cp_comp = cp_comp_raw as *mut IConnectionPoint;
                             let cp_ctrl = cp_ctrl_raw as *mut IConnectionPoint;
@@ -2049,9 +1482,8 @@ impl PluginInstance for Vst3Instance {
             // BUG-C5 FIX: Verify the plugin supports 32-bit float before
             // calling setupProcessing. Without this, plugins that only support
             // 64-bit double processing will silently produce garbage.
-            let can_32 = unsafe {
-                ((*(*processor).vtbl).can_process_sample_size)(processor, K_SAMPLE32)
-            };
+            let can_32 =
+                unsafe { ((*(*processor).vtbl).can_process_sample_size)(processor, K_SAMPLE32) };
             if can_32 != K_RESULT_OK {
                 info!(
                     "[VST3] WARNING: Plugin '{}' does not support kSample32 (result={})",
@@ -2301,7 +1733,7 @@ impl PluginInstance for Vst3Instance {
             } else {
                 ptr::null_mut()
             };
-            let mut process_ctx = Vst3ProcessContext::from_transport(&self.transport_ctx);
+            let mut process_ctx = process_context_from_transport(&self.transport_ctx);
             // ── Build IEventList from MIDI events ──
             let mut host_events = HostEventList::from_midi_events(midi_events);
             let input_events_ptr = if host_events.has_events() {
@@ -2518,9 +1950,16 @@ impl PluginInstance for Vst3Instance {
         // Diagnostic: trace editor open flow
         {
             use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/dream-daw-diag.txt") {
-                let _ = writeln!(f, "[open_editor] name='{}', is_active={}, editor_open={}, controller_ptr=0x{:x}",
-                    self.descriptor.name, self.is_active, self.editor_open, self.controller_ptr);
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/dream-daw-diag.txt")
+            {
+                let _ = writeln!(
+                    f,
+                    "[open_editor] name='{}', is_active={}, editor_open={}, controller_ptr=0x{:x}",
+                    self.descriptor.name, self.is_active, self.editor_open, self.controller_ptr
+                );
                 let _ = f.flush();
             }
         }
@@ -2597,18 +2036,19 @@ impl PluginInstance for Vst3Instance {
         // New format: [4-byte magic 'DDS1'][4-byte component_len (LE)][component_data][controller_data]
         // Old format: raw component-only data (no magic header)
         let magic = b"DDS1";
-        let (component_data, controller_data): (&[u8], &[u8]) = if data.len() >= 8 && &data[..4] == magic {
-            let comp_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
-            if 8 + comp_len <= data.len() {
-                (&data[8..8 + comp_len], &data[8 + comp_len..])
+        let (component_data, controller_data): (&[u8], &[u8]) =
+            if data.len() >= 8 && &data[..4] == magic {
+                let comp_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+                if 8 + comp_len <= data.len() {
+                    (&data[8..8 + comp_len], &data[8 + comp_len..])
+                } else {
+                    // Corrupted header, treat entire blob as component data
+                    (data, &[] as &[u8])
+                }
             } else {
-                // Corrupted header, treat entire blob as component data
+                // Old format: component-only data
                 (data, &[] as &[u8])
-            }
-        } else {
-            // Old format: component-only data
-            (data, &[] as &[u8])
-        };
+            };
 
         let mut stream = HostReadStream::new(component_data.to_vec());
         let component = self.component_ptr as *mut IComponent;
@@ -2628,7 +2068,9 @@ impl PluginInstance for Vst3Instance {
         if status != K_RESULT_OK {
             info!(
                 "[VST3] set_state returned non-zero status {} for '{}' (kind={}) — treating as soft warning",
-                status, self.descriptor.name, kind.unwrap_or("unknown")
+                status,
+                self.descriptor.name,
+                kind.unwrap_or("unknown")
             );
         }
         // Per VST3 spec: after IComponent::setState, call
@@ -2661,7 +2103,8 @@ impl PluginInstance for Vst3Instance {
                 } else {
                     info!(
                         "[VST3] IEditController::setState OK for '{}' ({} bytes)",
-                        self.descriptor.name, controller_data.len()
+                        self.descriptor.name,
+                        controller_data.len()
                     );
                 }
             }
@@ -2742,394 +2185,6 @@ impl PluginInstance for Vst3Instance {
             combined.len()
         );
         Ok(combined)
-    }
-}
-
-
-// ── Plugin Host (Instance Registry) ───────────────────────────────────
-
-pub type PluginInstanceArc = std::sync::Arc<parking_lot::Mutex<Box<dyn PluginInstance>>>;
-
-/// Manages all loaded plugin instances.
-///
-/// The host owns all active plugin instances and provides methods to:
-///   - Load and activate new instances.
-///   - Access instances by ID for processing.
-///   - Deactivate and unload instances.
-///
-/// This is NOT `Send` — it lives on the UI thread.
-/// The audio thread accesses a snapshot via the execution plan.
-pub struct PluginHost {
-    /// All active plugin instances, keyed by their unique ID.
-    instances: Vec<PluginInstanceArc>,
-    instance_index: HashMap<Uuid, usize>,
-
-    /// Current audio configuration.
-    sample_rate: f64,
-    buffer_size: usize,
-}
-
-impl PluginHost {
-    /// Creates a new empty plugin host.
-    pub fn new(sample_rate: f64, buffer_size: usize) -> Self {
-        Self {
-            instances: Vec::new(),
-            instance_index: HashMap::new(),
-            sample_rate,
-            buffer_size,
-        }
-    }
-
-    /// Loads, activates, and registers a VST3 plugin.
-    pub fn load_vst3(&mut self, descriptor: PluginDescriptor) -> Result<Uuid, PluginError> {
-        let mut instance = Vst3Instance::load(descriptor)?;
-        instance.activate(self.sample_rate, self.buffer_size)?;
-
-        let id = instance.id();
-        info!("[PluginHost] Registered instance: {}", id);
-
-        self.instances.push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(instance))));
-        self.instance_index.insert(id, self.instances.len() - 1);
-        Ok(id)
-    }
-
-    /// Reactivates all loaded plugin instances with a new sample rate
-    /// and/or buffer size. This is necessary when the audio device
-    /// configuration changes at runtime (e.g., user switches interface).
-    ///
-    /// Each instance is deactivated, then reactivated with the new config.
-    /// Errors are logged but do not halt processing of remaining instances.
-    pub fn reactivate_all(&mut self, sample_rate: f64, buffer_size: usize) {
-        info!(
-            "[PluginHost] Reactivating {} instances @ {}Hz, {} frames",
-            self.instances.len(), sample_rate, buffer_size
-        );
-        self.sample_rate = sample_rate;
-        self.buffer_size = buffer_size;
-
-        for instance_arc in self.instances.iter_mut() {
-            let mut instance = instance_arc.lock();
-            if let Err(e) = instance.deactivate() {
-                info!(
-                    "[PluginHost] Deactivation warning for {}: {}",
-                    instance.id(), e
-                );
-            }
-            if let Err(e) = instance.activate(sample_rate, buffer_size) {
-                info!(
-                    "[PluginHost] Reactivation failed for {}: {}",
-                    instance.id(), e
-                );
-            }
-        }
-    }
-
-    /// Registers an out-of-process sandboxed plugin instance.
-    ///
-    /// The external daemon is expected to own the actual plugin runtime;
-    /// this instance provides a shared-memory bridge under the same
-    /// `PluginInstance` trait contract.
-    pub fn load_vst3_sandboxed(
-        &mut self,
-        instance_id: Uuid,
-        descriptor: PluginDescriptor,
-        shared_region_path: std::path::PathBuf,
-        num_inputs: u16,
-        num_outputs: u16,
-        max_frames: u32,
-    ) -> Result<Uuid, PluginError> {
-        let mut instance = SandboxedPluginInstance::create(
-            instance_id,
-            descriptor,
-            shared_region_path,
-            num_inputs,
-            num_outputs,
-            max_frames,
-        )?;
-        instance.activate(self.sample_rate, self.buffer_size)?;
-        let id = instance.id();
-        info!("[PluginHost] Registered sandboxed instance: {}", id);
-        self.instances.push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(instance))));
-        self.instance_index.insert(id, self.instances.len() - 1);
-        Ok(id)
-    }
-
-    /// Returns a mutable reference to a plugin instance by its ID.
-    pub fn get_mut(&mut self, id: Uuid) -> Option<&mut PluginInstanceArc> {
-        let idx = *self.instance_index.get(&id)?;
-        self.instances.get_mut(idx)
-    }
-
-    /// Sets transport context for an instance (RT-safe call-through).
-    pub fn set_transport_context(
-        &mut self,
-        id: Uuid,
-        ctx: TransportContext,
-    ) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.set_transport_context(ctx);
-        Ok(())
-    }
-
-    /// Queues a parameter change for a specific plugin instance.
-    pub fn set_parameter(&mut self, id: Uuid, index: u32, value: f64) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.set_parameter(index, value)
-    }
-
-    /// Processes one plugin instance with optional sidechain bus and MIDI events.
-    pub fn process_with_sidechain(
-        &mut self,
-        id: Uuid,
-        main_inputs: &[&[f32]],
-        sidechain_inputs: Option<&[&[f32]]>,
-        outputs: &mut [&mut [f32]],
-        num_frames: usize,
-        midi_events: &[MidiEvent],
-    ) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.process_with_sidechain(main_inputs, sidechain_inputs, outputs, num_frames, midi_events)
-    }
-
-    /// Removes and deactivates a plugin instance by its ID.
-    pub fn remove(&mut self, id: Uuid) -> Result<(), PluginError> {
-        let Some(pos) = self.instance_index.remove(&id) else {
-            return Err(PluginError::InvalidState(format!(
-                "Instance {} not found",
-                id
-            )));
-        };
-
-        let instance_arc = self.instances.swap_remove(pos);
-        let mut instance = instance_arc.lock();
-        let _ = instance.close_editor();
-        instance.deactivate()?;
-
-        if pos < self.instances.len() {
-            let swapped_id = self.instances[pos].lock().id();
-            self.instance_index.insert(swapped_id, pos);
-        }
-
-        info!("[PluginHost] Removed instance: {}", id);
-        Ok(())
-    }
-
-    /// Gracefully shuts down all loaded plugin instances.
-    ///
-    /// This method **must** be called before the process exits to prevent
-    /// SIGSEGV crashes caused by third-party C++ plugins whose static
-    /// destructors attempt to use resources that are already torn down
-    /// during `exit()` (e.g., SlateCore sending ObjC messages to nil objects).
-    ///
-    /// Each instance is closed (editor) and deactivated in reverse order.
-    /// Errors are logged but do not halt the teardown of remaining instances —
-    /// resilience is critical here since we are shutting down.
-    pub fn shutdown_all(&mut self) {
-        let count = self.instances.len();
-        if count == 0 {
-            info!("[PluginHost] shutdown_all — no instances to tear down");
-            return;
-        }
-        info!("[PluginHost] shutdown_all — tearing down {} instance(s)", count);
-
-        // Drain in reverse order — last loaded, first unloaded.
-        while let Some(instance_arc) = self.instances.pop() {
-            let mut instance = instance_arc.lock();
-            let id = instance.id();
-            let name = instance.descriptor().name.clone();
-
-            if let Err(e) = instance.close_editor() {
-                log::warn!(
-                    "[PluginHost] shutdown_all: close_editor failed for '{}' ({}): {}",
-                    name, id, e
-                );
-            }
-            if let Err(e) = instance.deactivate() {
-                log::warn!(
-                    "[PluginHost] shutdown_all: deactivate failed for '{}' ({}): {}",
-                    name, id, e
-                );
-            }
-            info!("[PluginHost] shutdown_all: released '{}' ({})", name, id);
-        }
-
-        self.instance_index.clear();
-        info!("[PluginHost] shutdown_all — complete, all instances released");
-    }
-
-    /// Returns the number of active instances.
-    pub fn instance_count(&self) -> usize {
-        self.instances.len()
-    }
-
-    /// Returns a snapshot of all active plugin instances for publishing to the
-    /// audio thread's `SharedPluginRegistry`. Each entry maps
-    /// `instance_id -> Arc<Mutex<PluginInstance>>`.
-    ///
-    /// This is called after every plugin load/unload to keep the registry in
-    /// sync with the host. The audio thread uses this registry to call
-    /// `process()` on VST3 instruments and FX.
-    pub fn snapshot_registry(&self) -> HashMap<Uuid, PluginInstanceArc> {
-        let mut map = HashMap::with_capacity(self.instances.len());
-        for instance_arc in &self.instances {
-            let id = instance_arc.lock().id();
-            map.insert(id, std::sync::Arc::clone(instance_arc));
-        }
-        map
-    }
-
-    /// Returns an immutable reference to a plugin instance by its ID.
-    pub fn get(&self, id: Uuid) -> Option<&PluginInstanceArc> {
-        let idx = *self.instance_index.get(&id)?;
-        self.instances.get(idx)
-    }
-
-    /// Captures the current state of all loaded plugin instances.
-    ///
-    /// Returns a map of instance_id → raw state bytes for each instance
-    /// that successfully serializes its state. Errors are logged but do not
-    /// prevent other instances from being captured.
-    pub fn save_all_states(&self) -> HashMap<Uuid, Vec<u8>> {
-        let mut states = HashMap::new();
-        log::info!(
-            "[PluginHost] save_all_states called — {} instances in host, index has {} entries",
-            self.instances.len(),
-            self.instance_index.len()
-        );
-        for instance_arc in &self.instances {
-            let instance = instance_arc.lock();
-            match instance.save_state() {
-                Ok(bytes) if !bytes.is_empty() => {
-                    info!(
-                        "[PluginHost] Captured state for '{}' ({} bytes)",
-                        instance.descriptor().name,
-                        bytes.len()
-                    );
-                    states.insert(instance.id(), bytes);
-                }
-                Ok(_) => {
-                    // Empty state — built-in effect or no state to save
-                }
-                Err(e) => {
-                    log::warn!(
-                        "[PluginHost] Failed to capture state for '{}': {}",
-                        instance.descriptor().name,
-                        e
-                    );
-                }
-            }
-        }
-        states
-    }
-
-    /// Saves the state of a single plugin instance by UUID.
-    /// Returns None if the instance is not found or has no state.
-    pub fn save_instance_state(&self, id: Uuid) -> Option<Vec<u8>> {
-        self.instances.iter()
-            .find(|inst| inst.lock().id() == id)
-            .and_then(|inst| inst.lock().save_state().ok())
-            .filter(|bytes| !bytes.is_empty())
-    }
-
-    /// Updates the audio configuration for all instances.
-    pub fn set_audio_config(
-        &mut self,
-        sample_rate: f64,
-        buffer_size: usize,
-    ) -> Result<(), PluginError> {
-        self.sample_rate = sample_rate;
-        self.buffer_size = buffer_size;
-
-        // BUG-RT4 FIX: Continue past errors so ALL instances get reconfigured.
-        // Previously used `?` which stopped on first failure, leaving remaining
-        // instances in inconsistent state with stale sample rate / buffer size.
-        let mut first_error: Option<PluginError> = None;
-        for instance_arc in &mut self.instances {
-            let mut instance = instance_arc.lock();
-            if let Err(e) = instance.deactivate() {
-                info!("[PluginHost] Warning: deactivate failed for '{}': {}", instance.descriptor().name, e);
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
-            }
-            if let Err(e) = instance.activate(sample_rate, buffer_size) {
-                info!("[PluginHost] Warning: activate failed for '{}': {}", instance.descriptor().name, e);
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
-            }
-        }
-
-        info!(
-            "[PluginHost] Audio config updated: {}Hz, {} frames, {} instances{}",
-            sample_rate,
-            buffer_size,
-            self.instances.len(),
-            if first_error.is_some() { " (with errors)" } else { "" }
-        );
-
-        match first_error {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    }
-
-    /// Opens native editor for a specific plugin instance.
-    pub fn open_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.open_editor()
-    }
-
-    /// Closes native editor for a specific plugin instance.
-    pub fn close_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.close_editor()
-    }
-
-    /// Returns whether a plugin instance supports opening a native editor.
-    pub fn supports_editor(&mut self, id: Uuid) -> Result<bool, PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let instance = instance_arc.lock();
-        Ok(instance.supports_editor())
-    }
-
-    /// Returns plugin reported processing latency in samples.
-    pub fn latency_samples(&mut self, id: Uuid) -> Result<u32, PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let instance = instance_arc.lock();
-        Ok(instance.latency_samples())
-    }
-
-    pub fn load_state_blob(
-        &mut self,
-        id: Uuid,
-        kind: Option<&str>,
-        data: &[u8],
-    ) -> Result<(), PluginError> {
-        let instance_arc = self
-            .get_mut(id)
-            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
-        instance.load_state_blob(kind, data)
     }
 }
 

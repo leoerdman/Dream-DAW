@@ -41,20 +41,16 @@ pub const IID_ICONNECTION_POINT: Tuid = [
     0x70, 0xA4, 0x15, 0x6F, 0x6E, 0x6E, 0x40, 0x26, 0x98, 0x91, 0x48, 0xBF, 0xAA, 0x60, 0xD8, 0xD1,
 ];
 pub const IID_IMESSAGE: Tuid = [
-    0x93, 0x6F, 0x03, 0x3B, 0xC6, 0xC0, 0x47, 0xDB,
-    0xBB, 0x08, 0x82, 0xF8, 0x13, 0xC1, 0xE6, 0x13,
+    0x93, 0x6F, 0x03, 0x3B, 0xC6, 0xC0, 0x47, 0xDB, 0xBB, 0x08, 0x82, 0xF8, 0x13, 0xC1, 0xE6, 0x13,
 ];
 pub const IID_IATTRIBUTE_LIST: Tuid = [
-    0x1E, 0x5F, 0x0A, 0xEB, 0xCC, 0x7F, 0x45, 0x33,
-    0xA2, 0x54, 0x40, 0x11, 0x38, 0xAD, 0x5E, 0xE4,
+    0x1E, 0x5F, 0x0A, 0xEB, 0xCC, 0x7F, 0x45, 0x33, 0xA2, 0x54, 0x40, 0x11, 0x38, 0xAD, 0x5E, 0xE4,
 ];
 pub const IID_IPLUG_INTERFACE_SUPPORT: Tuid = [
-    0xA3, 0xB8, 0xC6, 0xC5, 0xC0, 0x95, 0x46, 0x88,
-    0xB0, 0x91, 0x6F, 0x0B, 0xB6, 0x97, 0xAA, 0x44,
+    0xA3, 0xB8, 0xC6, 0xC5, 0xC0, 0x95, 0x46, 0x88, 0xB0, 0x91, 0x6F, 0x0B, 0xB6, 0x97, 0xAA, 0x44,
 ];
 pub const IID_ICOMPONENT_HANDLER_2: Tuid = [
-    0xF0, 0x40, 0xB4, 0xB3, 0xA3, 0x60, 0x45, 0xEC,
-    0xAB, 0xCD, 0xDE, 0x7E, 0x3F, 0xBC, 0xA9, 0xED,
+    0xF0, 0x40, 0xB4, 0xB3, 0xA3, 0x60, 0x45, 0xEC, 0xAB, 0xCD, 0xDE, 0x7E, 0x3F, 0xBC, 0xA9, 0xED,
 ];
 
 // ── ProcessContext state flags ─────────────────────────────────────────────
@@ -226,8 +222,7 @@ pub struct IEditControllerVtbl {
     pub set_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub get_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub get_parameter_count: unsafe extern "C" fn(*mut IEditController) -> i32,
-    pub get_parameter_info:
-        unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
+    pub get_parameter_info: unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
     pub get_param_string_by_value:
         unsafe extern "C" fn(*mut IEditController, u32, f64, *mut u16) -> Tresult,
     pub get_param_value_by_string:
@@ -236,8 +231,7 @@ pub struct IEditControllerVtbl {
     pub plain_param_to_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
     pub get_param_normalized: unsafe extern "C" fn(*mut IEditController, u32) -> f64,
     pub set_param_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> Tresult,
-    pub set_component_handler:
-        unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    pub set_component_handler: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub create_view: unsafe extern "C" fn(*mut IEditController, *const c_char) -> *mut c_void,
 }
 
@@ -252,10 +246,8 @@ pub struct IConnectionPointVtbl {
         unsafe extern "C" fn(*mut IConnectionPoint, *const c_char, *mut *mut c_void) -> Tresult,
     pub add_ref: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
     pub release: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
-    pub connect:
-        unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
-    pub disconnect:
-        unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+    pub connect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+    pub disconnect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
 }
 
 #[repr(C)]
@@ -342,7 +334,8 @@ pub struct IAudioProcessorVtbl {
         unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut c_void) -> Tresult,
     pub can_process_sample_size: unsafe extern "C" fn(*mut IAudioProcessor, i32) -> Tresult,
     pub get_latency_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    pub setup_processing: unsafe extern "C" fn(*mut IAudioProcessor, *const ProcessSetup) -> Tresult,
+    pub setup_processing:
+        unsafe extern "C" fn(*mut IAudioProcessor, *const ProcessSetup) -> Tresult,
     pub set_processing: unsafe extern "C" fn(*mut IAudioProcessor, i8) -> Tresult,
     pub process: unsafe extern "C" fn(*mut IAudioProcessor, *mut ProcessData) -> Tresult,
     pub get_tail_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,

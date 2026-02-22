@@ -326,7 +326,7 @@ fn find_clip_position_frames(project: &Project, clip_id: Uuid) -> Option<i64> {
 // core/dream_importers/src/stem_separation.rs
 // ═══════════════════════════════════════════════════════════════════════
 use dream_importers::stem_separation::{
-    compute_file_fingerprint, get_cached_or_build_stems, make_bounce_output_path, run_demucs_4stems,
+    get_cached_or_build_stems, make_bounce_output_path,
 };
 
 fn place_bounced_file_on_new_track(

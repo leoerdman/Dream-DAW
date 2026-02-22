@@ -32,7 +32,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -60,9 +60,9 @@ use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::PlaybackState;
 use dream_models::midi::{MidiClip, MidiNote, SamplerConfig, SampleRackConfig};
-use dream_models::mutators::{self, MutatorError};
+use dream_models::mutators::{self};
 use dream_models::project::{
-    AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track,
+    AudioClip, DeviceNode, PluginSlot, Project, Track,
     TrackColor, TrackType,
 };
 use dream_models::time::AbsoluteTime;
@@ -193,6 +193,10 @@ use snapshot::*;
 // Extracted to: apps/desktop_host/src/settings.rs
 mod settings;
 use settings::*;
+
+// Sandbox crash mapping and project plugin-slot bypass helpers.
+mod plugin_sandbox_recovery;
+use plugin_sandbox_recovery::*;
 
 
 
@@ -2827,55 +2831,6 @@ impl PluginHostState {
             .map_err(|e| format!("Sandbox set parameter failed: {e}"))?;
         Ok(true)
     }
-}
-
-fn bypass_plugin_slots_in_project(
-    project: &mut Project,
-    slot_ids: &HashSet<Uuid>,
-) -> usize {
-    fn bypass_in_node(node: &mut DeviceNode, slot_ids: &HashSet<Uuid>, changed: &mut usize) {
-        for slot in node.collect_plugin_slots_mut() {
-            if slot_ids.contains(&slot.id) && !slot.is_bypassed {
-                slot.is_bypassed = true;
-                *changed = changed.saturating_add(1);
-            }
-        }
-    }
-
-    let mut changed = 0usize;
-    for track in &mut project.tracks {
-        if let Some(inst) = track.instrument.as_mut() {
-            bypass_in_node(inst, slot_ids, &mut changed);
-        }
-        for node in &mut track.effects {
-            bypass_in_node(node, slot_ids, &mut changed);
-        }
-    }
-    for node in &mut project.master_track.effects {
-        bypass_in_node(node, slot_ids, &mut changed);
-    }
-    changed
-}
-
-fn crashed_instance_ids(crashes: &[PluginCrashEvent]) -> HashSet<Uuid> {
-    crashes.iter().map(|c| c.instance_id).collect()
-}
-
-fn slot_ids_for_crashes(
-    slot_instance_map: &HashMap<Uuid, Uuid>,
-    crashes: &[PluginCrashEvent],
-) -> HashSet<Uuid> {
-    let crashed = crashed_instance_ids(crashes);
-    slot_instance_map
-        .iter()
-        .filter_map(|(slot_id, instance_id)| {
-            if crashed.contains(instance_id) {
-                Some(*slot_id)
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 impl RecordingRuntime {

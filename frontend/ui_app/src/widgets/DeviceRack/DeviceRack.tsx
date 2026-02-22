@@ -78,7 +78,6 @@ export const DeviceRack = ({
         toggleGlobalAutomation,
         statusClear,
         statusError,
-        fetchProject,
         applyProjectDeltas,
         togglePluginEditor,
     } = logic;

@@ -5,7 +5,6 @@ import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
-
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 
 interface SampleRackProps {
@@ -28,9 +27,6 @@ const PAD_COLORS: Record<number, string> = {
     8: '#5ce0a6', 9: '#5ce0a6', 10: '#f0c430', 11: '#f0c430',
     12: '#f0c430', 13: '#f0c430', 14: '#cf8ef7', 15: '#cf8ef7',
 };
-
-
-
 // ── Mini Waveform Bar ────────────────────────────────────────────
 const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePath: string }) {
     const [peaks, setPeaks] = useState<engineApi.PeakPair[] | null>(null);

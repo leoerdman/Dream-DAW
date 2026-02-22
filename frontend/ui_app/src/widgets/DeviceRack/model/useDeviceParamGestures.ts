@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import * as engineApi from '@/shared/api/engineApi';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { DeviceSlot } from '../model/types';
 import { clampAndSnapParamValue } from '../model/deviceRackCatalog';
 import { RUNTIME_PARAM_INDEX_BY_EFFECT, internalParamIdForControl } from '../model/deviceRackCatalog';
@@ -179,13 +180,14 @@ export function useDeviceParamGestures(
             let sender = throttledParamSendsRef.current.get(key);
             if (!sender) {
                 sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
-                    await engineApi.setInternalPluginParam(
+                    const response = await engineApi.setInternalPluginParamWithDeltas(
                         selectedTrack.id,
                         device.id,
                         scopedParamId,
                         v,
                         { pushUndoStep: pushUndo },
                     );
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-gesture');
                 });
                 throttledParamSendsRef.current.set(key, sender);
             }
@@ -241,10 +243,10 @@ export function useDeviceParamGestures(
                 const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
                 if (!effectType) return;
                 const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
-                void engineApi.setInternalPluginParam(
+                void engineApi.setInternalPluginParamWithDeltas(
                     entry.trackId, entry.deviceId, scopedParamId, entry.value,
                     { pushUndoStep: index === 0 },
-                ).catch((err) => {
+                ).then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit')).catch((err) => {
                     console.error('[DeviceRack] setInternalPluginParam(commit) failed:', err);
                 });
             });

@@ -194,13 +194,11 @@ export const DawShell = () => {
     );
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
-    const { filePath: projectFilePath } = useProjectManager(fetchProject);
+    const { filePath: projectFilePath } = useProjectManager(syncProjectSnapshotDelta);
 
     // ── Native macOS Menu Bar (File, Edit, Window) ──
-    // NOTE: Do NOT pass fetchProject as onProjectChange here.
-    // useNativeMenu already calls fetchProject internally (via useEngineStore.getState()).
-    // Passing fetchProject again caused a redundant second fetchProject call after
-    // each project action, racing with the first via the stale-response guard.
+    // NOTE: onProjectChange callback not needed here.
+    // Native menu performs snapshot-delta sync through store actions.
     useNativeMenu();
 
     // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
@@ -214,7 +212,7 @@ export const DawShell = () => {
         editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
-        onProjectMutated: fetchProject,
+        onProjectMutated: () => void syncProjectSnapshotDelta('keyboard-shortcut'),
         onTogglePlayback: togglePlay,
         onClipSelectionChanged: setSelectedClipIds,
     });

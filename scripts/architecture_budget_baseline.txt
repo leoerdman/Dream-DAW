@@ -68,7 +68,6 @@ ts frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx 346
 ts frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx 356
 ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
 # Widgets — TrackInspector
-ts frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx 1487
 ts frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx 324
 ts frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx 671
 # Widgets — TransportBar

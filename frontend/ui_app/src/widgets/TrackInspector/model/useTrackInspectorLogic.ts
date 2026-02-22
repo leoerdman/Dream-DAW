@@ -10,7 +10,6 @@ import { useTrackInspectorKeyboardShortcuts } from '@/widgets/TrackInspector/mod
 import { useTrackInspectorDragDrop } from '@/widgets/TrackInspector/model/useTrackInspectorDragDrop';
 import { useTrackInspectorDerivedState } from '@/widgets/TrackInspector/model/useTrackInspectorDerivedState';
 import { useTrackInspectorProjectRefresh } from '@/widgets/TrackInspector/model/useTrackInspectorProjectRefresh';
-
 export interface UseTrackInspectorLogicProps {
     selectedTrackId: string;
     selectedTrackIds?: string[];
@@ -34,7 +33,6 @@ export function useTrackInspectorLogic({
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: UseTrackInspectorLogicProps) {
     const debouncedFetchProject = useTrackInspectorProjectRefresh();
-
     const {
         trackIds,
         tracksByIdState,

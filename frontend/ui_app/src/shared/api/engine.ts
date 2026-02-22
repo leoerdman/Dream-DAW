@@ -520,7 +520,6 @@ export const eagerActivateExternalPlugins = () =>
 export const getRecentProjects = () =>
     invoke<RecentProject[]>('get_recent_projects');
 
-export const getProject = () => invoke<unknown>('get_project');
 export const getProjectSnapshotDelta = () =>
     invoke<DeltaMutationResponse>('get_project_snapshot_delta_cmd');
 

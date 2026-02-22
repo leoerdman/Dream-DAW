@@ -4,7 +4,13 @@ import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
-import type { DeltaApplyResult, DeltaApplyState, DeltaWorkingState, EntityState } from './delta/types';
+import type {
+    DeltaApplyResult,
+    DeltaApplyState,
+    DeltaWorkingState,
+    EntityState,
+    SnapshotProjectMeta,
+} from './delta/types';
 
 export type { DeltaApplyResult, DeltaApplyState } from './delta/types';
 
@@ -15,18 +21,69 @@ function toEntityState<T extends { id: string }>(items: T[]): EntityState<T> {
     };
 }
 
+function toFiniteNumber(value: unknown, fallback = 0): number {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+    if (typeof value === 'bigint') return Number(value);
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+type SnapshotProjectShape = {
+    pulse_map?: { tempo_events?: Array<{ bpm: number }> };
+    sample_rate?: number;
+    key_sig_enabled?: boolean;
+    key_sig_tonic?: string;
+    key_sig_mode?: string;
+    is_looping?: boolean;
+    loop_start_frames?: number | null;
+    loop_end_frames?: number | null;
+    arrangement_grid_numerator?: number;
+    arrangement_grid_denominator?: number;
+    arrangement_grid_ntoles?: number;
+    arrangement_snap_to_grid?: boolean;
+    arrangement_grid_fixed?: boolean;
+};
+
+export function extractSnapshotProjectMeta(
+    deltas: ProjectDelta[],
+    transport: DeltaApplyState['transport'],
+): SnapshotProjectMeta | null {
+    const snapshotDelta = deltas.find((delta) => delta.kind === 'ProjectSnapshotReplaced');
+    if (!snapshotDelta || !snapshotDelta.data || typeof snapshotDelta.data !== 'object') {
+        return null;
+    }
+    const project = (snapshotDelta.data as { project?: unknown }).project as SnapshotProjectShape | null;
+    if (!project || typeof project !== 'object') {
+        return null;
+    }
+
+    const bpm = toFiniteNumber(project.pulse_map?.tempo_events?.[0]?.bpm, transport.bpm || 120);
+    const sampleRate = resolveSampleRate(project.sample_rate, transport.sample_rate);
+
+    return {
+        bpm,
+        sampleRate,
+        keySigEnabled: Boolean(project.key_sig_enabled ?? false),
+        keySigTonic: String(project.key_sig_tonic ?? 'C'),
+        keySigMode: String(project.key_sig_mode ?? 'Major'),
+        loopEnabled: Boolean(project.is_looping ?? false),
+        loopStartFrames: Math.max(0, toFiniteNumber(project.loop_start_frames ?? 0, 0)),
+        loopEndFrames: Math.max(0, toFiniteNumber(project.loop_end_frames ?? 0, 0)),
+        grid: {
+            numerator: Math.max(1, toFiniteNumber(project.arrangement_grid_numerator ?? 1, 1)),
+            denominator: Math.max(1, toFiniteNumber(project.arrangement_grid_denominator ?? 16, 16)),
+            ntoles: Math.max(1, toFiniteNumber(project.arrangement_grid_ntoles ?? 1, 1)),
+            snapToGrid: Boolean(project.arrangement_snap_to_grid ?? true),
+            fixed: Boolean(project.arrangement_grid_fixed ?? false),
+        },
+    };
+}
+
 export function applyProjectDeltasToState(
     state: DeltaApplyState,
     deltas: ProjectDelta[],
     reason: string,
 ): DeltaApplyResult {
-    const toFiniteNumber = (value: unknown, fallback = 0): number => {
-        if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
-        if (typeof value === 'bigint') return Number(value);
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : fallback;
-    };
-
     const snapshotDelta = deltas.find((delta) => delta.kind === 'ProjectSnapshotReplaced');
     if (snapshotDelta && snapshotDelta.data && typeof snapshotDelta.data === 'object') {
         const project = (snapshotDelta.data as { project?: unknown }).project as {
@@ -70,6 +127,17 @@ export function applyProjectDeltasToState(
             }>;
             pulse_map?: { tempo_events?: Array<{ bpm: number }> };
             sample_rate?: number;
+            key_sig_enabled?: boolean;
+            key_sig_tonic?: string;
+            key_sig_mode?: string;
+            is_looping?: boolean;
+            loop_start_frames?: number | null;
+            loop_end_frames?: number | null;
+            arrangement_grid_numerator?: number;
+            arrangement_grid_denominator?: number;
+            arrangement_grid_ntoles?: number;
+            arrangement_snap_to_grid?: boolean;
+            arrangement_grid_fixed?: boolean;
         } | null;
 
         if (project && Array.isArray(project.tracks)) {
@@ -141,6 +209,8 @@ export function applyProjectDeltasToState(
                 }
             }
 
+            const snapshotMeta = extractSnapshotProjectMeta(deltas, state.transport);
+
             return {
                 nextState: {
                     timelineClips,
@@ -150,6 +220,7 @@ export function applyProjectDeltasToState(
                     tracksById: Object.fromEntries(projectTracks.map((track) => [track.id, track])),
                     tracks: toEntityState(projectTracks),
                 },
+                snapshotMeta,
             };
         }
     }
@@ -187,7 +258,7 @@ export function applyProjectDeltasToState(
     }
 
     if (!working.changed) {
-        return { nextState: null };
+        return { nextState: null, snapshotMeta: null };
     }
 
     return {
@@ -199,5 +270,6 @@ export function applyProjectDeltasToState(
             tracksById: working.tracksById,
             tracks: toEntityState(working.projectTracks),
         },
+        snapshotMeta: null,
     };
 }

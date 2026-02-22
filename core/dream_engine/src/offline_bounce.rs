@@ -57,6 +57,32 @@ const OFFLINE_BUFFER_FRAMES: usize = 4096;
 /// Maximum output channels (stereo).
 const OFFLINE_CHANNELS: usize = 2;
 
+struct FxChainProcessCtx<'a> {
+    sample_rate: f64,
+    time_sig_numerator: u8,
+    time_sig_denominator: u8,
+    plugin_registry: &'a HashMap<uuid::Uuid, PluginInstanceArc>,
+    external_fx_map: &'a [Vec<ExternalFxRuntimeSlot>],
+    bpm: f64,
+    playhead_pos: i64,
+    left_slots: &'a [crate::render_callback::TrackSlot],
+    right_slots: &'a [crate::render_callback::TrackSlot],
+}
+
+struct RenderRoutingCtx<'a> {
+    clips_per_track: &'a [Vec<AudioClip>],
+    clip_pool: &'a ClipPool,
+    routing: &'a [Option<usize>],
+    sidechains: &'a [Vec<Option<usize>>],
+    post_sum_mask: &'a [bool],
+    plugin_registry: &'a HashMap<uuid::Uuid, PluginInstanceArc>,
+    external_fx_map: &'a [Vec<ExternalFxRuntimeSlot>],
+    bpm: f64,
+    time_sig_numerator: u8,
+    time_sig_denominator: u8,
+    master_device_chain: &'a mut DeviceChain,
+}
+
 // ── Bounce Configuration ────────────────────────────────────────────────
 
 /// Configuration for an offline bounce operation.
@@ -262,11 +288,12 @@ impl OfflineBouncer {
         loop {
             let mut changed = false;
             for i in 0..num_tracks {
-                if let Some(parent_idx) = routing[i] {
-                    if effective_solo[i] && !effective_solo[parent_idx] {
-                        effective_solo[parent_idx] = true;
-                        changed = true;
-                    }
+                if let Some(parent_idx) = routing[i]
+                    && effective_solo[i]
+                    && !effective_solo[parent_idx]
+                {
+                    effective_solo[parent_idx] = true;
+                    changed = true;
                 }
             }
             if !changed {
@@ -322,11 +349,9 @@ impl OfflineBouncer {
             .collect();
 
         let mut mask = vec![false; project.tracks.len()];
-        for dest in &routing {
-            if let Some(dest_idx) = dest {
-                if *dest_idx < mask.len() {
-                    mask[*dest_idx] = true;
-                }
+        for dest_idx in routing.iter().flatten() {
+            if *dest_idx < mask.len() {
+                mask[*dest_idx] = true;
             }
         }
 
@@ -342,14 +367,12 @@ impl OfflineBouncer {
         match node {
             dream_models::project::DeviceNode::Single(slot) => {
                 let bypassed = parent_bypassed || slot.is_bypassed;
-                if !bypassed {
-                    if let Some(sidechain_id) = &slot.sidechain_source_track_id {
-                        let idx = project
-                            .tracks
-                            .iter()
-                            .position(|t| t.id.to_string() == *sidechain_id);
-                        out.push(idx);
-                    }
+                if !bypassed && let Some(sidechain_id) = &slot.sidechain_source_track_id {
+                    let idx = project
+                        .tracks
+                        .iter()
+                        .position(|t| t.id.to_string() == *sidechain_id);
+                    out.push(idx);
                 }
             }
             dream_models::project::DeviceNode::Rack(rack) => {
@@ -397,30 +420,22 @@ impl OfflineBouncer {
         slot: &mut crate::render_callback::TrackSlot,
         track_idx: usize,
         frame_count: usize,
-        sample_rate: f64,
-        time_sig_numerator: u8,
-        time_sig_denominator: u8,
-        plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
-        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
-        bpm: f64,
-        playhead_pos: i64,
-        left_slots: &[crate::render_callback::TrackSlot],
-        right_slots: &[crate::render_callback::TrackSlot],
+        ctx: &FxChainProcessCtx<'_>,
     ) {
         let c = frame_count
             .min(slot.buf_left.len())
             .min(slot.buf_right.len());
 
-        if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+        if let Some(runtime_slots) = ctx.external_fx_map.get(track_idx) {
             if !runtime_slots.is_empty() {
-                for (_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                for runtime_slot in runtime_slots {
                     let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
                         if src_idx < track_idx {
-                            left_slots.get(src_idx)
+                            ctx.left_slots.get(src_idx)
                         } else if src_idx == track_idx {
                             None
                         } else {
-                            right_slots.get(src_idx - track_idx - 1)
+                            ctx.right_slots.get(src_idx - track_idx - 1)
                         }
                     });
                     let (sc_l, sc_r) = source_slot
@@ -435,23 +450,23 @@ impl OfflineBouncer {
                             &mut slot.buf_right[..c],
                             sc_l,
                             sc_r,
-                            sample_rate as f32,
+                            ctx.sample_rate as f32,
                         );
                         continue;
                     }
 
                     // ── VST3 FX slot ──
                     if let Some(instance_id) = runtime_slot.instance_id {
-                        if let Some(plugin_mtx) = plugin_registry.get(&instance_id) {
+                        if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
                             let mut host = plugin_mtx.lock();
                             let transport = TransportContext {
-                                sample_rate,
-                                position_samples: playhead_pos,
-                                tempo: bpm,
+                                sample_rate: ctx.sample_rate,
+                                position_samples: ctx.playhead_pos,
+                                tempo: ctx.bpm,
                                 is_playing: true,
                                 is_recording: false,
-                                time_sig_numerator: i32::from(time_sig_numerator),
-                                time_sig_denominator: i32::from(time_sig_denominator),
+                                time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                                time_sig_denominator: i32::from(ctx.time_sig_denominator),
                             };
                             host.set_transport_context(transport);
 
@@ -482,23 +497,19 @@ impl OfflineBouncer {
                         }
                     }
                 }
-            } else {
-                if !slot.device_chain.is_empty() {
-                    slot.device_chain.process_stereo(
-                        &mut slot.buf_left[..c],
-                        &mut slot.buf_right[..c],
-                        sample_rate as f32,
-                    );
-                }
-            }
-        } else {
-            if !slot.device_chain.is_empty() {
+            } else if !slot.device_chain.is_empty() {
                 slot.device_chain.process_stereo(
                     &mut slot.buf_left[..c],
                     &mut slot.buf_right[..c],
-                    sample_rate as f32,
+                    ctx.sample_rate as f32,
                 );
             }
+        } else if !slot.device_chain.is_empty() {
+            slot.device_chain.process_stereo(
+                &mut slot.buf_left[..c],
+                &mut slot.buf_right[..c],
+                ctx.sample_rate as f32,
+            );
         }
     }
 
@@ -510,23 +521,13 @@ impl OfflineBouncer {
     fn render_routing_aware(
         render_ctx: &mut RenderContext,
         output: &mut [f32],
-        clips_per_track: &[Vec<AudioClip>],
-        clip_pool: &ClipPool,
-        routing: &[Option<usize>],
-        sidechains: &[Vec<Option<usize>>],
-        post_sum_mask: &[bool],
-        plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
-        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
-        bpm: f64,
-        time_sig_numerator: u8,
-        time_sig_denominator: u8,
-        master_device_chain: &mut DeviceChain,
+        ctx: &mut RenderRoutingCtx<'_>,
     ) {
         let channels = render_ctx.channels.max(1);
         let frame_count = output.len() / channels;
 
         // Phase 1: Fill source track slots with audio clips
-        render_ctx.read_audio_clips_into_tracks(frame_count, clips_per_track, clip_pool);
+        render_ctx.read_audio_clips_into_tracks(frame_count, ctx.clips_per_track, ctx.clip_pool);
 
         // CRITICAL FIX: Advance the playhead after reading clips.
         render_ctx.advance_playhead_by_frames(frame_count);
@@ -540,8 +541,8 @@ impl OfflineBouncer {
         // AND sidechain dependencies accurately.
         let snapshot = crate::driver::prepare_graph_snapshot_for_routing(
             track_slots_len,
-            routing,
-            sidechains,
+            ctx.routing,
+            ctx.sidechains,
             0,
         );
 
@@ -565,7 +566,7 @@ impl OfflineBouncer {
                 continue;
             };
 
-            let is_group = post_sum_mask.get(track_idx).copied().unwrap_or(false);
+            let is_group = ctx.post_sum_mask.get(track_idx).copied().unwrap_or(false);
 
             // Audio leaves must have spawned audio. Groups might accumulate audio.
             if !slot.active && !is_group {
@@ -573,20 +574,18 @@ impl OfflineBouncer {
             }
 
             // 1. Unified FX Chain (Native + VST3)
-            Self::process_track_fx_chain(
-                slot,
-                track_idx,
-                frame_count,
+            let fx_ctx = FxChainProcessCtx {
                 sample_rate,
-                time_sig_numerator,
-                time_sig_denominator,
-                plugin_registry,
-                external_fx_map,
-                bpm,
+                time_sig_numerator: ctx.time_sig_numerator,
+                time_sig_denominator: ctx.time_sig_denominator,
+                plugin_registry: ctx.plugin_registry,
+                external_fx_map: ctx.external_fx_map,
+                bpm: ctx.bpm,
                 playhead_pos,
                 left_slots,
-                right_slots_rest,
-            );
+                right_slots: right_slots_rest,
+            };
+            Self::process_track_fx_chain(slot, track_idx, frame_count, &fx_ctx);
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
@@ -602,9 +601,9 @@ impl OfflineBouncer {
 
             // 3. Route Output to Parent Group (if any) or Master Bus
             if enabled {
-                if let Some(parent_idx) = routing.get(track_idx).and_then(|r| *r) {
+                if let Some(parent_idx) = ctx.routing.get(track_idx).and_then(|r| *r) {
                     if parent_idx < track_slots_len
-                        && post_sum_mask.get(parent_idx).copied().unwrap_or(false)
+                        && ctx.post_sum_mask.get(parent_idx).copied().unwrap_or(false)
                     {
                         let c = frame_count
                             .min(slot.buf_left.len())
@@ -638,14 +637,14 @@ impl OfflineBouncer {
         // This mirrors the real-time driver's combined internal/external master FX loop.
         let master_fx_idx = render_ctx.track_slots.len();
         let master_slots_opt =
-            crate::driver::resolve_master_runtime_slots(external_fx_map, master_fx_idx);
+            crate::driver::resolve_master_runtime_slots(ctx.external_fx_map, master_fx_idx);
 
         if let Some(master_slots) = master_slots_opt {
             if !master_slots.is_empty() {
                 for runtime_slot in master_slots.iter() {
                     if let Some(internal_idx) = runtime_slot.internal_slot_index {
                         let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                        master_device_chain.process_slot_with_sidechain(
+                        ctx.master_device_chain.process_slot_with_sidechain(
                             internal_idx,
                             &mut master_l[..frame_count],
                             &mut master_r[..frame_count],
@@ -656,51 +655,51 @@ impl OfflineBouncer {
                         continue;
                     }
 
-                    if let Some(instance_id) = runtime_slot.instance_id {
-                        if let Some(plugin_mtx) = plugin_registry.get(&instance_id) {
-                            let mut host = plugin_mtx.lock();
-                            let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                            let main_inputs: [&[f32]; 2] =
-                                [&master_l[..frame_count], &master_r[..frame_count]];
-                            let transport = dream_plugins::TransportContext {
-                                sample_rate: render_ctx.sample_rate,
-                                position_samples: render_ctx.playhead.position(),
-                                tempo: bpm,
-                                is_playing: true,
-                                is_recording: false,
-                                time_sig_numerator: i32::from(time_sig_numerator),
-                                time_sig_denominator: i32::from(time_sig_denominator),
-                            };
-                            host.set_transport_context(transport);
+                    if let Some(instance_id) = runtime_slot.instance_id
+                        && let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id)
+                    {
+                        let mut host = plugin_mtx.lock();
+                        let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+                        let main_inputs: [&[f32]; 2] =
+                            [&master_l[..frame_count], &master_r[..frame_count]];
+                        let transport = dream_plugins::TransportContext {
+                            sample_rate: render_ctx.sample_rate,
+                            position_samples: render_ctx.playhead.position(),
+                            tempo: ctx.bpm,
+                            is_playing: true,
+                            is_recording: false,
+                            time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                            time_sig_denominator: i32::from(ctx.time_sig_denominator),
+                        };
+                        host.set_transport_context(transport);
 
-                            let mut ext_left = vec![0.0f32; frame_count];
-                            let mut ext_right = vec![0.0f32; frame_count];
-                            let mut out_slices: [&mut [f32]; 2] =
-                                [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
-                            let empty_midi: &[dream_plugins::MidiEvent] = &[];
-                            let _ = host.process_with_sidechain(
-                                &main_inputs,
-                                None,
-                                &mut out_slices,
-                                frame_count,
-                                empty_midi,
-                            );
-                            master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
-                            master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
-                        }
+                        let mut ext_left = vec![0.0f32; frame_count];
+                        let mut ext_right = vec![0.0f32; frame_count];
+                        let mut out_slices: [&mut [f32]; 2] =
+                            [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
+                        let empty_midi: &[dream_plugins::MidiEvent] = &[];
+                        let _ = host.process_with_sidechain(
+                            &main_inputs,
+                            None,
+                            &mut out_slices,
+                            frame_count,
+                            empty_midi,
+                        );
+                        master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
+                        master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
                     }
                 }
-            } else if !master_device_chain.is_empty() {
+            } else if !ctx.master_device_chain.is_empty() {
                 let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                master_device_chain.process_stereo(
+                ctx.master_device_chain.process_stereo(
                     &mut master_l[..frame_count],
                     &mut master_r[..frame_count],
                     render_ctx.sample_rate as f32,
                 );
             }
-        } else if !master_device_chain.is_empty() {
+        } else if !ctx.master_device_chain.is_empty() {
             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-            master_device_chain.process_stereo(
+            ctx.master_device_chain.process_stereo(
                 &mut master_l[..frame_count],
                 &mut master_r[..frame_count],
                 render_ctx.sample_rate as f32,
@@ -869,20 +868,20 @@ impl OfflineBouncer {
                         });
                         pad.set_filter_cutoff(pad_cfg.filter_cutoff as f32);
 
-                        if !pad_cfg.sample_path.is_empty() {
-                            if let Some(clip_audio) = clip_pool.get(&pad_cfg.sample_path) {
-                                pad.set_sample(clip_audio);
-                            }
+                        if !pad_cfg.sample_path.is_empty()
+                            && let Some(clip_audio) = clip_pool.get(&pad_cfg.sample_path)
+                        {
+                            pad.set_sample(clip_audio);
                         }
                     }
                 }
                 let any_pad_soloed = cfg.pads.iter().any(|p| p.is_soloed);
                 if any_pad_soloed {
                     for (i, pad_cfg) in cfg.pads.iter().enumerate() {
-                        if !pad_cfg.is_soloed {
-                            if let Some(pad) = rack.pad_mut(i) {
-                                pad.volume = 0.0;
-                            }
+                        if !pad_cfg.is_soloed
+                            && let Some(pad) = rack.pad_mut(i)
+                        {
+                            pad.volume = 0.0;
                         }
                     }
                 }
@@ -932,11 +931,11 @@ impl OfflineBouncer {
 
                 let mut rack_active = false;
                 for p in 0..16 {
-                    if let Some(pad) = rack.pad_mut(p) {
-                        if pad.has_active_voices() {
-                            rack_active = true;
-                            break;
-                        }
+                    if let Some(pad) = rack.pad_mut(p)
+                        && pad.has_active_voices()
+                    {
+                        rack_active = true;
+                        break;
                     }
                 }
 
@@ -1255,20 +1254,23 @@ impl OfflineBouncer {
             let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
             interleaved_buf[..chunk_samples].fill(0.0);
 
+            let mut routing_ctx = RenderRoutingCtx {
+                clips_per_track: &clips_per_track,
+                clip_pool,
+                routing: &routing,
+                sidechains: &sidechains,
+                post_sum_mask: &post_sum_mask,
+                plugin_registry,
+                external_fx_map,
+                bpm: self.config.bpm,
+                time_sig_numerator: project.time_signature.numerator.max(1),
+                time_sig_denominator: project.time_signature.denominator.max(1),
+                master_device_chain: &mut master_device_chain,
+            };
             Self::render_routing_aware(
                 &mut render_ctx,
                 &mut interleaved_buf[..chunk_samples],
-                &clips_per_track,
-                clip_pool,
-                &routing,
-                &sidechains,
-                &post_sum_mask,
-                plugin_registry,
-                external_fx_map,
-                self.config.bpm,
-                project.time_signature.numerator.max(1),
-                project.time_signature.denominator.max(1),
-                &mut master_device_chain,
+                &mut routing_ctx,
             );
 
             let mut out_idx = 0;
@@ -1345,11 +1347,9 @@ impl OfflineBouncer {
         let export_frames = final_l.len();
 
         if is_mp3 {
-            let mut mp3_writer = Mp3Writer::create_streaming(
-                &self.config.output_path,
-                self.config.sample_rate as u32,
-            )
-            .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            let mut mp3_writer =
+                Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate)
+                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
             let chunk_size = 4096;
             let mut w_pos = 0;
             while w_pos < export_frames {
@@ -1374,8 +1374,8 @@ impl OfflineBouncer {
         } else {
             let spec = hound::WavSpec {
                 channels: 2,
-                sample_rate: self.config.sample_rate as u32,
-                bits_per_sample: self.config.bit_depth as u16,
+                sample_rate: self.config.sample_rate,
+                bits_per_sample: self.config.bit_depth,
                 sample_format: if self.config.bit_depth == 32 {
                     hound::SampleFormat::Float
                 } else {

@@ -374,10 +374,10 @@ impl SamplerVoice {
         right_out: &mut [f32],
         sample_left: &[f32],
         sample_right: &[f32],
-        sample_len: usize,
         frame_count: usize,
         master_vol: f32,
     ) {
+        let sample_len = sample_left.len().min(sample_right.len());
         if !self.active || sample_len == 0 {
             return;
         }
@@ -739,7 +739,6 @@ impl SamplerEngine {
                         right_out,
                         sample_left,
                         sample_right,
-                        sample_len,
                         frame_count,
                         vol,
                     );
@@ -1084,7 +1083,7 @@ impl SampleRackEngine {
     #[inline]
     pub fn note_on(&mut self, note: u8, velocity: u8) {
         // C1 is note 36. 16 pads = 36 to 51 inclusive.
-        if note >= 36 && note < 36 + 16 {
+        if (36..36 + 16).contains(&note) {
             let pad_idx = (note - 36) as usize;
             let pad = &mut self.pads[pad_idx];
             // Drum Racks usually play samples at their original pitch,
@@ -1097,7 +1096,7 @@ impl SampleRackEngine {
     /// Trigger a note-off event.
     #[inline]
     pub fn note_off(&mut self, note: u8) {
-        if note >= 36 && note < 36 + 16 {
+        if (36..36 + 16).contains(&note) {
             let pad_idx = (note - 36) as usize;
             let pad = &mut self.pads[pad_idx];
             let root = pad.root_note;

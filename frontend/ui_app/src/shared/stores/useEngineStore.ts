@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
-import { applyProjectDeltasToState } from '@/shared/stores/engine/applyProjectDeltas';
+import { applyProjectDeltasToState, extractSnapshotProjectMeta } from '@/shared/stores/engine/applyProjectDeltas';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import {
     createTransportActions,
@@ -73,7 +73,6 @@ export interface EngineStore {
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
     syncProjectSnapshotDelta: (reason?: string) => Promise<void>;
-    fetchProject: (reason?: string) => Promise<void>;
     syncProjectHistory: () => Promise<void>;
     expandWindow: () => Promise<void>;
     startTelemetryLoop: () => void;
@@ -144,6 +143,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         if (!Array.isArray(deltas) || deltas.length === 0) return;
 
+        const snapshotMeta = extractSnapshotProjectMeta(deltas, get().transport);
+
         for (const delta of deltas) {
             if (delta.kind === 'ArrangementGridChanged') {
                 useGridStore.getState().applyProjectGrid({
@@ -155,13 +156,37 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 });
             }
         }
+        if (snapshotMeta) {
+            useGridStore.getState().applyProjectGrid({
+                numerator: snapshotMeta.grid.numerator,
+                denominator: snapshotMeta.grid.denominator,
+                ntoles: snapshotMeta.grid.ntoles,
+                snapToGrid: snapshotMeta.grid.snapToGrid,
+                fixed: snapshotMeta.grid.fixed,
+            });
+        }
 
         set((s) => {
-            let nextProjectBpm = s.projectBpm;
+            let nextProjectBpm = snapshotMeta?.bpm ?? s.projectBpm;
+            let nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
             let nextTransport = s.transport;
-            let nextKeySigEnabled = s.keySigEnabled;
-            let nextKeySigTonic = s.keySigTonic;
-            let nextKeySigMode = s.keySigMode;
+            let nextKeySigEnabled = snapshotMeta?.keySigEnabled ?? s.keySigEnabled;
+            let nextKeySigTonic = snapshotMeta?.keySigTonic ?? s.keySigTonic;
+            let nextKeySigMode = snapshotMeta?.keySigMode ?? s.keySigMode;
+
+            if (snapshotMeta) {
+                const loopEnd = snapshotMeta.loopEndFrames > snapshotMeta.loopStartFrames
+                    ? snapshotMeta.loopEndFrames
+                    : snapshotMeta.loopStartFrames;
+                nextTransport = {
+                    ...nextTransport,
+                    bpm: snapshotMeta.bpm,
+                    sample_rate: snapshotMeta.sampleRate,
+                    loop_enabled: snapshotMeta.loopEnabled,
+                    loop_start: snapshotMeta.loopStartFrames,
+                    loop_end: loopEnd,
+                };
+            }
 
             for (const delta of deltas) {
                 if (delta.kind === 'TempoChanged') {
@@ -185,6 +210,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             if (!nextState) {
                 if (
                     nextProjectBpm !== s.projectBpm
+                    || nextProjectSampleRate !== s.projectSampleRate
                     || nextTransport !== s.transport
                     || nextKeySigEnabled !== s.keySigEnabled
                     || nextKeySigTonic !== s.keySigTonic
@@ -192,6 +218,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 ) {
                     return {
                         projectBpm: nextProjectBpm,
+                        projectSampleRate: nextProjectSampleRate,
                         transport: nextTransport,
                         keySigEnabled: nextKeySigEnabled,
                         keySigTonic: nextKeySigTonic,
@@ -204,6 +231,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             return {
                 ...nextState,
                 projectBpm: nextProjectBpm,
+                projectSampleRate: nextProjectSampleRate,
                 transport: nextTransport,
                 keySigEnabled: nextKeySigEnabled,
                 keySigTonic: nextKeySigTonic,

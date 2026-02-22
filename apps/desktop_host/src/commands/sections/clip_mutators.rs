@@ -86,18 +86,7 @@ async fn move_clip_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -134,18 +123,7 @@ async fn move_clip_with_deltas_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let Some(old_track_index) = old_track_index else { return Err(format!("Delta invariant violated: source track not found for clip {clip_uuid} in move_clip_with_deltas_cmd")); };
     let deltas = vec![dream_models::delta::ProjectDelta::ClipMoved {
@@ -186,18 +164,7 @@ async fn resize_clip_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -229,18 +196,7 @@ async fn resize_clip_with_deltas_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let deltas = vec![dream_models::delta::ProjectDelta::ClipResized {
         clip_id: clip_uuid,
@@ -278,19 +234,7 @@ async fn split_clip_cmd(
     let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
         .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -320,19 +264,7 @@ async fn split_clip_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
         .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let deltas = vec![dream_models::delta::ProjectDelta::ClipSplit {
         original_clip_id: clip_uuid,
@@ -372,18 +304,7 @@ async fn delete_clip_cmd(
     let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
         .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -416,18 +337,7 @@ async fn delete_clip_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
         .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let Some(track_index) = track_index_before else { return Err(format!("Delta invariant violated: source track not found for clip {clip_uuid} in delete_clip_with_deltas_cmd")); };
     let deltas = vec![dream_models::delta::ProjectDelta::ClipDeleted {
@@ -465,19 +375,7 @@ async fn duplicate_clip_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -510,19 +408,7 @@ async fn duplicate_clip_with_deltas_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let deltas = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -562,19 +448,7 @@ async fn merge_clips_cmd(
     let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
         .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -606,19 +480,7 @@ async fn merge_clips_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
         .map_err(|e| e.to_string())?;
 
-    let result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let deltas = vec![dream_models::delta::ProjectDelta::ClipsMerged {
         source_clip_ids: source_ids,
@@ -656,18 +518,7 @@ async fn set_clip_source_offset_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     // BUG-AUD-1 FIX: Post-orchestrator source_offset clamping.
     // The orchestrator uses NoopClipPoolAccess (max_offset=i64::MAX).
@@ -691,17 +542,9 @@ async fn set_clip_source_offset_cmd(
                 &clip_id, max_offset,
             )
             .map_err(|e| e.to_string())?;
-            let ctx = dream_orchestrator::OrchestratorContext::new(
-                project_state
-                    .project
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .clone(),
-            );
-            let changed = ctx.execute(&clamp_cmd).map_err(|e| e.to_string())?;
-            if changed {
-                *project_state.project.lock().map_err(|e| e.to_string())? =
-                    ctx.lock_project().map_err(|e| e.to_string())?.clone();
+            let changed = execute_orchestrator_command(&project_state, &clamp_cmd)?;
+            if !changed {
+                log::trace!("ClampClipSourceOffsetCommand produced no changes for clip {}", clip_id);
             }
         }
     }
@@ -786,18 +629,7 @@ async fn set_clip_pitch_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -826,18 +658,7 @@ async fn set_clip_warp_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -913,18 +734,7 @@ async fn set_clip_fades_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -1001,18 +811,7 @@ async fn set_clip_muted_cmd(
     let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
         .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -1040,19 +839,7 @@ async fn set_clip_muted_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
         .map_err(|e| e.to_string())?;
 
-    let changed = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -1093,19 +880,7 @@ async fn set_clips_muted_cmd(
     let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
         .map_err(|e| e.to_string())?;
 
-    let applied = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let applied = execute_orchestrator_command(&project_state, &cmd)?;
 
     if applied > 0 {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -1149,19 +924,7 @@ async fn set_clips_muted_with_deltas_cmd(
     let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
         .map_err(|e| e.to_string())?;
 
-    let applied = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-        r
-    };
+    let applied = execute_orchestrator_command(&project_state, &cmd)?;
 
     if applied > 0 {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -1193,21 +956,7 @@ async fn paint_track_clips_with_track_color_cmd(
     let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
         .map_err(|e| e.to_string())?;
 
-    let changed = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let changed = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if changed {
-            let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-            *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-        }
-        changed
-    };
+    let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
     if changed {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -1240,18 +989,7 @@ async fn resolve_missing_file_cmd(
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
             .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     // Load resolved media into clip pool so playback recovers immediately.
     let decoded = AudioReader::read(PathBuf::from(&new_path))
@@ -1293,18 +1031,7 @@ async fn resolve_missing_file_with_deltas_cmd(
         dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
             .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let decoded = AudioReader::read(PathBuf::from(&new_path))
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
@@ -1362,24 +1089,13 @@ async fn set_automation_points_cmd(
     .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    execute_orchestrator_command(&project_state, &cmd)?;
 
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let project_name = project.name.clone();
-        rebuild_automation_snapshot_from_project(&project, &automation_runtime);
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
-    }
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     log::debug!(
         "[IPC] set_automation_points_cmd track={} param={} points={}",
@@ -1442,18 +1158,7 @@ async fn arm_track_cmd(
 ) -> Result<(), String> {
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);
@@ -1592,18 +1297,7 @@ async fn stop_recording_cmd(
         source_total_frames: result.total_frames as i64,
         source_sample_rate: decoded.sample_rate,
     };
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? =
-            ctx.lock_project().map_err(|e| e.to_string())?.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);

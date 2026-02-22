@@ -148,19 +148,7 @@ pub(super) fn place_bounced_file_on_new_track(
         insert_after_index,
     };
 
-    let insert_result = {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-        result
-    };
+    let insert_result = execute_orchestrator_command(project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);
@@ -235,18 +223,7 @@ pub(super) fn place_stem_files_on_new_tracks(
         stems: stems_input,
     };
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-    }
+    execute_orchestrator_command(project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);

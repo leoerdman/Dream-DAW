@@ -11,7 +11,6 @@
 //   - Translucent fill below the curve
 //
 // ═══════════════════════════════════════════════════════════════════════════
-
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import throttle from 'lodash.throttle';
 import {
@@ -36,7 +35,6 @@ interface AutomationLaneProps {
     /** Scroll offset in beats. */
     scrollOffsetBeats: number;
 }
-
 // ── Constants ────────────────────────────────────────────────────────────
 
 const BP_RADIUS = 5;
@@ -44,7 +42,6 @@ const BP_RADIUS_HOVER = 7;
 const LINE_WIDTH = 1.5;
 const FILL_OPACITY = 0.12;
 const CURVE_TENSION_DEFAULT = 0.35;
-
 // ── Component ────────────────────────────────────────────────────────────
 
 export const AutomationLane = memo(function AutomationLane({

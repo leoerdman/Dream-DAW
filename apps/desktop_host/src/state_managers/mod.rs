@@ -13,13 +13,17 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub(crate) mod audio_engine;
+pub(crate) mod background_runtime;
 pub(crate) mod clip_pool;
 pub(crate) mod plugin_host;
+pub(crate) mod project_state;
 pub(crate) mod recording;
 pub mod sync_engine;
 
 pub(crate) use audio_engine::{AudioEngineHandle, SpectrumState, SpectrumStateInner};
+pub(crate) use background_runtime::spawn_background_runtime_threads;
 pub(crate) use clip_pool::ClipPoolState;
 pub(crate) use plugin_host::PluginHostState;
+pub(crate) use project_state::ProjectState;
 pub(crate) use recording::{AutomationRuntime, MidiInputRuntime, RecordingRuntime};
 pub use sync_engine::*;

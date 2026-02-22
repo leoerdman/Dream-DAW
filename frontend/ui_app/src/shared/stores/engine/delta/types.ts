@@ -19,11 +19,30 @@ export interface DeltaApplyState {
     transport: TransportState;
 }
 
+export interface SnapshotProjectMeta {
+    bpm: number;
+    sampleRate: number;
+    keySigEnabled: boolean;
+    keySigTonic: string;
+    keySigMode: string;
+    loopEnabled: boolean;
+    loopStartFrames: number;
+    loopEndFrames: number;
+    grid: {
+        numerator: number;
+        denominator: number;
+        ntoles: number;
+        snapToGrid: boolean;
+        fixed: boolean;
+    };
+}
+
 export interface DeltaApplyResult {
     nextState: Pick<
         DeltaApplyState,
         'timelineClips' | 'clipsById' | 'clips' | 'projectTracks' | 'tracksById' | 'tracks'
     > | null;
+    snapshotMeta?: SnapshotProjectMeta | null;
 }
 
 export interface DeltaWorkingState {

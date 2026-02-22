@@ -54,19 +54,22 @@ bash scripts/check_ssot_bindings.sh
 echo "[10/14] SSOT import alias guard"
 bash scripts/ssot_guard.sh
 
-echo "[11/14] Frontend type-check (no emit)"
+echo "[11/14] Delta IPC guard"
+bash scripts/delta_ipc_guard.sh
+
+echo "[12/14] Frontend type-check (no emit)"
 pnpm -C frontend/ui_app exec tsc --noEmit
 
-echo "[12/14] Zustand selector guard"
+echo "[13/14] Zustand selector guard"
 bash scripts/zustand_selector_guard.sh
 
-echo "[13/14] Frontend build"
+echo "[14/14] Frontend build"
 pnpm -C frontend/ui_app build
 
 echo "[info] Frontend lint report (non-blocking while lint debt is burned down)"
 pnpm -C frontend/ui_app exec eslint . || true
 
-echo "[14/14] Optional headless fuzz gate"
+echo "[15/15] Optional headless fuzz gate"
 if [[ "${DREAM_ENABLE_HEADLESS_FUZZ:-0}" == "1" ]]; then
   bash scripts/headless_fuzz_gate.sh
 else

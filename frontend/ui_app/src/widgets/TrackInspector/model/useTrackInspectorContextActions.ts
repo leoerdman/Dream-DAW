@@ -256,8 +256,11 @@ export function useTrackInspectorContextActions({
     }, [tracks, onRefresh]);
 
     const handleBounceTrack = useCallback((trackId: string) => {
-        void engineApi.bounceTrack(trackId)
-            .then(() => onRefresh('track-context:bounce-track'))
+        void engineApi.bounceTrackWithDeltas(trackId)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:bounce-track');
+                onRefresh('track-context:bounce-track');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] bounceTrack failed:', err);
             });

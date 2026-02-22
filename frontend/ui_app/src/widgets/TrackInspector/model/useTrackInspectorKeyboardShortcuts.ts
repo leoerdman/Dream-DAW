@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 
 interface UseTrackInspectorKeyboardShortcutsArgs {
@@ -40,7 +41,8 @@ export function useTrackInspectorKeyboardShortcuts({
                 e.preventDefault();
                 const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
-                    void engineApi.createGroup(ids).then(() => {
+                    void engineApi.createGroupWithDeltas(ids).then(async (response) => {
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group-multi');
                         debouncedFetchProject('create-group-multi');
                     }).catch((err) => {
                         console.error('[TrackInspector] createGroup(multi) failed:', err);

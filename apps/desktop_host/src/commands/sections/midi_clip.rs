@@ -540,18 +540,7 @@ async fn update_midi_clip_cmd(
     let cmd = dream_orchestrator::commands::UpdateMidiClipCommand::from_str_id(&clip_id, normalized)
         .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     if is_legacy {
@@ -676,18 +665,7 @@ async fn set_midi_clip_envelopes_cmd(
     let cmd = dream_orchestrator::commands::SetMidiClipEnvelopesCommand::from_str_id(&clip_id, normalized)
         .map_err(|e| e.to_string())?;
 
-    {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
-        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
-    }
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();

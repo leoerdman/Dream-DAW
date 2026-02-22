@@ -9,7 +9,7 @@ export function useDeviceRackDnD(
     rackRef: React.RefObject<HTMLDivElement | null>,
     selectedTrack: any,
     onDropPluginToTrack?: (item: BrowserDragItem, trackId: string) => Promise<void>,
-    fetchProject?: () => Promise<void>,
+    syncProjectSnapshotDelta?: (reason?: string) => Promise<void>,
     applyProjectDeltas?: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear?: () => void,
     statusError?: (msg: string) => void
@@ -19,7 +19,7 @@ export function useDeviceRackDnD(
 
     const dropTargetTrackRef = useRef<any>(selectedTrack);
     const onDropPluginToTrackRef = useRef(onDropPluginToTrack);
-    const fetchProjectRef = useRef(fetchProject);
+    const syncProjectSnapshotDeltaRef = useRef(syncProjectSnapshotDelta);
     const applyProjectDeltasRef = useRef(applyProjectDeltas);
     const statusClearRef = useRef(statusClear);
     const statusErrorRef = useRef(statusError);
@@ -27,11 +27,11 @@ export function useDeviceRackDnD(
     useEffect(() => { dropTargetTrackRef.current = selectedTrack; }, [selectedTrack]);
     useEffect(() => { onDropPluginToTrackRef.current = onDropPluginToTrack; }, [onDropPluginToTrack]);
     useEffect(() => {
-        fetchProjectRef.current = fetchProject;
+        syncProjectSnapshotDeltaRef.current = syncProjectSnapshotDelta;
         applyProjectDeltasRef.current = applyProjectDeltas;
         statusClearRef.current = statusClear;
         statusErrorRef.current = statusError;
-    }, [fetchProject, applyProjectDeltas, statusClear, statusError]);
+    }, [syncProjectSnapshotDelta, applyProjectDeltas, statusClear, statusError]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -85,8 +85,8 @@ export function useDeviceRackDnD(
                     );
                     if (applyProjectDeltasRef.current) {
                         await applyProjectDeltasRef.current(response.deltas, 'device-rack:dnd-add-plugin');
-                    } else if (fetchProjectRef.current) {
-                        await fetchProjectRef.current();
+                    } else if (syncProjectSnapshotDeltaRef.current) {
+                        await syncProjectSnapshotDeltaRef.current('device-rack:dnd-add-plugin');
                     }
                 }
                 if (statusClearRef.current) statusClearRef.current();

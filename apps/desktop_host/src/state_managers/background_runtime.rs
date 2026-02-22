@@ -1,0 +1,236 @@
+use std::collections::HashSet;
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::Receiver;
+use std::time::Duration;
+
+use tauri::{Emitter, Manager};
+use uuid::Uuid;
+
+use crate::plugin_sandbox_recovery::{
+    bypass_plugin_slots_in_project, set_plugin_slots_bypass_in_project,
+};
+use crate::state_managers::{AudioEngineHandle, ClipPoolState, PluginHostState, ProjectState};
+
+/// Spawns non-audio background threads used by the desktop host runtime.
+///
+/// All threads are explicitly detached and terminate when `AudioEngineHandle::is_shutting_down`
+/// flips to true.
+pub(crate) fn spawn_background_runtime_threads(
+    app: &tauri::AppHandle,
+    stream_error_rx: Receiver<String>,
+) {
+    // ── Telemetry Push Thread (30fps) ─────────────────────────
+    let telemetry_app = app.clone();
+    if let Err(err) = std::thread::Builder::new()
+        .name("telemetry-push".into())
+        .spawn(move || {
+            let mut telemetry_tick_count: u64 = 0;
+            loop {
+                {
+                    let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
+                    if handle.is_shutting_down.load(Ordering::Relaxed) {
+                        log::info!("[Telemetry] Shutdown signal received, exiting thread.");
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(33)); // ~30fps
+                telemetry_tick_count += 1;
+                if telemetry_tick_count % 150 == 0 {
+                    log::debug!("[Telemetry] heartbeat tick={}", telemetry_tick_count);
+                }
+
+                let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
+
+                let transport_json = {
+                    let state = match handle.playback_state.lock() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let frames = handle.master_clock.position();
+                    let seconds = frames as f64 / state.sample_rate;
+                    let beats = seconds * state.bpm / 60.0;
+                    let telemetry_timestamp_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    serde_json::json!({
+                        "is_playing": state.is_playing,
+                        "position_frames": frames,
+                        "position_seconds": seconds,
+                        "position_beats": beats,
+                        "bpm": state.bpm,
+                        "sample_rate": state.sample_rate,
+                        "loop_enabled": state.loop_enabled,
+                        "loop_start": state.loop_start,
+                        "loop_end": state.loop_end,
+                        "output_latency_frames": handle.output_latency_frames,
+                        "telemetry_timestamp_ms": telemetry_timestamp_ms,
+                    })
+                };
+
+                let meter_bank = &handle.meter_bank;
+                let mut tracks = Vec::with_capacity(meter_bank.track_count());
+                for i in 0..meter_bank.track_count() {
+                    if let Some((left, right)) = meter_bank.track(i) {
+                        tracks.push(serde_json::json!([
+                            { "rms": left.load_rms(), "peak": left.load_peak(), "clipping": left.is_clipping() },
+                            { "rms": right.load_rms(), "peak": right.load_peak(), "clipping": right.is_clipping() },
+                        ]));
+                    }
+                }
+
+                let meters_json = serde_json::json!({
+                    "tracks": tracks,
+                    "master_left": {
+                        "rms": meter_bank.master_left().load_rms(),
+                        "peak": meter_bank.master_left().load_peak(),
+                        "clipping": meter_bank.master_left().is_clipping(),
+                    },
+                    "master_right": {
+                        "rms": meter_bank.master_right().load_rms(),
+                        "peak": meter_bank.master_right().load_peak(),
+                        "clipping": meter_bank.master_right().is_clipping(),
+                    },
+                });
+
+                let payload = serde_json::json!({
+                    "transport": transport_json,
+                    "meters": meters_json,
+                });
+
+                let _ = telemetry_app.emit("telemetry_tick", payload);
+
+                if dream_plugins::vst3_host::take_plugin_state_dirty() {
+                    let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
+                    if let Ok(project) = pstate.project.lock() {
+                        let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                    }
+                }
+            }
+        })
+    {
+        log::warn!("Failed to spawn telemetry thread: {err}");
+    }
+
+    // ── Plugin Sandbox Watchdog Thread ────────────────────────
+    let sandbox_app = app.clone();
+    if let Err(err) = std::thread::Builder::new()
+        .name("plugin-sandbox-watchdog".into())
+        .spawn(move || loop {
+            {
+                let sandbox_app_state: tauri::State<'_, AudioEngineHandle> = sandbox_app.state();
+                if sandbox_app_state.is_shutting_down.load(Ordering::Relaxed) {
+                    log::info!("[Watchdog] Shutdown signal received, exiting thread.");
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(75));
+            let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
+            let (snapshot, crashes, recoveries) =
+                match plugin_host_state.tick_sandbox_watchdog_with_events() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+            let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
+            if !crashes.is_empty() || !recoveries.is_empty() {
+                let mut failed_instance_ids: HashSet<Uuid> = crashes
+                    .iter()
+                    .filter(|c| !c.auto_restarted)
+                    .map(|c| c.instance_id)
+                    .collect();
+                let recovered_instance_ids: HashSet<Uuid> =
+                    recoveries.iter().map(|r| r.instance_id).collect();
+
+                failed_instance_ids.retain(|id| !recovered_instance_ids.contains(id));
+
+                let failed_slot_ids = plugin_host_state.slot_ids_for_instance_ids(&failed_instance_ids);
+                let recovered_slot_ids =
+                    plugin_host_state.slot_ids_for_instance_ids(&recovered_instance_ids);
+
+                if !failed_slot_ids.is_empty() || !recovered_slot_ids.is_empty() {
+                    let clip_pool_state: tauri::State<'_, ClipPoolState> = sandbox_app.state();
+                    let project_state: tauri::State<'_, ProjectState> = sandbox_app.state();
+                    if let Ok(mut project) = project_state.project.lock() {
+                        let bypassed_changed = if failed_slot_ids.is_empty() {
+                            0
+                        } else {
+                            bypass_plugin_slots_in_project(&mut project, &failed_slot_ids)
+                        };
+                        let recovered_changed = if recovered_slot_ids.is_empty() {
+                            0
+                        } else {
+                            set_plugin_slots_bypass_in_project(
+                                &mut project,
+                                &recovered_slot_ids,
+                                false,
+                            )
+                        };
+
+                        if bypassed_changed > 0 || recovered_changed > 0 {
+                            clip_pool_state.rebuild_routing_only(&project);
+                            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                            clip_pool_state.rebuild_external_fx_snapshot(
+                                &project,
+                                slot_instance_map.as_ref(),
+                            );
+                            let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
+
+                            if bypassed_changed > 0 {
+                                let _ = sandbox_app.emit(
+                                    "plugin_sandbox_auto_bypass",
+                                    serde_json::json!({
+                                        "instanceIds": failed_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+                                        "slotIds": failed_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                                        "changedSlots": bypassed_changed,
+                                    }),
+                                );
+                            }
+
+                            if recovered_changed > 0 {
+                                let _ = sandbox_app.emit(
+                                    "plugin_sandbox_auto_recovered",
+                                    serde_json::json!({
+                                        "instanceIds": recovered_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+                                        "slotIds": recovered_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                                        "changedSlots": recovered_changed,
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            for crash in crashes {
+                if recoveries.iter().any(|r| r.instance_id == crash.instance_id) {
+                    continue;
+                }
+                let _ = sandbox_app.emit("plugin_sandbox_crashed", &crash);
+            }
+            for recovery in recoveries {
+                let _ = sandbox_app.emit("plugin_sandbox_recovered", &recovery);
+            }
+        })
+    {
+        log::warn!("Failed to spawn plugin sandbox watchdog thread: {err}");
+    }
+
+    // ── Audio Stream Error Relay (event-driven, zero polling) ─
+    let stream_error_app = app.clone();
+    if let Err(err) = std::thread::Builder::new()
+        .name("audio-stream-error-relay".into())
+        .spawn(move || {
+            while let Ok(err_msg) = stream_error_rx.recv() {
+                let payload = serde_json::json!({
+                    "error": err_msg,
+                    "at_ms": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0),
+                });
+                let _ = stream_error_app.emit("audio_stream_error", payload);
+            }
+        })
+    {
+        log::warn!("Failed to spawn audio stream error relay: {err}");
+    }
+}

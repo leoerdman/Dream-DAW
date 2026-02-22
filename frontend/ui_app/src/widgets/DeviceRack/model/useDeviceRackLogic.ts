@@ -81,7 +81,7 @@ export interface DeviceRackLogicOutput {
     toggleGlobalAutomation: any;
     statusClear: () => void;
     statusError: (msg: string) => void;
-    fetchProject: () => Promise<void>;
+    syncProjectSnapshotDelta: (reason?: string) => Promise<void>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
 }
@@ -94,11 +94,11 @@ export function useDeviceRackLogic(
     const prevTrackIdRef = useRef<string>(selectedTrackId);
 
     // Global stores
-    const { openEditorsByTrack, togglePluginEditor, projectTracks, fetchProject, applyProjectDeltas } = useEngineStore(useShallow((s) => ({
+    const { openEditorsByTrack, togglePluginEditor, projectTracks, syncProjectSnapshotDelta, applyProjectDeltas } = useEngineStore(useShallow((s) => ({
         openEditorsByTrack: s.openEditorsByTrack,
         togglePluginEditor: s.togglePluginEditor,
         projectTracks: s.projectTracks,
-        fetchProject: s.fetchProject,
+        syncProjectSnapshotDelta: s.syncProjectSnapshotDelta,
         applyProjectDeltas: s.applyProjectDeltas,
     })));
     const statusError = useStatusStore((s) => s.setError);
@@ -140,7 +140,7 @@ export function useDeviceRackLogic(
         core.setSelectedDeviceIds,
         core.selectedTrack,
         core.setInlineSettingsOpen,
-        fetchProject,
+        syncProjectSnapshotDelta,
         applyProjectDeltas,
         statusClear,
         statusError
@@ -150,7 +150,7 @@ export function useDeviceRackLogic(
         rackRef,
         core.selectedTrack,
         onDropPluginToTrack,
-        fetchProject,
+        syncProjectSnapshotDelta,
         applyProjectDeltas,
         statusClear,
         statusError,
@@ -253,7 +253,7 @@ export function useDeviceRackLogic(
         toggleGlobalAutomation,
         statusClear,
         statusError,
-        fetchProject,
+        syncProjectSnapshotDelta,
         applyProjectDeltas,
         togglePluginEditor,
     };

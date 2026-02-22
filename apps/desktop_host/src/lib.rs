@@ -32,11 +32,9 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use crate::state_managers::sync_engine::*;
 use arc_swap::ArcSwap;
@@ -60,9 +58,7 @@ use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::PlaybackState;
 use dream_models::midi::{MidiClip, MidiNote, SampleRackConfig, SamplerConfig};
 use dream_models::mutators::{self};
-use dream_models::project::{
-    AudioClip, DeviceNode, PluginSlot, Project, Track, TrackColor, TrackType,
-};
+use dream_models::project::{AudioClip, PluginSlot, Project, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::PluginFormat;
 use dream_plugins::{MidiEvent as PluginMidiEvent, PluginSandboxSnapshot};
@@ -88,7 +84,6 @@ use settings::*;
 
 // Sandbox crash mapping and project plugin-slot bypass helpers.
 mod plugin_sandbox_recovery;
-use plugin_sandbox_recovery::*;
 
 // ── State Manager Modules ─────────────────────────────────────────────
 // PluginHostState, RecordingRuntime, AutomationRuntime, MidiInputRuntime
@@ -98,101 +93,8 @@ mod state_managers;
 pub use commands::payloads::*;
 pub(crate) use state_managers::{
     AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState,
-    RecordingRuntime, SpectrumState, SpectrumStateInner,
+    ProjectState, RecordingRuntime, SpectrumState, SpectrumStateInner,
 };
-
-/// Thread-safe handle to the current project's state.
-/// The project is independently managed from the audio engine.
-/// Changes to the project trigger serialization and engine re-sync.
-pub struct ProjectState {
-    /// The currently loaded project.
-    pub project: Mutex<Project>,
-
-    /// Path to the current project file on disk. `None` if unsaved.
-    pub file_path: Mutex<Option<PathBuf>>,
-
-    /// Path to the project directory (Ableton-style folder). `None` if unsaved.
-    pub project_folder: Mutex<Option<PathBuf>>,
-
-    /// Whether the project has unsaved changes.
-    pub is_dirty: Mutex<bool>,
-
-    /// Undo/Redo history.
-    undo: Mutex<UndoState>,
-    history: Mutex<ProjectHistory>,
-
-    /// Device clipboard — stores a copied DeviceNode for cross-track paste.
-    pub device_clipboard: Mutex<Option<DeviceNode>>,
-}
-
-impl ProjectState {
-    fn new() -> Self {
-        Self {
-            project: Mutex::new(Project::default()),
-            file_path: Mutex::new(None),
-            project_folder: Mutex::new(None),
-            is_dirty: Mutex::new(false),
-            undo: Mutex::new(UndoState::new()),
-            history: Mutex::new(ProjectHistory::new()),
-            device_clipboard: Mutex::new(None),
-        }
-    }
-
-    /// Marks the project as dirty and updates the window title with a `*` suffix.
-    ///
-    /// This is the single choke-point for every mutation that makes the project
-    /// "unsaved". The caller must supply the project name (to avoid a double-lock
-    /// on `self.project` when the caller already holds it) and an optional
-    /// `AppHandle` to update the native title bar.
-    fn mark_dirty(&self, project_name: &str, app: Option<&tauri::AppHandle>) -> Result<(), String> {
-        let mut dirty = self.is_dirty.lock().map_err(|e| e.to_string())?;
-        let was_dirty = *dirty;
-        *dirty = true;
-        // Only update the title if transitioning from clean → dirty
-        if !was_dirty
-            && let Some(app) = app
-            && let Some(window) = app.get_webview_window("main")
-        {
-            let _ = window.set_title(&format!("Dream DAW — {}*", project_name));
-        }
-        Ok(())
-    }
-
-    /// Clears the dirty flag and updates the window title (removes `*`).
-    #[allow(dead_code)]
-    fn clear_dirty(
-        &self,
-        project_name: &str,
-        app: Option<&tauri::AppHandle>,
-    ) -> Result<(), String> {
-        *self.is_dirty.lock().map_err(|e| e.to_string())? = false;
-        if let Some(app) = app
-            && let Some(window) = app.get_webview_window("main")
-        {
-            let _ = window.set_title(&format!("Dream DAW — {}", project_name));
-        }
-        Ok(())
-    }
-
-    fn record_history(
-        &self,
-        kind: impl Into<String>,
-        detail: impl Into<String>,
-    ) -> Result<(), String> {
-        let mut history = self.history.lock().map_err(|e| e.to_string())?;
-        history.push(kind, detail);
-        Ok(())
-    }
-
-    fn history_snapshot(
-        &self,
-        limit: Option<usize>,
-        since_seq: Option<u64>,
-    ) -> Result<Vec<ProjectHistoryEvent>, String> {
-        let history = self.history.lock().map_err(|e| e.to_string())?;
-        Ok(history.snapshot(limit, since_seq))
-    }
-}
 
 // ── Sync Engine & Snapshot Builders ─────────────────────────────────────
 // Extracted to: apps/desktop_host/src/state_managers/sync_engine.rs
@@ -440,246 +342,8 @@ pub fn run() {
         .manage(plugin_host_state)
         .manage(spectrum_state)
         .invoke_handler(commands::invoke_handler())
-        .setup(|app| {
-
-            // ── Telemetry Push Thread (30fps) ─────────────────────────
-            // Replaces frontend requestAnimationFrame polling with
-            // server-pushed events. Zero invoke() overhead per frame.
-            let telemetry_app = app.handle().clone();
-
-            if let Err(err) = std::thread::Builder::new()
-                .name("telemetry-push".into())
-                .spawn(move || {
-                    let mut telemetry_tick_count: u64 = 0;
-                    loop {
-                        // BUG-14: Graceful shutdown check
-                        {
-                            let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
-                            if handle.is_shutting_down.load(std::sync::atomic::Ordering::Relaxed) {
-                                log::info!("[Telemetry] Shutdown signal received, exiting thread.");
-                                break;
-                            }
-                        }
-                        std::thread::sleep(Duration::from_millis(33)); // ~30fps
-                        telemetry_tick_count += 1;
-                        // Heartbeat log every ~5s for diagnostics
-                        if telemetry_tick_count % 150 == 0 {
-                            log::debug!("[Telemetry] heartbeat tick={}", telemetry_tick_count);
-                        }
-
-                        // Access managed state via cloned AppHandle
-                        let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
-
-                        // Build transport snapshot
-                        let transport_json = {
-                            let state = match handle.playback_state.lock() {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
-                            let frames = handle.master_clock.position();
-                            let seconds = frames as f64 / state.sample_rate;
-                            let beats = seconds * state.bpm / 60.0;
-                            let telemetry_timestamp_ms = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0);
-                            serde_json::json!({
-                                "is_playing": state.is_playing,
-                                "position_frames": frames,
-                                "position_seconds": seconds,
-                                "position_beats": beats,
-                                "bpm": state.bpm,
-                                "sample_rate": state.sample_rate,
-                                "loop_enabled": state.loop_enabled,
-                                "loop_start": state.loop_start,
-                                "loop_end": state.loop_end,
-                                "output_latency_frames": handle.output_latency_frames,
-                                "telemetry_timestamp_ms": telemetry_timestamp_ms,
-                            })
-                        };
-
-                        // Build meter snapshot (lock-free reads)
-                        let meter_bank = &handle.meter_bank;
-                        let mut tracks = Vec::with_capacity(meter_bank.track_count());
-                        for i in 0..meter_bank.track_count() {
-                            if let Some((left, right)) = meter_bank.track(i) {
-                                tracks.push(serde_json::json!([
-                                    { "rms": left.load_rms(), "peak": left.load_peak(), "clipping": left.is_clipping() },
-                                    { "rms": right.load_rms(), "peak": right.load_peak(), "clipping": right.is_clipping() },
-                                ]));
-                            }
-                        }
-
-                        let meters_json = serde_json::json!({
-                            "tracks": tracks,
-                            "master_left": {
-                                "rms": meter_bank.master_left().load_rms(),
-                                "peak": meter_bank.master_left().load_peak(),
-                                "clipping": meter_bank.master_left().is_clipping(),
-                            },
-                            "master_right": {
-                                "rms": meter_bank.master_right().load_rms(),
-                                "peak": meter_bank.master_right().load_peak(),
-                                "clipping": meter_bank.master_right().is_clipping(),
-                            },
-                        });
-
-                        let payload = serde_json::json!({
-                            "transport": transport_json,
-                            "meters": meters_json,
-                        });
-
-                        // Emit to all webviews (fire-and-forget)
-                        let _ = telemetry_app.emit("telemetry_tick", payload);
-
-                        // ── Plugin dirty flag relay ──────────────────────
-                        // VST3 IComponentHandler callbacks (performEdit,
-                        // setDirty, restartComponent) set a global atomic.
-                        // Poll it here and mark the project dirty so the
-                        // title bar shows the unsaved asterisk (*).
-                        if dream_plugins::vst3_host::take_plugin_state_dirty() {
-                            let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
-                            if let Ok(project) = pstate.project.lock() {
-                                let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
-                            }
-                        }
-                    }
-                })
-            {
-                log::warn!("Failed to spawn telemetry thread: {err}");
-            }
-
-            // ── Plugin Sandbox Watchdog Thread ────────────────────────
-            let sandbox_app = app.handle().clone();
-            if let Err(err) = std::thread::Builder::new()
-                .name("plugin-sandbox-watchdog".into())
-                .spawn(move || {
-                    loop {
-                        // BUG-14: Graceful shutdown check
-                        {
-                            let sandbox_app_state: tauri::State<'_, AudioEngineHandle> = sandbox_app.state();
-                            if sandbox_app_state.is_shutting_down.load(std::sync::atomic::Ordering::Relaxed) {
-                                log::info!("[Watchdog] Shutdown signal received, exiting thread.");
-                                break;
-                            }
-                        }
-                        std::thread::sleep(Duration::from_millis(75));
-                        let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
-                        let (snapshot, crashes, recoveries) =
-                            match plugin_host_state.tick_sandbox_watchdog_with_events() {
-                            Ok(v) => v,
-                            Err(_) => continue,
-                        };
-                        let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
-                        if !crashes.is_empty() || !recoveries.is_empty() {
-                            let mut failed_instance_ids: HashSet<Uuid> = crashes
-                                .iter()
-                                .filter(|c| !c.auto_restarted)
-                                .map(|c| c.instance_id)
-                                .collect();
-                            let recovered_instance_ids: HashSet<Uuid> =
-                                recoveries.iter().map(|r| r.instance_id).collect();
-
-                            // ENTERPRISE/Lazarus: if an instance both crashed and recovered
-                            // within the same watchdog tick, treat it as recovered to avoid
-                            // transient forced-bypass/event flicker in UI and routing state.
-                            failed_instance_ids
-                                .retain(|id| !recovered_instance_ids.contains(id));
-
-                            let failed_slot_ids =
-                                plugin_host_state.slot_ids_for_instance_ids(&failed_instance_ids);
-                            let recovered_slot_ids =
-                                plugin_host_state.slot_ids_for_instance_ids(&recovered_instance_ids);
-
-                            if !failed_slot_ids.is_empty() || !recovered_slot_ids.is_empty() {
-                                let clip_pool_state: tauri::State<'_, ClipPoolState> = sandbox_app.state();
-                                let project_state: tauri::State<'_, ProjectState> = sandbox_app.state();
-                                if let Ok(mut project) = project_state.project.lock() {
-                                    let bypassed_changed = if failed_slot_ids.is_empty() {
-                                        0
-                                    } else {
-                                        bypass_plugin_slots_in_project(&mut project, &failed_slot_ids)
-                                    };
-                                    let recovered_changed = if recovered_slot_ids.is_empty() {
-                                        0
-                                    } else {
-                                        set_plugin_slots_bypass_in_project(
-                                            &mut project,
-                                            &recovered_slot_ids,
-                                            false,
-                                        )
-                                    };
-
-                                    if bypassed_changed > 0 || recovered_changed > 0 {
-                                        clip_pool_state.rebuild_routing_only(&project);
-                                        let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-                                        clip_pool_state.rebuild_external_fx_snapshot(
-                                            &project,
-                                            slot_instance_map.as_ref(),
-                                        );
-                                        let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
-
-                                        if bypassed_changed > 0 {
-                                            let _ = sandbox_app.emit(
-                                                "plugin_sandbox_auto_bypass",
-                                                serde_json::json!({
-                                                    "instanceIds": failed_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-                                                    "slotIds": failed_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                                                    "changedSlots": bypassed_changed,
-                                                }),
-                                            );
-                                        }
-
-                                        if recovered_changed > 0 {
-                                            let _ = sandbox_app.emit(
-                                                "plugin_sandbox_auto_recovered",
-                                                serde_json::json!({
-                                                    "instanceIds": recovered_instance_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-                                                    "slotIds": recovered_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                                                    "changedSlots": recovered_changed,
-                                                }),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        for crash in crashes {
-                            // Suppress transient crash events for instances that already
-                            // recovered in this same tick.
-                            if recoveries.iter().any(|r| r.instance_id == crash.instance_id) {
-                                continue;
-                            }
-                            let _ = sandbox_app.emit("plugin_sandbox_crashed", &crash);
-                        }
-                        for recovery in recoveries {
-                            let _ = sandbox_app.emit("plugin_sandbox_recovered", &recovery);
-                        }
-                    }
-                })
-            {
-                log::warn!("Failed to spawn plugin sandbox watchdog thread: {err}");
-            }
-
-            // ── Audio Stream Error Relay (event-driven, zero polling) ─
-            let stream_error_app = app.handle().clone();
-            if let Err(err) = std::thread::Builder::new()
-                .name("audio-stream-error-relay".into())
-                .spawn(move || {
-                    while let Ok(err_msg) = stream_error_rx.recv() {
-                        let payload = serde_json::json!({
-                            "error": err_msg,
-                            "at_ms": std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0),
-                        });
-                        let _ = stream_error_app.emit("audio_stream_error", payload);
-                    }
-                })
-            {
-                log::warn!("Failed to spawn audio stream error relay: {err}");
-            }
+        .setup(move |app| {
+            state_managers::spawn_background_runtime_threads(&app.handle(), stream_error_rx);
 
             // ── macOS NSEvent Local Monitor (Space → Play/Stop) ────────
             // When a native VST3 plugin editor window has focus, the WebView

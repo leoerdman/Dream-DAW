@@ -453,6 +453,10 @@ pub struct SharedSampleRackSamples {
     inner: ArcSwap<Vec<[Option<Arc<ClipAudio>>; 16]>>,
 }
 
+pub type SampleRackTrackPads = [Option<Arc<ClipAudio>>; 16];
+pub type SampleRackSamples = Vec<SampleRackTrackPads>;
+pub type SampleRackSamplesGuard = arc_swap::Guard<Arc<SampleRackSamples>>;
+
 impl SharedSampleRackSamples {
     pub fn new() -> Self {
         Self {
@@ -480,11 +484,11 @@ impl SharedSampleRackSamples {
         });
     }
 
-    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<[Option<Arc<ClipAudio>>; 16]>>> {
+    pub fn load(&self) -> SampleRackSamplesGuard {
         self.inner.load()
     }
 
-    pub fn swap(&self, samples: Vec<[Option<Arc<ClipAudio>>; 16]>) {
+    pub fn swap(&self, samples: SampleRackSamples) {
         self.inner.store(Arc::new(samples));
     }
 }

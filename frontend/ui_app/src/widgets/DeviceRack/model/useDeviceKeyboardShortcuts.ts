@@ -7,7 +7,7 @@ export function useDeviceKeyboardShortcuts(
     setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>,
     selectedTrack: any,
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
-    fetchProject: () => Promise<void>,
+    _syncProjectSnapshotDelta: (reason?: string) => Promise<void>,
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear: () => void,
     statusError: (msg: string) => void
@@ -71,5 +71,5 @@ export function useDeviceKeyboardShortcuts(
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceIds, selectedTrack, fetchProject, applyProjectDeltas, statusClear, statusError, setSelectedDeviceIds, setInlineSettingsOpen]);
+    }, [selectedDeviceIds, selectedTrack, applyProjectDeltas, statusClear, statusError, setSelectedDeviceIds, setInlineSettingsOpen]);
 }

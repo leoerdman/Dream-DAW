@@ -167,8 +167,10 @@ fn master_fx_processes_both_group_and_direct_paths() {
     const FRAMES: usize = 8192;
     const BPM: f64 = 174.0;
 
-    let mut project = Project::default();
-    project.sample_rate = SR;
+    let mut project = Project {
+        sample_rate: SR,
+        ..Project::default()
+    };
 
     // Group bus receiving one child track.
     let group = Track::with_type("Group", TrackType::Group, 0);
@@ -235,21 +237,25 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut output_with_master_fx = vec![0.0f32; FRAMES * OFFLINE_CHANNELS];
     let mut master_chain_none = DeviceChain::new(SR as f32);
     let external_fx_map_empty = vec![Vec::<ExternalFxRuntimeSlot>::new(); project.tracks.len() + 1];
+    let plugin_registry: HashMap<uuid::Uuid, PluginInstanceArc> = HashMap::new();
 
+    let mut routing_ctx_none = super::RenderRoutingCtx {
+        clips_per_track: &clips_per_track,
+        clip_pool: &clip_pool,
+        routing: &routing,
+        sidechains: &sidechains,
+        post_sum_mask: &post_sum_mask,
+        plugin_registry: &plugin_registry,
+        external_fx_map: &external_fx_map_empty,
+        bpm: BPM,
+        time_sig_numerator: 4,
+        time_sig_denominator: 4,
+        master_device_chain: &mut master_chain_none,
+    };
     OfflineBouncer::render_routing_aware(
         &mut render_ctx,
         &mut output_no_master_fx,
-        &clips_per_track,
-        &clip_pool,
-        &routing,
-        &sidechains,
-        &post_sum_mask,
-        &HashMap::new(),
-        &external_fx_map_empty,
-        BPM,
-        4,
-        4,
-        &mut master_chain_none,
+        &mut routing_ctx_none,
     );
 
     // Recreate render context for deterministic comparison from frame 0.
@@ -263,20 +269,23 @@ fn master_fx_processes_both_group_and_direct_paths() {
         &[DeviceNode::single(utility)],
     );
 
+    let mut routing_ctx_utility = super::RenderRoutingCtx {
+        clips_per_track: &clips_per_track,
+        clip_pool: &clip_pool,
+        routing: &routing,
+        sidechains: &sidechains,
+        post_sum_mask: &post_sum_mask,
+        plugin_registry: &plugin_registry,
+        external_fx_map: &external_fx_map_empty,
+        bpm: BPM,
+        time_sig_numerator: 4,
+        time_sig_denominator: 4,
+        master_device_chain: &mut master_chain_utility,
+    };
     OfflineBouncer::render_routing_aware(
         &mut render_ctx_with_master,
         &mut output_with_master_fx,
-        &clips_per_track,
-        &clip_pool,
-        &routing,
-        &sidechains,
-        &post_sum_mask,
-        &HashMap::new(),
-        &external_fx_map_empty,
-        BPM,
-        4,
-        4,
-        &mut master_chain_utility,
+        &mut routing_ctx_utility,
     );
 
     let dry_tail = tail_avg_abs_stereo(&output_no_master_fx, OFFLINE_CHANNELS, FRAMES / 2);

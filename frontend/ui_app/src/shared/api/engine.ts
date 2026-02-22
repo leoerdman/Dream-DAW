@@ -1162,7 +1162,7 @@ export const setClipSourceOffset = (clipId: string, sourceOffsetFrames: number) 
 
 export interface SetClipWarpPayload {
     clipId: string;
-    isWarped: boolean;
+    isWarped?: boolean;
     warpMode?: number | null;
     warpBaseBpm?: number | null;
 }
@@ -1170,6 +1170,13 @@ export interface SetClipWarpPayload {
 /** Configure clip warp state/mode/base BPM. */
 export const setClipWarp = (payload: SetClipWarpPayload) =>
     invoke<void>('set_clip_warp_cmd', { payload });
+
+/** Configure clip pitch shift. */
+export const setClipPitch = (payload: {
+    clipId: string;
+    pitchShiftSemitones: number;
+}) =>
+    invoke<void>('set_clip_pitch_cmd', { payload });
 
 // ── Export / Bounce ─────────────────────────────────────────────────────
 

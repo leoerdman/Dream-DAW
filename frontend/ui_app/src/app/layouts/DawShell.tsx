@@ -1176,10 +1176,26 @@ export const DawShell = () => {
     }, [transportIsPlaying, selectedClipIds, timelineClipsForView, editCursorBeat]);
 
     // Clip selection callback
-    const handleClipSelect = useCallback((clipId: string) => {
-        setSelectedClipIds([clipId]);
-        // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED: We want cursor to stay when clicking body)
-        // setEditCursorBeat(-1);
+    const handleClipSelect = useCallback((clipId: string, isShift: boolean = false, isCtrl: boolean = false) => {
+        setSelectedClipIds((prev) => {
+            if (isCtrl) {
+                // Toggle clicked clip
+                if (prev.includes(clipId)) {
+                    return prev.filter(id => id !== clipId);
+                }
+                return [...prev, clipId];
+            } else if (isShift) {
+                // Additive selection (simple push if not already there)
+                // Note: full range-based shift selection requires timeline sorting,
+                // but basic additive shift-select works for most use cases.
+                if (prev.includes(clipId)) return prev;
+                return [...prev, clipId];
+            } else {
+                // Single select
+                return [clipId];
+            }
+        });
+
         // Derive parent track from clip and select it alongside the clip.
         const clip = timelineClipsForView.find(c => c.id === clipId);
         if (clip) {
@@ -2109,7 +2125,44 @@ const SampleClipEditor = ({
     const [draftWarpEnabled, setDraftWarpEnabled] = useState<boolean>(Boolean(clip.isWarped));
     const [draftWarpMode, setDraftWarpMode] = useState<number>((clip.warpMode ?? 0) > 0 ? 1 : 0);
     const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
+    const [draftPitch, setDraftPitch] = useState<number>(clip.pitchShiftSemitones ?? 0);
     const [isPreviewing, setIsPreviewing] = useState(false);
+
+    const commitPitch = useCallback(async (val: number) => {
+        const nextPitch = Math.max(-48, Math.min(48, val));
+
+        const previousClips = useEngineStore.getState().timelineClips;
+        useEngineStore.setState((state) => ({
+            timelineClips: state.timelineClips.map((c) => {
+                if (c.id !== clip.id) return c;
+
+                let nextDurationBeats = c.durationBeats;
+                let nextDurationSamples = c.durationSamples;
+
+                if (!c.isWarped) {
+                    const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
+                    const sourceFrames = Math.max(1, c.warpSourceDurationFrames ?? c.durationSamples ?? 1);
+                    nextDurationSamples = Math.max(1, Math.round(sourceFrames / pitchMultiplier));
+                    nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
+                }
+
+                return {
+                    ...c,
+                    pitchShiftSemitones: nextPitch,
+                    durationSamples: nextDurationSamples,
+                    durationBeats: nextDurationBeats,
+                };
+            }),
+        }));
+
+        setDraftPitch(nextPitch);
+        try {
+            await engineApi.setClipPitch({ clipId: clip.id, pitchShiftSemitones: nextPitch });
+        } catch (err) {
+            useEngineStore.setState({ timelineClips: previousClips });
+            console.error('[SampleClipEditor] setClipPitch failed:', err);
+        }
+    }, [clip.id, bpm, sampleRate]);
 
     const togglePreview = useCallback(async () => {
         if (!clip.filePath) return;
@@ -2143,12 +2196,13 @@ const SampleClipEditor = ({
         const projectTempo = store.projectBpm || store.transport.bpm || 120;
         const sourceFrames = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
 
+        const pitchMultiplier = Math.pow(2.0, (clip.pitchShiftSemitones ?? 0) / 12.0);
         const nextDurationBeats = next.enabled
             ? frameToBeat(sourceFrames, base, sr)
-            : frameToBeat(sourceFrames, projectTempo, sr);
+            : frameToBeat(Math.round(sourceFrames / pitchMultiplier), projectTempo, sr);
         const nextDurationSamples = next.enabled
             ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr))
-            : sourceFrames;
+            : Math.max(1, Math.round(sourceFrames / pitchMultiplier));
 
         const previousClips = useEngineStore.getState().timelineClips;
         useEngineStore.setState((state) => ({
@@ -2275,6 +2329,33 @@ const SampleClipEditor = ({
                                     }}
                                     style={{ width: 68, ...editorButtonStyle, padding: '2px 6px' }}
                                 />
+                            </div>
+                        </ClipEditorSection>
+
+                        <ClipEditorSection title="Pitch">
+                            <div style={{ display: 'grid', gap: 4 }}>
+                                <span style={editorMetaTextStyle}>Transpose (st)</span>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <input
+                                        type="range"
+                                        min={-48}
+                                        max={48}
+                                        step={1}
+                                        value={draftPitch}
+                                        onChange={(e) => setDraftPitch(Number(e.target.value))}
+                                        onMouseUp={(e) => void commitPitch(Number(e.currentTarget.value))}
+                                        onTouchEnd={(e) => void commitPitch(Number(e.currentTarget.value))}
+                                        onKeyUp={(e) => {
+                                            if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                                                void commitPitch(draftPitch);
+                                            }
+                                        }}
+                                        style={{ flex: 1 }}
+                                    />
+                                    <span style={{ ...editorMetaTextStyle, width: '28px', textAlign: 'right' }}>
+                                        {draftPitch > 0 ? `+${draftPitch}` : draftPitch}
+                                    </span>
+                                </div>
                             </div>
                         </ClipEditorSection>
 

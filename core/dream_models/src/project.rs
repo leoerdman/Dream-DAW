@@ -895,6 +895,10 @@ pub struct AudioClip {
     #[serde(default)]
     pub is_warped: bool,
 
+    /// Pitch shift in semitones (applies directly or via warp logic)
+    #[serde(default)]
+    pub pitch_shift_semitones: f64,
+
     /// ALS warp mode numeric code.
     #[serde(default)]
     pub warp_mode: Option<i32>,
@@ -994,6 +998,7 @@ impl AudioClip {
             scale_root: None,
             scale_name: None,
             is_warped: false,
+            pitch_shift_semitones: 0.0,
             warp_mode: None,
             warp_markers: Vec::new(),
             warp_base_bpm: default_clip_warp_base_bpm(),

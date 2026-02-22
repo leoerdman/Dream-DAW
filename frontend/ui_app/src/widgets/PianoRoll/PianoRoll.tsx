@@ -1597,7 +1597,9 @@ export const PianoRoll = memo(function PianoRoll({
             }
 
             // Step input from keyboard: A W S E D F T G Y H U J K
-            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            // Bug Fix: Only allow these when the user is explicitly focused on the canvas root,
+            // not just anywhere in the DAW (which was swallowing typing shortcuts like 'S' for solo).
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement === editorRootRef.current) {
                 const keyToSemitone: Record<string, number> = {
                     KeyA: 0,
                     KeyW: 1,

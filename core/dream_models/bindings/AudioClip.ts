@@ -117,6 +117,10 @@ scale_name: string | null,
  */
 is_warped: boolean, 
 /**
+ * Pitch shift in semitones (applies directly or via warp logic)
+ */
+pitch_shift_semitones: number, 
+/**
  * ALS warp mode numeric code.
  */
 warp_mode: number | null, 

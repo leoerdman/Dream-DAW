@@ -384,15 +384,20 @@ impl RenderContext {
                     clip.duration.sample_frame.max(1) as f64
                 };
                 let is_warped = clip.is_warped && clip_source_len > 1.0;
-                let playback_rate = if is_warped {
+                
+                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+
+                let mut playback_rate = if is_warped {
                     let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
-                    // AUD-020 FIX: Clamped playback rate diagnostic.
-                    // AUDIT-S1-02: Removed log::trace! — log backend Mutex is RT-unsafe.
-                    // Rate clamping is a correctness feature; silent in all builds.
-                    rate
+                    // If true time-pitch independence is required, rubberband must be integrated.
+                    // For now, Warp mode pitch shift also accelerates read rate (like tape).
+                    rate * pitch_multiplier
                 } else {
-                    1.0
+                    pitch_multiplier
                 };
+                
+                playback_rate = playback_rate.clamp(0.125, 8.0);
+
                 let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
                     WarpResampleMode::Standard
                 } else {
@@ -400,8 +405,6 @@ impl RenderContext {
                 };
                 if matches!(warp_mode, WarpResampleMode::Pro) {
                     if pro_warp_budget == 0 {
-                        // BUG-010 FIX: Quality downgrade when Pro warp budget is exhausted.
-                        // AUDIT-S1-03: Removed log::trace! — log backend Mutex is RT-unsafe.
                         warp_mode = WarpResampleMode::Standard;
                     } else {
                         pro_warp_budget = pro_warp_budget.saturating_sub(1);
@@ -410,25 +413,18 @@ impl RenderContext {
 
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
-                    // The true resampling rate for ClipReader given that it outputs to the DEVICE buffer:
-                    // rate = (source_sr / timeline_sr) * (timeline_sr / device_sr) * playback_rate
-                    //      = (source_sr / device_sr) * playback_rate
+                    
                     let source_to_device_rate = (audio.sample_rate.max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     
-                    // We also need the timeline_to_device ratio to correctly map playhead positions
-                    // into the device output block.
-                    let timeline_to_device = (self.sample_rate.max(1.0) / self.timeline_sample_rate.max(1.0)).clamp(0.125, 8.0);
+                    let timeline_to_device_ratio = (self.sample_rate.max(1.0) / self.timeline_sample_rate.max(1.0)).clamp(0.125, 8.0);
+                    let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {
-                        // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
-                        // to prevent desyncs when playhead wraps across a loop boundary.
                         let clip_local_timeline_start = (ac.source_start_frame
                             - clip.source_offset.sample_frame)
                             .max(0) as f64;
-                        // Map timeline start to source start using warp rate and source_sr/timeline_sr ratio.
-                        let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
                             + clip_local_timeline_start * playback_rate * source_to_timeline_ratio;
                             
@@ -445,13 +441,19 @@ impl RenderContext {
                             warp_mode,
                         );
                     } else {
-                        // For unwarped clips, map the timeline position directly to the source position.
-                        let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
+                        // Unwarped: timeline maps to source directly, but modified by pitch_multiplier.
+                        // So local timeline duration T corresponds to T * pitch_multiplier in source frames.
+                        let clip_local_timeline_start = (ac.source_start_frame
+                            - clip.source_offset.sample_frame)
+                            .max(0) as f64;
+                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                            + clip_local_timeline_start * pitch_multiplier * source_to_timeline_ratio;
+
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
                             audio.right(),
-                            (ac.source_start_frame as f64) * source_to_timeline_ratio,
-                            source_to_device_rate,
+                            source_start,
+                            pitch_multiplier * source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,

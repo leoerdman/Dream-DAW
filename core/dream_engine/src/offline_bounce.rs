@@ -354,6 +354,17 @@ impl OfflineBouncer {
                 continue;
             }
             let slot = &mut render_ctx.track_slots[idx];
+
+            // ── AE-15 FIX: Group tracks must process their native FX (Inserts) before Mixer Strip ──
+            if !slot.device_chain.is_empty() {
+                let sr = render_ctx.sample_rate as f32;
+                slot.device_chain.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                    sr,
+                );
+            }
+
             if slot.strip.is_output_enabled() {
                 slot.strip.process_stereo(
                     &mut slot.buf_left[..frame_count],
@@ -466,7 +477,7 @@ impl OfflineBouncer {
         project: &mut Project,
         clip_pool: &mut ClipPool,
     ) -> usize {
-        let sample_rate = self.config.sample_rate as f64;
+        let sample_rate = self.config.project_sample_rate.max(1.0);
         let start_frame = self.config.start_frame;
         let end_frame = self.config.end_frame;
         let total_frames = (end_frame - start_frame).max(0) as usize;
@@ -731,7 +742,7 @@ impl OfflineBouncer {
             let clip_audio = ClipAudio::new(
                 synth_path.clone(),
                 vec![out_left, out_right],
-                self.config.sample_rate,
+                sample_rate as u32,
             );
             let _ = clip_pool.insert(clip_audio);
 
@@ -843,43 +854,18 @@ impl OfflineBouncer {
             )));
         }
 
-        // ── CRITICAL: Convert total_frames to the export-rate domain ──
-        // BounceConfig.total_frames() returns frames in the project sample rate
-        // domain (since start_frame, end_frame, tail_frames are all in project SR).
-        // But the render loop produces output frames at the EXPORT sample rate.
-        // The playhead correctly advances by frame_count * (timeline_sr / sample_rate)
-        // per render call, so the render loop counter must be in export-rate frames.
-        // Without this conversion, exporting 44100Hz→48000Hz would be 8.2% too short.
-        let project_total_frames = self.config.total_frames() as f64;
-        let sample_rate = self.config.sample_rate as f64;
         let project_sr = self.config.project_sample_rate.max(1.0);
-        let sr_ratio = sample_rate / project_sr;
-        let total_frames = if (sr_ratio - 1.0).abs() > 0.001 {
-            // Domain conversion: project frames → export frames
-            let export_frames = (project_total_frames * sr_ratio).ceil() as usize;
-            info!(
-                "[Bounce] Frame domain conversion: {}(project@{:.0}Hz) → {}(export@{:.0}Hz), ratio={:.6}",
-                project_total_frames as usize, project_sr, export_frames, sample_rate, sr_ratio
-            );
-            export_frames
-        } else {
-            project_total_frames as usize
-        };
+        let export_sr = self.config.sample_rate as f64;
+        let total_frames = self.config.total_frames() as usize;
 
         info!(
-            "[Bounce] Starting: {} frames @ {}Hz, {}-bit, output={}",
-            total_frames, self.config.sample_rate, self.config.bit_depth, self.config.output_path
+            "[Bounce] Starting: {} frames @ {}Hz (Engine: {:.0}Hz), {}-bit, output={}",
+            total_frames, self.config.sample_rate, project_sr, self.config.bit_depth, self.config.output_path
         );
 
         // ── Diagnostic: clip inventory ──────────────────────────
         let total_audio_clips: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
         let total_midi_clips: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
-        info!(
-            "[Bounce] Clip inventory: {} audio clips, {} MIDI clips across {} tracks",
-            total_audio_clips,
-            total_midi_clips,
-            project.tracks.len()
-        );
 
         if total_audio_clips == 0 && total_midi_clips == 0 {
             return Err(BounceError::InvalidConfig(
@@ -890,16 +876,9 @@ impl OfflineBouncer {
         // ── Pre-render MIDI tracks ──────────────────────────────
         if total_midi_clips > 0 {
             let midi_rendered = self.pre_render_midi_tracks(project, clip_pool);
-            info!(
-                "[Bounce] Pre-rendered {} MIDI tracks into audio clips",
-                midi_rendered
-            );
+            info!("[Bounce] Pre-rendered {} MIDI tracks", midi_rendered);
         }
 
-        // ── Prepare per-track clip slices ────────────────────────
-        // Build the same structure that driver.rs uses for RenderContext::render().
-        // After MIDI pre-rendering, synthetic audio clips have been injected
-        // into the project tracks, so they are included here automatically.
         let clips_per_track: Vec<Vec<AudioClip>> = project
             .tracks
             .iter()
@@ -909,293 +888,162 @@ impl OfflineBouncer {
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
 
-        // ── Diagnostic: pool coverage check ─────────────────────
-        {
-            let total_clip_refs: usize = clips_per_track.iter().map(|v| v.len()).sum();
-            let mut pool_hits = 0usize;
-            let mut pool_misses = 0usize;
-            for clips in &clips_per_track {
-                for clip in clips {
-                    if clip.file_path.is_empty() {
-                        continue;
-                    }
-                    if clip_pool.get(&clip.file_path).is_some() {
-                        pool_hits += 1;
-                    } else {
-                        pool_misses += 1;
-                        info!(
-                            "[Bounce] POOL MISS: clip '{}' file_path='{}' — will be SILENT",
-                            clip.name, clip.file_path
-                        );
-                    }
-                }
+        let mut render_ctx = self.create_render_ctx(project, loop_region, project_sr);
+        
+        // Single-pass render into contiguous RAM at Project SR
+        let mut mix_l = vec![0.0f32; total_frames];
+        let mut mix_r = vec![0.0f32; total_frames];
+        let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
+        
+        info!("[Bounce] Phase 1: Rendering Master Mix");
+        
+        let mut frames_rendered = 0usize;
+        let mut last_progress = -1.0f32;
+        
+        while frames_rendered < total_frames {
+            if self.cancel_flag.load(Ordering::SeqCst) {
+                return Err(BounceError::RenderError("Bounce cancelled by user".to_string()));
             }
-            info!(
-                "[Bounce] Pool coverage: {}/{} clips loaded ({} misses), master_gain={:.3}, project_sr={:.0}",
-                pool_hits, total_clip_refs, pool_misses, master_gain,
-                self.config.project_sample_rate
+
+            let chunk_frames = (total_frames - frames_rendered).min(OFFLINE_BUFFER_FRAMES);
+            let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+            interleaved_buf[..chunk_samples].fill(0.0);
+
+            Self::render_routing_aware(
+                &mut render_ctx,
+                &mut interleaved_buf[..chunk_samples],
+                &clips_per_track,
+                clip_pool,
+                &routing,
+                &post_sum_mask,
             );
-            if pool_misses > 0 && pool_hits == 0 {
-                log::error!(
-                    "[Bounce] ALL clips missing from pool — export will be 100% silent! \
-                     Check that audio files are loaded before calling export."
-                );
+
+            let mut out_idx = 0;
+            for i in 0..chunk_frames {
+                mix_l[frames_rendered + i] = interleaved_buf[out_idx];
+                mix_r[frames_rendered + i] = interleaved_buf[out_idx + 1];
+                out_idx += OFFLINE_CHANNELS;
+            }
+
+            frames_rendered += chunk_frames;
+            let progress = (frames_rendered as f32 / total_frames as f32) * 0.7; // First 70% is rendering
+            if progress - last_progress >= 0.01 {
+                progress_callback(progress.min(1.0));
+                last_progress = progress;
             }
         }
 
-        if is_mp3 {
-            // MP3 path: streaming encode to avoid full-render RAM growth.
-            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
-
-            let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
-            let mut frames_rendered = 0usize;
-            let mut last_progress = -1.0f32;
-
-            let gain = if self.config.normalize {
-                let mut peak = 0.0f32;
-                while frames_rendered < total_frames {
-                    if self.cancel_flag.load(Ordering::SeqCst) {
-                        let _ = std::fs::remove_file(&self.config.output_path);
-                        return Err(BounceError::RenderError(
-                            "Bounce cancelled by user".to_string(),
-                        ));
-                    }
-
-                    let remaining = total_frames - frames_rendered;
-                    let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
-                    let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
-                    interleaved_buf[..chunk_samples].fill(0.0);
-
-                    Self::render_routing_aware(
-                        &mut render_ctx,
-                        &mut interleaved_buf[..chunk_samples],
-                        &clips_per_track,
-                        clip_pool,
-                        &routing,
-                        &post_sum_mask,
-                    );
-
-                    for &s in &interleaved_buf[..chunk_samples] {
-                        peak = peak.max((s * master_gain).abs());
-                    }
-
-                    frames_rendered += chunk_frames;
-                    let progress = 0.5 * (frames_rendered as f32 / total_frames as f32);
-                    if progress - last_progress >= 0.01 {
-                        progress_callback(progress.min(1.0));
-                        last_progress = progress;
-                    }
-                }
-
-                if peak > 0.0 && peak != 1.0 {
-                    let g = 1.0 / peak;
-                    info!(
-                        "[Bounce] Normalizing MP3 path: peak={:.4}, gain={:.4}dB",
-                        peak,
-                        20.0 * g.log10()
-                    );
-                    g
-                } else {
-                    1.0
-                }
-            } else {
-                1.0
-            };
-
-            // Recreate render context for encode pass when normalization scanned first.
-            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
-            frames_rendered = 0;
-            last_progress = -1.0;
-            let mut mp3_writer =
-                Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate)
-                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
-            // Pre-allocate L/R scratch buffers — reused every chunk (zero per-iteration alloc).
-            let mut left = Vec::with_capacity(OFFLINE_BUFFER_FRAMES);
-            let mut right = Vec::with_capacity(OFFLINE_BUFFER_FRAMES);
-
-            while frames_rendered < total_frames {
-                if self.cancel_flag.load(Ordering::SeqCst) {
-                    let _ = std::fs::remove_file(&self.config.output_path);
-                    return Err(BounceError::RenderError(
-                        "Bounce cancelled by user".to_string(),
-                    ));
-                }
-
-                let remaining = total_frames - frames_rendered;
-                let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
-                let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
-                interleaved_buf[..chunk_samples].fill(0.0);
-
-                Self::render_routing_aware(
-                    &mut render_ctx,
-                    &mut interleaved_buf[..chunk_samples],
-                    &clips_per_track,
-                    clip_pool,
-                    &routing,
-                    &post_sum_mask,
-                );
-
-                left.clear();
-                right.clear();
-                for i in 0..chunk_frames {
-                    let base = i * OFFLINE_CHANNELS;
-                    let l = interleaved_buf[base] * gain * master_gain;
-                    let r = interleaved_buf[base + 1] * gain * master_gain;
-                    left.push(l);
-                    right.push(r);
-                }
-
-                mp3_writer
-                    .write_chunk(&left, &right)
-                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
-
-                frames_rendered += chunk_frames;
-                let progress = if self.config.normalize {
-                    0.5 + 0.5 * (frames_rendered as f32 / total_frames as f32)
-                } else {
-                    frames_rendered as f32 / total_frames as f32
-                };
-                if progress - last_progress >= 0.01 {
-                    progress_callback(progress.min(1.0));
-                    last_progress = progress;
-                }
+        info!("[Bounce] Phase 2: Gain / Normalization");
+        let mut peak = 0.0f32;
+        if self.config.normalize {
+            for i in 0..total_frames {
+                peak = peak.max((mix_l[i] * master_gain).abs()).max((mix_r[i] * master_gain).abs());
             }
+        }
+        
+        let mut total_gain = master_gain;
+        if self.config.normalize && peak > 0.0 && peak != 1.0 {
+            total_gain *= 1.0 / peak;
+            info!("[Bounce] Normalizing: peak={:.4}, gain={:.4}dB", peak, 20.0 * (1.0 / peak).log10());
+        }
+        
+        if total_gain != 1.0 {
+            for i in 0..total_frames {
+                mix_l[i] *= total_gain;
+                mix_r[i] *= total_gain;
+            }
+        }
 
-            mp3_writer
-                .finalize()
-                .map_err(|e| BounceError::WriteError(e.to_string()))?;
+        progress_callback(0.75);
+
+        // Resample only at the very end
+        let (final_l, final_r) = if (project_sr - export_sr).abs() > 0.001 {
+            info!("[Bounce] Phase 3: Resampling from {:.0}Hz to {:.0}Hz", project_sr, export_sr);
+            let resampled = dream_dsp::resampler::resample_channels(
+                &[mix_l, mix_r],
+                project_sr as usize,
+                export_sr as usize,
+            ).map_err(|e| BounceError::RenderError(format!("Resample failed: {}", e)))?;
+            (resampled[0].clone(), resampled[1].clone())
         } else {
-            info!(
-                "[Bounce] Writing WAV (streaming): {}-bit, {}",
-                self.config.bit_depth, self.config.output_path
-            );
+            (mix_l, mix_r)
+        };
 
-            let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
-
-            let gain = if self.config.normalize {
-                // Pass 1: peak scan.
-                let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
-                let mut frames_rendered = 0usize;
-                let mut peak = 0.0f32;
-                let mut last_progress = -1.0f32;
-
-                while frames_rendered < total_frames {
-                    if self.cancel_flag.load(Ordering::SeqCst) {
-                        let _ = std::fs::remove_file(&self.config.output_path);
-                        return Err(BounceError::RenderError(
-                            "Bounce cancelled by user".to_string(),
-                        ));
-                    }
-                    let remaining = total_frames - frames_rendered;
-                    let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
-                    let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
-                    interleaved_buf[..chunk_samples].fill(0.0);
-
-                    Self::render_routing_aware(
-                        &mut render_ctx,
-                        &mut interleaved_buf[..chunk_samples],
-                        &clips_per_track,
-                        clip_pool,
-                        &routing,
-                        &post_sum_mask,
-                    );
-                    for &s in &interleaved_buf[..chunk_samples] {
-                        peak = peak.max((s * master_gain).abs());
-                    }
-
-                    frames_rendered += chunk_frames;
-                    let progress = 0.5 * (frames_rendered as f32 / total_frames as f32);
-                    if progress - last_progress >= 0.01 {
-                        progress_callback(progress.min(1.0));
-                        last_progress = progress;
-                    }
-                }
-
-                if peak > 0.0 && peak != 1.0 {
-                    let g = 1.0 / peak;
-                    info!(
-                        "[Bounce] Normalizing WAV path: peak={:.4}, gain={:.4}dB",
-                        peak,
-                        20.0 * g.log10()
-                    );
-                    g
-                } else {
-                    1.0
-                }
-            } else {
-                1.0
-            };
-
-            // Pass 2 (or only pass when normalize=false): render + stream-write.
-            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
-            let mut writer = WavWriter::create_streaming(
-                &self.config.output_path,
-                self.config.sample_rate,
-                OFFLINE_CHANNELS as u16,
-                self.config.bit_depth,
-            )
-            .map_err(|e| BounceError::WriteError(e.to_string()))?;
-
-            let mut frames_rendered = 0usize;
-            let mut last_progress = -1.0f32;
-            while frames_rendered < total_frames {
-                if self.cancel_flag.load(Ordering::SeqCst) {
-                    let _ = std::fs::remove_file(&self.config.output_path);
-                    return Err(BounceError::RenderError(
-                        "Bounce cancelled by user".to_string(),
-                    ));
-                }
-
-                let remaining = total_frames - frames_rendered;
-                let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
-                let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
-                interleaved_buf[..chunk_samples].fill(0.0);
-
-                Self::render_routing_aware(
-                    &mut render_ctx,
-                    &mut interleaved_buf[..chunk_samples],
-                    &clips_per_track,
-                    clip_pool,
-                    &routing,
-                    &post_sum_mask,
-                );
-
-                let total_gain = gain * master_gain;
-                if total_gain != 1.0 {
-                    for s in &mut interleaved_buf[..chunk_samples] {
-                        *s *= total_gain;
-                    }
-                }
-
-                writer
-                    .write_interleaved_chunk(&interleaved_buf[..chunk_samples])
+        progress_callback(0.85);
+        info!("[Bounce] Phase 4: Writing File");
+        
+        let export_frames = final_l.len();
+        
+        if is_mp3 {
+            let mut mp3_writer = Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate as u32)
+                .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            let chunk_size = 4096;
+            let mut w_pos = 0;
+            while w_pos < export_frames {
+                let chunk = (export_frames - w_pos).min(chunk_size);
+                mp3_writer.write_chunk(&final_l[w_pos..w_pos + chunk], &final_r[w_pos..w_pos + chunk])
                     .map_err(|e| BounceError::WriteError(e.to_string()))?;
-
-                frames_rendered += chunk_frames;
-                let progress = if self.config.normalize {
-                    0.5 + 0.5 * (frames_rendered as f32 / total_frames as f32)
-                } else {
-                    frames_rendered as f32 / total_frames as f32
-                };
+                w_pos += chunk;
+                
+                let progress = 0.85 + 0.15 * (w_pos as f32 / export_frames as f32);
                 if progress - last_progress >= 0.01 {
                     progress_callback(progress.min(1.0));
                     last_progress = progress;
                 }
             }
-
-            writer
-                .finalize()
+            mp3_writer.finalize().map_err(|e| BounceError::WriteError(e.to_string()))?;
+        } else {
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate: self.config.sample_rate as u32,
+                bits_per_sample: self.config.bit_depth as u16,
+                sample_format: if self.config.bit_depth == 32 {
+                    hound::SampleFormat::Float
+                } else {
+                    hound::SampleFormat::Int
+                },
+            };
+            let mut wav_writer = hound::WavWriter::create(&self.config.output_path, spec)
                 .map_err(|e| BounceError::WriteError(e.to_string()))?;
+                
+            let is_float = self.config.bit_depth == 32;
+            let scaler = if self.config.bit_depth == 16 {
+                32767.0
+            } else if self.config.bit_depth == 24 {
+                8388607.0
+            } else {
+                1.0
+            };
+            
+            for i in 0..export_frames {
+                for ch in 0..2 {
+                    let s = if ch == 0 { final_l[i] } else { final_r[i] };
+                    if is_float {
+                        wav_writer.write_sample(s).map_err(|e| BounceError::WriteError(e.to_string()))?;
+                    } else if self.config.bit_depth == 16 {
+                        wav_writer.write_sample((s * scaler) as i16).map_err(|e| BounceError::WriteError(e.to_string()))?;
+                    } else {
+                        wav_writer.write_sample((s * scaler) as i32).map_err(|e| BounceError::WriteError(e.to_string()))?;
+                    }
+                }
+                
+                if i % 8192 == 0 {
+                    let progress = 0.85 + 0.15 * (i as f32 / export_frames as f32);
+                    if progress - last_progress >= 0.01 {
+                        progress_callback(progress.min(1.0));
+                        last_progress = progress;
+                    }
+                }
+            }
+            wav_writer.finalize().map_err(|e| BounceError::WriteError(e.to_string()))?;
         }
 
-        // Final progress
         progress_callback(1.0);
-
         info!(
             "[Bounce] Complete: {} [{}] ({:.1}s @ {}Hz)",
             self.config.output_path,
             self.config.format,
-            total_frames as f64 / sample_rate,
+            export_frames as f64 / export_sr,
             self.config.sample_rate
         );
 

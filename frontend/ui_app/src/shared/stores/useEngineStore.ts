@@ -801,8 +801,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     color: trackColor,
                     volume: track.volume,
                     pan: track.pan,
-                    is_mute: track.is_mute,
-                    is_solo: track.is_solo,
+                    is_mute: Boolean((track as Record<string, unknown>).is_mute ?? false),
+                    is_solo: Boolean((track as Record<string, unknown>).is_solo ?? false),
                     // BUG-1 fix: use Boolean() for runtime coercion instead of `as boolean`
                     is_armed: Boolean((track as Record<string, unknown>).is_armed ?? false),
                     height: Number((track as Record<string, unknown>).height ?? 80),

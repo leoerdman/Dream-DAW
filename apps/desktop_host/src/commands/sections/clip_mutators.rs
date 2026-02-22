@@ -1044,6 +1044,50 @@ struct SetClipWarpPayload {
     warp_base_bpm: Option<f64>,
 }
 
+#[derive(serde::Deserialize)]
+struct SetClipPitchPayload {
+    clip_id: String,
+    pitch_shift_semitones: f64,
+}
+
+/// Set clip pitch shift semitones.
+#[tauri::command]
+async fn set_clip_pitch_cmd(
+    payload: SetClipPitchPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    let mut updated = false;
+
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            clip.pitch_shift_semitones = payload.pitch_shift_semitones.clamp(-48.0, 48.0);
+            
+            if !clip.is_warped {
+                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+                let new_frames = (clip.warp_source_duration_frames.max(1) as f64 / pitch_multiplier).round() as i64;
+                clip.duration = AbsoluteTime::new(new_frames.max(1));
+            }
+            
+            updated = true;
+            break;
+        }
+    }
+
+    if updated {
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
+        Ok(())
+    } else {
+        Err("Clip not found".to_string())
+    }
+}
+
 /// Set clip warp state/mode/base BPM and recalculate timeline duration.
 #[tauri::command]
 async fn set_clip_warp_cmd(
@@ -1123,7 +1167,10 @@ async fn set_clip_warp_cmd(
                     });
                 }
             } else {
-                clip.duration = AbsoluteTime::new(clip.warp_source_duration_frames.max(1));
+                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+                let new_frames = (clip.warp_source_duration_frames.max(1) as f64 / pitch_multiplier).round() as i64;
+                clip.duration =
+                    AbsoluteTime::new(new_frames.max(1));
                 // BUG-H4 FIX: Clear warp markers when turning off warp
                 clip.warp_markers.clear();
             }

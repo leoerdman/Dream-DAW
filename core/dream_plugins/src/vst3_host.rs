@@ -1958,11 +1958,7 @@ unsafe extern "C" fn stream_read(
             *num_bytes_read = to_copy as i32;
         }
     }
-    if to_copy == requested {
-        K_RESULT_OK
-    } else {
-        K_RESULT_FALSE
-    }
+    K_RESULT_OK
 }
 
 unsafe extern "C" fn stream_write(
@@ -5110,6 +5106,8 @@ impl PluginInstance for Vst3Instance {
 
 // ── Plugin Host (Instance Registry) ───────────────────────────────────
 
+pub type PluginInstanceArc = std::sync::Arc<parking_lot::Mutex<Box<dyn PluginInstance>>>;
+
 /// Manages all loaded plugin instances.
 ///
 /// The host owns all active plugin instances and provides methods to:
@@ -5121,7 +5119,7 @@ impl PluginInstance for Vst3Instance {
 /// The audio thread accesses a snapshot via the execution plan.
 pub struct PluginHost {
     /// All active plugin instances, keyed by their unique ID.
-    instances: Vec<Box<dyn PluginInstance>>,
+    instances: Vec<PluginInstanceArc>,
     instance_index: HashMap<Uuid, usize>,
 
     /// Current audio configuration.
@@ -5148,7 +5146,7 @@ impl PluginHost {
         let id = instance.id();
         info!("[PluginHost] Registered instance: {}", id);
 
-        self.instances.push(Box::new(instance));
+        self.instances.push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(instance))));
         self.instance_index.insert(id, self.instances.len() - 1);
         Ok(id)
     }
@@ -5167,7 +5165,8 @@ impl PluginHost {
         self.sample_rate = sample_rate;
         self.buffer_size = buffer_size;
 
-        for instance in self.instances.iter_mut() {
+        for instance_arc in self.instances.iter_mut() {
+            let mut instance = instance_arc.lock();
             if let Err(e) = instance.deactivate() {
                 info!(
                     "[PluginHost] Deactivation warning for {}: {}",
@@ -5208,13 +5207,13 @@ impl PluginHost {
         instance.activate(self.sample_rate, self.buffer_size)?;
         let id = instance.id();
         info!("[PluginHost] Registered sandboxed instance: {}", id);
-        self.instances.push(Box::new(instance));
+        self.instances.push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(instance))));
         self.instance_index.insert(id, self.instances.len() - 1);
         Ok(id)
     }
 
     /// Returns a mutable reference to a plugin instance by its ID.
-    pub fn get_mut(&mut self, id: Uuid) -> Option<&mut Box<dyn PluginInstance>> {
+    pub fn get_mut(&mut self, id: Uuid) -> Option<&mut PluginInstanceArc> {
         let idx = *self.instance_index.get(&id)?;
         self.instances.get_mut(idx)
     }
@@ -5225,18 +5224,20 @@ impl PluginHost {
         id: Uuid,
         ctx: TransportContext,
     ) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.set_transport_context(ctx);
         Ok(())
     }
 
     /// Queues a parameter change for a specific plugin instance.
     pub fn set_parameter(&mut self, id: Uuid, index: u32, value: f64) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.set_parameter(index, value)
     }
 
@@ -5250,9 +5251,10 @@ impl PluginHost {
         num_frames: usize,
         midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.process_with_sidechain(main_inputs, sidechain_inputs, outputs, num_frames, midi_events)
     }
 
@@ -5265,12 +5267,13 @@ impl PluginHost {
             )));
         };
 
-        let mut instance = self.instances.swap_remove(pos);
+        let instance_arc = self.instances.swap_remove(pos);
+        let mut instance = instance_arc.lock();
         let _ = instance.close_editor();
         instance.deactivate()?;
 
         if pos < self.instances.len() {
-            let swapped_id = self.instances[pos].id();
+            let swapped_id = self.instances[pos].lock().id();
             self.instance_index.insert(swapped_id, pos);
         }
 
@@ -5297,7 +5300,8 @@ impl PluginHost {
         info!("[PluginHost] shutdown_all — tearing down {} instance(s)", count);
 
         // Drain in reverse order — last loaded, first unloaded.
-        while let Some(mut instance) = self.instances.pop() {
+        while let Some(instance_arc) = self.instances.pop() {
+            let mut instance = instance_arc.lock();
             let id = instance.id();
             let name = instance.descriptor().name.clone();
 
@@ -5326,7 +5330,7 @@ impl PluginHost {
     }
 
     /// Returns an immutable reference to a plugin instance by its ID.
-    pub fn get(&self, id: Uuid) -> Option<&Box<dyn PluginInstance>> {
+    pub fn get(&self, id: Uuid) -> Option<&PluginInstanceArc> {
         let idx = *self.instance_index.get(&id)?;
         self.instances.get(idx)
     }
@@ -5343,7 +5347,8 @@ impl PluginHost {
             self.instances.len(),
             self.instance_index.len()
         );
-        for instance in &self.instances {
+        for instance_arc in &self.instances {
+            let instance = instance_arc.lock();
             match instance.save_state() {
                 Ok(bytes) if !bytes.is_empty() => {
                     info!(
@@ -5372,8 +5377,8 @@ impl PluginHost {
     /// Returns None if the instance is not found or has no state.
     pub fn save_instance_state(&self, id: Uuid) -> Option<Vec<u8>> {
         self.instances.iter()
-            .find(|inst| inst.id() == id)
-            .and_then(|inst| inst.save_state().ok())
+            .find(|inst| inst.lock().id() == id)
+            .and_then(|inst| inst.lock().save_state().ok())
             .filter(|bytes| !bytes.is_empty())
     }
 
@@ -5390,7 +5395,8 @@ impl PluginHost {
         // Previously used `?` which stopped on first failure, leaving remaining
         // instances in inconsistent state with stale sample rate / buffer size.
         let mut first_error: Option<PluginError> = None;
-        for instance in &mut self.instances {
+        for instance_arc in &mut self.instances {
+            let mut instance = instance_arc.lock();
             if let Err(e) = instance.deactivate() {
                 info!("[PluginHost] Warning: deactivate failed for '{}': {}", instance.descriptor().name, e);
                 if first_error.is_none() {
@@ -5421,46 +5427,50 @@ impl PluginHost {
 
     /// Opens native editor for a specific plugin instance.
     pub fn open_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.open_editor()
     }
 
     /// Closes native editor for a specific plugin instance.
     pub fn close_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.close_editor()
     }
 
     /// Returns whether a plugin instance supports opening a native editor.
     pub fn supports_editor(&mut self, id: Uuid) -> Result<bool, PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         Ok(instance.supports_editor())
     }
 
     /// Returns plugin reported processing latency in samples.
     pub fn latency_samples(&mut self, id: Uuid) -> Result<u32, PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         Ok(instance.latency_samples())
     }
 
-    /// Applies serialized state data to a loaded plugin instance.
     pub fn load_state_blob(
         &mut self,
         id: Uuid,
         kind: Option<&str>,
         data: &[u8],
     ) -> Result<(), PluginError> {
-        let instance = self
+        let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        let mut instance = instance_arc.lock();
         instance.load_state_blob(kind, data)
     }
 }

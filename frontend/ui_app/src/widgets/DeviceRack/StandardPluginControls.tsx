@@ -81,9 +81,9 @@ export const PluginKnob = ({
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
-    const size = compact ? 30 : 38;
-    const markerHeight = compact ? 9 : 12;
-    const markerTopOffset = compact ? '-84%' : '-88%';
+    // const size = compact ? 30 : 38;
+    // const markerHeight = compact ? 9 : 12;
+    // const markerTopOffset = compact ? '-84%' : '-88%';
     const [isDragging, setIsDragging] = useState(false);
     const [isEditingValue, setIsEditingValue] = useState(false);
     const [editValueText, setEditValueText] = useState('');
@@ -321,7 +321,7 @@ const knobParamNameStyle: CSSProperties = {
     whiteSpace: 'nowrap',
 };
 
-const knobDialStyle = (dragging: boolean): CSSProperties => ({
+const knobDialStyle = (_dragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
     position: 'relative',
@@ -333,16 +333,7 @@ const knobDialStyle = (dragging: boolean): CSSProperties => ({
     background: 'transparent',
 });
 
-const knobMarkerStyle: CSSProperties = {
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    width: 'var(--space-0-5)',
-    background: 'var(--color-accent-primary)',
-    transformOrigin: '50% 90%',
-    borderRadius: 'var(--radius-full)' as unknown as number,
-    boxShadow: 'var(--knob-marker-glow)',
-};
+
 
 const knobValueStyle = (compact: boolean): CSSProperties => ({
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',

@@ -48,6 +48,7 @@ export interface TimelineClip {
     warpMode?: number | null;
     warpBaseBpm?: number;
     warpSourceDurationFrames?: number;
+    pitchShiftSemitones?: number;
     muted?: boolean;
     isOffline?: boolean;
     midiNotes?: TimelineMidiNote[];

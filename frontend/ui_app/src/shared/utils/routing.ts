@@ -23,8 +23,8 @@ export function isTrackActive(
         return false;
     }
 
-    // Determine if any track is explicitly soloed
-    const anySoloed = tracks.some(t => t.is_solo);
+    // Determine if any track is explicitly soloed (ignoring the Master track)
+    const anySoloed = tracks.some(t => t.is_solo && t.track_type?.toLowerCase() !== 'master');
     if (!anySoloed) {
         return true;
     }

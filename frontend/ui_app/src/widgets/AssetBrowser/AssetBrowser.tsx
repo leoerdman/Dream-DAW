@@ -1700,8 +1700,13 @@ export const AssetBrowser = () => {
         // If we ARE searching, the relevance sort applied above will be preserved.
         const isSearchActive = !!debouncedQuery.trim();
 
-        // BUG-7 FIX: Wrap every sort with a folder-first comparator.
-        // Directories always appear before files, then secondary sort applies.
+        // BUG-7 FIX: Do not apply the default alphabetical sort to a folder tree!
+        // The tree is already perfectly ordered by depth-first traversal in `folderBrowserItems`. 
+        // Re-sorting the flat array destroys the parent-child adjacency, scattering children.
+        if (activeCategory?.folderPath && !isSearchActive && sortFilter === 0) {
+            return base;
+        }
+
         const folderFirst = (a: BrowserItem, b: BrowserItem): number => {
             const aDir = a.isDirectory ? 1 : 0;
             const bDir = b.isDirectory ? 1 : 0;

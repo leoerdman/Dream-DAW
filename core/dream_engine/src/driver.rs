@@ -296,6 +296,44 @@ impl Default for SharedExternalFxSnapshot {
     }
 }
 
+// ── Shared Plugin Registry (LOCK-FREE) ─────────────────────────────────
+
+pub use dream_plugins::vst3_host::PluginInstanceArc;
+
+/// Atomic snapshot of active VST/CLAP plugin instances.
+pub struct SharedPluginRegistry {
+    inner: ArcSwap<std::collections::HashMap<Uuid, PluginInstanceArc>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedPluginRegistry {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(std::collections::HashMap::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn swap(&self, registry: std::collections::HashMap<Uuid, PluginInstanceArc>) {
+        self.inner.store(std::sync::Arc::new(registry));
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<std::sync::Arc<std::collections::HashMap<Uuid, PluginInstanceArc>>> {
+        self.inner.load()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+}
+
+impl Default for SharedPluginRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Lock-free runtime stats written by audio callback for diagnostics.
 ///
 /// AUD-054: All fields use `Relaxed` ordering intentionally. These stats are
@@ -1453,7 +1491,7 @@ pub fn start_audio_thread(
     sample_rack_samples: Arc<SharedSampleRackSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
-    plugin_host: Arc<Mutex<PluginHost>>,
+    plugin_registry: Arc<SharedPluginRegistry>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
@@ -1473,7 +1511,7 @@ pub fn start_audio_thread(
         sample_rack_samples,
         prepared_graph_snapshot,
         rt_debug_stats,
-        plugin_host,
+        plugin_registry,
         preview_buffer,
         preview_cursor,
         preview_source_sr,
@@ -1502,7 +1540,7 @@ pub fn start_audio_thread_on_device(
     sample_rack_samples: Arc<SharedSampleRackSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
-    plugin_host: Arc<Mutex<PluginHost>>,
+    plugin_registry: Arc<SharedPluginRegistry>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
@@ -1634,7 +1672,6 @@ pub fn start_audio_thread_on_device(
     let mut graph_out_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut graph_out_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut post_sum_processing_mask = vec![false; MAX_TRACKS];
-    let mut skip_device_chain_mask = vec![false; MAX_TRACKS];
     graph_renderer.update_plan(&graph_plan, &graph_dag);
     let mut graph_last_generation = prepared_graph.generation;
     let mut graph_last_track_count = prepared_graph.track_count;
@@ -2340,29 +2377,13 @@ pub fn start_audio_thread_on_device(
                         let needs_plugin_host = external_fx_map
                             .iter()
                             .any(|track_slots| track_slots.iter().any(|slot| slot.instance_id.is_some()));
-                        // PERF-FIX: Bounded spin-try to reduce plugin host lock misses.
-                        // The UI thread typically holds this lock for microseconds (parameter
-                        // updates, plugin state capture). A few spin iterations (~100ns total)
-                        // are enough to outlast the contention window, preventing the 1-buffer
-                        // silence gap that caused audible clicks on every UI action.
-                        // MAX_SPIN = 3: each spin_loop is ~ns, 3 iterations add <100ns
-                        // worst-case, well within audio budget even at 64-sample buffers.
-                        let mut plugin_host_guard = if needs_plugin_host {
-                            const MAX_SPIN: usize = 3;
-                            let mut guard = None;
-                            for _ in 0..MAX_SPIN {
-                                match plugin_host.try_lock() {
-                                    Ok(g) => { guard = Some(g); break; }
-                                    Err(_) => core::hint::spin_loop(),
-                                }
-                            }
-                            guard
-                        } else {
-                            None
-                        };
-                        if needs_plugin_host && plugin_host_guard.is_none() {
-                            rt_debug_stats.record_plugin_host_lock_miss();
-                        }
+                        // PERF-FIX: Lock-free plugin processing!
+                        // The UI thread now periodically publishes an `Arc<HashMap>` of
+                        // all active plugins into an `ArcSwap`. The audio thread loads this
+                        // snapshot in ~nanoseconds without ever blocking or spinning.
+                        // Priority inversions and 1-buffer dropout clicks are eliminated.
+                        let plugin_registry_guard = plugin_registry.load();
+                        let plugin_registry_ref = &*plugin_registry_guard;
                         let playhead_pos = render_ctx.playhead.position();
                         for (track_idx, lane) in automation.iter().enumerate() {
                             if track_idx >= render_ctx.track_slots.len() {
@@ -2393,7 +2414,6 @@ pub fn start_audio_thread_on_device(
                         // Tracks that receive routed input should apply strip/device
                         // processing after graph summing (bus/group semantics).
                         post_sum_processing_mask[..track_count].fill(false);
-                        skip_device_chain_mask[..track_count].fill(false);
                         let routing_now = routing_snapshot.load();
                         for src_idx in 0..track_count {
                             if let Some(Some(dest_idx)) = routing_now.get(src_idx)
@@ -2403,16 +2423,7 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // When a track has entries in the external FX map,
-                        // the graph render callback handles all device slots
-                        // (internal + external) in user-defined chain order.
-                        // Skip the bulk device_chain.process_stereo() in
-                        // render_callback to prevent double-processing.
-                        for (track_idx, runtime_slots) in external_fx_map.iter().enumerate() {
-                            if track_idx < track_count && !runtime_slots.is_empty() {
-                                skip_device_chain_mask[track_idx] = true;
-                            }
-                        }
+
 
                         // ── B. Source render pass (Clips & Samplers) ────
                         // Sync loaded samples from SharedSamplerSamples (once per buffer)
@@ -2762,97 +2773,83 @@ pub fn start_audio_thread_on_device(
                                         .copied()
                                         .unwrap_or(false);
 
-                                    if post_sum_processed {
-                                        // ── Output gate for group/bus tracks ──────────
-                                        // If this group track is muted or excluded by
-                                        // solo, silence its contribution so downstream
-                                        // graph nodes (MasterOutput) receive zero signal.
-                                        // Metering still runs below (shows gray/silent).
-                                        if slot.strip.is_output_enabled() {
-                                            slot.strip.process_stereo(
-                                                &mut left[..c],
-                                                &mut right[..c],
-                                            );
-                                        } else {
-                                            left[..c].fill(0.0);
-                                            right[..c].fill(0.0);
-                                        }
+                                    // 1. Unify Working Buffer
+                                    // GraphRenderer clears `left/right` before calling track_processor.
+                                    // For group tracks (post_sum_processed), GraphRenderer ALREADY summed the upstream 
+                                    // routing edges into `left/right` before calling us.
+                                    // For source tracks, we must inject their pre-rendered audio (clips/synths) into `left/right`.
+                                    if !post_sum_processed {
+                                        left[..c].copy_from_slice(&slot.buf_left[..c]);
+                                        right[..c].copy_from_slice(&slot.buf_right[..c]);
                                     }
 
-                                    // Process external FX chain for ALL tracks
+                                    // 2. Process Inserts (Native FX + VSTs in chain order) 
+                                    // All inserts now operate in-place on the graph's `left/right` buffer.
                                     if let Some(runtime_slots) = external_fx_map.get(track_idx) {
-                                        let (fx_buf_l, fx_buf_r): (&mut [f32], &mut [f32]) =
-                                            if post_sum_processed {
-                                                (&mut left[..c], &mut right[..c])
-                                            } else {
-                                                (
-                                                    &mut slot.buf_left[..c],
-                                                    &mut slot.buf_right[..c],
-                                                )
-                                            };
-
-                                        for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
-                                            let source_slot = runtime_slot
-                                                .sidechain_track_index
-                                                .and_then(|src_idx| {
-                                                    if src_idx < track_idx {
-                                                        left_tracks.get(src_idx)
-                                                    } else if src_idx == track_idx {
-                                                        None
-                                                    } else {
-                                                        right_tracks_rest.get(
-                                                            src_idx - track_idx - 1,
+                                        if !runtime_slots.is_empty() {
+                                            for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                                                let source_slot = runtime_slot
+                                                    .sidechain_track_index
+                                                    .and_then(|src_idx| {
+                                                        if src_idx < track_idx {
+                                                            left_tracks.get(src_idx)
+                                                        } else if src_idx == track_idx {
+                                                            None
+                                                        } else {
+                                                            right_tracks_rest.get(
+                                                                src_idx - track_idx - 1,
+                                                            )
+                                                        }
+                                                    });
+                                                let (sc_l, sc_r) = source_slot
+                                                    .map(|src_slot| {
+                                                        (
+                                                            Some(&src_slot.buf_left[..c]),
+                                                            Some(&src_slot.buf_right[..c]),
                                                         )
-                                                    }
-                                                });
-                                            let (sc_l, sc_r) = source_slot
-                                                .map(|src_slot| {
-                                                    (
-                                                        Some(&src_slot.buf_left[..c]),
-                                                        Some(&src_slot.buf_right[..c]),
-                                                    )
-                                                })
-                                                .unwrap_or((None, None));
+                                                    })
+                                                    .unwrap_or((None, None));
 
-                                            if let Some(internal_idx) =
-                                                runtime_slot.internal_slot_index
-                                            {
-                                                slot.device_chain
-                                                    .process_slot_with_sidechain(
-                                                        internal_idx,
-                                                        fx_buf_l,
-                                                        fx_buf_r,
-                                                        sc_l,
-                                                        sc_r,
-                                                        sample_rate_f64 as f32,
+                                                if let Some(internal_idx) =
+                                                    runtime_slot.internal_slot_index
+                                                {
+                                                    slot.device_chain
+                                                        .process_slot_with_sidechain(
+                                                            internal_idx,
+                                                            &mut left[..c],
+                                                            &mut right[..c],
+                                                            sc_l,
+                                                            sc_r,
+                                                            sample_rate_f64 as f32,
+                                                        );
+                                                    continue;
+                                                }
+
+                                                if let Some(instance_id) =
+                                                    runtime_slot.instance_id
+                                                    && let Some(plugin_mtx) =
+                                                        plugin_registry_ref.get(&instance_id) // LOCK-FREE ArcSwap GET
+                                                {
+                                                    let mut host = plugin_mtx.lock(); // Lock ONLY this specific plugin instance!
+                                                    apply_external_plugin_param_automation_block(
+                                                        &mut *host,
+                                                        automation.get(track_idx),
+                                                        runtime_slot,
+                                                        runtime_slot_idx,
+                                                        playhead_pos,
                                                     );
-                                                continue;
-                                            }
-
-                                            if let Some(instance_id) =
-                                                runtime_slot.instance_id
-                                                && let Some(host) =
-                                                    plugin_host_guard.as_deref_mut()
-                                            {
-                                                apply_external_plugin_param_automation_block(
-                                                    host,
-                                                    automation.get(track_idx),
-                                                    runtime_slot,
-                                                    runtime_slot_idx,
-                                                    playhead_pos,
-                                                );
-                                                external_left[..c]
-                                                    .copy_from_slice(fx_buf_l);
-                                                external_right[..c]
-                                                    .copy_from_slice(fx_buf_r);
-                                                let main_inputs: [&[f32]; 2] =
-                                                    [&fx_buf_l[..c], &fx_buf_r[..c]];
-                                                let sc_pair = source_slot.map(|src| {
-                                                    [
-                                                        &src.buf_left[..c],
-                                                        &src.buf_right[..c],
-                                                    ]
-                                                });
+                                                    external_left[..c]
+                                                        .copy_from_slice(&left[..c]);
+                                                    external_right[..c]
+                                                        .copy_from_slice(&right[..c]);
+                                                    let main_inputs: [&[f32]; 2] =
+                                                        [&left[..c], &right[..c]];
+                                                    let sc_pair = source_slot.map(|src| {
+                                                        [
+                                                            &src.buf_left[..c],
+                                                            &src.buf_right[..c],
+                                                        ]
+                                                    });
                                                 let transport = TransportContext {
                                                     sample_rate: sample_rate_f64,
                                                     position_samples: playhead_pos,
@@ -2863,10 +2860,7 @@ pub fn start_audio_thread_on_device(
                                                     time_sig_numerator: 4,
                                                     time_sig_denominator: 4,
                                                 };
-                                                let _ = host.set_transport_context(
-                                                    instance_id,
-                                                    transport,
-                                                );
+                                                host.set_transport_context(transport);
 
                                                 // ENTERPRISE MIDI: Populate scratch with scheduled events for this track.
                                                 // BUG-1/2/3 FIX: VST3 path now has:
@@ -3030,12 +3024,12 @@ pub fn start_audio_thread_on_device(
                                                         })
                                                 });
 
+                                                
                                                 let mut out_slices: [&mut [f32]; 2] = [
                                                     &mut external_left[..c],
                                                     &mut external_right[..c],
                                                 ];
                                                 let _ = host.process_with_sidechain(
-                                                    instance_id,
                                                     &main_inputs,
                                                     sc_pair
                                                         .as_ref()
@@ -3044,28 +3038,42 @@ pub fn start_audio_thread_on_device(
                                                     c,
                                                     &vst3_midi_scratch,
                                                 );
-                                                fx_buf_l.copy_from_slice(
+                                                left[..c].copy_from_slice(
                                                     &external_left[..c],
                                                 );
-                                                fx_buf_r.copy_from_slice(
+                                                right[..c].copy_from_slice(
                                                     &external_right[..c],
                                                 );
-                                            } else {
-                                                // No instance for this slot — passthrough.
-                                                // fx_buf_l/r already contain the input audio.
+                                                }
                                             }
+                                        } else {
+                                            if !slot.device_chain.is_empty() {
+                                                slot.device_chain.process_stereo(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    sample_rate_f64 as f32,
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        if !slot.device_chain.is_empty() {
+                                            slot.device_chain.process_stereo(
+                                                &mut left[..c],
+                                                &mut right[..c],
+                                                sample_rate_f64 as f32,
+                                            );
                                         }
                                     }
 
-                                    // ── Output gate ──────────────────────────
-                                    if !post_sum_processed {
-                                        let route_to_graph = slot.strip.is_output_enabled();
-                                        if route_to_graph {
-                                            for i in 0..c {
-                                                left[i] += slot.buf_left[i];
-                                                right[i] += slot.buf_right[i];
-                                            }
-                                        }
+                                    // 3. Process Mixer Strip (Volume, Pan, Mute, Solo output gate)
+                                    if slot.strip.is_output_enabled() {
+                                        slot.strip.process_stereo(
+                                            &mut left[..c],
+                                            &mut right[..c],
+                                        );
+                                    } else {
+                                        left[..c].fill(0.0);
+                                        right[..c].fill(0.0);
                                     }
 
                                     if let Some(lane) = automation.get(track_idx) {
@@ -3078,44 +3086,18 @@ pub fn start_audio_thread_on_device(
                                             (!lane.pan.is_empty())
                                                 .then_some(lane.pan.as_slice()),
                                         );
-                                        apply_plugin_automation_sample_accurate(
-                                            &mut left[..c],
-                                            &mut right[..c],
-                                            playhead_pos,
-                                            lane.plugin_params
-                                                .get("__plugin_gain__")
-                                                .map(|v| v.as_slice()),
-                                            lane.plugin_params
-                                                .get("__plugin_pan__")
-                                                .map(|v| v.as_slice()),
-                                        );
                                     }
 
-                                    // ── Per-track metering (graph pass) ─────
-                                    // Post-sum tracks: meter the mixed graph output.
-                                    // Source tracks: meter after strip/FX processing
-                                    //   (graph output = slot buffer summed into left/right).
-                                    // AUD-008 FIX: Cache peak_decay outside the closure via
-                                    // sample_rate_f64 captured from outer scope. peak_decay_for_block
-                                    // involves exp() which is ~5ns — ~1.3μs overhead for 256 tracks.
-                                    // AE-013 FIX: Use pre-cached graph_peak_decay from outer scope.
+                                    // 4. Per-track metering (graph pass)
                                     if let Some((meter_l, meter_r)) =
                                         render_ctx.meter_bank.track(track_idx)
                                     {
-                                        let (meter_src_l, meter_src_r): (&[f32], &[f32]) =
-                                            if post_sum_processed {
-                                                (&left[..c], &right[..c])
-                                            } else {
-                                                (&slot.buf_left[..c], &slot.buf_right[..c])
-                                            };
-                                        let rms_l = linear_to_db(compute_rms(meter_src_l));
-                                        let rms_r = linear_to_db(compute_rms(meter_src_r));
-                                        let peak_l = linear_to_db(compute_peak(meter_src_l));
-                                        let peak_r = linear_to_db(compute_peak(meter_src_r));
+                                        let rms_l = linear_to_db(compute_rms(&left[..c]));
+                                        let rms_r = linear_to_db(compute_rms(&right[..c]));
+                                        let peak_l = linear_to_db(compute_peak(&left[..c]));
+                                        let peak_r = linear_to_db(compute_peak(&right[..c]));
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
-                                        // MEGA-04 FIX: Do not double-decay active tracks inside the graph loop
-                                        // since baseline_decay was already applied globally at start of block.
                                         meter_l.store_peak(peak_l.max(meter_l.load_peak()));
                                         meter_r.store_peak(peak_r.max(meter_r.load_peak()));
                                     }

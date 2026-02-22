@@ -54,7 +54,7 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.sample_rack_samples),
         Arc::clone(&handle.prepared_graph_snapshot),
         Arc::clone(&handle.rt_debug_stats),
-        Arc::clone(&handle.plugin_host),
+        Arc::clone(&handle.plugin_registry),
         Arc::clone(&handle.preview_buffer),
         Arc::clone(&handle.preview_cursor),
         Arc::clone(&handle.preview_source_sr),

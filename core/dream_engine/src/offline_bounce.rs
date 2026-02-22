@@ -284,6 +284,13 @@ impl OfflineBouncer {
             clip_pool,
         );
 
+        // CRITICAL FIX: Advance the playhead after reading clips.
+        // Without this, every render chunk reads from the same playhead position,
+        // producing a repeating loop of the first buffer instead of sequential audio.
+        // This mirrors driver.rs:2501 which calls advance_playhead_by_frames()
+        // immediately after read_audio_clips_into_tracks().
+        render_ctx.advance_playhead_by_frames(frame_count);
+
         // Phase 1.5: Apply Track FX and Channel Strip for standard tracks (non-group)
         for (track_idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
             if !slot.active { continue; }
@@ -380,6 +387,8 @@ impl OfflineBouncer {
         // Phase 4: Sum all terminal tracks into master bus
         // A source track routed to a group does NOT contribute directly;
         // its audio already went through the group in Phase 2.
+        // Group buses themselves ALWAYS sum to master (they ARE the
+        // aggregated output for their sub-tree).
         render_ctx.master_bus.clear(frame_count);
         for (idx, slot) in render_ctx.track_slots.iter().enumerate() {
             if !slot.active {
@@ -395,13 +404,15 @@ impl OfflineBouncer {
                 .copied()
                 .unwrap_or(false);
 
-            // Skip source tracks that route to a group (already summed in Phase 2)
+            // Skip leaf/source tracks that route to a group (already summed in Phase 2)
             if is_routed_to_group && !is_group {
                 continue;
             }
 
-            // Only include enabled tracks in master sum
-            if !slot.strip.is_output_enabled() && !is_group {
+            // Group tracks were already gain/mute-gated in Phase 3;
+            // their strip zeroed the buffer if they should be silent.
+            // Leaf tracks not routed to any group are included if enabled.
+            if !is_group && !slot.strip.is_output_enabled() {
                 continue;
             }
 
@@ -1021,9 +1032,13 @@ impl OfflineBouncer {
                     if is_float {
                         wav_writer.write_sample(s).map_err(|e| BounceError::WriteError(e.to_string()))?;
                     } else if self.config.bit_depth == 16 {
-                        wav_writer.write_sample((s * scaler) as i16).map_err(|e| BounceError::WriteError(e.to_string()))?;
+                        // SAFETY CLAMP: prevent wrap-around pops if sample exceeds [-1,1]
+                        let scaled = (s * scaler).round().clamp(-32768.0, 32767.0) as i16;
+                        wav_writer.write_sample(scaled).map_err(|e| BounceError::WriteError(e.to_string()))?;
                     } else {
-                        wav_writer.write_sample((s * scaler) as i32).map_err(|e| BounceError::WriteError(e.to_string()))?;
+                        // 24-bit: hound writes the lower 24 bits of i32
+                        let scaled = (s * scaler).round().clamp(-8388608.0, 8388607.0) as i32;
+                        wav_writer.write_sample(scaled).map_err(|e| BounceError::WriteError(e.to_string()))?;
                     }
                 }
                 

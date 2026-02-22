@@ -27,7 +27,6 @@ use dream_clip_engine::pool::ClipPool;
 use dream_engine::driver::SharedClipSnapshot;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{self, EngineCommand, MasterClock};
-use dream_plugins::PluginHost;
 
 fn main() {
     // ── Initialize logging ──────────────────────────────────────────
@@ -65,7 +64,7 @@ fn main() {
         Arc::new(dream_engine::driver::SharedSampleRackSamples::new()),
         Arc::new(dream_engine::driver::SharedPreparedGraphSnapshot::new()),
         Arc::new(dream_engine::driver::SharedRtDebugStats::new()),
-        Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),
+        Arc::new(dream_engine::driver::SharedPluginRegistry::new()),
         Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
         Arc::new(std::sync::atomic::AtomicU32::new(0)), // cli playhead pos

@@ -124,6 +124,7 @@ struct AudioEngineHandle {
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
     sample_rack_samples: Arc<dream_engine::driver::SharedSampleRackSamples>,
     plugin_host: Arc<Mutex<PluginHost>>,
+    plugin_registry: Arc<dream_engine::driver::SharedPluginRegistry>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
 
     /// Estimated hardware output latency in sample frames.
@@ -4117,6 +4118,9 @@ pub fn run() {
     let sample_rack_samples_for_handle = Arc::clone(&sample_rack_samples);
     let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
+    let plugin_registry = Arc::new(dream_engine::driver::SharedPluginRegistry::new());
+    let plugin_registry_for_engine = Arc::clone(&plugin_registry);
+    let plugin_registry_for_handle = Arc::clone(&plugin_registry);
     let rt_debug_stats = Arc::new(SharedRtDebugStats::new());
     let rt_debug_stats_for_engine = Arc::clone(&rt_debug_stats);
     let rt_debug_stats_for_handle = Arc::clone(&rt_debug_stats);
@@ -4172,7 +4176,7 @@ pub fn run() {
         sample_rack_samples_for_engine,
         prepared_graph_snapshot_for_engine,
         rt_debug_stats_for_engine,
-        plugin_host_for_engine,
+        plugin_registry_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
         preview_source_sr_for_engine,
@@ -4255,6 +4259,7 @@ pub fn run() {
         sampler_samples: sampler_samples_for_handle,
         sample_rack_samples: sample_rack_samples_for_handle,
         plugin_host: plugin_host_for_handle,
+        plugin_registry: plugin_registry_for_handle,
         rt_debug_stats: rt_debug_stats_for_handle,
         output_latency_frames,
         stream_error_tx,

@@ -1369,6 +1369,7 @@ fn set_external_plugin_param_cmd(
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
     instance
+        .lock()
         .set_parameter(param_index, normalized)
         .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
 
@@ -1421,6 +1422,7 @@ fn set_external_plugin_param_for_slot_cmd(
         .get_mut(instance_id)
         .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
     instance
+        .lock()
         .set_parameter(param_index, normalized)
         .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
     drop(host);
@@ -1552,7 +1554,7 @@ fn get_external_plugin_params(
         return Ok(fallback_param_block(metadata_count));
     };
 
-    let host_count = instance.parameter_count() as usize;
+    let host_count = instance.lock().parameter_count() as usize;
     let count = if host_count > 0 {
         host_count
     } else if metadata_count > 0 {
@@ -1565,6 +1567,7 @@ fn get_external_plugin_params(
     let mut out = Vec::with_capacity(count);
     for idx in 0..count {
         let value = instance
+            .lock()
             .get_parameter(idx as u32)
             .unwrap_or(0.5)
             .clamp(0.0, 1.0);
@@ -1633,7 +1636,7 @@ fn get_external_plugin_params_for_slot(
     let Some(instance) = host.get_mut(instance_id) else {
         return Ok(fallback_param_block(metadata_count));
     };
-    let count_hint = instance.parameter_count().max(metadata_count as u32);
+    let count_hint = instance.lock().parameter_count().max(metadata_count as u32);
     let count = (if count_hint > 0 { count_hint } else { 16 }).min(128);
 
     let mut params = Vec::with_capacity(count as usize);
@@ -1644,7 +1647,7 @@ fn get_external_plugin_params_for_slot(
             min: 0.0,
             max: 1.0,
             step: 0.001,
-            value: instance.get_parameter(idx).unwrap_or(0.5),
+            value: instance.lock().get_parameter(idx).unwrap_or(0.5),
         });
     }
     drop(host);

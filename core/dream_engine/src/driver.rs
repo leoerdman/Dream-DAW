@@ -862,7 +862,7 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
 }
 
 fn apply_external_plugin_param_automation_block(
-    host: &mut PluginHost,
+    host: &mut Box<dyn dream_plugins::PluginInstance>,
     lane: Option<&TrackAutomationState>,
     runtime_slot: &ExternalFxRuntimeSlot,
     runtime_slot_index: usize,
@@ -896,7 +896,7 @@ fn apply_external_plugin_param_automation_block(
         let mut cursor = 0usize;
         if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
             let normalized = f64::from(value.clamp(0.0, 1.0));
-            let _ = host.set_parameter(instance_id, target.param_index, normalized);
+            let _ = host.set_parameter(target.param_index, normalized);
         }
     }
 }
@@ -3131,8 +3131,9 @@ pub fn start_audio_thread_on_device(
                                     }
 
                                     if let Some(instance_id) = runtime_slot.instance_id
-                                        && let Some(host) = plugin_host_guard.as_deref_mut()
+                                        && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
                                     {
+                                        let mut host = plugin_mtx.lock();
                                         let c = n;
                                         let main_inputs: [&[f32]; 2] = [
                                             &graph_out_left[..c],
@@ -3147,10 +3148,7 @@ pub fn start_audio_thread_on_device(
                                             time_sig_numerator: 4,
                                             time_sig_denominator: 4,
                                         };
-                                        let _ = host.set_transport_context(
-                                            instance_id,
-                                            transport,
-                                        );
+                                        host.set_transport_context(transport);
 
                                         // Master bus plugins don't receive MIDI.
                                         // Use empty slice (zero-alloc) for RT-safety.
@@ -3161,7 +3159,6 @@ pub fn start_audio_thread_on_device(
                                             &mut external_right[..c],
                                         ];
                                         let _ = host.process_with_sidechain(
-                                            instance_id,
                                             &main_inputs,
                                             None, // No sidechain on master bus
                                             &mut out_slices,

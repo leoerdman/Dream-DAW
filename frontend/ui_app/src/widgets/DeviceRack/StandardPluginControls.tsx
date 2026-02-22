@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState, type CSSProperties } from 'react';
-
 export interface PluginParam {
     name: string;
     value: number;
@@ -9,7 +8,6 @@ export interface PluginParam {
     step?: number;
     defaultValue?: number;
 }
-
 const formatPluginParamValue = (param: PluginParam): string => {
     const v = Number.isFinite(param.value) ? param.value : 0;
     const precision = param.step && param.step < 1 ? 2 : 0;

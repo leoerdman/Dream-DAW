@@ -72,7 +72,7 @@ export const DeviceNode = ({
     onEnsureActive,
 }: DeviceNodeProps) => {
     const isInstrumentSlot = device.effectType === 'instrument' || device.effectType === 'sampler' || device.effectType === 'waveSynth';
-    const manifest = resolvePlugin(device.pluginId, device.name, device.source as any, isInstrumentSlot);
+    const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
     const baseWidth =
         device.source === 'internal' && device.effectType === 'waveSynth'
             ? 980

@@ -102,7 +102,7 @@ export const AssetBrowser = () => {
                                         }}
                                     >
                                         <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
-                                        <BrowserGlyph name={cat.icon as any} size={11} />
+                                            <BrowserGlyph name={cat.icon} size={11} />
                                         </span>
                                         <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                                             {cat.title}
@@ -142,7 +142,7 @@ export const AssetBrowser = () => {
                                     }}
                                 >
                                     <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
-                                        <BrowserGlyph name={cat.icon as any} size={12} />
+                                        <BrowserGlyph name={cat.icon} size={12} />
                                     </span>
                                     <span>Add Fol…</span>
                                 </button>
@@ -191,7 +191,7 @@ export const AssetBrowser = () => {
                                             boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.28)',
                                         }} />
                                     ) : (
-                                        <BrowserGlyph name={cat.icon as any} size={12} />
+                                        <BrowserGlyph name={cat.icon} size={12} />
                                     )}
                                 </span>
                                 <span style={{

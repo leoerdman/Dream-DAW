@@ -2,11 +2,12 @@ import {
     INTERNAL_EFFECT_PLUGINS,
     INTERNAL_INSTRUMENT_PLUGINS,
 } from '@/shared/lib/internalPlugins';
+import type { BrowserGlyphName } from '@/widgets/AssetBrowser/ui/AssetBrowserPrimitives';
 
 export interface BrowserCategory {
     id: string;
     title: string;
-    icon: string;
+    icon: BrowserGlyphName;
     kind: 'section' | 'leaf';
     markerColor?: string;
     folderPath?: string;

@@ -10,6 +10,7 @@ use crate::error::{OrchestratorError, OrchestratorResult};
 /// as `EngineCommand::RemoveDevice`.
 #[derive(Debug, Clone, Copy)]
 pub struct RemovePluginFromTrackResult {
+    pub track_index: usize,
     pub runtime_remove_slot: Option<u8>,
 }
 
@@ -40,14 +41,15 @@ impl Command for RemovePluginFromTrackCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
-        let track = project
+        let track_index = project
             .tracks
-            .iter_mut()
-            .find(|t| t.id == self.track_id)
+            .iter()
+            .position(|t| t.id == self.track_id)
             .ok_or_else(|| OrchestratorError::NotFound {
                 entity: "Track",
                 id: self.track_id.to_string(),
             })?;
+        let track = &mut project.tracks[track_index];
 
         let mut removed = false;
         let mut runtime_remove_slot: Option<u8> = None;
@@ -83,6 +85,7 @@ impl Command for RemovePluginFromTrackCommand {
         }
 
         Ok(RemovePluginFromTrackResult {
+            track_index,
             runtime_remove_slot,
         })
     }

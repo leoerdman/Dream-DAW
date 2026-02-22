@@ -1,6 +1,6 @@
 {
     "productName": "Dream DAW",
-    "version": "1.0.111",
+    "version": "1.0.112",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",

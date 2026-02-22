@@ -24,6 +24,10 @@ import { EmptyClipEditor, SampleClipEditor, SessionWorkspace } from './DawShellP
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
 import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
+import { usePendingMidiFlush } from './model/usePendingMidiFlush';
+import { useArrangementSelectionHandlers } from './model/useArrangementSelectionHandlers';
+import { usePlaybackStartAnchor } from './model/usePlaybackStartAnchor';
+import { usePaneResizeHandlers } from './model/usePaneResizeHandlers';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
@@ -335,31 +339,6 @@ export const DawShell = () => {
         try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
         return next;
     }), []);
-    const handleSelectTrack = useCallback((id: string) => {
-        setSelectedTrackId(id);
-        setSelectedTrackIds(id && id !== 'master' ? [id] : []);
-        const tracks = useEngineStore.getState().projectTracks;
-        const index = tracks.findIndex((t) => t.id === id);
-        if (index >= 0) {
-            setEditCursorTrackIndex(index);
-        }
-        // Track selection should never auto-select clips.
-        setSelectedClipIds([]);
-    }, []);
-
-    const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
-        const cleaned = Array.from(new Set(ids)).filter((t) => t && t !== 'master');
-        setSelectedTrackIds(cleaned);
-        setSelectedTrackId(primaryId);
-        const tracks = useEngineStore.getState().projectTracks;
-        const index = tracks.findIndex((t) => t.id === primaryId);
-        if (index >= 0) {
-            setEditCursorTrackIndex(index);
-        }
-        // Multi-track selection should never auto-select clips.
-        setSelectedClipIds([]);
-    }, []);
-
     // selectedClipId is now a useMemo derived from selectedClipIds — no useEffect needed.
 
     // Keep selectedTrackId consistent with selectedTrackIds when multi-select changes.
@@ -417,80 +396,11 @@ export const DawShell = () => {
             if (unlisten) unlisten();
         };
     }, []);
-    const beginBrowserResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        const splitRoot = mainSplitRef.current;
-        if (!splitRoot) return;
-        const rootRect = splitRoot.getBoundingClientRect();
-        let rafId: number | null = null;
-        let pendingWidth: number | null = null;
-
-        const flushWidth = () => {
-            rafId = null;
-            if (pendingWidth === null) return;
-            const nextWidth = pendingWidth;
-            setBrowserWidth((prev) => {
-                if (prev === nextWidth) return prev;
-                return nextWidth;
-            });
-        };
-
-        const onMove = (me: MouseEvent) => {
-            const nextWidth = Math.max(240, Math.min(520, Math.round(me.clientX - rootRect.left)));
-            pendingWidth = nextWidth;
-            if (rafId === null) {
-                rafId = window.requestAnimationFrame(flushWidth);
-            }
-        };
-        const onUp = () => {
-            if (rafId !== null) {
-                window.cancelAnimationFrame(rafId);
-                rafId = null;
-            }
-            flushWidth();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-    }, []);
-
-    const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        const minHeight = DEFAULT_BOTTOM_PANEL_HEIGHT;
-        const maxHeight = Math.round(window.innerHeight * 0.72);
-
-        let rafId: number | null = null;
-        let pendingHeight: number | null = null;
-
-        const flushHeight = () => {
-            rafId = null;
-            if (pendingHeight == null) return;
-            const nextHeight = pendingHeight;
-            setBottomPanelHeightPx((prev) => (prev === nextHeight ? prev : nextHeight));
-        };
-
-        const onMove = (me: MouseEvent) => {
-            const nextHeight = Math.max(minHeight, Math.min(maxHeight, window.innerHeight - me.clientY));
-            pendingHeight = nextHeight;
-            if (rafId == null) {
-                rafId = window.requestAnimationFrame(flushHeight);
-            }
-        };
-
-        const onUp = () => {
-            if (rafId != null) {
-                window.cancelAnimationFrame(rafId);
-                rafId = null;
-            }
-            flushHeight();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-    }, []);
+    const { beginBrowserResize, beginBottomPanelResize } = usePaneResizeHandlers({
+        mainSplitRef,
+        setBrowserWidth,
+        setBottomPanelHeightPx,
+    });
 
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
@@ -600,6 +510,24 @@ export const DawShell = () => {
 
     const trackCountRaw = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
+    const {
+        handleSelectTrack,
+        handleSelectTracks,
+        handleMarqueeSelectionStart,
+        handleClipSelect,
+        handleTimelineClipSelectionChange,
+        handleTimelineTrackSelect,
+    } = useArrangementSelectionHandlers({
+        timelineClipsForView,
+        projectTracks,
+        trackIds,
+        setSelectedClipIds,
+        setSelectedTrackId,
+        setSelectedTrackIds,
+        setEditCursorTrackIndex,
+        setMarqueeSelection,
+        queuedStartBeatRef,
+    });
 
     // ── Sync collapsed groups from backend is_expanded field ──
     useEffect(() => {
@@ -946,83 +874,14 @@ export const DawShell = () => {
         queuedStartBeatRef.current = clampedBeat;
     }, []);
 
-    const handleMarqueeSelectionStart = useCallback(() => {
-        // Selection-box mode is mutually exclusive with clip selection.
-        // BUG-A10 FIX: Do NOT clear editCursorBeat here — it serves as the
-        // anchor for Shift+Click time selection. Only clear clip selection
-        // and prior marquee.
-        setSelectedClipIds([]);
-        setMarqueeSelection(null);
-    }, []);
 
-    // Resolve playback start anchor on actual transport start.
-    // Priority: selected clip(s) -> queued anchor -> edit cursor.
-    const prevIsPlayingRef = useRef(false);
-    useEffect(() => {
-        const justStarted = transportIsPlaying && !prevIsPlayingRef.current;
-        prevIsPlayingRef.current = transportIsPlaying;
-        if (!justStarted) return;
-
-        let startBeat: number | null = null;
-        if (selectedClipIds.length > 0) {
-            const selectedSet = new Set(selectedClipIds);
-            let minBeat = Infinity;
-            for (const clip of timelineClipsForView) {
-                if (selectedSet.has(clip.id) && clip.startBeat < minBeat) {
-                    minBeat = clip.startBeat;
-                }
-            }
-            if (Number.isFinite(minBeat)) startBeat = minBeat;
-        }
-
-        if (startBeat === null && queuedStartBeatRef.current !== null) {
-            startBeat = queuedStartBeatRef.current;
-        }
-
-        if (startBeat === null && editCursorBeat >= 0) {
-            startBeat = editCursorBeat;
-        }
-
-        queuedStartBeatRef.current = null;
-        if (startBeat === null) return;
-
-        void engineApi.seekToBeat(Math.max(0, startBeat)).catch((err) => {
-            console.error('[DawShell] seek to playback anchor failed:', err);
-        });
-    }, [transportIsPlaying, selectedClipIds, timelineClipsForView, editCursorBeat]);
-
-    // Clip selection callback
-    const handleClipSelect = useCallback((clipId: string, isShift: boolean = false, isCtrl: boolean = false) => {
-        setSelectedClipIds((prev) => {
-            if (isCtrl) {
-                // Toggle clicked clip
-                if (prev.includes(clipId)) {
-                    return prev.filter(id => id !== clipId);
-                }
-                return [...prev, clipId];
-            } else if (isShift) {
-                // Additive selection (simple push if not already there)
-                // Note: full range-based shift selection requires timeline sorting,
-                // but basic additive shift-select works for most use cases.
-                if (prev.includes(clipId)) return prev;
-                return [...prev, clipId];
-            } else {
-                // Single select
-                return [clipId];
-            }
-        });
-
-        // Derive parent track from clip and select it alongside the clip.
-        const clip = timelineClipsForView.find(c => c.id === clipId);
-        if (clip) {
-            queuedStartBeatRef.current = clip.startBeat;
-            const trackId = projectTracks[clip.trackIndex]?.id;
-            if (trackId && trackId !== 'master') {
-                setSelectedTrackId(trackId);
-                setSelectedTrackIds([trackId]);
-            }
-        }
-    }, [timelineClipsForView, projectTracks]);
+    usePlaybackStartAnchor({
+        transportIsPlaying,
+        selectedClipIds,
+        timelineClipsForView,
+        editCursorBeat,
+        queuedStartBeatRef,
+    });
 
     // Drop from AssetBrowser → Timeline
     const {
@@ -1062,55 +921,16 @@ export const DawShell = () => {
         setBottomPanelModeForActiveTrack,
     });
 
-    const flushPendingMidiEdits = useCallback(async () => {
-        flushMidiThrottles();
-        const noteClipIds = Array.from(dirtyMidiNotesClipIdsRef.current);
-        const envelopeClipIds = Array.from(dirtyMidiEnvelopeClipIdsRef.current);
-        const noteTasks = noteClipIds.map((clipId) =>
-            engineApi
-                .updateMidiClipWithDeltas(clipId, serializeMidiNotesToFrames(latestMidiNotesRef.current[clipId] ?? []), {
-                    pushUndoStep: true,
-                })
-                .then(async (response) => {
-                    await applyProjectDeltas(response.deltas, 'midi-notes:flush');
-                    return { ok: true as const, clipId };
-                })
-                .catch((err) => {
-                    console.error('[DawShell] flushPendingMidiEdits updateMidiClip failed:', err);
-                    return { ok: false as const, clipId };
-                })
-        );
-        const envelopeTasks = envelopeClipIds.map((clipId) =>
-            engineApi
-                .setMidiClipEnvelopes(clipId, latestMidiEnvelopesRef.current[clipId] ?? [], { pushUndoStep: true })
-                .then(() => ({ ok: true as const, clipId }))
-                .catch((err) => {
-                    console.error('[DawShell] flushPendingMidiEdits setMidiClipEnvelopes failed:', err);
-                    return { ok: false as const, clipId };
-                })
-        );
-
-        const [noteResults, envelopeResults] = await Promise.all([
-            Promise.all(noteTasks),
-            Promise.all(envelopeTasks),
-        ]);
-        for (const r of noteResults) {
-            if (r.ok) dirtyMidiNotesClipIdsRef.current.delete(r.clipId);
-        }
-        for (const r of envelopeResults) {
-            if (r.ok) dirtyMidiEnvelopeClipIdsRef.current.delete(r.clipId);
-        }
-    }, [flushMidiThrottles, serializeMidiNotesToFrames, applyProjectDeltas]);
-
-    useEffect(() => {
-        window.__dreamFlushPendingEdits = async () => {
-            await flushTrackControlFinals();
-            await flushPendingMidiEdits();
-        };
-        return () => {
-            delete window.__dreamFlushPendingEdits;
-        };
-    }, [flushTrackControlFinals, flushPendingMidiEdits]);
+    usePendingMidiFlush({
+        flushTrackControlFinals,
+        flushMidiThrottles,
+        dirtyMidiNotesClipIdsRef,
+        dirtyMidiEnvelopeClipIdsRef,
+        latestMidiNotesRef,
+        latestMidiEnvelopesRef,
+        serializeMidiNotesToFrames,
+        applyProjectDeltas,
+    });
 
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
@@ -1201,35 +1021,7 @@ export const DawShell = () => {
                                         onMarqueeSelectionChange={setMarqueeSelection}
                                         onClipSelect={handleClipSelect}
                                         selectedClipIds={selectedClipIds}
-                                        onClipSelectionChange={(ids) => {
-                                            setSelectedClipIds(ids);
-                                            // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED)
-                                            // if (ids.length > 0) setEditCursorBeat(-1);
-                                            // Select tracks that own the selected clips.
-                                            if (ids.length > 0) {
-                                                const idSet = new Set(ids);
-                                                const trackIdSet = new Set<string>();
-                                                for (const c of timelineClipsForView) {
-                                                    if (idSet.has(c.id)) {
-                                                        const tid = projectTracks[c.trackIndex]?.id;
-                                                        if (tid && tid !== 'master') trackIdSet.add(tid);
-                                                    }
-                                                }
-                                                if (trackIdSet.size > 0) {
-                                                    const arr = Array.from(trackIdSet);
-                                                    setSelectedTrackIds(arr);
-                                                    setSelectedTrackId(arr[arr.length - 1]);
-                                                }
-                                            }
-                                            // Queue playhead to leftmost selected clip.
-                                            if (ids.length > 0) {
-                                                let minBeat = Infinity;
-                                                for (const c of timelineClipsForView) {
-                                                    if (ids.includes(c.id) && c.startBeat < minBeat) minBeat = c.startBeat;
-                                                }
-                                                if (Number.isFinite(minBeat)) queuedStartBeatRef.current = minBeat;
-                                            }
-                                        }}
+                                        onClipSelectionChange={handleTimelineClipSelectionChange}
                                         onClipMove={handleClipMove}
                                         onClipResize={handleClipResize}
                                         onClipFades={handleClipFades}
@@ -1245,10 +1037,7 @@ export const DawShell = () => {
                                         onDropBrowserItem={handleBrowserDrop}
                                         onDoubleClickTrack={handleDoubleClickTrack}
                                         onOpenMidiClip={handleOpenMidiClip}
-                                        onTrackSelect={(trackId, trackIndex) => {
-                                            const resolvedTrackId = trackIds[trackIndex] ?? trackId;
-                                            handleSelectTrack(resolvedTrackId);
-                                        }}
+                                        onTrackSelect={handleTimelineTrackSelect}
 
                                         followPlayhead={followPlayhead}
                                         automationVisible={automationVisible}

@@ -1,14 +1,22 @@
-/// Add a plugin slot to a track (instrument/effect) from frontend DnD.
-#[tauri::command]
-fn add_plugin_to_track_cmd(
+#[derive(Debug, Clone)]
+struct AddedPluginOutcome {
+    track_id: Uuid,
+    slot_id: Uuid,
+    slot_index: usize,
+    is_instrument: bool,
+    plugin_name: String,
+    plugin_uid: String,
+}
+
+fn add_plugin_to_track_impl(
     payload: AddPluginToTrackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
+) -> Result<AddedPluginOutcome, String> {
+    let track_id = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
 
     push_undo(&project_state)?;
@@ -46,17 +54,23 @@ fn add_plugin_to_track_cmd(
     let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let new_slot_id = cmd_result.slot_id;
     let use_instrument = cmd_result.placed_as_instrument;
+    let track_index = cmd_result.track_index as u16;
+    let slot_index = if use_instrument {
+        0
+    } else {
+        usize::from(cmd_result.runtime_effect_slot_index.unwrap_or(0))
+    };
 
-    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
+    let mut runtime_add: Option<(u16, u8, u8)> = None;
     if effective_plugin_id.starts_with("internal://")
         && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
         && let Some(internal_slot_index) = cmd_result.runtime_effect_slot_index
     {
-        runtime_add = Some((track_uuid, internal_slot_index, effect_type));
+        runtime_add = Some((track_index, internal_slot_index, effect_type));
     }
     let runtime_waveform = cmd_result
         .runtime_waveform_code
-        .map(|waveform| (track_uuid, waveform));
+        .map(|waveform| (track_index, waveform));
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -74,23 +88,19 @@ fn add_plugin_to_track_cmd(
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
     
-    if let Some((track_id, slot_index, effect_type)) = runtime_add {
-        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
-            push_command(&handle, EngineCommand::AddDevice {
-                track_index: runtime_track_index as u16,
-                slot_index,
-                effect_type,
-            })?;
-        }
+    if let Some((runtime_track_index, runtime_slot_index, effect_type)) = runtime_add {
+        push_command(&handle, EngineCommand::AddDevice {
+            track_index: runtime_track_index,
+            slot_index: runtime_slot_index,
+            effect_type,
+        })?;
     }
     
-    if let Some((track_id, waveform)) = runtime_waveform {
-        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
-            push_command(&handle, EngineCommand::SetSamplerWaveform {
-                track_index: runtime_track_index as u16,
-                waveform,
-            })?;
-        }
+    if let Some((runtime_track_index, waveform)) = runtime_waveform {
+        push_command(&handle, EngineCommand::SetSamplerWaveform {
+            track_index: runtime_track_index,
+            waveform,
+        })?;
     }
     
     log::info!(
@@ -106,12 +116,41 @@ fn add_plugin_to_track_cmd(
     if let Some(err_msg) = plugin_load_error {
         return Err(err_msg);
     }
-    Ok(())
+
+    Ok(AddedPluginOutcome {
+        track_id,
+        slot_id: new_slot_id,
+        slot_index,
+        is_instrument: use_instrument,
+        plugin_name: effective_plugin_name,
+        plugin_uid: effective_plugin_id,
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PluginMutationDeltaResponse {
     deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+/// Add a plugin slot to a track (instrument/effect) from frontend DnD.
+#[tauri::command]
+fn add_plugin_to_track_cmd(
+    payload: AddPluginToTrackPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let _ = add_plugin_to_track_impl(
+        payload,
+        project_state,
+        clip_pool_state,
+        handle,
+        plugin_host_state,
+        app,
+    )?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -123,71 +162,23 @@ fn add_plugin_to_track_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<PluginMutationDeltaResponse, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-
-    let (before_instrument_id, before_effect_ids): (Option<Uuid>, std::collections::HashSet<Uuid>) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-        (
-            track.instrument.as_ref().map(DeviceNode::id),
-            track.effects.iter().map(DeviceNode::id).collect(),
-        )
-    };
-
-    add_plugin_to_track_cmd(
+    let result = add_plugin_to_track_impl(
         payload,
-        project_state.clone(),
-        clip_pool_state.clone(),
-        handle.clone(),
-        plugin_host_state.clone(),
+        project_state,
+        clip_pool_state,
+        handle,
+        plugin_host_state,
         app,
     )?;
 
-    let (slot_id, slot_index, is_instrument, plugin_name, plugin_uid) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found after add: {track_uuid}"))?;
-
-        if let Some(inst) = &track.instrument {
-            let inst_id = inst.id();
-            if before_instrument_id != Some(inst_id) {
-                (inst_id, 0usize, true, inst.name().to_owned(), inst.plugin_id().to_owned())
-            } else {
-                let (idx, node) = track
-                    .effects
-                    .iter()
-                    .enumerate()
-                    .find(|(_, node)| !before_effect_ids.contains(&node.id()))
-                    .ok_or_else(|| "Delta invariant violated: added slot not found".to_string())?;
-                (node.id(), idx, false, node.name().to_owned(), node.plugin_id().to_owned())
-            }
-        } else {
-            let (idx, node) = track
-                .effects
-                .iter()
-                .enumerate()
-                .find(|(_, node)| !before_effect_ids.contains(&node.id()))
-                .ok_or_else(|| "Delta invariant violated: added slot not found".to_string())?;
-            (node.id(), idx, false, node.name().to_owned(), node.plugin_id().to_owned())
-        }
-    };
-
     Ok(PluginMutationDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::PluginAdded {
-            track_id: track_uuid,
-            slot_id,
-            slot_index,
-            is_instrument,
-            plugin_name,
-            plugin_uid,
+            track_id: result.track_id,
+            slot_id: result.slot_id,
+            slot_index: result.slot_index,
+            is_instrument: result.is_instrument,
+            plugin_name: result.plugin_name,
+            plugin_uid: result.plugin_uid,
         }],
     })
 }
@@ -233,8 +224,6 @@ fn remove_plugin_from_track_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
         .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
 
@@ -244,8 +233,9 @@ fn remove_plugin_from_track_cmd(
         &payload.slot_id,
     )
     .map_err(|e| e.to_string())?;
-    let runtime_remove_slot =
-        execute_orchestrator_command(&project_state, &cmd)?.runtime_remove_slot;
+    let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
+    let runtime_remove_slot = cmd_result.runtime_remove_slot;
+    let runtime_track_index = cmd_result.track_index as u16;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
@@ -254,11 +244,9 @@ fn remove_plugin_from_track_cmd(
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
     
-    if let Some(slot_index) = runtime_remove_slot
-        && let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_uuid)
-    {
+    if let Some(slot_index) = runtime_remove_slot {
         push_command(&handle, EngineCommand::RemoveDevice {
-            track_index: runtime_track_index as u16,
+            track_index: runtime_track_index,
             slot_index,
         })?;
     }
@@ -462,102 +450,4 @@ fn set_internal_plugin_param_with_deltas_cmd(
             value,
         }],
     })
-}
-
-/// Assign sample file to a track sampler and stream it to the realtime engine.
-#[tauri::command]
-fn set_sampler_sample_cmd(
-    payload: SetSamplerSamplePayload,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
-    handle: tauri::State<'_, AudioEngineHandle>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let sample_path = payload.sample_path.clone();
-    if !PathBuf::from(&sample_path).exists() {
-        return Err(format!("Sample path does not exist: {}", sample_path));
-    }
-
-    let decoded = AudioReader::read(PathBuf::from(&sample_path))
-        .map_err(|e| format!("Failed to decode sample: {e}"))?;
-    let clip_audio = ClipAudio::new(sample_path.clone(), decoded.channels, decoded.sample_rate);
-
-    let sample_arc = {
-        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
-        pool.get(&sample_path)
-            .ok_or_else(|| "Failed to cache decoded sampler sample".to_string())?
-    };
-    clip_pool_state.sync_pool_to_arc();
-
-    push_undo(&project_state)?;
-    let cmd = dream_orchestrator::commands::SetSamplerSampleCommand::from_str_track_id(
-        &payload.track_id,
-        sample_path.clone(),
-        payload.root_note,
-    )
-    .map_err(|e| e.to_string())?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
-    let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
-
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
-    handle
-        .sampler_samples
-        .set_track_sample(track_index, Some(sample_arc));
-
-    let idx = track_index as u16;
-    push_command(&handle, EngineCommand::SetSamplerRootNote {
-        track_index: idx,
-        root_note: sampler_cfg.root_note,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerVolume {
-        track_index: idx,
-        volume: sampler_cfg.volume as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerAdsr {
-        track_index: idx,
-        attack: sampler_cfg.attack as f32,
-        decay: sampler_cfg.decay as f32,
-        sustain: sampler_cfg.sustain as f32,
-        release: sampler_cfg.release as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerOsc2Waveform {
-        track_index: idx,
-        waveform: sampler_cfg.osc2_waveform.min(3),
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerOscMix {
-        track_index: idx,
-        mix: sampler_cfg.osc_mix.clamp(0.0, 1.0) as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerDetuneCents {
-        track_index: idx,
-        cents: sampler_cfg.detune_cents.clamp(-50.0, 50.0) as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerSubLevel {
-        track_index: idx,
-        level: sampler_cfg.sub_level.clamp(0.0, 1.0) as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerFilterCutoff {
-        track_index: idx,
-        cutoff: sampler_cfg.filter_cutoff.clamp(20.0, 20000.0) as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerFilterResonance {
-        track_index: idx,
-        resonance: sampler_cfg.filter_resonance.clamp(0.0, 0.99) as f32,
-    })?;
-    push_command(&handle, EngineCommand::SetSamplerFilterType {
-        track_index: idx,
-        filter_type: sampler_cfg.filter_type.min(3),
-    })?;
-
-    log::info!(
-        "[IPC] set_sampler_sample_cmd(track={}, path={})",
-        payload.track_id,
-        sample_path
-    );
-    Ok(())
 }

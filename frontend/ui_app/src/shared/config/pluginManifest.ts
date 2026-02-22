@@ -792,13 +792,13 @@ export interface ResolvedPlugin {
  *
  * @param pluginId   Plugin identifier (e.g. 'internal://effect/eq-eight' or '/Library/.../Serum.vst3')
  * @param name       Display name of the plugin
- * @param source     'internal' | 'vst' | 'unknown'
+ * @param source     'internal' | 'vst' | 'missing' | 'unknown'
  * @param isInstrumentSlot  Whether the slot is in the instrument position on the track
  */
 export function resolvePlugin(
     pluginId: string,
     name: string,
-    source: 'internal' | 'vst' | 'unknown',
+    source: 'internal' | 'vst' | 'missing' | 'unknown',
     isInstrumentSlot = false,
 ): ResolvedPlugin {
     // 1. Try exact internal lookup

@@ -159,10 +159,7 @@ impl Command for AddPluginToTrackCommand {
                 entity: "Track",
                 id: self.track_id.to_string(),
             })?;
-        let track = project
-            .tracks
-            .get_mut(track_index)
-            .expect("track index resolved from same vector");
+        let track = &mut project.tracks[track_index];
 
         let use_instrument = if track.track_type != TrackType::Midi {
             false

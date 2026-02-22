@@ -13,6 +13,8 @@ use crate::error::{OrchestratorError, OrchestratorResult};
 /// Result of a duplicate operation.
 pub struct DuplicateClipResult {
     pub new_id: Uuid,
+    pub new_position_frames: i64,
+    pub track_index: usize,
 }
 
 /// Duplicate a clip (audio or MIDI), optionally at a specific position.
@@ -45,11 +47,32 @@ impl Command for DuplicateClipCommand {
         let mut project = ctx.lock_project()?;
         let target_pos = self.new_position_frames.map(AbsoluteTime::new);
 
-        let new_id = match mutators::duplicate_clip(&mut project, self.clip_id, target_pos) {
-            Ok(dup) => dup.id,
-            Err(_) => mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?.id,
-        };
+        let track_index = project
+            .tracks
+            .iter()
+            .position(|track| {
+                track.clips.iter().any(|clip| clip.id == self.clip_id)
+                    || track.midi_clips.iter().any(|clip| clip.id == self.clip_id)
+            })
+            .ok_or_else(|| OrchestratorError::NotFound {
+                entity: "Clip",
+                id: self.clip_id.to_string(),
+            })?;
 
-        Ok(DuplicateClipResult { new_id })
+        let (new_id, new_position_frames) =
+            match mutators::duplicate_clip(&mut project, self.clip_id, target_pos) {
+                Ok(dup) => (dup.id, dup.position.sample_frame),
+                Err(_) => {
+                    let dup =
+                        mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?;
+                    (dup.id, dup.position.sample_frame)
+                }
+            };
+
+        Ok(DuplicateClipResult {
+            new_id,
+            new_position_frames,
+            track_index,
+        })
     }
 }

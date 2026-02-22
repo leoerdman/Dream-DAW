@@ -14,6 +14,11 @@ pub struct DeleteClipCommand {
     pub clip_id: Uuid,
 }
 
+/// Result of clip deletion.
+pub struct DeleteClipResult {
+    pub track_index: usize,
+}
+
 impl DeleteClipCommand {
     pub fn from_str_id(clip_id: &str) -> OrchestratorResult<Self> {
         let uuid = Uuid::parse_str(clip_id).map_err(|e| OrchestratorError::InvalidId {
@@ -26,10 +31,21 @@ impl DeleteClipCommand {
 }
 
 impl Command for DeleteClipCommand {
-    type Result = ();
+    type Result = DeleteClipResult;
 
-    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<DeleteClipResult> {
         let mut project = ctx.lock_project()?;
+        let track_index = project
+            .tracks
+            .iter()
+            .position(|track| {
+                track.clips.iter().any(|clip| clip.id == self.clip_id)
+                    || track.midi_clips.iter().any(|clip| clip.id == self.clip_id)
+            })
+            .ok_or_else(|| OrchestratorError::NotFound {
+                entity: "Clip",
+                id: self.clip_id.to_string(),
+            })?;
 
         if let Err(audio_err) = mutators::delete_clip(&mut project, self.clip_id) {
             // Fall back to MIDI clip
@@ -38,6 +54,6 @@ impl Command for DeleteClipCommand {
             }
         }
 
-        Ok(())
+        Ok(DeleteClipResult { track_index })
     }
 }

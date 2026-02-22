@@ -120,7 +120,6 @@ export const DawShell = () => {
     const [editCursorBeat, setEditCursorBeat] = useState(-1);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
-    const [_isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [assistantOpen, setAssistantOpen] = useState(() => {
         try { return localStorage.getItem('dream-daw:assistant-open') === '1'; } catch { return false; }
@@ -285,19 +284,17 @@ export const DawShell = () => {
             // Listen for drag hover (visual feedback) — only for OS file drops, not in-app drags
             const unlistenHover = await listen('tauri://drag-over', () => {
                 if (!window.__dreamInAppDrag) {
-                    setIsDragOver(true);
+                    // Intentionally no-op; visual drag overlay handled by timeline DnD layer.
                 }
             });
 
             // Listen for drag leave
             const unlistenLeave = await listen('tauri://drag-leave', () => {
-                setIsDragOver(false);
+                // Intentionally no-op; visual drag overlay handled by timeline DnD layer.
             });
 
             // Listen for file drop
             const unlistenDrop = await listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
-                setIsDragOver(false);
-
                 if (importingRef.current) return;
                 importingRef.current = true;
 
@@ -1694,7 +1691,7 @@ export const DawShell = () => {
                                 </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (
                                 <SampleClipEditor
-                                    key={selectedTimelineClip.id}
+                                    key={`${selectedTimelineClip.id}:${selectedTimelineClip.pitchShiftSemitones ?? 0}:${selectedTimelineClip.isWarped ? 1 : 0}:${selectedTimelineClip.warpMode ?? 0}:${Math.round(selectedTimelineClip.warpBaseBpm ?? 0)}`}
                                     clip={selectedTimelineClip}
                                 />
                             ) : (
@@ -2154,14 +2151,6 @@ const SampleClipEditor = ({
     const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
     const [draftPitch, setDraftPitch] = useState<number>(clip.pitchShiftSemitones ?? 0);
     const [isPreviewing, setIsPreviewing] = useState(false);
-
-    // BUG-P2 FIX: Sync draft state whenever clip props change externally
-    // (undo/redo, project reload, backend updates). Without this, the
-    // slider/checkbox shows stale values after Ctrl+Z.
-    useEffect(() => { setDraftPitch(clip.pitchShiftSemitones ?? 0); }, [clip.pitchShiftSemitones]);
-    useEffect(() => { setDraftWarpEnabled(Boolean(clip.isWarped)); }, [clip.isWarped]);
-    useEffect(() => { setDraftWarpMode((clip.warpMode ?? 0) > 0 ? 1 : 0); }, [clip.warpMode]);
-    useEffect(() => { setDraftWarpBaseBpm(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm))); }, [clip.warpBaseBpm, bpm]);
 
     const commitPitch = useCallback(async (val: number) => {
         const nextPitch = Math.max(-48, Math.min(48, val));

@@ -25,6 +25,36 @@ import type { GridDivision } from '@/shared/lib/gridSnap';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 import {
+    DEFAULT_FOCUS_PITCH,
+    DEFAULT_NOTE_HEIGHT,
+    DRUM_LANES,
+    EPS,
+    HIGHEST_PITCH,
+    isBlackKey,
+    isInScale,
+    KEYBOARD_WIDTH,
+    KEY_NAMES,
+    MAX_NOTE_HEIGHT,
+    MAX_PPB,
+    MIDI_GRID_PRESETS,
+    MIN_NOTE_BEATS,
+    MIN_NOTE_HEIGHT,
+    MIN_PPB,
+    OCTAVE_LABEL_OFFSET,
+    ROOT_NOTES,
+    RULER_HEIGHT,
+    SCALE_NAMES,
+    TOTAL_KEYS,
+    VELOCITY_LANE_HEIGHT,
+    LOWEST_PITCH,
+    genNoteId,
+    type MidiNote,
+    type PianoLaneType,
+    type PianoRollTool,
+    type RootNote,
+    type ScaleName,
+} from '@/widgets/PianoRoll/model/pianoRollConfig';
+import {
     Pencil,
     Brush,
     Sparkles,
@@ -36,18 +66,7 @@ import {
 } from 'lucide-react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 
-// ── Types ────────────────────────────────────────────────────────────────
-
-export interface MidiNote {
-    id: string;
-    pitch: number;
-    startBeat: number;
-    durationBeats: number;
-    velocity: number;
-    selected?: boolean;
-}
-
-export type PianoRollTool = 'draw' | 'paint';
+export type { MidiNote, PianoRollTool } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 interface PianoRollProps {
     notes: MidiNote[];
@@ -68,102 +87,6 @@ interface PianoRollProps {
     clipStartBeat?: number;
     clipLengthBeats?: number;
 }
-
-// ── Scale Definitions ────────────────────────────────────────────────────
-
-type ScaleName =
-    | 'Major'
-    | 'Natural Minor'
-    | 'Harmonic Minor'
-    | 'Melodic Minor'
-    | 'Dorian'
-    | 'Phrygian'
-    | 'Lydian'
-    | 'Mixolydian'
-    | 'Locrian'
-    | 'Pentatonic Major'
-    | 'Pentatonic Minor'
-    | 'Blues'
-    | 'Chromatic';
-
-const SCALE_INTERVALS: Record<ScaleName, number[]> = {
-    'Major': [0, 2, 4, 5, 7, 9, 11],
-    'Natural Minor': [0, 2, 3, 5, 7, 8, 10],
-    'Harmonic Minor': [0, 2, 3, 5, 7, 8, 11],
-    'Melodic Minor': [0, 2, 3, 5, 7, 9, 11],
-    'Dorian': [0, 2, 3, 5, 7, 9, 10],
-    'Phrygian': [0, 1, 3, 5, 7, 8, 10],
-    'Lydian': [0, 2, 4, 6, 7, 9, 11],
-    'Mixolydian': [0, 2, 4, 5, 7, 9, 10],
-    'Locrian': [0, 1, 3, 5, 6, 8, 10],
-    'Pentatonic Major': [0, 2, 4, 7, 9],
-    'Pentatonic Minor': [0, 3, 5, 7, 10],
-    'Blues': [0, 3, 5, 6, 7, 10],
-    'Chromatic': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-};
-
-const SCALE_NAMES = Object.keys(SCALE_INTERVALS) as ScaleName[];
-const ROOT_NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
-type RootNote = typeof ROOT_NOTES[number];
-
-function isInScale(pitch: number, rootNote: RootNote, scale: ScaleName): boolean {
-    const rootIndex = ROOT_NOTES.indexOf(rootNote);
-    const intervals = SCALE_INTERVALS[scale];
-    const degree = ((pitch % 12) - rootIndex + 12) % 12;
-    return intervals.includes(degree);
-}
-
-// ── Constants ────────────────────────────────────────────────────────────
-
-const KEYBOARD_WIDTH = 52;
-const DEFAULT_NOTE_HEIGHT = 14;
-const MIN_NOTE_HEIGHT = 4;
-const MAX_NOTE_HEIGHT = 32;
-const VELOCITY_LANE_HEIGHT = 64;
-const RULER_HEIGHT = 22;
-const LOWEST_PITCH = 0;
-const HIGHEST_PITCH = 127; // Bug #1: was 115, cutting off the top octave of MIDI
-const TOTAL_KEYS = HIGHEST_PITCH - LOWEST_PITCH + 1;
-const MIN_PPB = 4;
-const MAX_PPB = 200;
-const MIN_NOTE_BEATS = 0.125;
-const EPS = 1e-6;
-
-const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-// UI octave labeling offset:
-// MIDI 60 is shown as C3 (DAW-style), not C4 (scientific pitch notation).
-const OCTAVE_LABEL_OFFSET = -2;
-const DEFAULT_FOCUS_PITCH = 60; // C3 in this UI labeling
-const MIDI_GRID_PRESETS: Array<{ label: string; division: GridDivision }> = [
-    { label: '1 Bar', division: '1/1' },
-    { label: '1/4', division: '1/4' },
-    { label: '1/8', division: '1/8' },
-    { label: '1/16', division: '1/16' },
-];
-
-const DRUM_LANES: Array<{ pitch: number; name: string }> = [
-    { pitch: 36, name: 'Kick' },
-    { pitch: 38, name: 'Snare' },
-    { pitch: 42, name: 'Closed Hat' },
-    { pitch: 46, name: 'Open Hat' },
-    { pitch: 41, name: 'Low Tom' },
-    { pitch: 43, name: 'Mid Tom' },
-    { pitch: 45, name: 'High Tom' },
-    { pitch: 49, name: 'Crash' },
-    { pitch: 51, name: 'Ride' },
-    { pitch: 37, name: 'Rim' },
-    { pitch: 39, name: 'Clap' },
-    { pitch: 35, name: 'Sub Kick' },
-];
-
-type PianoLaneType = 'velocity' | 'modWheel' | 'expression';
-
-const isBlackKey = (pitch: number) => {
-    const note = pitch % 12;
-    return [1, 3, 6, 8, 10].includes(note);
-};
-
-const genNoteId = () => crypto.randomUUID();
 
 // Audit #8: Shared platform detection — matches useKeyboardShortcuts.ts pattern.
 // Uses navigator.userAgentData (modern) with user-agent fallback.

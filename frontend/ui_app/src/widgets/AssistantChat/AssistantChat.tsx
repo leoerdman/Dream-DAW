@@ -10,7 +10,8 @@ import { Bot, X, Send, Square, Mic, MicOff, Sparkles, Trash2, Copy, Check, GripV
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
-import { AgentActionCard, LiveAgentCard, groupMessagesIntoActions, isActionGroup } from './AgentActionCard';
+import { AgentActionCard, LiveAgentCard } from './AgentActionCard';
+import { groupMessagesIntoActions, isActionGroup } from './AgentActionGrouping';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAgentBridge, sendBridgeResponse } from '@/shared/hooks/useAgentBridge';
 import './AgentActionCard.css';

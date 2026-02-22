@@ -415,3 +415,53 @@ pub fn normalize_percent_or_unit(value: f64) -> f64 {
         value.clamp(0.0, 1.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_track_devices_keeps_full_nested_chain() {
+        let xml = r#"
+        <AudioTrack>
+          <DeviceChain>
+            <Devices>
+              <OriginalSimpler Id="1">
+                <DeviceChain>
+                  <Branches>
+                    <Branch>
+                      <DeviceChain>
+                        <Devices>
+                          <Eq8 Id="2" />
+                          <GlueCompressor Id="3" />
+                        </Devices>
+                      </DeviceChain>
+                    </Branch>
+                  </Branches>
+                </DeviceChain>
+              </OriginalSimpler>
+              <Saturator Id="4" />
+            </Devices>
+          </DeviceChain>
+        </AudioTrack>
+        "#;
+
+        let doc = roxmltree::Document::parse(xml).expect("xml parse");
+        let track = doc.root_element();
+        let devices = collect_track_devices(track);
+        let names: Vec<String> = devices
+            .iter()
+            .map(|d| d.tag_name().name().to_string())
+            .collect();
+
+        assert_eq!(
+            names,
+            vec![
+                "OriginalSimpler".to_string(),
+                "Eq8".to_string(),
+                "GlueCompressor".to_string(),
+                "Saturator".to_string(),
+            ]
+        );
+    }
+}

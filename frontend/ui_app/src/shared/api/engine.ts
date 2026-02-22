@@ -180,10 +180,14 @@ export const bypassDevice = (trackIndex: number, slotIndex: number, bypassed: bo
  *  Updates the project model and rebuilds the external FX processing snapshot. */
 export const setSlotBypass = (trackId: string, slotId: string, bypassed: boolean) =>
     invoke<void>('set_slot_bypass_cmd', { trackId, slotId, bypassed });
+export const setSlotBypassWithDeltas = (trackId: string, slotId: string, bypassed: boolean) =>
+    invoke<DeltaMutationResponse>('set_slot_bypass_with_deltas_cmd', { trackId, slotId, bypassed });
 
 /** Move an effect slot to a new position within the same track's FX chain (drag-reorder). */
 export const moveEffectSlot = (trackId: string, slotId: string, targetIndex: number) =>
     invoke<void>('move_effect_slot_cmd', { trackId, slotId, targetIndex });
+export const moveEffectSlotWithDeltas = (trackId: string, slotId: string, targetIndex: number) =>
+    invoke<DeltaMutationResponse>('move_effect_slot_with_deltas_cmd', { trackId, slotId, targetIndex });
 
 /** Set a parameter on a device in a track's insert chain. */
 export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
@@ -724,9 +728,29 @@ export async function getWaveformPeaksBinary(filePath: string): Promise<Waveform
     };
 }
 
+export async function getWaveformPeaksLodBinary(filePath: string, lodLevel: number): Promise<Uint8Array> {
+    const raw = await invoke<number[]>('get_waveform_peaks_lod_binary', {
+        filePath,
+        lodLevel,
+    });
+    return new Uint8Array(raw);
+}
+
+export async function getPeaksByClipId(clipId: string, lodLevel: number): Promise<Uint8Array> {
+    const raw = await invoke<number[]>('get_peaks_by_clip_id', {
+        clipId,
+        lodLevel,
+    });
+    return new Uint8Array(raw);
+}
+
+export async function getPeaks(clipId: string, lodLevel: number): Promise<Uint8Array> {
+    const raw = await invoke<number[]>('get_peaks', { clipId, lodLevel });
+    return new Uint8Array(raw);
+}
+
 // ── Clip Editing ─────────────────────────────────────────────────────────
 
-/** Response from splitting a clip — contains the IDs of both halves. */
 export interface SplitClipResponse {
     left_id: string;
     right_id: string;
@@ -756,7 +780,11 @@ export type ProjectDelta =
     | { kind: 'TrackRemoved'; data: { track_id: string; track_index: number } }
     | { kind: 'TrackRenamed'; data: { track_id: string; new_name: string } }
     | { kind: 'TrackMoved'; data: { track_id: string; old_index: number; new_index: number } }
-    | { kind: 'FullRefreshRequired' };
+    | { kind: 'PluginAdded'; data: { track_id: string; slot_id: string; slot_index: number; is_instrument: boolean; plugin_name: string; plugin_uid: string } }
+    | { kind: 'PluginRemoved'; data: { track_id: string; slot_id: string } }
+    | { kind: 'PluginBypassChanged'; data: { track_id: string; slot_id: string; bypassed: boolean } }
+    | { kind: 'PluginMoved'; data: { track_id: string; slot_id: string; old_slot_index: number; new_slot_index: number } }
+    | { kind: 'PluginSidechainChanged'; data: { track_id: string; slot_id: string; source_track_id: string | null } };
 
 export interface DeltaMutationResponse {
     deltas: ProjectDelta[];
@@ -774,73 +802,42 @@ export interface MergeClipsWithDeltasResponse extends MergeClipsResponse {
     deltas: ProjectDelta[];
 }
 
-/** Move a clip to a new track and/or position (sample frames). */
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
-
-/** Move clip and return ProjectDelta events for incremental state updates. */
 export const moveClipWithDeltas = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
-
-/** Resize a clip to a new position and duration (sample frames). */
 export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
     invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames });
-
-/** Resize clip and return ProjectDelta events for incremental state updates. */
 export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
     invoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames });
-
-/** Split a clip at the given sample frame. Returns IDs of both halves. */
 export const splitClip = (clipId: string, splitFrame: number) =>
     invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
-
-/** Split a clip and return IDs + ProjectDelta events. */
 export const splitClipWithDeltas = (clipId: string, splitFrame: number) =>
     invoke<SplitClipWithDeltasResponse>('split_clip_with_deltas_cmd', { clipId, splitFrame });
-
-/** Duplicate a clip (optionally to a specific destination frame). */
 export const duplicateClip = (clipId: string, newPositionFrames?: number) =>
     invoke<DuplicateClipResponse>('duplicate_clip_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
     });
-
-/** Duplicate a clip and return ProjectDelta events. */
 export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: number) =>
     invoke<DuplicateClipWithDeltasResponse>('duplicate_clip_with_deltas_cmd', {
         clipId,
         newPositionFrames: newPositionFrames ?? null,
     });
-
-/** Merge multiple clips into one on the same track. */
 export const mergeClips = (clipIds: string[]) =>
     invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
-
-/** Merge clips and return ProjectDelta events. */
 export const mergeClipsWithDeltas = (clipIds: string[]) =>
     invoke<MergeClipsWithDeltasResponse>('merge_clips_with_deltas_cmd', { clipIds });
-
-/** Delete a clip by UUID. */
 export const deleteClip = (clipId: string) =>
     invoke<void>('delete_clip_cmd', { clipId });
-
-/** Delete a clip and return ProjectDelta events. */
 export const deleteClipWithDeltas = (clipId: string) =>
     invoke<DeltaMutationResponse>('delete_clip_with_deltas_cmd', { clipId });
-
-/** Mute or unmute a clip. Muted clips remain on the timeline but don't play. */
 export const setClipMuted = (clipId: string, muted: boolean) =>
     invoke<void>('set_clip_muted_cmd', { clipId, muted });
-
-/** Mute/unmute clip and return ProjectDelta events. */
 export const setClipMutedWithDeltas = (clipId: string, muted: boolean) =>
     invoke<DeltaMutationResponse>('set_clip_muted_with_deltas_cmd', { clipId, muted });
-
-/** Mute or unmute multiple clips in one undo-safe batch. Returns number applied. */
 export const setClipsMuted = (clipIds: string[], muted: boolean) =>
     invoke<number>('set_clips_muted_cmd', { clipIds, muted });
-
-/** Mute/unmute multiple clips and return ProjectDelta events. */
 export const setClipsMutedWithDeltas = (clipIds: string[], muted: boolean) =>
     invoke<DeltaMutationResponse>('set_clips_muted_with_deltas_cmd', { clipIds, muted });
 
@@ -960,6 +957,14 @@ export interface PluginCrashEvent {
     auto_restarted: boolean;
 }
 
+export interface PluginRecoveryEvent {
+    instance_id: string;
+    plugin_name: string;
+    plugin_path: string;
+    restart_count: number;
+    crash_count: number;
+}
+
 export interface PluginSandboxSnapshot {
     enabled: boolean;
     heartbeat_timeout_ms: number;
@@ -1027,6 +1032,16 @@ export const setPluginSidechainSource = (
     sourceTrackId: string,
 ) =>
     invoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId });
+export const setPluginSidechainSourceWithDeltas = (
+    trackId: string,
+    slotId: string,
+    sourceTrackId: string,
+) =>
+    invoke<DeltaMutationResponse>('set_plugin_sidechain_source_with_deltas_cmd', {
+        trackId,
+        slotId,
+        sourceTrackId,
+    });
 
 /** Add plugin to track chain (instrument/effect). */
 export const addPluginToTrack = (
@@ -1038,10 +1053,23 @@ export const addPluginToTrack = (
     invoke<void>('add_plugin_to_track_cmd', {
         payload: { trackId, pluginId, pluginName, slot },
     });
+export const addPluginToTrackWithDeltas = (
+    trackId: string,
+    pluginId: string,
+    pluginName: string,
+    slot: 'instrument' | 'effect' | 'auto' = 'auto',
+) =>
+    invoke<DeltaMutationResponse>('add_plugin_to_track_with_deltas_cmd', {
+        payload: { trackId, pluginId, pluginName, slot },
+    });
 
 /** Remove plugin slot from track chain by slot id. */
 export const removePluginFromTrack = (trackId: string, slotId: string) =>
     invoke<void>('remove_plugin_from_track_cmd', {
+        payload: { trackId, slotId },
+    });
+export const removePluginFromTrackWithDeltas = (trackId: string, slotId: string) =>
+    invoke<DeltaMutationResponse>('remove_plugin_from_track_with_deltas_cmd', {
         payload: { trackId, slotId },
     });
 

@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 dream_ipc = { path = "../dream_ipc" }
+dream_models = { path = "../dream_models" }
+uuid = { version = "1.8.0", features = ["v4", "serde"] }
 petgraph = "0.8"
 arc-swap = "1.8"
 rayon = "1.10"

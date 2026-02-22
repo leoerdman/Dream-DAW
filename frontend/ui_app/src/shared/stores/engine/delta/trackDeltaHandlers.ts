@@ -22,10 +22,6 @@ function normalizeTrackType(trackType: string): string {
     return 'Audio';
 }
 
-function fallback(state: DeltaWorkingState, env: DeltaEnv, suffix: string): void {
-    state.fallbackReason = `${env.reason}-${suffix}`;
-}
-
 function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
     const track = state.tracksById[id];
     if (!track) return;
@@ -97,11 +93,13 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
 
     if (delta.kind === 'TrackRemoved') {
-        const removeIndex = delta.data.track_index;
-        if (removeIndex < 0 || removeIndex >= state.projectTracks.length) {
-            fallback(state, env, 'remove-track-index-out-of-range');
-            return true;
-        }
+        const hintedIndex = delta.data.track_index;
+        const removeIndex = (hintedIndex >= 0
+            && hintedIndex < state.projectTracks.length
+            && state.projectTracks[hintedIndex]?.id === delta.data.track_id)
+            ? hintedIndex
+            : state.projectTracks.findIndex((t) => t.id === delta.data.track_id);
+        if (removeIndex < 0) return true;
         state.projectTracks = state.projectTracks.filter((_, i) => i !== removeIndex);
         const nextTracks = { ...state.tracksById };
         delete nextTracks[delta.data.track_id];
@@ -119,12 +117,16 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
 
     if (delta.kind === 'TrackMoved') {
-        const oldIndex = delta.data.old_index;
-        const newIndex = delta.data.new_index;
-        if (oldIndex < 0 || newIndex < 0 || oldIndex >= state.projectTracks.length || newIndex >= state.projectTracks.length) {
-            fallback(state, env, 'move-track-index-out-of-range');
-            return true;
-        }
+        const tracksLen = state.projectTracks.length;
+        if (tracksLen === 0) return true;
+        const hintedOld = delta.data.old_index;
+        const oldIndex = (hintedOld >= 0
+            && hintedOld < tracksLen
+            && state.projectTracks[hintedOld]?.id === delta.data.track_id)
+            ? hintedOld
+            : state.projectTracks.findIndex((t) => t.id === delta.data.track_id);
+        if (oldIndex < 0) return true;
+        const newIndex = Math.max(0, Math.min(delta.data.new_index, tracksLen - 1));
         if (oldIndex === newIndex) return true;
 
         const tracks = state.projectTracks.slice();

@@ -1295,168 +1295,6 @@ fn add_plugin_to_track_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    fn canonical_internal_plugin(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
-        let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
-        let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
-
-        // Instruments
-        if merged.contains("operator")
-            || merged.contains("analog")
-            || merged.contains("wavetable")
-            || compact.contains("simplesinesynth")
-            || merged.contains("wave synth")
-            || compact.contains("wavesynth")
-            || compact.contains("drift")
-            || compact.contains("instrumentvector")
-            || compact.contains("stringstudio")
-            || compact.contains("instrumentmeld")
-            || compact.contains("mxdeviceinstrument")
-            || compact.contains("loungelizard")
-        {
-            return Some(("internal://instrument/wave-synth", "Essence", "instrument"));
-        }
-        if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
-            return Some(("internal://instrument/sampler", "Sampler", "instrument"));
-        }
-
-        // Effects
-        if merged.contains("eq eight") || merged.contains("eq8") {
-            return Some(("internal://effect/eq-eight", "EQ", "effect"));
-        }
-        if merged.contains("eq three") || merged.contains("band eq") || merged.contains("eq3") {
-            return Some(("internal://effect/eq-three", "Band EQ", "effect"));
-        }
-        if merged.contains("channel eq") {
-            return Some(("internal://effect/channel-eq", "Channel EQ", "effect"));
-        }
-        if merged.contains("multiband dynamics") {
-            return Some(("internal://effect/multiband-dynamics", "Multiband Dynamics", "effect"));
-        }
-        if merged.contains("glue compressor") {
-            return Some(("internal://effect/compressor", "Compressor", "effect"));
-        }
-        if merged.contains("simple delay") || merged.contains("ping pong delay") || merged.contains("echo") {
-            return Some(("internal://effect/delay", "Delay", "effect"));
-        }
-        if merged.contains("beat repeat") || merged.contains("filter delay") || merged.contains("grain delay") || merged.contains("looper") {
-            return Some(("internal://effect/delay", "Delay", "effect"));
-        }
-        if merged.contains("hybrid reverb") {
-            return Some(("internal://effect/reverb", "Reverb", "effect"));
-        }
-        if merged.contains("corpus") || merged.contains("resonators") || merged.contains("spectral resonator") {
-            return Some(("internal://effect/reverb", "Reverb", "effect"));
-        }
-        if merged.contains("chorus-ensemble") || merged.contains("chorus ensemble") {
-            return Some(("internal://effect/chorus", "Chorus", "effect"));
-        }
-        if merged.contains("drum buss") || merged.contains("dynamic tube") {
-            return Some(("internal://effect/saturator", "Saturator", "effect"));
-        }
-        if merged.contains("transient shaper") {
-            return Some(("internal://effect/compressor", "Compressor", "effect"));
-        }
-        if merged.contains("vocoder") {
-            return Some(("internal://effect/vocoder", "Vocoder", "effect"));
-        }
-        if merged.contains("spectral time") {
-            return Some(("internal://effect/delay", "Delay", "effect"));
-        }
-        if merged.contains("roar") {
-            return Some(("internal://effect/distortion", "Distortion", "effect"));
-        }
-        if merged.contains("auto filter") || merged.contains("autofilter") {
-            return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
-        }
-        if merged.contains("auto pan") || merged.contains("autopan") {
-            return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
-        }
-        if merged.contains("midipitcher") || merged.contains("midi pitch") {
-            return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect"));
-        }
-        if merged.contains("mxdevicescale") || merged.contains("midi scale") {
-            return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
-        }
-        if merged.contains("mxdevicevelocity") || merged.contains("midi velocity") {
-            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
-        }
-        if compact.contains("midivelocity") {
-            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
-        }
-        if compact.contains("midichord") {
-            return Some(("internal://midi-fx/chord", "Chord", "effect"));
-        }
-        if merged.contains("mxdevicerandom") || merged.contains("midi random") {
-            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
-        }
-        if merged.contains("arpeggiator") {
-            return Some(("internal://midi-fx/arpeggiator", "Arpeggiator", "effect"));
-        }
-        if merged.contains("cc control") || merged.contains("expression control") {
-            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
-        }
-        if compact.contains("midiarpeggiator") {
-            return Some(("internal://midi-fx/arpeggiator", "Arpeggiator", "effect"));
-        }
-        if merged.contains("midi note length") || compact.contains("midinotelength") {
-            return Some(("internal://midi-fx/note-length", "Note Length", "effect"));
-        }
-        if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
-            return Some(("internal://effect/analyzer", "Analyzer", "effect"));
-        }
-        if merged.contains("analyzer") || compact.contains("analyzer") {
-            return Some(("internal://effect/analyzer", "Analyzer", "effect"));
-        }
-        if merged.contains("tuner") {
-            return Some(("internal://effect/tuner", "Tuner", "effect"));
-        }
-        if compact.contains("mxdeviceaudioeffect") {
-            return Some(("internal://effect/external-audio-effect", "External Audio Effect", "effect"));
-        }
-        if compact.contains("mxdevicemidieffect") {
-            return Some(("internal://effect/utility", "Utility", "effect"));
-        }
-        if compact.contains("autoshift") {
-            return Some(("internal://effect/auto-shift", "Auto Shift", "effect"));
-        }
-        if compact.contains("shifter") || compact.contains("frequencyshifter") {
-            return Some(("internal://effect/shifter", "Shifter", "effect"));
-        }
-        if merged.contains("phaser-flanger") || merged.contains("phaser flanger") {
-            return Some(("internal://effect/phaser", "Phaser", "effect"));
-        }
-        if merged.contains("redux") {
-            return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
-        }
-        {
-            let pid = plugin_id.to_lowercase();
-            let pname = plugin_name.to_lowercase();
-            if merged.contains("overdrive")
-                || pid == "pedal" || pname == "pedal"
-                || pid == "cabinet" || pname == "cabinet"
-                || pid == "amp" || pname == "amp"
-            {
-                return Some(("internal://effect/distortion", "Distortion", "effect"));
-            }
-        }
-
-        None
-    }
-
-    fn waveform_code_from_token(token: &str) -> u8 {
-        let normalized = token.trim().to_lowercase();
-        if normalized.contains("triangle") || normalized.ends_with("/tri") {
-            return 1;
-        }
-        if normalized.contains("saw") {
-            return 2;
-        }
-        if normalized.contains("square") || normalized.ends_with("/pulse") {
-            return 3;
-        }
-        0
-    }
-
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
 
@@ -1469,12 +1307,9 @@ fn add_plugin_to_track_cmd(
         .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
     let slot = payload.slot.to_lowercase();
+    
     // BUG-5 FIX: Only apply internal-plugin fuzzy mapping when the plugin_id
-    // looks like an ALS migration tag or an internal convention. External
-    // plugins (VST3, AU, VST2) have IDs containing path separators or known
-    // prefixes. Applying the fuzzy matcher to external VST3 names like
-    // "Operator" or "Sampler Pro" would silently replace them with built-in
-    // instruments, corrupting the project on save/reload.
+    // looks like an ALS migration tag or an internal convention.
     let is_external_plugin = !payload.plugin_id.starts_with("internal://")
         && (payload.plugin_id.contains('/')
             || payload.plugin_id.contains('\\')
@@ -1485,11 +1320,13 @@ fn add_plugin_to_track_cmd(
             || payload.plugin_id.starts_with("vst3:")
             || payload.plugin_id.starts_with("au:")
             || payload.plugin_id.starts_with("vst2:"));
+            
     let canonical = if is_external_plugin {
         None
     } else {
-        canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name)
+        dream_graph::routing::device_chain::canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name)
     };
+    
     let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
     let effective_plugin_name = canonical
         .map(|v| {
@@ -1501,9 +1338,8 @@ fn add_plugin_to_track_cmd(
         })
         .unwrap_or_else(|| payload.plugin_name.clone());
     let canonical_slot_hint = canonical.map(|v| v.2);
-    // Only MIDI tracks can host instrument slots. Audio/Group/Master tracks
-    // always route plugin additions to the effects chain to avoid corrupting
-    // the audio bus (groups receive summed child audio, not MIDI).
+    
+    // Only MIDI tracks can host instrument slots.
     let use_instrument = if track.track_type != TrackType::Midi {
         false
     } else {
@@ -1520,22 +1356,23 @@ fn add_plugin_to_track_cmd(
     let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
     let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
         || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
+        
     let mut slot_data = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
     let new_slot_id = slot_data.id;
+    
     if !effective_plugin_id.starts_with("internal://")
         && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
     {
         slot_data.external_audio_inputs = Some(desc.audio_inputs);
-        // VST3 scanner cannot determine bus layout without loading the plugin.
-        // Leave supports_sidechain_input as None (unknown) for VST3.
-        // Sidechain bus detection happens at runtime via IComponent::get_bus_count().
         if desc.format != PluginFormat::VST3 {
             slot_data.supports_sidechain_input = Some(desc.audio_inputs > 2);
         }
     }
+    
     let plugin_slot = DeviceNode::Single(slot_data);
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;
     let mut runtime_waveform: Option<(Uuid, u8)> = None;
+    
     if use_instrument {
         track.instrument = Some(plugin_slot);
         if (is_sampler_instrument || is_wave_synth_instrument) && track.sampler.is_none() {
@@ -1546,33 +1383,23 @@ fn add_plugin_to_track_cmd(
             if cfg.sample_path.trim().is_empty() {
                 cfg.sample_path = "internal://waveform/sine".to_string();
             }
-            runtime_waveform = Some((track.id, waveform_code_from_token(&cfg.sample_path)));
+            runtime_waveform = Some((track.id, dream_graph::routing::device_chain::waveform_code_from_token(&cfg.sample_path)));
         }
     } else {
-        track.effects.push(plugin_slot);
+        // Delegate DAG mutation to dream_graph
+        let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(track, plugin_slot, None);
+        
         if effective_plugin_id.starts_with("internal://")
             && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
+            && let Some(internal_slot_index) = opt_internal_idx
         {
-            // Count only preceding INTERNAL effects — device_chain on the engine
-            // side only holds internal processors, so the slot_index must match
-            // the internal-only ordering, not the full effects list position.
-            let internal_slot_index = track.effects.iter()
-                .filter_map(|node| node.as_single())
-                .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-                .count()
-                .saturating_sub(1) // -1 because we just pushed the new one
-                .min(u8::MAX as usize) as u8;
             runtime_add = Some((track.id, internal_slot_index, effect_type));
         }
     }
 
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
-    // CRITICAL: Plugin loading failure must NOT abort this function.
-    // The project model has already been mutated above (track.effects.push / track.instrument = ...),
-    // so we MUST continue to rebuild_external_fx_snapshot and mark_dirty to keep
-    // the audio engine consistent. Otherwise the clip snapshot sees the plugin but the
-    // FX snapshot doesn't, causing total sound loss on the track.
+    
     let mut plugin_load_error: Option<String> = None;
     if !effective_plugin_id.starts_with("internal://") {
         if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
@@ -1586,11 +1413,12 @@ fn add_plugin_to_track_cmd(
             plugin_load_error = Some(format!("Plugin '{}' failed to load: {}", effective_plugin_name, err));
         }
     }
+    
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
+    
     if let Some((track_id, slot_index, effect_type)) = runtime_add {
-        // Map project UUID track ordering to runtime track index.
         if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
             push_command(&handle, EngineCommand::AddDevice {
                 track_index: runtime_track_index as u16,
@@ -1599,6 +1427,7 @@ fn add_plugin_to_track_cmd(
             })?;
         }
     }
+    
     if let Some((track_id, waveform)) = runtime_waveform {
         if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
             push_command(&handle, EngineCommand::SetSamplerWaveform {
@@ -1607,19 +1436,135 @@ fn add_plugin_to_track_cmd(
             })?;
         }
     }
+    
     log::info!(
         "[IPC] add_plugin_to_track_cmd(track={}, plugin='{}', slot={})",
         payload.track_id,
         effective_plugin_name,
         if use_instrument { "instrument" } else { "effect" }
     );
+    
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
-    // Return any plugin loading error AFTER all state has been fully reconciled.
+    
     if let Some(err_msg) = plugin_load_error {
         return Err(err_msg);
     }
     Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PluginMutationDeltaResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[tauri::command]
+fn add_plugin_to_track_with_deltas_cmd(
+    payload: AddPluginToTrackPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+
+    let (before_instrument_id, before_effect_ids): (Option<Uuid>, std::collections::HashSet<Uuid>) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+        (
+            track.instrument.as_ref().map(DeviceNode::id),
+            track.effects.iter().map(DeviceNode::id).collect(),
+        )
+    };
+
+    add_plugin_to_track_cmd(
+        payload,
+        project_state.clone(),
+        clip_pool_state.clone(),
+        handle.clone(),
+        plugin_host_state.clone(),
+        app,
+    )?;
+
+    let (slot_id, slot_index, is_instrument, plugin_name, plugin_uid) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found after add: {track_uuid}"))?;
+
+        if let Some(inst) = &track.instrument {
+            let inst_id = inst.id();
+            if before_instrument_id != Some(inst_id) {
+                (inst_id, 0usize, true, inst.name().to_owned(), inst.plugin_id().to_owned())
+            } else {
+                let (idx, node) = track
+                    .effects
+                    .iter()
+                    .enumerate()
+                    .find(|(_, node)| !before_effect_ids.contains(&node.id()))
+                    .ok_or_else(|| "Delta invariant violated: added slot not found".to_string())?;
+                (node.id(), idx, false, node.name().to_owned(), node.plugin_id().to_owned())
+            }
+        } else {
+            let (idx, node) = track
+                .effects
+                .iter()
+                .enumerate()
+                .find(|(_, node)| !before_effect_ids.contains(&node.id()))
+                .ok_or_else(|| "Delta invariant violated: added slot not found".to_string())?;
+            (node.id(), idx, false, node.name().to_owned(), node.plugin_id().to_owned())
+        }
+    };
+
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginAdded {
+            track_id: track_uuid,
+            slot_id,
+            slot_index,
+            is_instrument,
+            plugin_name,
+            plugin_uid,
+        }],
+    })
+}
+
+#[tauri::command]
+fn remove_plugin_from_track_with_deltas_cmd(
+    payload: RemovePluginFromTrackPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+
+    remove_plugin_from_track_cmd(
+        payload,
+        project_state,
+        clip_pool_state,
+        handle,
+        plugin_host_state,
+        app,
+    )?;
+
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginRemoved {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        }],
+    })
 }
 
 /// Remove a plugin slot from a track (instrument/effect) by slot UUID.
@@ -1647,6 +1592,7 @@ fn remove_plugin_from_track_cmd(
 
     let mut removed = false;
     let mut runtime_remove_slot: Option<u8> = None;
+    
     if let Some(inst) = &track.instrument
         && inst.id() == slot_uuid
     {
@@ -1663,26 +1609,9 @@ fn remove_plugin_from_track_cmd(
     }
 
     if !removed {
-        if let Some(effect_idx) = track.effects.iter().position(|node| node.id() == slot_uuid) {
-            // Determine if this is an internal effect — only internal effects
-            // exist in the engine's device_chain and need a RemoveDevice command.
-            let is_internal_effect = track.effects.get(effect_idx)
-                .and_then(|node| node.as_single())
-                .map(|slot| slot.plugin_id.starts_with("internal://effect/"))
-                .unwrap_or(false);
-
-            if is_internal_effect {
-                // Compute the internal-only slot index: count how many internal
-                // effects appear BEFORE this one in the effects list.
-                let internal_idx = track.effects[..effect_idx].iter()
-                    .filter_map(|node| node.as_single())
-                    .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-                    .count();
-                runtime_remove_slot = Some(internal_idx.min(u8::MAX as usize) as u8);
-            }
-            // External VSTs don't live in device_chain — no RemoveDevice needed.
-
-            track.effects.remove(effect_idx);
+        // Delegate DAG traversal AND internal index calc to dream_graph
+        if let Some((_node, runtime_idx)) = dream_graph::routing::device_chain::DeviceChain::remove_effect(track, slot_uuid) {
+            runtime_remove_slot = runtime_idx;
             removed = true;
         }
     }
@@ -1700,6 +1629,7 @@ fn remove_plugin_from_track_cmd(
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
+    
     if let Some(slot_index) = runtime_remove_slot
         && let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_uuid)
     {
@@ -1708,11 +1638,13 @@ fn remove_plugin_from_track_cmd(
             slot_index,
         })?;
     }
+    
     log::info!(
         "[IPC] remove_plugin_from_track_cmd(track={}, slot={})",
         payload.track_id,
         payload.slot_id
     );
+    
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
@@ -2159,6 +2091,26 @@ fn set_sampler_sample_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_sampler_sample_with_deltas_cmd(
+    payload: SetSamplerSamplePayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let sample_path = payload.sample_path.clone();
+    set_sampler_sample_cmd(payload, project_state, clip_pool_state, handle, app)?;
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackSamplerSampleChanged {
+            track_id: track_uuid,
+            sample_path,
+        }],
+    })
+}
+
 // ── STUB-10 FIX: Eager external plugin activation at project load ─────────
 //
 // During ALS import, resolved external plugins have their state blobs stored
@@ -2359,6 +2311,40 @@ fn set_slot_bypass_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_slot_bypass_with_deltas_cmd(
+    track_id: String,
+    slot_id: String,
+    bypassed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
+
+    set_slot_bypass_cmd(
+        track_id,
+        slot_id,
+        bypassed,
+        project_state,
+        plugin_host_state,
+        clip_pool_state,
+        handle,
+        app,
+    )?;
+
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginBypassChanged {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            bypassed,
+        }],
+    })
+}
+
 /// Move an effect slot to a new position within the same track's FX chain.
 #[tauri::command]
 async fn move_effect_slot_cmd(
@@ -2377,33 +2363,21 @@ async fn move_effect_slot_cmd(
     push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
-    // Find the effects vec to operate on (regular track or master)
-    let effects: &mut Vec<DeviceNode> = if track_id == "master" || project.master_track.id == track_uuid {
-        &mut project.master_track.effects
+    // Find the track to operate on (regular track or master)
+    let track = if track_id == "master" || project.master_track.id == track_uuid {
+        &mut project.master_track
     } else {
-        let track = project
+        project
             .tracks
             .iter_mut()
             .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {track_id}"))?;
-        &mut track.effects
+            .ok_or_else(|| format!("Track not found: {track_id}"))?
     };
 
-    // Find the slot's current position
-    let from_index = effects
-        .iter()
-        .position(|node| node.id() == slot_uuid)
-        .ok_or_else(|| format!("Effect slot not found: {slot_id}"))?;
-
-    if from_index == target_index {
-        return Ok(());
+    // Delegate reordering to device chain
+    if let Err(e) = dream_graph::routing::device_chain::DeviceChain::move_effect(track, slot_uuid, target_index) {
+        return Err(e.to_string());
     }
-
-    let clamped_target = target_index.min(effects.len().saturating_sub(1));
-
-    // Remove from current position and insert at target
-    let node = effects.remove(from_index);
-    effects.insert(clamped_target, node);
 
     // Rebuild FX snapshot so the audio engine picks up the new order
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -2414,9 +2388,74 @@ async fn move_effect_slot_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
-        "[IPC] move_effect_slot_cmd(track={track_id}, slot={slot_id}, {from_index} → {clamped_target})"
+        "[IPC] move_effect_slot_cmd(track={track_id}, slot={slot_id} → {target_index})"
     );
     Ok(())
+}
+
+#[tauri::command]
+async fn move_effect_slot_with_deltas_cmd(
+    track_id: String,
+    slot_id: String,
+    target_index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let (old_slot_index, new_slot_index) = {
+        let track = if track_id == "master" || project.master_track.id == track_uuid {
+            &mut project.master_track
+        } else {
+            project
+                .tracks
+                .iter_mut()
+                .find(|t| t.id == track_uuid)
+                .ok_or_else(|| format!("Track not found: {track_id}"))?
+        };
+        let old_idx = track
+            .effects
+            .iter()
+            .position(|node| node.id() == slot_uuid)
+            .ok_or_else(|| format!("Effect slot not found on track {track_id}: {slot_id}"))?;
+
+        if let Err(e) = dream_graph::routing::device_chain::DeviceChain::move_effect(track, slot_uuid, target_index) {
+            return Err(e.to_string());
+        }
+
+        let new_idx = track
+            .effects
+            .iter()
+            .position(|node| node.id() == slot_uuid)
+            .ok_or_else(|| format!("Moved effect slot not found after move: {slot_uuid}"))?;
+        (old_idx, new_idx)
+    };
+
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    log::info!("[IPC] move_effect_slot_with_deltas_cmd(track={track_id}, slot={slot_id} → {target_index})");
+
+    let _ = handle;
+
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginMoved {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            old_slot_index,
+            new_slot_index,
+        }],
+    })
 }
 
 // ── Device Copy / Paste ────────────────────────────────────────────────
@@ -2519,20 +2558,18 @@ fn paste_device_to_track_cmd(
         }
         track.instrument = Some(pasted_node);
     } else {
+        let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(track, pasted_node.clone(), None);
+
         // Compute AddDevice info for internal effects.
         if let DeviceNode::Single(slot) = &pasted_node {
             if slot.plugin_id.starts_with("internal://effect/") {
                 if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id) {
-                    let internal_slot_index = track.effects.iter()
-                        .filter_map(|node| node.as_single())
-                        .filter(|s| s.plugin_id.starts_with("internal://effect/"))
-                        .count()
-                        .min(u8::MAX as usize) as u8;
-                    runtime_add = Some((track.id, internal_slot_index, effect_type));
+                    if let Some(internal_slot_index) = opt_internal_idx {
+                        runtime_add = Some((track.id, internal_slot_index, effect_type));
+                    }
                 }
             }
         }
-        track.effects.push(pasted_node);
     }
 
     // Load external plugins for all slots in the pasted device.

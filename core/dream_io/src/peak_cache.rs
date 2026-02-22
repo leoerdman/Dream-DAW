@@ -17,6 +17,7 @@
 
 use std::fs;
 use std::io;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use bytemuck::{Pod, Zeroable};
@@ -106,6 +107,22 @@ struct PeakCacheLevelIndex {
 }
 
 impl PeakCache {
+    fn ensure_sidecar_fresh(source_path: &Path, sidecar: &Path) -> io::Result<()> {
+        if source_path.exists() && sidecar.exists() {
+            let source_mtime = fs::metadata(source_path).and_then(|m| m.modified()).ok();
+            let sidecar_mtime = fs::metadata(sidecar).and_then(|m| m.modified()).ok();
+            if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime)
+                && src_t > cache_t
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "peak cache is stale (source modified after cache)",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Generates multi-resolution peak data from raw audio samples.
     ///
     /// # Arguments
@@ -291,18 +308,7 @@ impl PeakCache {
 
         // IO-8 FIX: Staleness check — if source file is newer than sidecar,
         // the cached peaks are outdated and must be regenerated.
-        if source_path.exists() && sidecar.exists() {
-            let source_mtime = fs::metadata(source_path).and_then(|m| m.modified()).ok();
-            let sidecar_mtime = fs::metadata(&sidecar).and_then(|m| m.modified()).ok();
-            if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime)
-                && src_t > cache_t
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "peak cache is stale (source modified after cache)",
-                ));
-            }
-        }
+        Self::ensure_sidecar_fresh(source_path, &sidecar)?;
 
         let bytes = fs::read(&sidecar)?;
 
@@ -439,6 +445,84 @@ impl PeakCache {
             .collect();
         bytemuck::cast_slice(pairs.as_slice()).to_vec()
     }
+
+    /// Returns raw little-endian bytes for a single LOD level by reading
+    /// directly from sidecar without deserializing all levels.
+    pub fn lod_level_bytes_from_sidecar(source_path: &Path, lod_level: usize) -> io::Result<Vec<u8>> {
+        let sidecar = Self::sidecar_path_for(source_path);
+        Self::ensure_sidecar_fresh(source_path, &sidecar)?;
+
+        let mut file = fs::File::open(&sidecar)?;
+        let sidecar_len = file.metadata()?.len() as usize;
+
+        const HEADER_SIZE: usize = 24;
+        const INDEX_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u64>() * 2;
+        let pair_size = std::mem::size_of::<WaveformPeakPair>();
+
+        let mut header_bytes = [0u8; HEADER_SIZE];
+        file.read_exact(&mut header_bytes)?;
+        let header = PeakCacheHeader {
+            magic: [header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]],
+            version: u32::from_le_bytes([header_bytes[4], header_bytes[5], header_bytes[6], header_bytes[7]]),
+            sample_rate: u32::from_le_bytes([header_bytes[8], header_bytes[9], header_bytes[10], header_bytes[11]]),
+            level_count: u32::from_le_bytes([header_bytes[12], header_bytes[13], header_bytes[14], header_bytes[15]]),
+            total_samples: u64::from_le_bytes([
+                header_bytes[16], header_bytes[17], header_bytes[18], header_bytes[19],
+                header_bytes[20], header_bytes[21], header_bytes[22], header_bytes[23],
+            ]),
+        };
+        if header.magic != PEAK_CACHE_MAGIC || header.version != PEAK_CACHE_VERSION {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "peak cache header mismatch"));
+        }
+
+        let levels = header.level_count as usize;
+        if levels == 0 {
+            return Ok(Vec::new());
+        }
+        let index_len = levels
+            .checked_mul(INDEX_SIZE)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak index overflow"))?;
+        let data_offset = HEADER_SIZE
+            .checked_add(index_len)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak data offset overflow"))?;
+        if sidecar_len < data_offset {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "peak cache index truncated"));
+        }
+
+        let mut index_bytes = vec![0u8; index_len];
+        file.read_exact(&mut index_bytes)?;
+        let level_idx = lod_level.min(levels - 1);
+        let idx_start = level_idx * INDEX_SIZE;
+        let idx = &index_bytes[idx_start..idx_start + INDEX_SIZE];
+        let samples_per_peak = u32::from_le_bytes([idx[0], idx[1], idx[2], idx[3]]);
+        if samples_per_peak == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "peak cache level has samples_per_peak=0"));
+        }
+        let peak_count = u64::from_le_bytes([idx[4], idx[5], idx[6], idx[7], idx[8], idx[9], idx[10], idx[11]]) as usize;
+        let peak_offset_pairs = u64::from_le_bytes([idx[12], idx[13], idx[14], idx[15], idx[16], idx[17], idx[18], idx[19]]) as usize;
+
+        let level_bytes = peak_count
+            .checked_mul(pair_size)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak level byte size overflow"))?;
+        let level_offset = data_offset
+            .checked_add(
+                peak_offset_pairs
+                    .checked_mul(pair_size)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak level offset overflow"))?,
+            )
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak level absolute offset overflow"))?;
+        let level_end = level_offset
+            .checked_add(level_bytes)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak level end overflow"))?;
+        if level_end > sidecar_len {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "peak cache pair range out of bounds"));
+        }
+
+        file.seek(SeekFrom::Start(level_offset as u64))?;
+        let mut bytes = vec![0u8; level_bytes];
+        file.read_exact(&mut bytes)?;
+        Ok(bytes)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -569,5 +653,47 @@ mod tests {
         assert_eq!(lod_bytes.len() % std::mem::size_of::<WaveformPeakPair>(), 0);
 
         let _ = std::fs::remove_file(sidecar);
+    }
+
+    #[test]
+    fn sidecar_direct_lod_reader_matches_materialized_lod() {
+        let samples = test_sine(44100 * 2);
+        let peaks = PeakCache::generate(&samples, "direct-lod", 44100);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("dream_peak_cache_direct_lod_{ts}.wav"));
+
+        let sidecar = PeakCache::save_to_sidecar(&peaks, &path).unwrap();
+        for lod in 0..4 {
+            let direct = PeakCache::lod_level_bytes_from_sidecar(&path, lod).unwrap();
+            let materialized = PeakCache::lod_level_bytes(&peaks, lod);
+            assert_eq!(direct, materialized, "LOD {lod} mismatch");
+        }
+
+        let _ = std::fs::remove_file(sidecar);
+    }
+
+    #[test]
+    fn sidecar_direct_lod_reader_rejects_stale_cache() {
+        let samples = test_sine(4096);
+        let peaks = PeakCache::generate(&samples, "stale", 44100);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("dream_peak_cache_stale_{ts}.wav"));
+        std::fs::write(&path, b"seed").unwrap();
+
+        let sidecar = PeakCache::save_to_sidecar(&peaks, &path).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        std::fs::write(&path, b"newer-source").unwrap();
+
+        let err = PeakCache::lod_level_bytes_from_sidecar(&path, 0).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+
+        let _ = std::fs::remove_file(sidecar);
+        let _ = std::fs::remove_file(path);
     }
 }

@@ -3,12 +3,14 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import * as engineApi from '@/shared/api/engineApi';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
+import type { ProjectDelta } from '@/shared/api/engine';
 
 export function useDeviceRackDnD(
     rackRef: React.RefObject<HTMLDivElement | null>,
     selectedTrack: any,
     onDropPluginToTrack?: (item: BrowserDragItem, trackId: string) => Promise<void>,
     fetchProject?: () => Promise<void>,
+    applyProjectDeltas?: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear?: () => void,
     statusError?: (msg: string) => void
 ) {
@@ -18,6 +20,7 @@ export function useDeviceRackDnD(
     const dropTargetTrackRef = useRef<any>(selectedTrack);
     const onDropPluginToTrackRef = useRef(onDropPluginToTrack);
     const fetchProjectRef = useRef(fetchProject);
+    const applyProjectDeltasRef = useRef(applyProjectDeltas);
     const statusClearRef = useRef(statusClear);
     const statusErrorRef = useRef(statusError);
 
@@ -25,9 +28,10 @@ export function useDeviceRackDnD(
     useEffect(() => { onDropPluginToTrackRef.current = onDropPluginToTrack; }, [onDropPluginToTrack]);
     useEffect(() => {
         fetchProjectRef.current = fetchProject;
+        applyProjectDeltasRef.current = applyProjectDeltas;
         statusClearRef.current = statusClear;
         statusErrorRef.current = statusError;
-    }, [fetchProject, statusClear, statusError]);
+    }, [fetchProject, applyProjectDeltas, statusClear, statusError]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -73,8 +77,17 @@ export function useDeviceRackDnD(
                                 : targetTrack.track_type === 'Midi' && !targetTrack.instrument
                                     ? 'instrument'
                                     : 'effect';
-                    await engineApi.addPluginToTrack(targetTrack.id, dragging.path, dragging.name, slot);
-                    if (fetchProjectRef.current) await fetchProjectRef.current();
+                    const response = await engineApi.addPluginToTrackWithDeltas(
+                        targetTrack.id,
+                        dragging.path,
+                        dragging.name,
+                        slot,
+                    );
+                    if (applyProjectDeltasRef.current) {
+                        await applyProjectDeltasRef.current(response.deltas, 'device-rack:dnd-add-plugin');
+                    } else if (fetchProjectRef.current) {
+                        await fetchProjectRef.current();
+                    }
                 }
                 if (statusClearRef.current) statusClearRef.current();
             } catch (err) {

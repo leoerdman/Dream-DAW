@@ -144,6 +144,29 @@ pub trait Command {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result>;
 }
 
+// ── Query Trait (CQRS Pattern) ─────────────────────────────────────────
+
+/// The CQRS Query trait.
+///
+/// Every read-only project inspection is modeled as a query struct implementing
+/// this trait. Queries NEVER mutate state, NEVER push to the undo stack,
+/// and NEVER trigger snapshot rebuilds or dirty marking.
+///
+/// The transport layer (Tauri, CLI) constructs the query and calls
+/// `ctx.query(&q)`.
+///
+/// # Contract
+/// - `execute` must be **pure** with respect to `OrchestratorContext` state.
+/// - No calls to `ctx.undo`, `ctx.dirty`, `ctx.snapshots` are permitted.
+/// - May hold a short-lived read lock on `ctx.project`.
+pub trait Query {
+    /// The result type produced by this query.
+    type Result;
+
+    /// Execute the read-only query against the current orchestrator context.
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result>;
+}
+
 impl OrchestratorContext {
     /// Lock the project mutex, mapping poison errors to OrchestratorError.
     pub fn lock_project(&self) -> OrchestratorResult<MutexGuard<'_, Project>> {
@@ -177,6 +200,16 @@ impl OrchestratorContext {
     /// ```
     pub fn execute<C: Command>(&self, cmd: &C) -> OrchestratorResult<C::Result> {
         cmd.execute(self)
+    }
+
+    /// Execute any read-only query via the CQRS dispatcher.
+    ///
+    /// Queries never mutate state, push undo, or trigger snapshot rebuilds.
+    /// ```ignore
+    /// let clips = ctx.query(&GetClipsByTrackQuery { track_id })?;
+    /// ```
+    pub fn query<Q: Query>(&self, q: &Q) -> OrchestratorResult<Q::Result> {
+        q.execute(self)
     }
 
     /// Create a test/headless context with noop implementations.

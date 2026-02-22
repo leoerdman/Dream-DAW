@@ -56,6 +56,8 @@ export interface FlatPluginSlot {
     name: string;
     plugin_id: string;
     is_bypassed: boolean;
+    supports_sidechain_input?: boolean;
+    sidechain_source_track_id?: string | null;
 }
 
 /**
@@ -69,6 +71,8 @@ function flattenDeviceNode(node: DeviceNode): FlatPluginSlot | null {
             name: node.name ?? '',
             plugin_id: node.plugin_id ?? '',
             is_bypassed: Boolean(node.is_bypassed ?? false),
+            supports_sidechain_input: node.supports_sidechain_input,
+            sidechain_source_track_id: node.sidechain_source_track_id ?? null,
         };
     }
     return null;

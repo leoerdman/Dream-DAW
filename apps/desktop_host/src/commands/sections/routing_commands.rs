@@ -229,3 +229,48 @@ fn set_plugin_sidechain_source_cmd(
     );
     Ok(())
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RoutingDeltaResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[tauri::command]
+fn set_plugin_sidechain_source_with_deltas_cmd(
+    track_id: String,
+    slot_id: String,
+    source_track_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<RoutingDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let source_uuid = {
+        let normalized = source_track_id.trim();
+        if normalized.is_empty() || normalized.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(Uuid::parse_str(normalized).map_err(|_| format!("Invalid source_track_id: {normalized}"))?)
+        }
+    };
+
+    set_plugin_sidechain_source_cmd(
+        track_id,
+        slot_id,
+        source_track_id,
+        project_state,
+        clip_pool_state,
+        plugin_host_state,
+        app,
+    )?;
+
+    Ok(RoutingDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginSidechainChanged {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            source_track_id: source_uuid,
+        }],
+    })
+}

@@ -90,6 +90,7 @@ export const DeviceRack = ({
         statusClear,
         statusError,
         fetchProject,
+        applyProjectDeltas,
         togglePluginEditor,
     } = logic;
 
@@ -161,8 +162,8 @@ export const DeviceRack = ({
                                     let targetIdx = isLeftHalf ? deviceIndex : deviceIndex + 1;
                                     if (fromIndex < targetIdx) targetIdx = Math.max(0, targetIdx - 1);
                                     if (selectedTrack) {
-                                        void engineApi.moveEffectSlot(selectedTrack.id, draggedId, targetIdx)
-                                            .then(() => fetchProject())
+                                        void engineApi.moveEffectSlotWithDeltas(selectedTrack.id, draggedId, targetIdx)
+                                            .then((response) => applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot'))
                                             .catch((err) => console.error('[DeviceRack] moveEffectSlot failed:', err));
                                     }
                                 }}
@@ -468,10 +469,5 @@ export const DeviceRack = ({
         );
     };
 
-    return (
-        <>
-            {rackContent}
-            {renderCtxMenuPopup()}
-        </>
-    );
+    return <>{rackContent}{renderCtxMenuPopup()}</>;
 };

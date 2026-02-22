@@ -450,7 +450,6 @@ async fn update_midi_clip_cmd(
             }
             if let Some(c) = track.clips.iter().find(|c| c.id == uuid && c.file_path.trim().is_empty()) {
                 dur = c.duration.sample_frame;
-                let normalized = normalize_note_payloads(&notes, dur);
                 is_legacy = true;
                 break;
             }

@@ -576,7 +576,7 @@ export class CanvasClipRenderer {
         // ── 7. Waveform or MIDI notes ─────────────────────────────────
         if (bodyH > 8) {
 
-            if (clip.type === 'audio' && clip.filePath && clip.durationSamples) {
+            if (clip.type === 'audio' && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackMuted);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
                 this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackMuted, trackPitch);
@@ -729,7 +729,7 @@ export class CanvasClipRenderer {
         sampleRate: number,
         muted: boolean,
     ): void {
-        if (!clip.filePath || !clip.durationSamples) return;
+        if (!clip.durationSamples) return;
 
         const ppb = vp.pixelsPerBeat;
         // Guard divide-by-zero: a zero-width viewport hasn't laid out yet.
@@ -742,7 +742,7 @@ export class CanvasClipRenderer {
         const samplesPerPixel = samplesPerBeat / ppb;
 
         const drawData = this._waveformCache.getDrawData(
-            clip.filePath,
+            clip.id,
             samplesPerPixel,
             clip.sourceOffset ?? 0,
             clip.durationSamples,

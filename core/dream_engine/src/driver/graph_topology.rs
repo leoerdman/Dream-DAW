@@ -172,6 +172,8 @@ impl PreparedGraphSnapshot {
                 delay_compensation: Vec::new(),
                 edge_delay_compensation: Vec::new(),
                 parallel_stages: Vec::new(),
+                dependency_counts: Vec::new(),
+                dependents: Vec::new(),
                 parallelism_metrics: dream_graph::dag::ParallelismMetrics::default(),
             });
         Self {
@@ -198,6 +200,8 @@ pub fn prepare_graph_snapshot_for_routing(
             delay_compensation: Vec::new(),
             edge_delay_compensation: Vec::new(),
             parallel_stages: Vec::new(),
+            dependency_counts: Vec::new(),
+            dependents: Vec::new(),
             parallelism_metrics: dream_graph::dag::ParallelismMetrics::default(),
         });
 

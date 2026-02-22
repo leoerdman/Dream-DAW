@@ -1758,23 +1758,25 @@ export class TimelineEngine {
     private _prefetchVisibleWaveforms(): void {
         const range = this._viewport.getVisibleRange();
         const bufferBeats = 10;
-        const paths: string[] = [];
+        const clipIds: string[] = [];
 
         for (const clip of this._clips) {
             if (
                 clip.type === 'audio' &&
-                clip.filePath &&
+                clip.durationSamples &&
                 clip.startBeat + clip.durationBeats >= range.startBeat - bufferBeats &&
                 clip.startBeat <= range.endBeat + bufferBeats
             ) {
-                if (!this._waveformCache.has(clip.filePath)) {
-                    paths.push(clip.filePath);
-                }
+                clipIds.push(clip.id);
             }
         }
 
-        if (paths.length > 0) {
-            this._waveformCache.prefetch(paths);
+        if (clipIds.length > 0) {
+            const ppb = this._viewport.pixelsPerBeat;
+            const samplesPerBeat = this._sampleRate * 60 / this._bpm;
+            const samplesPerPixel = ppb > 0 ? (samplesPerBeat / ppb) : 1024;
+
+            this._waveformCache.prefetch(clipIds, samplesPerPixel);
             if (typeof requestIdleCallback === 'function') {
                 if (this._prefetchIdleId) cancelIdleCallback(this._prefetchIdleId);
                 this._prefetchIdleId = requestIdleCallback(() => {

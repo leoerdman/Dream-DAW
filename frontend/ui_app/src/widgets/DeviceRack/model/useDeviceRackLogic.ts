@@ -15,6 +15,7 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engineApi';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { errorMessage } from '@/shared/lib/helpers';
+import type { ProjectDelta } from '@/shared/api/engine';
 
 // Micro-hook imports
 import { useDeviceRackCore } from './useDeviceRackCore';
@@ -81,6 +82,7 @@ export interface DeviceRackLogicOutput {
     statusClear: () => void;
     statusError: (msg: string) => void;
     fetchProject: () => Promise<void>;
+    applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
 }
 
@@ -92,11 +94,12 @@ export function useDeviceRackLogic(
     const prevTrackIdRef = useRef<string>(selectedTrackId);
 
     // Global stores
-    const { openEditorsByTrack, togglePluginEditor, projectTracks, fetchProject } = useEngineStore(useShallow((s) => ({
+    const { openEditorsByTrack, togglePluginEditor, projectTracks, fetchProject, applyProjectDeltas } = useEngineStore(useShallow((s) => ({
         openEditorsByTrack: s.openEditorsByTrack,
         togglePluginEditor: s.togglePluginEditor,
         projectTracks: s.projectTracks,
         fetchProject: s.fetchProject,
+        applyProjectDeltas: s.applyProjectDeltas,
     })));
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
@@ -138,11 +141,20 @@ export function useDeviceRackLogic(
         core.selectedTrack,
         core.setInlineSettingsOpen,
         fetchProject,
+        applyProjectDeltas,
         statusClear,
         statusError
     );
 
-    const dnd = useDeviceRackDnD(rackRef, core.selectedTrack, onDropPluginToTrack, fetchProject, statusClear, statusError);
+    const dnd = useDeviceRackDnD(
+        rackRef,
+        core.selectedTrack,
+        onDropPluginToTrack,
+        fetchProject,
+        applyProjectDeltas,
+        statusClear,
+        statusError,
+    );
 
     // --- Context Menu ---
     const handleParamContextMenu = useCallback((e: React.MouseEvent, paramName: string, deviceId: string) => {
@@ -166,7 +178,8 @@ export function useDeviceRackLogic(
 
         if (!core.selectedTrack) return;
 
-        void engineApi.setSlotBypass(core.selectedTrack.id.toString(), device.id, nextBypassed)
+        void engineApi.setSlotBypassWithDeltas(core.selectedTrack.id.toString(), device.id, nextBypassed)
+            .then((response) => applyProjectDeltas(response.deltas, 'device-rack:bypass'))
             .catch((err) => console.error('[DeviceRack] setSlotBypass failed:', err));
 
         if (device.source === 'internal') {
@@ -232,13 +245,17 @@ export function useDeviceRackLogic(
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!core.selectedTrack) return;
         try {
-            await engineApi.setPluginSidechainSource(core.selectedTrack.id, slotId, sourceTrackId || 'none');
-            await fetchProject();
+            const response = await engineApi.setPluginSidechainSourceWithDeltas(
+                core.selectedTrack.id,
+                slotId,
+                sourceTrackId || 'none',
+            );
+            await applyProjectDeltas(response.deltas, 'device-rack:set-sidechain-source');
             statusClear();
         } catch (err: any) {
             statusError(`Failed to set plugin sidechain source: ${errorMessage(err)}`);
         }
-    }, [core.selectedTrack, fetchProject, statusClear, statusError]);
+    }, [core.selectedTrack, applyProjectDeltas, statusClear, statusError]);
 
     const sidechainOptions = useMemo(
         () => projectTracks.filter((t) => t.id !== (core.selectedTrack?.id ?? '')).map((t) => ({ id: t.id, name: t.name })),
@@ -326,6 +343,7 @@ export function useDeviceRackLogic(
         statusClear,
         statusError,
         fetchProject,
+        applyProjectDeltas,
         togglePluginEditor,
     };
 }

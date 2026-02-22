@@ -91,6 +91,31 @@ mod tests {
     }
 
     #[test]
+    fn should_stream_threshold_policy() {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let small = std::env::temp_dir().join(format!("dream_stream_small_{ts}.wav"));
+        let large = std::env::temp_dir().join(format!("dream_stream_large_{ts}.wav"));
+
+        {
+            let f = std::fs::File::create(&small).unwrap();
+            f.set_len(RAM_THRESHOLD_BYTES).unwrap();
+        }
+        {
+            let f = std::fs::File::create(&large).unwrap();
+            f.set_len(RAM_THRESHOLD_BYTES + 1).unwrap();
+        }
+
+        assert!(!should_stream(&small));
+        assert!(should_stream(&large));
+
+        let _ = std::fs::remove_file(small);
+        let _ = std::fs::remove_file(large);
+    }
+
+    #[test]
     fn empty_window_returns_false() {
         let window = StreamingWindow::new("test.wav", 100000, 2, 48000);
         let mut out_l = vec![0.0; 256];

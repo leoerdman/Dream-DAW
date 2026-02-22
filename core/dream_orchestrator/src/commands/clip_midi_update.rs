@@ -34,7 +34,7 @@ impl Command for UpdateMidiClipCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
-        
+
         let mut found = false;
         for track in &mut project.tracks {
             if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == self.clip_id) {
@@ -43,13 +43,18 @@ impl Command for UpdateMidiClipCommand {
                 break;
             }
         }
-        
+
         if !found {
             // Check legacy empty-path audio clips
             for track in &mut project.tracks {
-                if let Some(idx) = track.clips.iter().position(|c| c.id == self.clip_id && c.file_path.trim().is_empty()) {
+                if let Some(idx) = track
+                    .clips
+                    .iter()
+                    .position(|c| c.id == self.clip_id && c.file_path.trim().is_empty())
+                {
                     let legacy = track.clips.remove(idx);
-                    let mut migrated = MidiClip::new(&legacy.name, legacy.position, legacy.duration);
+                    let mut migrated =
+                        MidiClip::new(&legacy.name, legacy.position, legacy.duration);
                     migrated.id = legacy.id;
                     migrated.notes = self.notes.clone();
                     track.midi_clips.push(migrated);
@@ -58,7 +63,7 @@ impl Command for UpdateMidiClipCommand {
                 }
             }
         }
-        
+
         if !found {
             return Err(OrchestratorError::NotFound {
                 entity: "MIDI clip",
@@ -98,7 +103,7 @@ impl Command for SetMidiClipEnvelopesCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
-        
+
         let mut found = false;
         for track in &mut project.tracks {
             if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == self.clip_id) {
@@ -107,7 +112,7 @@ impl Command for SetMidiClipEnvelopesCommand {
                 break;
             }
         }
-        
+
         if !found {
             return Err(OrchestratorError::NotFound {
                 entity: "MIDI clip",

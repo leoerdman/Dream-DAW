@@ -23,7 +23,7 @@ impl Command for InsertBouncedClipCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
-        
+
         let new_track = Track::new(&self.new_track_name);
         let new_track_index = if let Some(after_idx) = self.insert_after_index {
             let insert_pos = (after_idx + 1).min(project.tracks.len());
@@ -71,11 +71,11 @@ impl Command for InsertStemClipsCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
-        
+
         for stem in &self.stems {
             project.add_track(Track::new(&stem.track_name));
             let new_track_index = project.tracks.len().saturating_sub(1);
-            
+
             let mut clip = AudioClip::new(
                 &stem.track_name,
                 &stem.file_path,
@@ -83,7 +83,7 @@ impl Command for InsertStemClipsCommand {
                 AbsoluteTime::new(stem.timeline_duration_frames.max(1)),
             );
             clip.warp_source_duration_frames = stem.source_duration_frames.max(1);
-            
+
             if let Some(track) = project.tracks.get_mut(new_track_index) {
                 track.clips.push(clip);
             }

@@ -28,6 +28,7 @@ import type {
     ProjectDelta,
     PluginSandboxSnapshot,
     PluginCrashEvent,
+    PluginRecoveryEvent,
 } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -99,6 +100,27 @@ function mergeProjectHistory(
         : merged;
     const cursor = delta[delta.length - 1].seq;
     return { history, cursor };
+}
+
+interface SandboxSlotUpdateEvent {
+    instanceId?: string;
+    instanceIds?: string[];
+    slotIds?: string[];
+    changedSlots?: number;
+}
+
+function patchSandboxInstancesById(
+    snapshot: PluginSandboxSnapshot | null,
+    ids: Set<string>,
+    patch: (inst: engine.PluginSandboxRuntimeInfo) => engine.PluginSandboxRuntimeInfo,
+): PluginSandboxSnapshot | null {
+    if (!snapshot || ids.size === 0) return snapshot;
+    return {
+        ...snapshot,
+        instances: snapshot.instances.map((inst) =>
+            ids.has(inst.plugin_instance_id) ? patch(inst) : inst,
+        ),
+    };
 }
 
 // ── Store Types ──────────────────────────────────────────────────────────
@@ -270,6 +292,10 @@ const DEFAULT_METERS: MeteringSnapshot = {
 let _telemetryUnlisten: UnlistenFn | null = null;
 let _pluginSandboxUnlisten: UnlistenFn | null = null;
 let _pluginSandboxCrashUnlisten: UnlistenFn | null = null;
+let _pluginSandboxRecoveredUnlisten: UnlistenFn | null = null;
+let _pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
+let _pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
+let _pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
 
 // ── Store Creation ───────────────────────────────────────────────────────
 
@@ -603,12 +629,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         if (!Array.isArray(deltas) || deltas.length === 0) return;
-
-        const needsRefresh = deltas.some((d) => d.kind === 'FullRefreshRequired');
-        if (needsRefresh) {
-            await get().fetchProject(`${reason}-full-refresh`);
-            return;
-        }
 
         let fallbackReason: string | null = null;
         set((s) => {
@@ -1100,6 +1120,129 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         }
                     },
                 );
+                _pluginSandboxRecoveredUnlisten = await listen<PluginRecoveryEvent>(
+                    'plugin_sandbox_recovered',
+                    (event) => {
+                        const recovery = event.payload;
+                        const state = get();
+                        const nextSandbox = patchSandboxInstancesById(
+                            state.pluginSandbox,
+                            new Set([recovery.instance_id]),
+                            (inst) => ({
+                                ...inst,
+                                status: 'running',
+                                bypass_requested: false,
+                                crash_count: Math.max(inst.crash_count, recovery.crash_count),
+                                restart_count: Math.max(inst.restart_count, recovery.restart_count),
+                                last_error: null,
+                            }),
+                        );
+                        _pendingUpdate.pluginSandbox = nextSandbox;
+                        _pendingUpdate.lastError = null;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
+                    },
+                );
+                _pluginSandboxAutoBypassUnlisten = await listen<SandboxSlotUpdateEvent>(
+                    'plugin_sandbox_auto_bypass',
+                    (event) => {
+                        const instanceIds = new Set(event.payload.instanceIds ?? []);
+                        const state = get();
+                        const nextSandbox = patchSandboxInstancesById(
+                            state.pluginSandbox,
+                            instanceIds,
+                            (inst) => ({
+                                ...inst,
+                                bypass_requested: true,
+                                status: inst.status === 'running' ? 'crashed' : inst.status,
+                            }),
+                        );
+                        _pendingUpdate.pluginSandbox = nextSandbox;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
+                    },
+                );
+                _pluginSandboxAutoRecoveredUnlisten = await listen<SandboxSlotUpdateEvent>(
+                    'plugin_sandbox_auto_recovered',
+                    (event) => {
+                        const instanceIds = new Set(event.payload.instanceIds ?? []);
+                        const state = get();
+                        const nextSandbox = patchSandboxInstancesById(
+                            state.pluginSandbox,
+                            instanceIds,
+                            (inst) => ({
+                                ...inst,
+                                bypass_requested: false,
+                                status: 'running',
+                                last_error: null,
+                            }),
+                        );
+                        _pendingUpdate.pluginSandbox = nextSandbox;
+                        _pendingUpdate.lastError = null;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
+                    },
+                );
+                _pluginSandboxReloadedUnlisten = await listen<SandboxSlotUpdateEvent>(
+                    'plugin_sandbox_reloaded',
+                    (event) => {
+                        const instanceIds = new Set([
+                            ...(event.payload.instanceIds ?? []),
+                            ...(event.payload.instanceId ? [event.payload.instanceId] : []),
+                        ]);
+                        const state = get();
+                        const nextSandbox = patchSandboxInstancesById(
+                            state.pluginSandbox,
+                            instanceIds,
+                            (inst) => ({
+                                ...inst,
+                                bypass_requested: false,
+                                status: 'running',
+                                last_error: null,
+                            }),
+                        );
+                        _pendingUpdate.pluginSandbox = nextSandbox;
+                        _pendingUpdate.lastError = null;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
+                    },
+                );
             } catch (e) {
                 const msg = String(e);
                 console.error('[Telemetry] listen() failed — resetting guard for retry:', msg);
@@ -1128,6 +1271,22 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (_pluginSandboxCrashUnlisten) {
             _pluginSandboxCrashUnlisten();
             _pluginSandboxCrashUnlisten = null;
+        }
+        if (_pluginSandboxRecoveredUnlisten) {
+            _pluginSandboxRecoveredUnlisten();
+            _pluginSandboxRecoveredUnlisten = null;
+        }
+        if (_pluginSandboxAutoBypassUnlisten) {
+            _pluginSandboxAutoBypassUnlisten();
+            _pluginSandboxAutoBypassUnlisten = null;
+        }
+        if (_pluginSandboxAutoRecoveredUnlisten) {
+            _pluginSandboxAutoRecoveredUnlisten();
+            _pluginSandboxAutoRecoveredUnlisten = null;
+        }
+        if (_pluginSandboxReloadedUnlisten) {
+            _pluginSandboxReloadedUnlisten();
+            _pluginSandboxReloadedUnlisten = null;
         }
     },
 

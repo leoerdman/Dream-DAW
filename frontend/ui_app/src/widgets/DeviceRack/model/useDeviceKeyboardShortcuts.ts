@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engineApi';
+import type { ProjectDelta } from '@/shared/api/engine';
 
 export function useDeviceKeyboardShortcuts(
     selectedDeviceIds: string[],
@@ -7,6 +8,7 @@ export function useDeviceKeyboardShortcuts(
     selectedTrack: any,
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
     fetchProject: () => Promise<void>,
+    applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear: () => void,
     statusError: (msg: string) => void
 ) {
@@ -49,8 +51,10 @@ export function useDeviceKeyboardShortcuts(
             e.preventDefault();
             e.stopImmediatePropagation();
             try {
+                const batched: ProjectDelta[] = [];
                 for (const deviceId of selectedDeviceIds) {
-                    await engineApi.removePluginFromTrack(selectedTrack.id, deviceId);
+                    const response = await engineApi.removePluginFromTrackWithDeltas(selectedTrack.id, deviceId);
+                    batched.push(...response.deltas);
                 }
                 setInlineSettingsOpen((prev) => {
                     const next = { ...prev };
@@ -58,7 +62,7 @@ export function useDeviceKeyboardShortcuts(
                     return next;
                 });
                 setSelectedDeviceIds([]);
-                await fetchProject();
+                await applyProjectDeltas(batched, 'device-rack:delete-plugin');
                 statusClear();
             } catch (err) {
                 console.error('[DeviceRack] removePluginFromTrack failed:', err);
@@ -67,5 +71,5 @@ export function useDeviceKeyboardShortcuts(
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceIds, selectedTrack, fetchProject, statusClear, statusError, setSelectedDeviceIds, setInlineSettingsOpen]);
+    }, [selectedDeviceIds, selectedTrack, fetchProject, applyProjectDeltas, statusClear, statusError, setSelectedDeviceIds, setInlineSettingsOpen]);
 }

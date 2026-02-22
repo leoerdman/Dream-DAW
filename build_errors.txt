@@ -1,0 +1,32 @@
+    Checking dream_plugins v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_plugins)
+warning: field `edge_scratch` is never read
+   --> core/dream_graph/src/renderer.rs:347:5
+    |
+324 | pub struct GraphRenderer {
+    |            ------------- field in this struct
+...
+347 |     edge_scratch: NodeBuffer,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dream_graph` (lib) generated 1 warning
+    Checking dream_renderer v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_renderer)
+    Checking dream_engine v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_engine)
+    Checking dream_importers v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_importers)
+    Checking plugin_host_daemon v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/apps/plugin_host_daemon)
+    Checking desktop_host v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/apps/desktop_host)
+apps/desktop_host/src/commands/sections/plugins_routing.rs:1327:45: error[E0425]: cannot find function `canonical_internal_plugin` in module `dream_graph::routing::device_chain`: not found in `dream_graph::routing::device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:1386:84: error[E0425]: cannot find function `waveform_code_from_token` in module `dream_graph::routing::device_chain`: not found in `dream_graph::routing::device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:1390:68: error[E0433]: failed to resolve: could not find `DeviceChain` in `device_chain`: could not find `DeviceChain` in `device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:1613:81: error[E0433]: failed to resolve: could not find `DeviceChain` in `device_chain`: could not find `DeviceChain` in `device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:2358:57: error[E0433]: failed to resolve: could not find `DeviceChain` in `device_chain`: could not find `DeviceChain` in `device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:2409:61: error[E0433]: failed to resolve: could not find `DeviceChain` in `device_chain`: could not find `DeviceChain` in `device_chain`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:2541:68: error[E0433]: failed to resolve: could not find `DeviceChain` in `device_chain`: could not find `DeviceChain` in `device_chain`
+apps/desktop_host/src/lib.rs:68:29: warning: unused import: `PluginCategory`
+apps/desktop_host/src/lib.rs:70:35: warning: unused imports: `PluginCrashEvent`, `PluginDescriptor`, `PluginSandboxConfig`, `PluginSandboxSupervisor`, and `PluginScanner`
+apps/desktop_host/src/commands/sections/plugins_routing.rs:2359:20: error[E0282]: type annotations needed: cannot infer type
+apps/desktop_host/src/commands/sections/plugins_routing.rs:2410:24: error[E0282]: type annotations needed: cannot infer type
+apps/desktop_host/src/commands/sections/midi_clip.rs:453:21: warning: unused variable: `normalized`: help: if this is intentional, prefix it with an underscore: `_normalized`
+warning: `desktop_host` (lib) generated 3 warnings
+error: could not compile `desktop_host` (lib) due to 9 previous errors; 3 warnings emitted

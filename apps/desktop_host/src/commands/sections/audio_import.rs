@@ -11,6 +11,17 @@ struct ImportAudioResponse {
     frames: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ImportAudioWithDeltasResponse {
+    clip_id: String,
+    clip_name: String,
+    duration_seconds: f64,
+    sample_rate: u32,
+    channels: usize,
+    frames: usize,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
 /// Imports an audio file, decodes it into the clip pool, and places
 /// a clip on the specified track at the current playhead position.
 ///
@@ -210,5 +221,69 @@ async fn import_audio_file(
         sample_rate,
         channels: num_channels,
         frames: num_frames,
+    })
+}
+
+#[tauri::command]
+async fn import_audio_file_with_deltas(
+    path: String,
+    track_index: u16,
+    position_frames: Option<i64>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    project_state: tauri::State<'_, ProjectState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<ImportAudioWithDeltasResponse, String> {
+    let response = import_audio_file(
+        path,
+        track_index,
+        position_frames,
+        clip_pool_state.clone(),
+        project_state.clone(),
+        handle.clone(),
+        app,
+    )
+    .await?;
+
+    let clip_uuid = Uuid::parse_str(&response.clip_id)
+        .map_err(|_| format!("Invalid imported clip UUID: {}", response.clip_id))?;
+    let (resolved_track_index, position, duration, file_path, clip_name) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut found: Option<(usize, i64, i64, String, String)> = None;
+        for (idx, track) in project.tracks.iter().enumerate() {
+            if let Some(clip) = track.clips.iter().find(|c| c.id == clip_uuid) {
+                found = Some((
+                    idx,
+                    clip.position.sample_frame,
+                    clip.duration.sample_frame,
+                    clip.file_path.clone(),
+                    clip.name.clone(),
+                ));
+                break;
+            }
+        }
+        found.ok_or_else(|| {
+            format!(
+                "Delta invariant violated: imported clip {} not found in project",
+                response.clip_id
+            )
+        })?
+    };
+
+    Ok(ImportAudioWithDeltasResponse {
+        clip_id: response.clip_id.clone(),
+        clip_name: response.clip_name,
+        duration_seconds: response.duration_seconds,
+        sample_rate: response.sample_rate,
+        channels: response.channels,
+        frames: response.frames,
+        deltas: vec![dream_models::delta::ProjectDelta::ClipAdded {
+            clip_id: clip_uuid,
+            track_index: resolved_track_index,
+            name: clip_name,
+            file_path,
+            position,
+            duration,
+        }],
     })
 }

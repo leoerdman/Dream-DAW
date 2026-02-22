@@ -21,7 +21,7 @@ use crate::instance::PluginError;
 use crate::sandbox_ipc::{PluginHostControlMessage, PluginHostEventMessage, SharedAudioRegion};
 use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 pub use crate::sandbox_types::{
-    PluginCrashEvent, PluginSandboxConfig, PluginSandboxRuntimeInfo,
+    PluginCrashEvent, PluginRecoveryEvent, PluginSandboxConfig, PluginSandboxRuntimeInfo,
     PluginSandboxSnapshot, PluginSandboxStatus,
 };
 
@@ -69,6 +69,8 @@ pub struct PluginSandboxSupervisor {
     instances: HashMap<Uuid, PluginSandboxInstance>,
     /// Accumulated crash events for the Tauri layer to drain and forward to frontend.
     crash_events: Vec<PluginCrashEvent>,
+    /// Accumulated recovery events emitted when an instance reaches Running state.
+    recovery_events: Vec<PluginRecoveryEvent>,
     /// LAZARUS PROTOCOL: Shared crash flags wired to `SandboxedPluginInstance.is_crashed`.
     /// The supervisor sets these on crash (true) and recovery (false).
     /// The audio thread reads them lock-free via `Relaxed` ordering.
@@ -185,6 +187,7 @@ impl PluginSandboxSupervisor {
             config,
             instances: HashMap::new(),
             crash_events: Vec::new(),
+            recovery_events: Vec::new(),
             crash_flags: HashMap::new(),
         }
     }
@@ -365,11 +368,28 @@ impl PluginSandboxSupervisor {
                     match rx.try_recv() {
                         Ok(evt) => match evt {
                             PluginHostEventMessage::Ready { .. } => {
+                                let should_emit_recovery = !matches!(
+                                    instance.status,
+                                    PluginSandboxStatus::Running
+                                ) && (instance.restart_count > 0 || instance.crash_count > 0);
                                 instance.status = PluginSandboxStatus::Running;
                                 instance.heartbeat_seen = true;
                                 instance.bypass_requested = false;
                                 // LAZARUS: Clear crash flag on successful recovery.
                                 Self::signal_recovery(&crash_flags, id);
+                                if should_emit_recovery {
+                                    self.recovery_events.push(PluginRecoveryEvent {
+                                        instance_id: *id,
+                                        plugin_name: instance.descriptor.name.clone(),
+                                        plugin_path: instance
+                                            .descriptor
+                                            .path
+                                            .to_string_lossy()
+                                            .to_string(),
+                                        restart_count: instance.restart_count,
+                                        crash_count: instance.crash_count,
+                                    });
+                                }
                             }
                             PluginHostEventMessage::HeartbeatAck { .. } => {
                                 instance.heartbeat_seen = true;
@@ -864,9 +884,19 @@ impl PluginSandboxSupervisor {
         std::mem::take(&mut self.crash_events)
     }
 
+    /// Drains accumulated recovery events. Recovery means the daemon has
+    /// actually reached Running state again.
+    pub fn drain_recovery_events(&mut self) -> Vec<PluginRecoveryEvent> {
+        std::mem::take(&mut self.recovery_events)
+    }
+
     /// Returns true if there are pending crash events to process.
     pub fn has_pending_crash_events(&self) -> bool {
         !self.crash_events.is_empty()
+    }
+
+    pub fn has_pending_recovery_events(&self) -> bool {
+        !self.recovery_events.is_empty()
     }
 
     pub fn send_open_editor(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
@@ -918,6 +948,57 @@ impl Drop for PluginSandboxSupervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
+
+    fn test_instance(
+        status: PluginSandboxStatus,
+        restart_count: u32,
+        crash_count: u32,
+        event_rx: Option<Receiver<PluginHostEventMessage>>,
+    ) -> PluginSandboxInstance {
+        PluginSandboxInstance {
+            descriptor: PluginDescriptor::new(
+                "Test",
+                "Dream",
+                crate::format::PluginFormat::VST3,
+                crate::format::PluginCategory::Effect,
+                PathBuf::from("/tmp/test.vst3"),
+            ),
+            process: None,
+            status,
+            crash_count,
+            restart_count,
+            bypass_requested: false,
+            last_error: None,
+            heartbeat_file: std::env::temp_dir().join("dream_daw_plugin_host_test.hb"),
+            shared_region: SharedAudioRegion {
+                map_name: "test".to_string(),
+                num_inputs: 2,
+                num_outputs: 2,
+                max_frames: 64,
+                total_bytes: 0,
+            },
+            _shared_region_owner: SharedAudioBufferRegion::create(
+                std::env::temp_dir().join(format!(
+                    "dream_daw_plugin_host_test_region_{}.bin",
+                    Uuid::new_v4()
+                )),
+                SharedAudioBufferLayout {
+                    num_inputs: 2,
+                    num_outputs: 2,
+                    max_frames: 64,
+                },
+            )
+            .unwrap(),
+            control_stdin: None,
+            event_rx,
+            heartbeat_seq: 0,
+            heartbeat_seen: false,
+            spawned_at: SystemTime::now(),
+            last_known_state_blob: None,
+            ticks_since_last_save: 0,
+        }
+    }
 
     #[test]
     fn supervisor_disabled_without_config() {
@@ -931,54 +1012,72 @@ mod tests {
         // Force enabled flag for pure state test.
         sup.enabled = true;
         let id = Uuid::new_v4();
-        sup.instances.insert(
-            id,
-            PluginSandboxInstance {
-                descriptor: PluginDescriptor::new(
-                    "Test",
-                    "Dream",
-                    crate::format::PluginFormat::VST3,
-                    crate::format::PluginCategory::Effect,
-                    PathBuf::from("/tmp/test.vst3"),
-                ),
-                process: None,
-                status: PluginSandboxStatus::Spawning,
-                crash_count: 0,
-                restart_count: 0,
-                bypass_requested: false,
-                last_error: None,
-                heartbeat_file: std::env::temp_dir().join("dream_daw_plugin_host_test.hb"),
-                shared_region: SharedAudioRegion {
-                    map_name: "test".to_string(),
-                    num_inputs: 2,
-                    num_outputs: 2,
-                    max_frames: 64,
-                    total_bytes: 0,
-                },
-                _shared_region_owner: SharedAudioBufferRegion::create(
-                    std::env::temp_dir().join(format!(
-                        "dream_daw_plugin_host_test_region_{}.bin",
-                        Uuid::new_v4()
-                    )),
-                    SharedAudioBufferLayout {
-                        num_inputs: 2,
-                        num_outputs: 2,
-                        max_frames: 64,
-                    },
-                )
-                .unwrap(),
-                control_stdin: None,
-                event_rx: None,
-                heartbeat_seq: 0,
-                heartbeat_seen: false,
-                spawned_at: SystemTime::now(),
-                last_known_state_blob: None,
-                ticks_since_last_save: 0,
-            },
-        );
+        sup.instances
+            .insert(id, test_instance(PluginSandboxStatus::Spawning, 0, 0, None));
         sup.mark_heartbeat(id);
         let snap = sup.snapshot();
         assert_eq!(snap.instances.len(), 1);
         assert_eq!(snap.instances[0].status, PluginSandboxStatus::Running);
+    }
+
+    #[test]
+    fn crash_flag_signal_sets_and_clears_atomically() {
+        let id = Uuid::new_v4();
+        let crash_flag = Arc::new(AtomicBool::new(false));
+        let mut crash_flags: HashMap<Uuid, Arc<AtomicBool>> = HashMap::new();
+        crash_flags.insert(id, crash_flag.clone());
+
+        PluginSandboxSupervisor::signal_crash(&crash_flags, &id);
+        assert!(crash_flag.load(Ordering::Relaxed));
+
+        PluginSandboxSupervisor::signal_recovery(&crash_flags, &id);
+        assert!(!crash_flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn ready_after_restart_emits_recovery_event() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        drop(tx);
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Spawning, 1, 1, Some(rx)),
+        );
+
+        let _ = sup.tick_watchdog();
+        let recoveries = sup.drain_recovery_events();
+
+        assert_eq!(recoveries.len(), 1);
+        assert_eq!(recoveries[0].instance_id, id);
+    }
+
+    #[test]
+    fn ready_on_initial_start_does_not_emit_recovery_event() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Ready {
+            protocol_version: 1,
+            shared_region: None,
+        })
+        .unwrap();
+        drop(tx);
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Spawning, 0, 0, Some(rx)),
+        );
+
+        let _ = sup.tick_watchdog();
+        let recoveries = sup.drain_recovery_events();
+
+        assert!(recoveries.is_empty());
     }
 }

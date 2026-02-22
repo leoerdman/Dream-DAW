@@ -36,6 +36,16 @@ pub enum ProjectDelta {
         new_position: i64,
     },
 
+    /// A new audio clip was added.
+    ClipAdded {
+        clip_id: Uuid,
+        track_index: usize,
+        name: String,
+        file_path: String,
+        position: i64,
+        duration: i64,
+    },
+
     /// A clip was resized (position and/or duration changed).
     ClipResized {
         clip_id: Uuid,
@@ -95,6 +105,12 @@ pub enum ProjectDelta {
     /// A track was armed/disarmed for recording.
     TrackArmChanged { track_index: usize, armed: bool },
 
+    /// Track sampler sample path changed.
+    TrackSamplerSampleChanged {
+        track_id: Uuid,
+        sample_path: String,
+    },
+
     /// A track was renamed.
     TrackRenamed { track_id: Uuid, new_name: String },
 
@@ -123,26 +139,36 @@ pub enum ProjectDelta {
     /// A plugin was added to a track.
     PluginAdded {
         track_id: Uuid,
+        slot_id: Uuid,
         slot_index: usize,
+        is_instrument: bool,
         plugin_name: String,
         plugin_uid: String,
     },
 
     /// A plugin was removed from a track.
-    PluginRemoved { track_id: Uuid, slot_index: usize },
+    PluginRemoved { track_id: Uuid, slot_id: Uuid },
 
     /// A plugin was bypassed/enabled.
     PluginBypassChanged {
         track_id: Uuid,
-        slot_index: usize,
+        slot_id: Uuid,
         bypassed: bool,
     },
 
     /// Plugin order changed (drag reorder in device rack).
     PluginMoved {
         track_id: Uuid,
+        slot_id: Uuid,
         old_slot_index: usize,
         new_slot_index: usize,
+    },
+
+    /// Sidechain source for a plugin slot changed.
+    PluginSidechainChanged {
+        track_id: Uuid,
+        slot_id: Uuid,
+        source_track_id: Option<Uuid>,
     },
 
     // ── Automation ──────────────────────────────────────────────────────
@@ -165,10 +191,8 @@ pub enum ProjectDelta {
     /// Loop region changed.
     LoopRegionChanged { start: i64, end: i64, enabled: bool },
 
-    // ── Full Refresh (escape hatch) ─────────────────────────────────────
-    /// Force a full project refresh. Used for complex mutations that
-    /// produce too many deltas (e.g., import, undo/redo, template load).
-    FullRefreshRequired,
+    /// Forces frontend to issue a full `fetchProject` for complex mutations.
+    FullRefreshRequired { reason: String },
 }
 
 // ── Delta Event (with metadata) ─────────────────────────────────────────
@@ -220,13 +244,6 @@ mod tests {
         let json = serde_json::to_string(&delta).unwrap();
         assert!(json.contains("\"kind\":\"TrackVolumeChanged\""));
         assert!(json.contains("\"volume\":0.75"));
-    }
-
-    #[test]
-    fn full_refresh_has_no_data() {
-        let delta = ProjectDelta::FullRefreshRequired;
-        let json = serde_json::to_string(&delta).unwrap();
-        assert!(json.contains("\"kind\":\"FullRefreshRequired\""));
     }
 
     #[test]

@@ -179,14 +179,81 @@ async fn get_waveform_peaks_lod_binary(
     lod_level: usize,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<Vec<u8>, String> {
-    let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
+    let source_path = PathBuf::from(&file_path);
+    let bytes = match PeakCache::lod_level_bytes_from_sidecar(&source_path, lod_level) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
+            PeakCache::lod_level_bytes(&peaks, lod_level)
+        }
+    };
+     log::info!(
+         "[IPC] get_waveform_peaks_lod_binary: '{}' lod={} -> {} bytes",
+         file_path,
+         lod_level,
+         bytes.len(),
+     );
+     Ok(bytes)
+ }
 
-    let bytes = PeakCache::lod_level_bytes(&peaks, lod_level);
+// ── Enterprise contract: get_peaks(clip_id, lod) ──────────────────────
+//
+// Resolves clip_id → file_path via ProjectState, then returns LOD-binary
+// peak data. This is the canonical peaks API for the timeline renderer:
+// it decouples the frontend from file paths and keeps routing through
+// the normalised project model.
+//
+// lod_level semantics (inherited from PeakCache::lod_level_bytes):
+//   0 = highest resolution (one pair per frame at native sample rate)
+//   1 = 2× downsampled
+//   2 = 4× downsampled  (default for timeline at 1x zoom)
+//   3 = 8× downsampled  (overview/navigator)
+#[tauri::command]
+pub async fn get_peaks_by_clip_id(
+    clip_id: String,
+    lod_level: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<Vec<u8>, String> {
+    let clip_uuid = Uuid::parse_str(&clip_id)
+        .map_err(|e| format!("Invalid clip_id: {e}"))?;
+
+    // Resolve clip_id → file_path via project model.
+    let file_path = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip_uuid)
+            .map(|c| c.file_path.clone())
+            .ok_or_else(|| format!("Clip not found: {clip_id}"))?
+    };
+
+    let source_path = PathBuf::from(&file_path);
+    let bytes = match PeakCache::lod_level_bytes_from_sidecar(&source_path, lod_level) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
+            PeakCache::lod_level_bytes(&peaks, lod_level)
+        }
+    };
     log::info!(
-        "[IPC] get_waveform_peaks_lod_binary: '{}' lod={} -> {} bytes",
-        file_path,
+        "[IPC] get_peaks_by_clip_id: clip={} lod={} file='{}' -> {} bytes",
+        clip_id,
         lod_level,
+        file_path,
         bytes.len(),
     );
     Ok(bytes)
+}
+
+#[tauri::command]
+pub async fn get_peaks(
+    clip_id: String,
+    lod_level: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<Vec<u8>, String> {
+    get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }

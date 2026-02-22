@@ -38,7 +38,7 @@ pub use descriptor::PluginDescriptor;
 pub use format::PluginFormat;
 pub use instance::{MidiEvent, PluginInstance, TransportContext};
 pub use sandbox_host::{
-    PluginCrashEvent, PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus,
+    PluginCrashEvent, PluginRecoveryEvent, PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus,
     PluginSandboxSupervisor,
 };
 pub use scanner::PluginScanner;

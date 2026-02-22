@@ -396,6 +396,11 @@ impl PluginInstance for SandboxedPluginInstance {
 #[cfg(test)]
 mod tests {
     use super::apply_recovery_ramp_to_outputs;
+    use super::*;
+    use crate::format::{PluginCategory, PluginFormat};
+    use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
+    use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn recovery_ramp_blends_dry_to_wet() {
@@ -417,5 +422,110 @@ mod tests {
         assert!(out_r[1] > out_r[2]);
         assert!(out_r[2] > out_r[3]);
         assert!(out_l[0] > 0.0);
+    }
+
+    #[test]
+    fn process_passthroughs_while_crashed() {
+        let region_path = std::env::temp_dir().join(format!(
+            "dream_daw_sandbox_instance_crashed_{}.bin",
+            Uuid::new_v4()
+        ));
+        let layout = SharedAudioBufferLayout {
+            num_inputs: 2,
+            num_outputs: 2,
+            max_frames: 64,
+        };
+        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone()).unwrap();
+        let descriptor = PluginDescriptor::new(
+            "Test Plugin",
+            "Dream",
+            PluginFormat::VST3,
+            PluginCategory::Effect,
+            PathBuf::from("/tmp/test.vst3"),
+        );
+        let mut instance =
+            SandboxedPluginInstance::create(Uuid::new_v4(), descriptor, region_path, 2, 2, 64)
+                .unwrap();
+        instance.activate(48_000.0, 64).unwrap();
+
+        let in_l = [0.1_f32, 0.2, 0.3, 0.4];
+        let in_r = [0.4_f32, 0.3, 0.2, 0.1];
+        let mut out_l = [0.0_f32; 4];
+        let mut out_r = [0.0_f32; 4];
+        let inputs: [&[f32]; 2] = [&in_l, &in_r];
+        let mut outputs: [&mut [f32]; 2] = [&mut out_l, &mut out_r];
+
+        instance.is_crashed.store(true, Ordering::Relaxed);
+        instance.process(&inputs, &mut outputs, 4, &[]).unwrap();
+
+        assert_eq!(out_l, in_l);
+        assert_eq!(out_r, in_r);
+        assert_eq!(instance.request_seq, 0);
+    }
+
+    #[test]
+    fn process_recovers_with_ramp_after_crash_flag_clears() {
+        let region_path = std::env::temp_dir().join(format!(
+            "dream_daw_sandbox_instance_recovery_{}.bin",
+            Uuid::new_v4()
+        ));
+        let layout = SharedAudioBufferLayout {
+            num_inputs: 2,
+            num_outputs: 2,
+            max_frames: 64,
+        };
+        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone()).unwrap();
+        let descriptor = PluginDescriptor::new(
+            "Test Plugin",
+            "Dream",
+            PluginFormat::VST3,
+            PluginCategory::Effect,
+            PathBuf::from("/tmp/test.vst3"),
+        );
+        let mut instance =
+            SandboxedPluginInstance::create(Uuid::new_v4(), descriptor, region_path, 2, 2, 64)
+                .unwrap();
+        instance.activate(48_000.0, 64).unwrap();
+
+        let in_l = [1.0_f32; 4];
+        let in_r = [0.5_f32; 4];
+        let inputs: [&[f32]; 2] = [&in_l, &in_r];
+
+        let mut crashed_out_l = [0.0_f32; 4];
+        let mut crashed_out_r = [0.0_f32; 4];
+        let mut crashed_outputs: [&mut [f32]; 2] = [&mut crashed_out_l, &mut crashed_out_r];
+        instance.is_crashed.store(true, Ordering::Relaxed);
+        instance
+            .process(&inputs, &mut crashed_outputs, 4, &[])
+            .unwrap();
+        assert_eq!(crashed_out_l, in_l);
+        assert_eq!(crashed_out_r, in_r);
+
+        instance.is_crashed.store(false, Ordering::Relaxed);
+        instance
+            .shared_region
+            .write_output_channel(0, &[0.0_f32; 4])
+            .unwrap();
+        instance
+            .shared_region
+            .write_output_channel(1, &[0.0_f32; 4])
+            .unwrap();
+        instance.shared_region.set_processed_seq(1);
+
+        let mut recovered_out_l = [0.0_f32; 4];
+        let mut recovered_out_r = [0.0_f32; 4];
+        let mut recovered_outputs: [&mut [f32]; 2] = [&mut recovered_out_l, &mut recovered_out_r];
+        instance
+            .process(&inputs, &mut recovered_outputs, 4, &[])
+            .unwrap();
+
+        assert!(recovered_out_l[0] >= recovered_out_l[1]);
+        assert!(recovered_out_l[1] >= recovered_out_l[2]);
+        assert!(recovered_out_l[2] >= recovered_out_l[3]);
+        assert_eq!(recovered_out_l[0], in_l[0]);
+        assert!(recovered_out_l[3] > 0.0);
+        assert!(recovered_out_r[0] >= recovered_out_r[1]);
+        assert!(recovered_out_r[1] >= recovered_out_r[2]);
+        assert!(recovered_out_r[2] >= recovered_out_r[3]);
     }
 }

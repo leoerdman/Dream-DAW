@@ -3,10 +3,6 @@ import type { ProjectDelta } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 
-function fallback(state: DeltaWorkingState, env: DeltaEnv, suffix: string): void {
-    state.fallbackReason = `${env.reason}-${suffix}`;
-}
-
 export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
     if (delta.kind === 'ClipMoved') {
         const clip = state.clipsById[delta.data.clip_id];
@@ -35,10 +31,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipDuplicated') {
         const sourceClip = state.clipsById[delta.data.source_clip_id];
-        if (!sourceClip) {
-            fallback(state, env, 'duplicate-missing-source');
-            return true;
-        }
+        if (!sourceClip) return true;
         const nextClip: TimelineClip = {
             ...sourceClip,
             id: delta.data.new_clip_id,
@@ -52,18 +45,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipSplit') {
         const clip = state.clipsById[delta.data.original_clip_id];
-        if (!clip) {
-            fallback(state, env, 'split-missing-source');
-            return true;
-        }
+        if (!clip) return true;
         const splitBeat = frameToBeat(delta.data.split_frame, env.bpm, env.sampleRate);
         const clipEnd = clip.startBeat + clip.durationBeats;
         const leftDuration = splitBeat - clip.startBeat;
         const rightDuration = clipEnd - splitBeat;
-        if (leftDuration <= 0 || rightDuration <= 0) {
-            fallback(state, env, 'split-invalid-range');
-            return true;
-        }
+        if (leftDuration <= 0 || rightDuration <= 0) return true;
 
         const splitOffsetBeats = splitBeat - clip.startBeat;
         const splitOffsetFrames = Math.max(0, delta.data.split_frame - Math.round(beatToFrame(clip.startBeat, env.bpm, env.sampleRate)));
@@ -92,10 +79,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipsMerged') {
         const sourceClips = delta.data.source_clip_ids.map((id: string) => state.clipsById[id]).filter((c): c is TimelineClip => Boolean(c));
-        if (sourceClips.length === 0) {
-            fallback(state, env, 'merge-missing-sources');
-            return true;
-        }
+        if (sourceClips.length === 0) return true;
         const representative = sourceClips[0];
         const mergedStart = Math.min(...sourceClips.map((c) => c.startBeat));
         const mergedEnd = Math.max(...sourceClips.map((c) => c.startBeat + c.durationBeats));

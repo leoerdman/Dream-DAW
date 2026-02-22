@@ -370,7 +370,13 @@ async function executeToolInner(
                 };
                 const entry = INSTRUMENT_MAP[instrumentArg];
                 if (entry) {
-                    await engineApi.addPluginToTrack(newTrackId, entry.pluginId, entry.displayName, 'instrument');
+                    const response = await engineApi.addPluginToTrackWithDeltas(
+                        newTrackId,
+                        entry.pluginId,
+                        entry.displayName,
+                        'instrument',
+                    );
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-create-instrument-track');
                     instrumentAssigned = entry.displayName;
                 }
             }
@@ -389,7 +395,15 @@ async function executeToolInner(
             };
             const siEntry = SI_MAP[siInstrument];
             if (!siEntry) return JSON.stringify({ error: `Unknown instrument: ${siInstrument}. Use "essence" or "sampler".` });
-            await engineApi.addPluginToTrack(siTrackId, siEntry.pluginId, siEntry.displayName, 'instrument');
+            {
+                const response = await engineApi.addPluginToTrackWithDeltas(
+                    siTrackId,
+                    siEntry.pluginId,
+                    siEntry.displayName,
+                    'instrument',
+                );
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-instrument');
+            }
             return JSON.stringify({ success: true, trackIndex: siTrackIdx, instrument: siEntry.displayName });
         }
 
@@ -587,7 +601,8 @@ async function executeToolInner(
             const slotId = args.slotId as string;
             const trackId = tracks[trackIndex]?.id;
             if (!trackId) return JSON.stringify({ error: `Track not found` });
-            await engineApi.removePluginFromTrack(trackId, slotId);
+            const response = await engineApi.removePluginFromTrackWithDeltas(trackId, slotId);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-remove-effect');
             return JSON.stringify({ success: true, trackIndex, slotRemoved: slotId });
         }
 

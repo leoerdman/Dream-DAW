@@ -44,7 +44,7 @@ mod executor;
 #[path = "driver/graph_topology.rs"]
 mod graph_topology;
 #[path = "driver/midi_dispatcher.rs"]
-mod midi_dispatcher;
+pub mod midi_dispatcher;
 #[path = "driver/rt_debug.rs"]
 mod rt_debug;
 #[path = "driver/snapshots.rs"]

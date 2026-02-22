@@ -44,7 +44,6 @@ import {
     mapPluginBrowserItems,
     mapRealBrowserItems,
 } from './assetBrowserItemPipeline';
-import { useAssetBrowserUiEffects } from './useAssetBrowserUiEffects';
 import { useAssetBrowserEffects } from './useAssetBrowserEffects';
 
 // ── Hook ────────────────────────────────────────────────────
@@ -373,13 +372,13 @@ export function useAssetBrowserLogic() {
                 }
                 for (const attempt of attempts) {
                     try {
-                        await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);
+                        const response = await engineApi.addPluginToTrackWithDeltas(track.id, item.path, item.name, attempt);
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-plugin');
                         lastErr = null;
                         break;
                     } catch (err) { lastErr = err; }
                 }
                 if (lastErr) throw lastErr;
-                await useEngineStore.getState().fetchProject();
                 return;
             }
             if (item.type !== 'audio') return;
@@ -388,7 +387,13 @@ export function useAssetBrowserLogic() {
                     `${track.instrument.plugin_id} ${track.instrument.name}`,
                 );
                 if (!hasSamplerInstrument) {
-                    await engineApi.addPluginToTrack(track.id, 'internal://instrument/sampler', 'Sampler', 'instrument');
+                    const response = await engineApi.addPluginToTrackWithDeltas(
+                        track.id,
+                        'internal://instrument/sampler',
+                        'Sampler',
+                        'instrument',
+                    );
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-sampler');
                 }
                 await engineApi.setSamplerSample(track.id, item.path);
                 await useEngineStore.getState().fetchProject();

@@ -333,8 +333,9 @@ pub struct GraphRenderer {
     /// Incoming edge lookup per destination node: (src_idx, edge_runtime_idx, edge_kind).
     edge_inputs_by_dst: Vec<Vec<(usize, usize, crate::dag::AudioEdgeKind)>>,
 
-    /// Scratch buffer reused for edge delay processing.
-    edge_scratch: NodeBuffer,
+    /// Fast-path runtime dependency counters for lock-free parallel scheduling.
+    /// Loaded from `plan.dependency_counts` at the start of each render block.
+    runtime_dependencies: Vec<std::sync::atomic::AtomicUsize>,
 
     /// Maximum frames per buffer (from audio device).
     max_frames: usize,
@@ -346,6 +347,8 @@ pub struct GraphRenderer {
 #[derive(Debug)]
 struct EdgeDelayRuntime {
     delay: PdcDelayLine,
+    scratch_left: Vec<f32>,
+    scratch_right: Vec<f32>,
 }
 
 impl GraphRenderer {
@@ -359,15 +362,17 @@ impl GraphRenderer {
         let frame_count = max_frames.min(MAX_BUFFER_FRAMES);
 
         let mut node_buffers = Vec::with_capacity(node_count);
+        let mut runtime_dependencies = Vec::with_capacity(node_count);
         for _ in 0..node_count {
             node_buffers.push(NodeBuffer::new(frame_count));
+            runtime_dependencies.push(std::sync::atomic::AtomicUsize::new(0));
         }
 
         Self {
             node_buffers,
             edge_pdc_delays: Vec::new(),
             edge_inputs_by_dst: vec![Vec::new(); node_count.max(1)],
-            edge_scratch: NodeBuffer::new(frame_count),
+            runtime_dependencies,
             max_frames: frame_count,
             active_node_count: 0,
         }
@@ -388,6 +393,8 @@ impl GraphRenderer {
         // Ensure we have enough buffers
         while self.node_buffers.len() < self.active_node_count {
             self.node_buffers.push(NodeBuffer::new(self.max_frames));
+            self.runtime_dependencies
+                .push(std::sync::atomic::AtomicUsize::new(0));
         }
 
         while self.edge_inputs_by_dst.len() < self.node_buffers.len() {
@@ -451,7 +458,11 @@ impl GraphRenderer {
             delay.set_delay(edge.delay_samples as usize);
 
             let runtime_idx = self.edge_pdc_delays.len();
-            self.edge_pdc_delays.push(EdgeDelayRuntime { delay });
+            self.edge_pdc_delays.push(EdgeDelayRuntime {
+                delay,
+                scratch_left: vec![0.0; self.max_frames],
+                scratch_right: vec![0.0; self.max_frames],
+            });
             self.edge_inputs_by_dst[dst_idx].push((src_idx, runtime_idx, edge_kind));
         }
     }
@@ -513,52 +524,48 @@ impl GraphRenderer {
                 }
 
                 let copy_n = {
-                    let src = &self.node_buffers[src_idx];
+                    let src = unsafe { &*self.node_buffers.as_ptr().add(src_idx) };
                     let copy_n = frame_count.min(src.valid_frames);
-                    self.edge_scratch.left[..copy_n].copy_from_slice(&src.left[..copy_n]);
-                    self.edge_scratch.right[..copy_n].copy_from_slice(&src.right[..copy_n]);
+
+                    let edge_rt =
+                        unsafe { &mut *self.edge_pdc_delays.as_mut_ptr().add(edge_runtime_idx) };
+                    edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
+                    edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
+
+                    edge_rt.delay.process(
+                        &mut edge_rt.scratch_left[..copy_n],
+                        &mut edge_rt.scratch_right[..copy_n],
+                        copy_n,
+                    );
                     copy_n
                 };
 
-                self.edge_pdc_delays[edge_runtime_idx].delay.process(
-                    &mut self.edge_scratch.left[..copy_n],
-                    &mut self.edge_scratch.right[..copy_n],
-                    copy_n,
-                );
+                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
+                let edge_rt = unsafe { &*self.edge_pdc_delays.as_ptr().add(edge_runtime_idx) };
 
-                let dst = &mut self.node_buffers[idx];
                 mix_in_place(
                     &mut dst.left[..copy_n],
-                    &self.edge_scratch.left[..copy_n],
+                    &edge_rt.scratch_left[..copy_n],
                     copy_n,
                 );
                 mix_in_place(
                     &mut dst.right[..copy_n],
-                    &self.edge_scratch.right[..copy_n],
+                    &edge_rt.scratch_right[..copy_n],
                     copy_n,
                 );
             }
         } else {
-            for edge in dag
+            let src_indices: Vec<usize> = dag
                 .graph()
                 .edges_directed(node_idx, petgraph::Direction::Incoming)
-            {
-                if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
-                    continue;
-                }
+                .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
+                .map(|e| e.source().index())
+                .filter(|&src_idx| src_idx < self.node_buffers.len() && src_idx != idx)
+                .collect();
 
-                let src_idx = edge.source().index();
-                if src_idx >= self.node_buffers.len() || src_idx == idx {
-                    continue;
-                }
-
-                let (src, dst) = if src_idx < idx {
-                    let (a, b) = self.node_buffers.split_at_mut(idx);
-                    (&a[src_idx], &mut b[0])
-                } else {
-                    let (a, b) = self.node_buffers.split_at_mut(src_idx);
-                    (&b[0], &mut a[idx])
-                };
+            for src_idx in src_indices {
+                let src = unsafe { &*self.node_buffers.as_ptr().add(src_idx) };
+                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
 
                 let copy_n = frame_count.min(src.valid_frames);
                 mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);

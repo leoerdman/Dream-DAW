@@ -1048,9 +1048,11 @@ version = "1.0.108"
 dependencies = [
  "arc-swap",
  "dream_ipc",
+ "dream_models",
  "log",
  "petgraph",
  "rayon",
+ "uuid",
 ]
 
 [[package]]

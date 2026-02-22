@@ -68,6 +68,17 @@ pub struct PluginCrashEvent {
     pub auto_restarted: bool,
 }
 
+/// Event emitted when a sandboxed plugin instance has actually recovered
+/// and reached a running state after prior instability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginRecoveryEvent {
+    pub instance_id: Uuid,
+    pub plugin_name: String,
+    pub plugin_path: String,
+    pub restart_count: u32,
+    pub crash_count: u32,
+}
+
 // ── Configuration ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]

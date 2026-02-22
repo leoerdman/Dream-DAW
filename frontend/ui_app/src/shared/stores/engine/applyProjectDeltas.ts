@@ -1,6 +1,7 @@
 import { resolveSampleRate } from '@/shared/lib/audioMath';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
+import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
 import type { DeltaApplyResult, DeltaApplyState, DeltaWorkingState } from './delta/types';
 
@@ -35,6 +36,15 @@ export function applyProjectDeltasToState(
             if (working.fallbackReason) break;
             continue;
         }
+
+        const handledByPlugin = applyPluginDelta(working, delta, { bpm, sampleRate, reason });
+        if (handledByPlugin) {
+            if (working.fallbackReason) break;
+            continue;
+        }
+
+        working.fallbackReason = `${reason}-unhandled-${delta.kind}`;
+        break;
     }
 
     if (!working.changed) {

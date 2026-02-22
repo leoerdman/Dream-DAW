@@ -30,6 +30,8 @@ use arc_swap::ArcSwap;
 
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
+use petgraph::visit::{EdgeRef, NodeIndexable};
+
 use crate::dag::{AudioDag, ExecutionPlan, GraphError};
 use crate::pdc;
 
@@ -78,6 +80,8 @@ impl LiveGraph {
             edge_delay_compensation: Vec::new(),
             parallel_stages: Vec::new(),
             parallelism_metrics: crate::dag::ParallelismMetrics::default(),
+            dependency_counts: Vec::new(),
+            dependents: Vec::new(),
         };
         Self {
             current_plan: ArcSwap::from_pointee(empty_plan),
@@ -146,6 +150,22 @@ impl LiveGraph {
         let parallel_stages = dag.parallel_stages_from_order(&processing_order);
         let parallelism_metrics = AudioDag::parallelism_metrics_from_stages(&parallel_stages);
 
+        // Compute fast-path parallel scheduling tables (lock-free stage dispatch).
+        let node_bound = dag.graph().node_bound();
+        let mut dependency_counts = vec![0usize; node_bound];
+        let mut dependents: Vec<Vec<_>> = vec![Vec::new(); node_bound];
+        for node_idx in dag.graph().node_indices() {
+            let n_idx = node_idx.index();
+            for edge in dag
+                .graph()
+                .edges_directed(node_idx, petgraph::Direction::Incoming)
+            {
+                let src_idx = edge.source().index();
+                dependency_counts[n_idx] += 1;
+                dependents[src_idx].push(node_idx);
+            }
+        }
+
         debug_assert_eq!(
             parallel_stages.iter().map(|s| s.len()).sum::<usize>(),
             processing_order.len(),
@@ -177,6 +197,8 @@ impl LiveGraph {
             delay_compensation,
             edge_delay_compensation,
             parallel_stages,
+            dependency_counts,
+            dependents,
             parallelism_metrics,
         })
     }

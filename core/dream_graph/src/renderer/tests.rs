@@ -49,11 +49,31 @@ fn make_plan(dag: &AudioDag) -> ExecutionPlan {
     let edge_compensation = pdc::compute_edge_delay_compensation(dag, &order);
     let stages = dag.parallel_stages_from_order(&order);
     let metrics = AudioDag::parallelism_metrics_from_stages(&stages);
+
+    use petgraph::visit::{EdgeRef, NodeIndexable};
+    let node_bound = dag.graph().node_bound();
+    let mut dependency_counts = vec![0usize; node_bound];
+    let mut dependents = vec![Vec::new(); node_bound];
+
+    for &node_idx in &order {
+        let n_idx = node_idx.index();
+        for edge in dag
+            .graph()
+            .edges_directed(node_idx, petgraph::Direction::Incoming)
+        {
+            let src_idx = edge.source().index();
+            dependency_counts[n_idx] += 1;
+            dependents[src_idx].push(node_idx);
+        }
+    }
+
     ExecutionPlan {
         processing_order: order,
         delay_compensation: compensation,
         edge_delay_compensation: edge_compensation,
         parallel_stages: stages,
+        dependency_counts,
+        dependents,
         parallelism_metrics: metrics,
     }
 }
@@ -233,6 +253,8 @@ fn render_silences_output_when_plan_has_no_nodes() {
         delay_compensation: Vec::new(),
         edge_delay_compensation: Vec::new(),
         parallel_stages: Vec::new(),
+        dependency_counts: Vec::new(),
+        dependents: Vec::new(),
         parallelism_metrics: ParallelismMetrics::default(),
     };
 
@@ -409,6 +431,8 @@ fn renderer_applies_edge_level_pdc() {
             },
         ],
         parallel_stages: stages.clone(),
+        dependency_counts: vec![0; dag.graph().node_bound()],
+        dependents: vec![Vec::new(); dag.graph().node_bound()],
         parallelism_metrics: AudioDag::parallelism_metrics_from_stages(&stages),
     };
 

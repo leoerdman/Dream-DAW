@@ -563,16 +563,13 @@ async fn move_clip_with_deltas_cmd(
         *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
     }
 
-    let deltas = if let Some(old_track_index) = old_track_index {
-        vec![dream_models::delta::ProjectDelta::ClipMoved {
-            clip_id: clip_uuid,
-            old_track_index,
-            new_track_index,
-            new_position: new_position_frames,
-        }]
-    } else {
-        vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
-    };
+    let Some(old_track_index) = old_track_index else { return Err(format!("Delta invariant violated: source track not found for clip {clip_uuid} in move_clip_with_deltas_cmd")); };
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipMoved {
+        clip_id: clip_uuid,
+        old_track_index,
+        new_track_index,
+        new_position: new_position_frames,
+    }];
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -848,14 +845,11 @@ async fn delete_clip_with_deltas_cmd(
             ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
-    let deltas = if let Some(track_index) = track_index_before {
-        vec![dream_models::delta::ProjectDelta::ClipDeleted {
-            clip_id: clip_uuid,
-            track_index,
-        }]
-    } else {
-        vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
-    };
+    let Some(track_index) = track_index_before else { return Err(format!("Delta invariant violated: source track not found for clip {clip_uuid} in delete_clip_with_deltas_cmd")); };
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipDeleted {
+        clip_id: clip_uuid,
+        track_index,
+    }];
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -948,16 +942,12 @@ async fn duplicate_clip_with_deltas_cmd(
 
     let deltas = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let position = find_clip_position_frames(&project, result.new_id);
-        if let Some(new_position) = position {
-            vec![dream_models::delta::ProjectDelta::ClipDuplicated {
-                source_clip_id: source_clip_uuid,
-                new_clip_id: result.new_id,
-                new_position,
-            }]
-        } else {
-            vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
-        }
+        let Some(new_position) = find_clip_position_frames(&project, result.new_id) else { return Err(format!("Delta invariant violated: duplicated clip {} not found after duplicate_clip_with_deltas_cmd", result.new_id)); };
+        vec![dream_models::delta::ProjectDelta::ClipDuplicated {
+            source_clip_id: source_clip_uuid,
+            new_clip_id: result.new_id,
+            new_position,
+        }]
     };
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;

@@ -183,6 +183,16 @@ pub struct ExecutionPlan {
     /// processed concurrently. Stages themselves must execute in order.
     pub parallel_stages: Vec<Vec<NodeIndex>>,
 
+    /// Fast-path dependencies for lock-free parallel scheduling.
+    /// For every node index (0..node_capacity), how many inputs must complete
+    /// before this node can be processed?
+    pub dependency_counts: Vec<usize>,
+
+    /// Fast-path dependents for lock-free parallel scheduling.
+    /// For every node index (0..node_capacity), which nodes must be notified
+    /// when this node completes?
+    pub dependents: Vec<Vec<NodeIndex>>,
+
     /// Summary statistics for stage-level parallel scheduling.
     pub parallelism_metrics: ParallelismMetrics,
 }

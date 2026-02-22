@@ -103,6 +103,8 @@ pub struct TrackSlot {
     pub midi_schedule_scratch: Vec<dream_clip_engine::midi_scheduler::ScheduledNote>,
     /// Thread-local scratch buffer for MIDI note loop wrapping.
     pub midi_schedule_tmp: Vec<dream_clip_engine::midi_scheduler::ScheduledNote>,
+    /// Thread-local state for VST3 note off matching.
+    pub(crate) vst3_note_tracker: crate::driver::midi_dispatcher::Vst3NoteTracker,
 }
 
 impl TrackSlot {
@@ -124,6 +126,7 @@ impl TrackSlot {
             vst3_midi_scratch: Vec::with_capacity(512),
             midi_schedule_scratch: Vec::with_capacity(512),
             midi_schedule_tmp: Vec::with_capacity(512),
+            vst3_note_tracker: crate::driver::midi_dispatcher::Vst3NoteTracker::default(),
         }
     }
 

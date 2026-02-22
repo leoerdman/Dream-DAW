@@ -1,6 +1,6 @@
-use uuid::Uuid;
 use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
+use uuid::Uuid;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PaintTrackClipsWithTrackColorCommand
@@ -26,7 +26,7 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<bool> {
         let mut project = ctx.lock_project()?;
-        
+
         let track = project
             .tracks
             .iter_mut()
@@ -41,7 +41,9 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
         let target_color_hex = track.color_hex.clone();
 
         for clip in &mut track.clips {
-            if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex {
+            if clip.color_override.as_ref() != Some(&target_color)
+                || clip.color_hex != target_color_hex
+            {
                 changed = true;
             }
             clip.color_override = Some(target_color.clone());
@@ -49,7 +51,9 @@ impl Command for PaintTrackClipsWithTrackColorCommand {
         }
 
         for clip in &mut track.midi_clips {
-            if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex {
+            if clip.color_override.as_ref() != Some(&target_color)
+                || clip.color_hex != target_color_hex
+            {
                 changed = true;
             }
             clip.color_override = Some(target_color.clone());

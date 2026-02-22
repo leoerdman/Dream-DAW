@@ -26,5 +26,5 @@ pub mod context;
 pub mod error;
 
 // Re-export for convenience
-pub use context::OrchestratorContext;
+pub use context::{Command, OrchestratorContext, Query};
 pub use error::{OrchestratorError, OrchestratorResult};

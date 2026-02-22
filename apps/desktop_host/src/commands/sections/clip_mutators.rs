@@ -297,16 +297,17 @@ fn build_local_pool_for_project(
     Ok(local_pool)
 }
 
-fn make_bounce_output_path(prefix: &str) -> Result<String, String> {
-    let dir = std::env::temp_dir().join("dream_daw_bounces");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create bounce temp dir: {e}"))?;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis();
-    let file_name = format!("{}_{}.wav", prefix, ts);
-    Ok(dir.join(file_name).to_string_lossy().to_string())
-}
+// ═══════════════════════════════════════════════════════════════════════
+// Stem separation & bounce utilities extracted to:
+// core/dream_importers/src/stem_separation.rs
+// ═══════════════════════════════════════════════════════════════════════
+use dream_importers::stem_separation::{
+    make_bounce_output_path,
+    run_demucs_4stems,
+    compute_file_fingerprint,
+    get_cached_or_build_stems,
+};
+
 
 fn place_bounced_file_on_new_track(
     project_state: &tauri::State<'_, ProjectState>,
@@ -356,9 +357,7 @@ fn place_bounced_file_on_new_track(
         AbsoluteTime::new(timeline_frames.max(1)),
     );
     // FIX: warp_source_duration_frames must be the RAW source frame count,
-    // NOT the SR-scaled timeline duration. AudioClip::new() defaults it to
-    // `duration.sample_frame` which is timeline-domain. This caused double
-    // SR compensation when warp was enabled → playback drift, dropouts, silence.
+    // NOT the SR-scaled timeline duration.
     clip.warp_source_duration_frames = decoded.num_frames.max(1) as i64;
     if let Some(track) = project.tracks.get_mut(new_track_index) {
         track.clips.push(clip);
@@ -442,142 +441,7 @@ fn place_stem_files_on_new_tracks(
     Ok(())
 }
 
-fn run_demucs_4stems(
-    input_path: &std::path::Path,
-    output_root: &std::path::Path,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    std::fs::create_dir_all(output_root)
-        .map_err(|e| format!("Failed to create stems output dir: {e}"))?;
 
-    let status = std::process::Command::new("python3")
-        .arg("-m")
-        .arg("demucs.separate")
-        .arg("-n")
-        .arg("htdemucs")
-        .arg("--out")
-        .arg(output_root)
-        .arg(input_path)
-        .status()
-        .map_err(|e| {
-            format!(
-                "Failed to launch Demucs (python3 -m demucs.separate): {e}. Install with: pip3 install demucs"
-            )
-        })?;
-
-    if !status.success() {
-        return Err(
-            "Demucs stem separation failed. Make sure Demucs is installed: pip3 install demucs"
-                .to_string(),
-        );
-    }
-
-    fn collect_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    collect_files(&path, out);
-                } else {
-                    out.push(path);
-                }
-            }
-        }
-    }
-
-    let mut all_files = Vec::<PathBuf>::new();
-    collect_files(output_root, &mut all_files);
-    let wanted = ["drums", "bass", "other", "vocals"];
-    let mut by_stem: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for file in all_files {
-        let Some(stem_name) = file.file_stem().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if wanted.contains(&stem_name) {
-            by_stem.insert(stem_name.to_string(), file.to_string_lossy().to_string());
-        }
-    }
-
-    for key in wanted {
-        if !by_stem.contains_key(key) {
-            return Err(format!(
-                "Demucs output is incomplete: missing '{}' stem",
-                key
-            ));
-        }
-    }
-
-    Ok(by_stem)
-}
-
-fn compute_file_fingerprint(path: &std::path::Path) -> Result<String, String> {
-    use std::hash::{Hash, Hasher};
-    let file = std::fs::File::open(path)
-        .map_err(|e| format!("Failed to open file for fingerprint: {e}"))?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    let mut buf = [0_u8; 64 * 1024];
-    let mut total: u64 = 0;
-    loop {
-        let n = std::io::Read::read(&mut reader, &mut buf)
-            .map_err(|e| format!("Failed reading file for fingerprint: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        total = total.saturating_add(n as u64);
-        buf[..n].hash(&mut hasher);
-    }
-    total.hash(&mut hasher);
-    Ok(format!("{:016x}", hasher.finish()))
-}
-
-fn get_cached_or_build_stems(
-    source_mix_path: &std::path::Path,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    let fingerprint = compute_file_fingerprint(source_mix_path)?;
-    let cache_dir = std::env::temp_dir()
-        .join("dream_daw_stem_cache")
-        .join(fingerprint);
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| format!("Failed to create stem cache dir: {e}"))?;
-
-    let stems = ["drums", "bass", "other", "vocals"];
-    let mut cached: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut all_exist = true;
-    for stem in stems {
-        let p = cache_dir.join(format!("{stem}.wav"));
-        if p.exists() {
-            cached.insert(stem.to_string(), p.to_string_lossy().to_string());
-        } else {
-            all_exist = false;
-        }
-    }
-    if all_exist {
-        return Ok(cached);
-    }
-
-    let run_dir = std::env::temp_dir().join("dream_daw_stems").join(format!(
-        "{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_millis()
-    ));
-    let produced = run_demucs_4stems(source_mix_path, &run_dir)?;
-
-    let mut out: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for stem in ["drums", "bass", "other", "vocals"] {
-        let src = produced
-            .get(stem)
-            .ok_or_else(|| format!("Missing generated stem: {stem}"))?;
-        let dst = cache_dir.join(format!("{stem}.wav"));
-        std::fs::copy(src, &dst)
-            .map_err(|e| format!("Failed to cache stem '{stem}': {e}"))?;
-        out.insert(stem.to_string(), dst.to_string_lossy().to_string());
-    }
-    Ok(out)
-}
-
-/// Moves a clip to a new track and/or position.
 ///
 /// The clip is identified by UUID string. After mutation, the
 /// clip snapshot is atomically rebuilt for the audio thread.

@@ -14,7 +14,7 @@ members = [
     "core/dream_transport",
     "core/dream_clip_engine",
     "core/dream_automation",
-    "core/dream_importers",
+    "core/dream_orchestrator",
     "apps/desktop_host",
     "apps/plugin_host_daemon", "rubato_test_project",
 ]
@@ -30,7 +30,7 @@ license = "Proprietary"
 # This ensures version consistency across the entire monorepo.
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
-ts-rs = { version = "12.0", features = ["serde-compat"] }
+ts-rs = { version = "12.0", features = ["serde-compat", "uuid-impl"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 rtrb = "0.3"
 rubato = "0.16"

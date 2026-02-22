@@ -828,6 +828,7 @@ dependencies = [
  "dream_ipc",
  "dream_models",
  "dream_mutators",
+ "dream_orchestrator",
  "dream_plugins",
  "env_logger",
  "flate2",
@@ -1089,6 +1090,20 @@ name = "dream_mutators"
 version = "1.0.108"
 dependencies = [
  "dream_models",
+ "uuid",
+]
+
+[[package]]
+name = "dream_orchestrator"
+version = "1.0.108"
+dependencies = [
+ "dream_clip_engine",
+ "dream_io",
+ "dream_ipc",
+ "dream_models",
+ "dream_mutators",
+ "log",
+ "serde",
  "uuid",
 ]
 
@@ -5470,6 +5485,7 @@ checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
  "thiserror 2.0.18",
  "ts-rs-macros",
+ "uuid",
 ]
 
 [[package]]

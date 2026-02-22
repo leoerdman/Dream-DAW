@@ -1,0 +1,16 @@
+[package]
+name = "dream_orchestrator"
+description = "Dream DAW — CQRS Orchestrator: Single owner of all project business logic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dream_models = { path = "../dream_models" }
+dream_mutators = { path = "../dream_mutators" }
+dream_ipc = { path = "../dream_ipc" }
+dream_clip_engine = { path = "../dream_clip_engine" }
+dream_io = { path = "../dream_io" }
+serde = { workspace = true }
+uuid = { workspace = true }
+log = { workspace = true }

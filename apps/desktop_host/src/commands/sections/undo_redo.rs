@@ -40,6 +40,47 @@ async fn undo_cmd(
     Ok(())
 }
 
+/// Undo and return a snapshot delta for deterministic frontend sync.
+#[tauri::command]
+async fn undo_with_deltas_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let previous = undo
+        .undo_stack
+        .pop_back()
+        .ok_or_else(|| "Nothing to undo".to_string())?;
+
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.redo_stack.back());
+    undo.redo_stack.push_back(current_snapshot);
+    while undo.redo_stack.len() > MAX_REDO_DEPTH {
+        undo.redo_stack.pop_front();
+    }
+    *project = previous.to_project();
+    drop(undo);
+
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&project, &handle)?;
+    project_state.record_history("undo", "restored previous project snapshot")?;
+    log::info!("[IPC] undo_with_deltas_cmd: restored previous state");
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
+}
+
 /// Redo a previously undone mutation.
 ///
 /// Pops from the redo stack, pushes current state onto undo, and
@@ -80,4 +121,45 @@ async fn redo_cmd(
     project_state.record_history("redo", "reapplied project snapshot")?;
     log::info!("[IPC] redo_cmd: restored redo state");
     Ok(())
+}
+
+/// Redo and return a snapshot delta for deterministic frontend sync.
+#[tauri::command]
+async fn redo_with_deltas_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let next = undo
+        .redo_stack
+        .pop_back()
+        .ok_or_else(|| "Nothing to redo".to_string())?;
+
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.undo_stack.back());
+    undo.undo_stack.push_back(current_snapshot);
+    while undo.undo_stack.len() > MAX_UNDO_DEPTH {
+        undo.undo_stack.pop_front();
+    }
+    *project = next.to_project();
+    drop(undo);
+
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&project, &handle)?;
+    project_state.record_history("redo", "reapplied project snapshot")?;
+    log::info!("[IPC] redo_with_deltas_cmd: restored redo state");
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
 }

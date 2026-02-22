@@ -521,6 +521,8 @@ export const getRecentProjects = () =>
     invoke<RecentProject[]>('get_recent_projects');
 
 export const getProject = () => invoke<unknown>('get_project');
+export const getProjectSnapshotDelta = () =>
+    invoke<DeltaMutationResponse>('get_project_snapshot_delta_cmd');
 
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
 
@@ -804,6 +806,20 @@ export const replaceMissingPluginSlot = (
     replacementPluginName?: string,
 ) =>
     invoke<void>('replace_missing_plugin_slot_cmd', {
+        payload: {
+            trackId,
+            slotId,
+            replacementPluginId,
+            replacementPluginName: replacementPluginName ?? null,
+        },
+    });
+export const replaceMissingPluginSlotWithDeltas = (
+    trackId: string,
+    slotId: string,
+    replacementPluginId: string,
+    replacementPluginName?: string,
+) =>
+    invoke<DeltaMutationResponse>('replace_missing_plugin_slot_with_deltas_cmd', {
         payload: {
             trackId,
             slotId,
@@ -1180,8 +1196,12 @@ export const splitTrackToStems = (trackId: string) =>
     });
 
 export const undo = () => invoke<void>('undo_cmd');
+export const undoWithDeltas = () =>
+    invoke<DeltaMutationResponse>('undo_with_deltas_cmd');
 
 export const redo = () => invoke<void>('redo_cmd');
+export const redoWithDeltas = () =>
+    invoke<DeltaMutationResponse>('redo_with_deltas_cmd');
 
 export const armTrack = (trackIndex: number, armed: boolean) =>
     invoke<void>('arm_track_cmd', { trackIndex, armed });
@@ -1196,6 +1216,8 @@ export const stopRecording = () =>
 
 export const resolveMissingFile = (clipId: string, newPath: string) =>
     invoke<void>('resolve_missing_file_cmd', { clipId, newPath });
+export const resolveMissingFileWithDeltas = (clipId: string, newPath: string) =>
+    invoke<DeltaMutationResponse>('resolve_missing_file_with_deltas_cmd', { clipId, newPath });
 
 export interface AutomationPoint {
     beat: number;

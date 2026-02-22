@@ -16,8 +16,6 @@ export const NO_PROJECT_REFRESH_TOOLS = new Set([
     'preview_audio_file',
     'stop_preview',
     'export_mix',
-    'undo',
-    'redo',
 ]);
 
 export const DELTA_APPLIED_TOOLS = new Set([
@@ -76,6 +74,8 @@ export const DELTA_APPLIED_TOOLS = new Set([
     'set_pad_solo',
     'auto_cleanup_mix',
     'bounce_track',
+    'undo',
+    'redo',
 ]);
 
 export function shouldFetchProjectAfterTool(name: string): boolean {

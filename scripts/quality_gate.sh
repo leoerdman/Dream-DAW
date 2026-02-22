@@ -5,9 +5,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/dream_daw_target_gate}"
+export TS_RS_EXPORT_DIR="$ROOT_DIR/frontend/shared_bindings"
 
 echo "== Dream DAW Quality Gate =="
 echo "Using CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+echo "Using TS_RS_EXPORT_DIR=$TS_RS_EXPORT_DIR"
 
 echo "[1/12] Sync TS bindings"
 bash scripts/sync_bindings.sh

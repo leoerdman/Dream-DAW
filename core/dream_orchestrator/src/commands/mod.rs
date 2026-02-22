@@ -29,10 +29,13 @@ pub mod plugin_set_external_param_lane;
 pub mod plugin_set_internal_param;
 pub mod plugin_set_sampler_sample;
 pub mod recording_insert_clip;
+pub mod track_grouping;
 pub mod track_move_to_index;
 pub mod track_parenting;
+pub mod track_routing;
 pub mod track_set_armed;
 pub mod track_set_automation_points;
+pub mod track_set_color;
 pub mod track_topology;
 
 // Re-export all command structs for convenience
@@ -66,13 +69,21 @@ pub use plugin_set_external_param_lane::SetExternalPluginParamLaneCommand;
 pub use plugin_set_internal_param::{SetInternalPluginParamCommand, SetInternalPluginParamResult};
 pub use plugin_set_sampler_sample::{SetSamplerSampleCommand, SetSamplerSampleResult};
 pub use recording_insert_clip::InsertRecordedClipCommand;
+pub use track_grouping::{
+    CreateGroupCommand, CreateGroupResult, SetGroupExpandedCommand, snapshot_track_order_and_parent,
+};
 pub use track_move_to_index::{MoveTrackToIndexCommand, MoveTrackToIndexResult};
 pub use track_parenting::{
     MoveTrackWithParentCommand, MoveTrackWithParentResult, SetTrackGroupCommand,
 };
+pub use track_routing::{
+    SetPluginSidechainSourceCommand, SetPluginSidechainSourceResult, SetTrackInputCommand,
+    SetTrackInputResult, SetTrackRoutingCommand, SetTrackRoutingResult,
+};
 pub use track_set_armed::SetTrackArmedCommand;
 pub use track_set_automation_points::SetTrackAutomationPointsCommand;
+pub use track_set_color::{SetTrackColorCommand, SetTrackColorResult};
 pub use track_topology::{
-    MoveTrackBlockToIndexCommand, MoveTrackBlockToIndexResult, UngroupTrackCommand,
-    UngroupTrackResult,
+    AddedTrack, DuplicateTracksCommand, DuplicateTracksResult, MoveTrackBlockToIndexCommand,
+    MoveTrackBlockToIndexResult, UngroupTrackCommand, UngroupTrackResult,
 };

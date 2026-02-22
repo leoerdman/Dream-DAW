@@ -1274,6 +1274,62 @@ async fn resolve_missing_file_cmd(
     Ok(())
 }
 
+/// Resolve offline media path and return snapshot delta for frontend sync.
+#[tauri::command]
+async fn resolve_missing_file_with_deltas_cmd(
+    clip_id: String,
+    new_path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    if !PathBuf::from(&new_path).exists() {
+        return Err(format!("Resolved file does not exist: {new_path}"));
+    }
+
+    push_undo(&project_state)?;
+
+    let cmd =
+        dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
+            .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    let decoded = AudioReader::read(PathBuf::from(&new_path))
+        .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
+    {
+        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let _ = pool.insert(ClipAudio {
+            source_path: new_path.clone(),
+            channels: decoded.channels,
+            sample_rate: decoded.sample_rate,
+            num_frames: decoded.num_frames,
+        });
+    }
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_snapshot(&project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
+}
+
 /// Accept automation points from frontend (throttled there to 16ms).
 #[tauri::command]
 async fn set_automation_points_cmd(

@@ -4,7 +4,6 @@
 //
 // Creates the native macOS menu bar (File, Edit) via Tauri v2 JS API.
 // Must be called once from the root layout (DawShell) on mount.
-//
 // On macOS, the first submenu automatically becomes the application menu
 // (shown under "Dream DAW" in the menu bar). We place an About + Quit there.
 //
@@ -44,6 +43,7 @@ export function useNativeMenu(onProjectChange?: () => void) {
 
 async function buildNativeMenu(onProjectChange?: () => void) {
     const fetchProject = useEngineStore.getState().fetchProject;
+    const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
     // ── 1. App Submenu (becomes "Dream DAW" on macOS) ────────────────
@@ -168,9 +168,9 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+Z',
         action: async () => {
             try {
-                await engineApi.undo();
+                const response = await engineApi.undoWithDeltas();
+                await applyProjectDeltas(response.deltas, 'native-menu-undo');
                 await syncProjectHistory();
-                await fetchProject('native-menu:undo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Undo');
             } catch (err) {
@@ -185,9 +185,9 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+Shift+Z',
         action: async () => {
             try {
-                await engineApi.redo();
+                const response = await engineApi.redoWithDeltas();
+                await applyProjectDeltas(response.deltas, 'native-menu-redo');
                 await syncProjectHistory();
-                await fetchProject('native-menu:redo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Redo');
             } catch (err) {

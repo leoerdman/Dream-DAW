@@ -17,26 +17,17 @@ interface MissingPluginSlot {
     wantedName: string;
 }
 
-const readSlotPluginId = (slot: unknown): string => {
+const readSlotStringField = (slot: unknown, key: string): string => {
     if (!slot || typeof slot !== 'object') return '';
     const rec = slot as Record<string, unknown>;
-    const value = rec.plugin_id ?? rec.pluginId;
+    const value = rec[key];
     return typeof value === 'string' ? value : '';
 };
 
-const readSlotName = (slot: unknown): string => {
-    if (!slot || typeof slot !== 'object') return '';
-    const rec = slot as Record<string, unknown>;
-    const value = rec.name;
-    return typeof value === 'string' ? value : '';
-};
-
-const readSlotId = (slot: unknown): string => {
-    if (!slot || typeof slot !== 'object') return '';
-    const rec = slot as Record<string, unknown>;
-    const value = rec.id;
-    return typeof value === 'string' ? value : '';
-};
+const readSlotPluginId = (slot: unknown): string =>
+    readSlotStringField(slot, 'plugin_id') || readSlotStringField(slot, 'pluginId');
+const readSlotName = (slot: unknown): string => readSlotStringField(slot, 'name');
+const readSlotId = (slot: unknown): string => readSlotStringField(slot, 'id');
 
 const decodeWantedPluginName = (pluginId: string, displayName: string): string => {
     if (pluginId.startsWith('missing://')) {
@@ -51,7 +42,7 @@ const decodeWantedPluginName = (pluginId: string, displayName: string): string =
 export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps) => {
     const timelineClips = useEngineStore((s) => s.timelineClips);
     const projectTracks = useEngineStore((s) => s.projectTracks);
-    const fetchProject = useEngineStore((s) => s.fetchProject);
+    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
 
     const [pluginEntries, setPluginEntries] = useState<engineApi.BrowserFileEntry[]>([]);
     const [scanBusy, setScanBusy] = useState(false);
@@ -196,8 +187,8 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                                         const path = typeof picked === 'string' ? picked : null;
                                         if (!path) return;
                                         try {
-                                            await engineApi.resolveMissingFile(item.clipId, path);
-                                            await fetchProject('missing-assets:resolve-file');
+                                            const response = await engineApi.resolveMissingFileWithDeltas(item.clipId, path);
+                                            await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
                                             setMessage(`Resolved file for '${item.clipName}'`);
                                         } catch (err) {
                                             console.error('[MissingAssets] resolveMissingFile failed:', err);
@@ -251,8 +242,13 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                                             key={`${item.slotId}:${p.path}`}
                                             onClick={async () => {
                                                 try {
-                                                    await engineApi.replaceMissingPluginSlot(item.trackId, item.slotId, p.path, p.name);
-                                                    await fetchProject('missing-assets:replace-plugin');
+                                                    const response = await engineApi.replaceMissingPluginSlotWithDeltas(
+                                                        item.trackId,
+                                                        item.slotId,
+                                                        p.path,
+                                                        p.name,
+                                                    );
+                                                    await applyProjectDeltas(response.deltas, 'missing-assets:replace-plugin');
                                                     setMessage(`Replaced '${item.wantedName}' with '${p.name}'`);
                                                 } catch (err) {
                                                     console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
@@ -282,8 +278,12 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                                             const path = typeof picked === 'string' ? picked : null;
                                             if (!path) return;
                                             try {
-                                                await engineApi.replaceMissingPluginSlot(item.trackId, item.slotId, path);
-                                                await fetchProject('missing-assets:replace-plugin-manual');
+                                                const response = await engineApi.replaceMissingPluginSlotWithDeltas(
+                                                    item.trackId,
+                                                    item.slotId,
+                                                    path,
+                                                );
+                                                await applyProjectDeltas(response.deltas, 'missing-assets:replace-plugin-manual');
                                                 setMessage(`Replaced '${item.wantedName}'`);
                                             } catch (err) {
                                                 console.error('[MissingAssets] manual plugin replace failed:', err);

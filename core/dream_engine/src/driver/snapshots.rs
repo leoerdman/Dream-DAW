@@ -568,21 +568,22 @@ impl SharedDiskStreamers {
             handle.set_playhead(playhead);
 
             // Find or create the streaming window for this source
-            let window = if let Some(pos) = windows.iter().position(|(p, _)| *p == handle.source_path) {
-                &mut windows[pos].1
-            } else {
-                windows.push((
-                    handle.source_path.clone(),
-                    dream_clip_engine::disk_streamer::StreamingWindow::new(
-                        &handle.source_path,
-                        handle.total_frames,
-                        handle.num_channels,
-                        handle.sample_rate,
-                    ),
-                ));
-                let inserted = windows.len() - 1;
-                &mut windows[inserted].1
-            };
+            let window =
+                if let Some(pos) = windows.iter().position(|(p, _)| *p == handle.source_path) {
+                    &mut windows[pos].1
+                } else {
+                    windows.push((
+                        handle.source_path.clone(),
+                        dream_clip_engine::disk_streamer::StreamingWindow::new(
+                            &handle.source_path,
+                            handle.total_frames,
+                            handle.num_channels,
+                            handle.sample_rate,
+                        ),
+                    ));
+                    let inserted = windows.len() - 1;
+                    &mut windows[inserted].1
+                };
 
             // Drain ring buffer chunks (lock-free pop)
             handle.drain_into(window);

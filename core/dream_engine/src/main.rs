@@ -67,6 +67,7 @@ fn main() {
         Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
         Arc::new(std::sync::atomic::AtomicU32::new(0)),  // cli playhead pos
+        Arc::new(dream_engine::driver::SharedDiskStreamers::new()),
     ) {
         Ok(handle) => {
             log::info!("✅ Audio driver initialized");

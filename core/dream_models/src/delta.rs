@@ -14,6 +14,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use crate::project::Project;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -310,6 +311,9 @@ pub enum ProjectDelta {
 
     /// Loop region changed.
     LoopRegionChanged { start: i64, end: i64, enabled: bool },
+
+    /// Full project snapshot replacement (used by undo/redo snapshot jumps).
+    ProjectSnapshotReplaced { project: Box<Project> },
 }
 
 // ── Delta Event (with metadata) ─────────────────────────────────────────

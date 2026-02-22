@@ -805,6 +805,99 @@ fn replace_missing_plugin_slot_cmd(
     Ok(())
 }
 
+/// Replace a missing plugin slot and return snapshot delta for frontend sync.
+#[tauri::command]
+fn replace_missing_plugin_slot_with_deltas_cmd(
+    payload: ReplaceMissingPluginPayload,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+
+    let replacement_plugin_id = payload.replacement_plugin_id.trim().to_string();
+    if replacement_plugin_id.is_empty() {
+        return Err("Replacement plugin path cannot be empty".to_string());
+    }
+    if replacement_plugin_id.starts_with("internal://") {
+        return Err("Missing external plugin replacement expects an external plugin bundle path".to_string());
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&replacement_plugin_id)?;
+    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+        return Err(format!(
+            "Replacement plugin format '{}' is not supported in runtime. Use VST2 or VST3.",
+            descriptor.format
+        ));
+    }
+
+    push_undo(&project_state)?;
+    let replacement_name = payload
+        .replacement_plugin_name
+        .as_ref()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| descriptor.name.clone());
+
+    let cmd = dream_orchestrator::commands::ReplaceMissingPluginSlotCommand {
+        track_id: track_uuid,
+        slot_id: slot_uuid,
+        replacement_plugin_id: replacement_plugin_id.clone(),
+        replacement_plugin_name: replacement_name,
+        external_audio_inputs: Some(descriptor.audio_inputs),
+        supports_sidechain_input: if descriptor.format != PluginFormat::VST3 {
+            Some(descriptor.audio_inputs > 2)
+        } else {
+            None
+        },
+        external_format: Some(descriptor.format.to_string().to_lowercase()),
+        external_uid: descriptor.unique_id.clone(),
+        external_plugin_version: descriptor.version.clone(),
+    };
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    let _ = plugin_host_state.unload_slot_instance(slot_uuid);
+    if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
+        log::warn!(
+            "[IPC] replace_missing_plugin_slot_with_deltas_cmd runtime init failed (slot={}, plugin={}): {}",
+            slot_uuid,
+            replacement_plugin_id,
+            err
+        );
+    }
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project.clone()),
+        }],
+    })
+}
+
 /// Close plugin native GUI window.
 ///
 /// BUG-8 FIX: Only closes the editor window — does NOT destroy the plugin

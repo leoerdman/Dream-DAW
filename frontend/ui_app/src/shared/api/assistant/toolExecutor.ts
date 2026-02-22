@@ -269,13 +269,17 @@ async function executeToolInner(
             return JSON.stringify({ clipId: args.clipId, muted: args.muted });
         }
         case 'undo':
-            await engineApi.undo();
-            await useEngineStore.getState().fetchProject('agent-tool:undo');
-            return JSON.stringify({ undone: true, synced: true });
+        {
+            const response = await engineApi.undoWithDeltas();
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-undo');
+            return JSON.stringify({ undone: true });
+        }
         case 'redo':
-            await engineApi.redo();
-            await useEngineStore.getState().fetchProject('agent-tool:redo');
-            return JSON.stringify({ redone: true, synced: true });
+        {
+            const response = await engineApi.redoWithDeltas();
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-redo');
+            return JSON.stringify({ redone: true });
+        }
         case 'set_master_volume':
             await engineApi.setMasterVolume(args.volume as number);
             return JSON.stringify({ masterVolume: args.volume });

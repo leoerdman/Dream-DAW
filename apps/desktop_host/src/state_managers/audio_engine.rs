@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use dream_clip_engine::pool::ClipPool;
 use dream_engine::driver::{
-    SharedAutomationSnapshot, SharedClipSnapshot, SharedExternalFxSnapshot,
+    SharedAutomationSnapshot, SharedClipSnapshot, SharedDiskStreamers, SharedExternalFxSnapshot,
     SharedPreparedGraphSnapshot, SharedRoutingSnapshot, SharedRtDebugStats,
     SharedSidechainSnapshot,
 };
@@ -64,6 +64,11 @@ pub struct AudioEngineHandle {
     pub _plugin_host: Arc<Mutex<PluginHost>>,
     pub plugin_registry: Arc<dream_engine::driver::SharedPluginRegistry>,
     pub rt_debug_stats: Arc<SharedRtDebugStats>,
+
+    /// Shared container for disk streaming handles (OOM prevention).
+    /// Files > 50 MB are streamed from disk instead of loaded into RAM.
+    /// The audio callback drains pending chunks via try_lock() (non-blocking).
+    pub disk_streamers: Arc<dream_engine::driver::SharedDiskStreamers>,
 
     /// Estimated hardware output latency in sample frames.
     /// Captured from cpal at stream init. Passed to frontend so the

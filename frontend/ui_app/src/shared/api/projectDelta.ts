@@ -51,7 +51,8 @@ export type ProjectDelta =
     | { kind: 'ArrangementGridChanged'; data: { numerator: number; denominator: number; ntoles: number; snap_to_grid: boolean; fixed: boolean } }
     | { kind: 'KeySignatureChanged'; data: { enabled: boolean; tonic: string; mode: string } }
     | { kind: 'ProjectRenamed'; data: { new_name: string } }
-    | { kind: 'LoopRegionChanged'; data: { start: number; end: number; enabled: boolean } };
+    | { kind: 'LoopRegionChanged'; data: { start: number; end: number; enabled: boolean } }
+    | { kind: 'ProjectSnapshotReplaced'; data: { project: unknown } };
 
 export interface DeltaMutationResponse {
     deltas: ProjectDelta[];

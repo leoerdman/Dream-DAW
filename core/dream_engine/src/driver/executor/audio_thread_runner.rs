@@ -45,6 +45,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
+    disk_streamers: Arc<SharedDiskStreamers>,
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
@@ -324,6 +325,17 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if is_playing && has_clips {
                             // Disable test tone automatically when real clips exist
                             test_tone_enabled = false;
+
+                            // ── A0. Disk Streaming: drain background I/O chunks ──
+                            // For files exceeding RAM_THRESHOLD_BYTES (~50 MB), a
+                            // background DiskIO thread reads audio ahead of the
+                            // playhead and fills an rtrb ring buffer. We drain
+                            // pending chunks into the RenderContext's streaming
+                            // windows here (try_lock = non-blocking, RT-safe).
+                            disk_streamers.drain_all_into(
+                                &mut render_ctx.streaming_windows,
+                                midi_playhead_pos,
+                            );
 
                             let pool_snap = clip_pool.load();
 

@@ -279,9 +279,11 @@ pub fn run() {
     // SSOT-FIX: Source SR of preview audio for pitch-correct playback
     let preview_source_sr: Arc<std::sync::atomic::AtomicU32> =
         Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let disk_streamers = Arc::new(dream_engine::driver::SharedDiskStreamers::new());
     let preview_buffer_for_engine = Arc::clone(&preview_buffer);
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
     let preview_source_sr_for_engine = Arc::clone(&preview_source_sr);
+    let disk_streamers_for_engine = Arc::clone(&disk_streamers);
 
     // Load settings from disk before booting audio so we can honor persisted
     // output device selection on startup.
@@ -327,6 +329,7 @@ pub fn run() {
         preview_buffer_for_engine,
         preview_cursor_for_engine,
         preview_source_sr_for_engine,
+        disk_streamers_for_engine,
         preferred_output_device.as_deref(),
         Some(stream_error_tx.clone()),
     ) {
@@ -404,6 +407,7 @@ pub fn run() {
         preview_buffer,
         preview_cursor,
         preview_source_sr,
+        disk_streamers,
         export_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clip_pool: clip_pool_for_handle,
         clip_snapshot: clip_snapshot_for_handle,

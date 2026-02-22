@@ -30,8 +30,6 @@ ts frontend/ui_app/src/shared/lib/TimelineEngine.ts 1947
 ts frontend/ui_app/src/shared/lib/ViewportMachine.ts 348
 ts frontend/ui_app/src/shared/lib/ViewportMatrix.ts 409
 ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
-# Stores
-ts frontend/ui_app/src/shared/stores/useEngineStore.ts 1234
 # Widgets — AssetBrowser
 ts frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx 3129
 ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 1000

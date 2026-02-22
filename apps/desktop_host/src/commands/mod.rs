@@ -81,6 +81,7 @@ pub(crate) fn invoke_handler()
         import_ableton_project,
         get_recent_projects,
         get_project,
+        get_project_snapshot_delta_cmd,
         get_project_status,
         set_arrangement_grid_cmd,
         set_arrangement_grid_with_deltas_cmd,
@@ -171,6 +172,7 @@ pub(crate) fn invoke_handler()
         set_clips_muted_with_deltas_cmd,
         paint_track_clips_with_track_color_cmd,
         resolve_missing_file_cmd,
+        resolve_missing_file_with_deltas_cmd,
         // Automation / recording / export
         set_automation_points_cmd,
         set_automation_points_with_deltas_cmd,
@@ -191,6 +193,8 @@ pub(crate) fn invoke_handler()
         // Undo/Redo
         undo_cmd,
         redo_cmd,
+        undo_with_deltas_cmd,
+        redo_with_deltas_cmd,
         // Audio Device Management
         get_audio_devices,
         set_audio_device,
@@ -207,6 +211,7 @@ pub(crate) fn invoke_handler()
         ensure_plugin_slot_active_cmd,
         unload_plugin_slot_cmd,
         replace_missing_plugin_slot_cmd,
+        replace_missing_plugin_slot_with_deltas_cmd,
         close_plugin_window,
         close_plugin_window_for_slot,
         get_external_plugin_params,

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SSOT_DIR="$ROOT_DIR/frontend/shared_bindings"
 LEGACY_MODEL_BINDINGS="$ROOT_DIR/core/dream_models/bindings"
 LEGACY_UI_TYPES="$ROOT_DIR/frontend/ui_app/src/shared/types"
+export TS_RS_EXPORT_DIR="$SSOT_DIR"
 
 # Enforce SSOT before generation: legacy folders must not survive.
 rm -rf "$LEGACY_MODEL_BINDINGS" "$LEGACY_UI_TYPES"

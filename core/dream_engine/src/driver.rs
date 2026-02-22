@@ -66,8 +66,9 @@ pub use rt_debug::{RtDebugSnapshot, SharedRtDebugStats};
 pub use snapshots::{
     AutomationPoint, ExternalFxRuntimeSlot, ExternalParamAutomationLane, MidiFxRuntimeConfig,
     MidiTrackRuntime, PluginInstanceArc, SharedAutomationSnapshot, SharedClipSnapshot,
-    SharedExternalFxSnapshot, SharedMidiSnapshot, SharedPluginRegistry, SharedRoutingSnapshot,
-    SharedSampleRackSamples, SharedSamplerSamples, SharedSidechainSnapshot, TrackAutomationState,
+    SharedDiskStreamers, SharedExternalFxSnapshot, SharedMidiSnapshot, SharedPluginRegistry,
+    SharedRoutingSnapshot, SharedSampleRackSamples, SharedSamplerSamples, SharedSidechainSnapshot,
+    TrackAutomationState,
 };
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -175,6 +176,7 @@ pub fn start_audio_thread(
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
+    disk_streamers: Arc<SharedDiskStreamers>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     start_audio_thread_on_device(
         consumer,
@@ -195,6 +197,7 @@ pub fn start_audio_thread(
         preview_buffer,
         preview_cursor,
         preview_source_sr,
+        disk_streamers,
         None,
         None,
     )
@@ -224,6 +227,7 @@ pub fn start_audio_thread_on_device(
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
+    disk_streamers: Arc<SharedDiskStreamers>,
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
@@ -246,6 +250,7 @@ pub fn start_audio_thread_on_device(
         preview_buffer,
         preview_cursor,
         preview_source_sr,
+        disk_streamers,
         preferred_output_device,
         stream_error_tx,
     )

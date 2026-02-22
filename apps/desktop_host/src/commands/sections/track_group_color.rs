@@ -19,30 +19,39 @@ async fn set_track_color_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let normalized = normalize_track_color_hex(&color_hex)?;
+    let cmd =
+        dream_orchestrator::commands::SetTrackColorCommand::from_str_track_id(&track_id, normalized)
+            .map_err(|e| e.to_string())?;
 
     // Check if mutation is a no-op BEFORE taking undo snapshot
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == parsed_id)
-            .ok_or_else(|| format!("Track not found: {track_id}"))?;
-        if track.color_hex.as_deref() == Some(normalized.as_str()) {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let preview = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        if !preview.changed {
             return Ok(());
         }
     }
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == parsed_id)
-        .ok_or_else(|| format!("Track not found: {track_id}"))?;
-    track.color_hex = Some(normalized);
+    let project = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        ctx.lock_project().map_err(|e| e.to_string())?.clone()
+    };
+    *project_state.project.lock().map_err(|e| e.to_string())? = project.clone();
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -118,46 +127,6 @@ fn refresh_runtime_after_track_topology_change(
     sync_track_mix_state_from_project(project, handle)
 }
 
-fn duplicate_track_with_new_ids(source: &Track) -> Track {
-    let mut cloned = source.clone();
-    cloned.id = Uuid::new_v4();
-    cloned.child_track_ids.clear();
-    // Regenerate plugin slot IDs so duplicated track gets independent
-    // plugin instances instead of sharing the original's runtime state.
-    if let Some(ref mut instrument) = cloned.instrument {
-        regenerate_device_node_ids(instrument);
-    }
-    for fx in &mut cloned.effects {
-        regenerate_device_node_ids(fx);
-    }
-    for clip in &mut cloned.clips {
-        clip.id = Uuid::new_v4();
-    }
-    for midi_clip in &mut cloned.midi_clips {
-        midi_clip.id = Uuid::new_v4();
-    }
-    cloned
-}
-
-/// Recursively regenerate all UUIDs within a DeviceNode tree,
-/// ensuring duplicated tracks get independent plugin instances.
-fn regenerate_device_node_ids(node: &mut DeviceNode) {
-    match node {
-        DeviceNode::Single(slot) => {
-            slot.id = Uuid::new_v4();
-        }
-        DeviceNode::Rack(rack) => {
-            rack.id = Uuid::new_v4();
-            for chain in &mut rack.chains {
-                chain.id = Uuid::new_v4();
-                for device in &mut chain.devices {
-                    regenerate_device_node_ids(device);
-                }
-            }
-        }
-    }
-}
-
 #[tauri::command]
 async fn create_group_cmd(
     track_ids: Vec<String>,
@@ -168,89 +137,43 @@ async fn create_group_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    if track_ids.is_empty() {
-        return Err("No tracks selected for grouping".to_string());
-    }
-
-    let parsed_ids: Vec<Uuid> = track_ids
-        .iter()
-        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid track id: {id}")))
-        .collect::<Result<_, _>>()?;
+    let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
+        &track_ids,
+        group_name,
+    )
+    .map_err(|e| e.to_string())?;
 
     push_undo(&project_state)?;
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let mut selected: Vec<(usize, Uuid)> = project
-        .tracks
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, t)| {
-            if parsed_ids.contains(&t.id) && t.track_type != TrackType::Master {
-                Some((idx, t.id))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if selected.is_empty() {
-        return Err("No valid tracks found for grouping".to_string());
-    }
-
-    selected.sort_by_key(|(idx, _)| *idx);
-    let first_index = selected[0].0;
-
-    let (group_color, group_color_hex) = selected
-        .first()
-        .and_then(|(_, id)| project.tracks.iter().find(|t| t.id == *id).map(|t| (t.color, t.color_hex.clone())))
-        .unwrap_or_else(|| (TrackColor::for_index(first_index), None));
-
-    let group_num = project
-        .tracks
-        .iter()
-        .filter(|t| t.track_type == TrackType::Group)
-        .count()
-        + 1;
-    let mut group_track = Track::with_type(
-        group_name.unwrap_or_else(|| format!("Group {}", group_num)),
-        TrackType::Group,
-        first_index,
-    );
-    group_track.parent_track_id = None;
-    group_track.output_destination_id = None;
-    group_track.is_expanded = true;
-    group_track.child_track_ids.clear();
-    group_track.color = group_color;
-    group_track.color_hex = group_color_hex;
-    let group_id = group_track.id;
-
-    project.tracks.insert(first_index, group_track);
-
-    let selected_ids_in_order: Vec<Uuid> = selected.into_iter().map(|(_, id)| id).collect();
-    let mut child_tracks: Vec<Track> = Vec::with_capacity(selected_ids_in_order.len());
-    for child_id in &selected_ids_in_order {
-        if let Some(current_index) = project.tracks.iter().position(|t| t.id == *child_id) {
-            let mut child = project.tracks.remove(current_index);
-            child.parent_track_id = Some(group_id);
-            child.output_destination_id = Some(group_id);
-            child_tracks.push(child);
-        }
-    }
-
-    for (offset, child) in child_tracks.into_iter().enumerate() {
-        project.tracks.insert(first_index + 1 + offset, child);
-    }
-
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] create_group_cmd: created group {} with {} children",
-        group_id,
-        selected_ids_in_order.len()
+        result.group_id,
+        result.child_track_ids.len()
     );
-    Ok(group_id.to_string())
+    Ok(result.group_id.to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -269,16 +192,9 @@ async fn create_group_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<CreateGroupWithDeltasResponse, String> {
-    let (before_order, before_parent): (Vec<Uuid>, std::collections::HashMap<Uuid, Option<Uuid>>) = {
+    let (before_order, before_parent) = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        (
-            project.tracks.iter().map(|t| t.id).collect(),
-            project
-                .tracks
-                .iter()
-                .map(|t| (t.id, t.parent_track_id))
-                .collect(),
-        )
+        dream_orchestrator::commands::snapshot_track_order_and_parent(&project)
     };
 
     let group_id = create_group_cmd(
@@ -291,7 +207,8 @@ async fn create_group_with_deltas_cmd(
         app,
     )
     .await?;
-    let group_uuid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group id after create: {group_id}"))?;
+    let group_uuid =
+        Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group id after create: {group_id}"))?;
 
     let (after_order, after_parent, group_name_out): (
         Vec<Uuid>,
@@ -305,12 +222,12 @@ async fn create_group_with_deltas_cmd(
             .find(|t| t.id == group_uuid)
             .ok_or_else(|| format!("Group track not found after create: {group_uuid}"))?;
         (
-            project.tracks.iter().map(|t| t.id).collect(),
+            project.tracks.iter().map(|t| t.id).collect::<Vec<Uuid>>(),
             project
                 .tracks
                 .iter()
                 .map(|t| (t.id, t.parent_track_id))
-                .collect(),
+                .collect::<std::collections::HashMap<Uuid, Option<Uuid>>>(),
             group_track.name.clone(),
         )
     };
@@ -338,9 +255,7 @@ async fn create_group_with_deltas_cmd(
         .collect();
 
     for (track_id, old_parent) in &before_parent {
-        if let Some(new_parent) = after_parent.get(track_id)
-            && new_parent != old_parent
-        {
+        if let Some(new_parent) = after_parent.get(track_id) && new_parent != old_parent {
             deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
                 track_id: *track_id,
                 parent_track_id: *new_parent,
@@ -349,9 +264,7 @@ async fn create_group_with_deltas_cmd(
     }
 
     for (track_id, old_index) in &before_index_map {
-        if let Some(new_index) = after_index_map.get(track_id)
-            && new_index != old_index
-        {
+        if let Some(new_index) = after_index_map.get(track_id) && new_index != old_index {
             deltas.push(dream_models::delta::ProjectDelta::TrackMoved {
                 track_id: *track_id,
                 old_index: *old_index,
@@ -370,14 +283,23 @@ async fn set_group_expanded_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let gid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group_id: {group_id}"))?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let group_track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == gid && t.track_type == TrackType::Group)
-        .ok_or_else(|| format!("Group track not found: {group_id}"))?;
-    group_track.is_expanded = expanded;
+    let cmd = dream_orchestrator::commands::SetGroupExpandedCommand::from_str_group_id(
+        &group_id, expanded,
+    )
+    .map_err(|e| e.to_string())?;
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;

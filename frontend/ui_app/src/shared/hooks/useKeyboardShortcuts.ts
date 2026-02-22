@@ -219,8 +219,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.undo();
-                    onProjectMutated();
+                    const response = await engine.undoWithDeltas();
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard-undo');
                 } catch (err) {
                     console.warn('[Keyboard] Undo failed:', err);
                 }
@@ -235,8 +235,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.redo();
-                    onProjectMutated();
+                    const response = await engine.redoWithDeltas();
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard-redo');
                 } catch (err) {
                     console.warn('[Keyboard] Redo failed:', err);
                 }

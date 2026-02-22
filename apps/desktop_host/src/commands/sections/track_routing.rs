@@ -294,77 +294,41 @@ async fn duplicate_tracks_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    if track_ids.is_empty() {
+    let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
+        .map_err(|e| e.to_string())?;
+    if cmd.track_ids.is_empty() {
         return Ok(());
     }
-    let parsed_ids: Vec<Uuid> = track_ids
-        .iter()
-        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid track id: {id}")))
-        .collect::<Result<_, _>>()?;
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let selected_indices: Vec<usize> = project
-        .tracks
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, t)| if parsed_ids.contains(&t.id) { Some(idx) } else { None })
-        .collect();
-    if selected_indices.is_empty() {
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+    if result.added_tracks.is_empty() {
         return Ok(());
     }
 
-    let mut parent_id_map: std::collections::HashMap<Uuid, Option<Uuid>> = std::collections::HashMap::new();
-    let mut originals: Vec<Track> = Vec::with_capacity(selected_indices.len());
-    for idx in &selected_indices {
-        originals.push(project.tracks[*idx].clone());
-    }
-    let mut duplicates: Vec<Track> = Vec::with_capacity(originals.len());
-    for src in &originals {
-        let dup = duplicate_track_with_new_ids(src);
-        parent_id_map.insert(src.id, src.parent_track_id);
-        duplicates.push(dup);
-    }
-
-    let old_to_new: std::collections::HashMap<Uuid, Uuid> = originals
-        .iter()
-        .zip(duplicates.iter())
-        .map(|(old_t, new_t)| (old_t.id, new_t.id))
-        .collect();
-
-    for dup in &mut duplicates {
-        let src_parent = parent_id_map
-            .iter()
-            .find_map(|(old_id, parent)| {
-                if old_to_new.get(old_id) == Some(&dup.id) {
-                    Some(*parent)
-                } else {
-                    None
-                }
-            })
-            .flatten();
-        dup.parent_track_id = src_parent.and_then(|pid| old_to_new.get(&pid).copied()).or(src_parent);
-        dup.output_destination_id = dup.parent_track_id;
-    }
-
-    let mut insert_at = selected_indices.iter().max().copied().unwrap_or(0) + 1;
-    for dup in duplicates {
-        if insert_at > project.tracks.len() {
-            insert_at = project.tracks.len();
-        }
-        project.tracks.insert(insert_at, dup);
-        insert_at += 1;
-    }
-
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
-    log::info!(
-        "[IPC] duplicate_tracks_cmd(count={})",
-        selected_indices.len()
-    );
+    log::info!("[IPC] duplicate_tracks_cmd(count={})", result.added_tracks.len());
     Ok(())
 }
 
@@ -377,80 +341,41 @@ async fn duplicate_tracks_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<TrackManagementDeltaResponse, String> {
-    if track_ids.is_empty() {
+    let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
+        .map_err(|e| e.to_string())?;
+    if cmd.track_ids.is_empty() {
         return Ok(TrackManagementDeltaResponse { deltas: vec![] });
     }
-    let parsed_ids: Vec<Uuid> = track_ids
-        .iter()
-        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid track id: {id}")))
-        .collect::<Result<_, _>>()?;
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let selected_indices: Vec<usize> = project
-        .tracks
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, t)| if parsed_ids.contains(&t.id) { Some(idx) } else { None })
-        .collect();
-    if selected_indices.is_empty() {
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+    if result.added_tracks.is_empty() {
         return Ok(TrackManagementDeltaResponse { deltas: vec![] });
     }
 
-    let mut parent_id_map: std::collections::HashMap<Uuid, Option<Uuid>> =
-        std::collections::HashMap::new();
-    let mut originals: Vec<Track> = Vec::with_capacity(selected_indices.len());
-    for idx in &selected_indices {
-        originals.push(project.tracks[*idx].clone());
-    }
-    let mut duplicates: Vec<Track> = Vec::with_capacity(originals.len());
-    for src in &originals {
-        let dup = duplicate_track_with_new_ids(src);
-        parent_id_map.insert(src.id, src.parent_track_id);
-        duplicates.push(dup);
-    }
-
-    let old_to_new: std::collections::HashMap<Uuid, Uuid> = originals
-        .iter()
-        .zip(duplicates.iter())
-        .map(|(old_t, new_t)| (old_t.id, new_t.id))
-        .collect();
-
-    for dup in &mut duplicates {
-        let src_parent = parent_id_map
-            .iter()
-            .find_map(|(old_id, parent)| {
-                if old_to_new.get(old_id) == Some(&dup.id) {
-                    Some(*parent)
-                } else {
-                    None
-                }
-            })
-            .flatten();
-        dup.parent_track_id = src_parent
-            .and_then(|pid| old_to_new.get(&pid).copied())
-            .or(src_parent);
-        dup.output_destination_id = dup.parent_track_id;
-    }
-
-    let mut insert_at = selected_indices.iter().max().copied().unwrap_or(0) + 1;
-    let mut deltas = Vec::with_capacity(duplicates.len());
-    for dup in duplicates {
-        if insert_at > project.tracks.len() {
-            insert_at = project.tracks.len();
-        }
-        let inserted_index = insert_at;
+    let mut deltas = Vec::with_capacity(result.added_tracks.len());
+    for added in &result.added_tracks {
         deltas.push(dream_models::delta::ProjectDelta::TrackAdded {
-            track_index: inserted_index,
-            track_id: dup.id,
-            name: dup.name.clone(),
-            track_type: format!("{:?}", dup.track_type),
+            track_index: added.inserted_index,
+            track_id: added.track_id,
+            name: added.name.clone(),
+            track_type: format!("{:?}", added.track_type),
         });
-        project.tracks.insert(inserted_index, dup);
-        insert_at += 1;
     }
 
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -462,7 +387,7 @@ async fn duplicate_tracks_with_deltas_cmd(
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] duplicate_tracks_with_deltas_cmd(count={})",
-        selected_indices.len()
+        result.added_tracks.len()
     );
     Ok(TrackManagementDeltaResponse { deltas })
 }

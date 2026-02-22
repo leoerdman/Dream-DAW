@@ -8,6 +8,18 @@ struct SplitClipResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct DeltaMutationResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SplitClipWithDeltasResponse {
+    left_id: String,
+    right_id: String,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct DuplicateClipResponse {
     new_id: String,
 }
@@ -220,26 +232,7 @@ fn finish_job(
     Ok(())
 }
 
-fn mutator_err_to_string(e: MutatorError) -> String {
-    e.to_string()
-}
 
-/// Delegate: moves a MIDI clip to a new track/position.
-/// Uses canonical implementation from `dream_models::mutators::move_midi_clip`.
-fn move_midi_clip_in_project(
-    project: &mut Project,
-    clip_id: Uuid,
-    new_track_index: usize,
-    new_position: AbsoluteTime,
-) -> bool {
-    mutators::move_midi_clip(project, clip_id, new_track_index, new_position).is_ok()
-}
-
-/// Delegate: deletes a MIDI clip from the project.
-/// Uses canonical implementation from `dream_models::mutators::delete_midi_clip`.
-fn delete_midi_clip_in_project(project: &mut Project, clip_id: Uuid) -> bool {
-    mutators::delete_midi_clip(project, clip_id).is_ok()
-}
 
 fn build_local_pool_for_project(
     project: &Project,
@@ -295,6 +288,16 @@ fn build_local_pool_for_project(
         }
     }
     Ok(local_pool)
+}
+
+fn find_clip_track_index(project: &Project, clip_id: Uuid) -> Option<usize> {
+    project
+        .tracks
+        .iter()
+        .position(|track| {
+            track.clips.iter().any(|clip| clip.id == clip_id)
+                || track.midi_clips.iter().any(|clip| clip.id == clip_id)
+        })
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -455,34 +458,24 @@ async fn move_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id)
-        .map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    // Snapshot for undo BEFORE mutation.
-    // Use coalesced undo to prevent stack bloat and reduce lock
-    // contention during rapid sequential move operations (drag/multi-select).
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo_coalesced(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
+        &clip_id, new_track_index, new_position_frames,
+    ).map_err(|e| e.to_string())?;
 
-    if new_track_index >= project.tracks.len() {
-        return Err(format!(
-            "Track out of range: requested {} but project has {} tracks",
-            new_track_index,
-            project.tracks.len()
-        ));
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
     }
 
-    let new_position = AbsoluteTime::new(new_position_frames);
-    if let Err(audio_err) = mutators::move_clip(&mut project, uuid, new_track_index, new_position) {
-        // If this is not an audio clip, attempt MIDI clip move using same UUID.
-        if !move_midi_clip_in_project(&mut project, uuid, new_track_index, new_position) {
-            return Err(mutator_err_to_string(audio_err));
-        }
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
-    // Use lightweight clip-only rebuild — move doesn't change routing/DAG/pool.
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
@@ -491,16 +484,62 @@ async fn move_clip_cmd(
     Ok(())
 }
 
-/// Delegate: resizes a MIDI clip to new position and duration.
-/// Uses canonical implementation from `dream_models::mutators::resize_midi_clip`.
-fn resize_midi_clip_in_project(
-    project: &mut Project,
-    clip_id: Uuid,
-    new_position: AbsoluteTime,
-    new_duration: AbsoluteTime,
-) -> bool {
-    mutators::resize_midi_clip(project, clip_id, new_position, new_duration).is_ok()
+#[tauri::command]
+async fn move_clip_with_deltas_cmd(
+    clip_id: String,
+    new_track_index: usize,
+    new_position_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    push_undo_coalesced(&project_state)?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let old_track_index = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_clip_track_index(&project, clip_uuid)
+    };
+
+    let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
+        &clip_id,
+        new_track_index,
+        new_position_frames,
+    )
+    .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
+    }
+
+    let deltas = if let Some(old_track_index) = old_track_index {
+        vec![dream_models::delta::ProjectDelta::ClipMoved {
+            clip_id: clip_uuid,
+            old_track_index,
+            new_track_index,
+            new_position: new_position_frames,
+        }]
+    } else {
+        vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
+    };
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(DeltaMutationResponse { deltas })
 }
+
+
 
 /// Resizes a clip to a new position and duration.
 #[tauri::command]
@@ -513,34 +552,75 @@ async fn resize_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id)
-        .map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    // Use coalesced undo — resize operations can be rapid
-    // (e.g., trackpad gestures) and should not create a new
-    // undo entry for every intermediate position.
+    // CQRS: coalesced undo + delegate to orchestrator + snapshot rebuild
     push_undo_coalesced(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::ResizeClipCommand::from_str_id(
+        &clip_id, new_position_frames, new_duration_frames,
+    ).map_err(|e| e.to_string())?;
 
-    let new_position = AbsoluteTime::new(new_position_frames);
-    let new_duration = AbsoluteTime::new(new_duration_frames);
-
-    if let Err(audio_err) = mutators::resize_clip(&mut project, uuid, new_position, new_duration) {
-        // If this is not an audio clip, attempt MIDI clip resize using same UUID.
-        if !resize_midi_clip_in_project(&mut project, uuid, new_position, new_duration) {
-            return Err(mutator_err_to_string(audio_err));
-        }
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
-    // Use lightweight clip-only rebuild — resize doesn't change routing/DAG/pool.
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn resize_clip_with_deltas_cmd(
+    clip_id: String,
+    new_position_frames: i64,
+    new_duration_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    push_undo_coalesced(&project_state)?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let cmd = dream_orchestrator::commands::ResizeClipCommand::from_str_id(
+        &clip_id,
+        new_position_frames,
+        new_duration_frames,
+    )
+    .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipResized {
+        clip_id: clip_uuid,
+        new_position: new_position_frames,
+        new_duration: new_duration_frames,
+    }];
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(DeltaMutationResponse { deltas })
 }
 
 /// Splits a clip at the given sample frame position.
@@ -557,23 +637,24 @@ async fn split_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<SplitClipResponse, String> {
-    let uuid = Uuid::parse_str(&clip_id)
-        .map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    // Snapshot for undo BEFORE mutation
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(
+        &clip_id, split_frame,
+    ).map_err(|e| e.to_string())?;
 
-    // Try audio clip split first, fall back to MIDI clip split
-    let result = match mutators::split_clip(&mut project, uuid, split_frame) {
-        Ok(r) => r,
-        Err(_audio_err) => {
-            mutators::split_midi_clip(&mut project, uuid, split_frame)
-                .map_err(mutator_err_to_string)?
-        }
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
     };
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -583,6 +664,52 @@ async fn split_clip_cmd(
     Ok(SplitClipResponse {
         left_id: result.left_id.to_string(),
         right_id: result.right_id.to_string(),
+    })
+}
+
+#[tauri::command]
+async fn split_clip_with_deltas_cmd(
+    clip_id: String,
+    split_frame: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<SplitClipWithDeltasResponse, String> {
+    push_undo(&project_state)?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
+        .map_err(|e| e.to_string())?;
+
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
+
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipSplit {
+        original_clip_id: clip_uuid,
+        left_id: result.left_id,
+        right_id: result.right_id,
+        split_frame,
+    }];
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(SplitClipWithDeltasResponse {
+        left_id: result.left_id.to_string(),
+        right_id: result.right_id.to_string(),
+        deltas,
     })
 }
 
@@ -597,21 +724,22 @@ async fn delete_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id)
-        .map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    // Snapshot for undo BEFORE mutation
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
+        .map_err(|e| e.to_string())?;
 
-    if let Err(audio_err) = mutators::delete_clip(&mut project, uuid) {
-        // If this is not an audio clip, attempt MIDI clip delete using same UUID.
-        if !delete_midi_clip_in_project(&mut project, uuid) {
-            return Err(mutator_err_to_string(audio_err));
-        }
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -633,22 +761,24 @@ async fn duplicate_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DuplicateClipResponse, String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let target_pos = new_position_frames.map(AbsoluteTime::new);
+    let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
+        &clip_id, new_position_frames,
+    ).map_err(|e| e.to_string())?;
 
-    let new_id = match mutators::duplicate_clip(&mut project, uuid, target_pos) {
-        Ok(dup) => dup.id,
-        Err(_) => {
-            mutators::duplicate_midi_clip(&mut project, uuid, target_pos)
-                .map_err(mutator_err_to_string)?
-                .id
-        }
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
     };
 
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -656,7 +786,7 @@ async fn duplicate_clip_cmd(
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(DuplicateClipResponse {
-        new_id: new_id.to_string(),
+        new_id: result.new_id.to_string(),
     })
 }
 
@@ -669,122 +799,23 @@ async fn merge_clips_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<MergeClipsResponse, String> {
-    if clip_ids.is_empty() {
-        return Err("No clips selected".to_string());
-    }
-
-    let ids: Result<Vec<Uuid>, _> = clip_ids.iter().map(|id| Uuid::parse_str(id)).collect();
-    let ids = ids.map_err(|e| format!("Invalid clip ID: {e}"))?;
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
+        .map_err(|e| e.to_string())?;
 
-    // Find track containing all selected clips.
-    let mut selected_track_idx: Option<usize> = None;
-    for (ti, track) in project.tracks.iter().enumerate() {
-        let audio_hits = ids.iter().filter(|id| track.clips.iter().any(|c| c.id == **id)).count();
-        let midi_hits = ids.iter().filter(|id| track.midi_clips.iter().any(|c| c.id == **id)).count();
-        if audio_hits == ids.len() || midi_hits == ids.len() {
-            selected_track_idx = Some(ti);
-            break;
-        }
-    }
-    let ti = selected_track_idx.ok_or_else(|| "Selected clips must be on one track".to_string())?;
-    let track = &mut project.tracks[ti];
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
 
-    let audio_selected: Vec<_> = track
-        .clips
-        .iter()
-        .filter(|c| ids.contains(&c.id))
-        .cloned()
-        .collect();
-    let midi_selected: Vec<_> = track
-        .midi_clips
-        .iter()
-        .filter(|c| ids.contains(&c.id))
-        .cloned()
-        .collect();
-
-    if !audio_selected.is_empty() && !midi_selected.is_empty() {
-        return Err("Cannot merge audio and MIDI clips together".to_string());
-    }
-    if audio_selected.len() + midi_selected.len() < 2 {
-        return Err("Select at least two clips to merge".to_string());
-    }
-
-    let new_id = Uuid::new_v4();
-    if !audio_selected.is_empty() {
-        let first = audio_selected
-            .iter()
-            .min_by_key(|c| c.position.sample_frame)
-            .ok_or_else(|| "No audio clips selected".to_string())?;
-        let start = audio_selected
-            .iter()
-            .map(|c| c.position.sample_frame)
-            .min()
-            .unwrap_or(first.position.sample_frame);
-        let end = audio_selected
-            .iter()
-            .map(|c| c.end_position().sample_frame)
-            .max()
-            .unwrap_or(first.end_position().sample_frame);
-
-        track.clips.retain(|c| !ids.contains(&c.id));
-        let merged = AudioClip {
-            id: new_id,
-            name: "Merged Clip".to_string(),
-            position: AbsoluteTime::new(start),
-            duration: AbsoluteTime::new((end - start).max(1)),
-            fade_in_frames: 0,
-            fade_out_frames: 0,
-            is_selected: false,
-            is_muted: false,
-            // BUG-6 FIX: Reset source_offset to ZERO for merged clips.
-            source_offset: AbsoluteTime::ZERO,
-            // BUG-H1 FIX: Reset warp state for merged clips.
-            // Merged clip spans multiple sources — warp markers from
-            // the first clip are invalid for the combined range.
-            is_warped: false,
-            warp_markers: Vec::new(),
-            warp_source_duration_frames: (end - start).max(1),
-            ..first.clone()
-        };
-        let insert_at = track
-            .clips
-            .binary_search_by(|c| c.position.cmp(&merged.position))
-            .unwrap_or_else(|i| i);
-        track.clips.insert(insert_at, merged);
-    } else {
-        let start = midi_selected
-            .iter()
-            .map(|c| c.position.sample_frame)
-            .min()
-            .ok_or_else(|| "No MIDI clips selected".to_string())?;
-        let end = midi_selected
-            .iter()
-            .map(|c| c.end_position().sample_frame)
-            .max()
-            .ok_or_else(|| "No MIDI clips selected".to_string())?;
-
-        let mut merged = MidiClip::new("Merged Clip", AbsoluteTime::new(start), AbsoluteTime::new((end - start).max(1)));
-        merged.id = new_id;
-        for clip in &midi_selected {
-            let clip_offset = clip.position.sample_frame - start;
-            for note in &clip.notes {
-                let mut moved = *note;
-                moved.start_frame = (note.start_frame + clip_offset).max(0);
-                merged.add_note(moved);
-            }
-        }
-
-        track.midi_clips.retain(|c| !ids.contains(&c.id));
-        let insert_at = track
-            .midi_clips
-            .binary_search_by(|c| c.position.cmp(&merged.position))
-            .unwrap_or_else(|i| i);
-        track.midi_clips.insert(insert_at, merged);
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -792,7 +823,7 @@ async fn merge_clips_cmd(
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(MergeClipsResponse {
-        new_id: new_id.to_string(),
+        new_id: result.new_id.to_string(),
     })
 }
 
@@ -805,37 +836,23 @@ async fn set_clip_source_offset_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    // BUG-M5 FIX: Check clip exists BEFORE pushing undo to avoid wasted snapshots
-    {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let found = project.tracks.iter().any(|t| t.clips.iter().any(|c| c.id == uuid));
-        if !found {
-            return Err(format!("Clip not found: {clip_id}"));
-        }
-    }
-
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            // BUG-H2 FIX: Clamp source_offset to [0, max_offset]
-            // where max_offset = source_file_length - 1 (so at least 1 frame is visible)
-            let max_offset = {
-                let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-                pool.get(&clip.file_path)
-                    .map(|audio| (audio.num_frames as i64).saturating_sub(1).max(0))
-                    .unwrap_or(i64::MAX)
-            };
-            clip.source_offset = AbsoluteTime::new(
-                source_offset_frames.max(0).min(max_offset)
-            );
-            break;
-        }
+    let cmd = dream_orchestrator::commands::SetClipSourceOffsetCommand::from_str_id(
+        &clip_id, source_offset_frames,
+    ).map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
@@ -866,38 +883,28 @@ async fn set_clip_pitch_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::SetClipPitchCommand::from_str_id(
+        &payload.clip_id, payload.pitch_shift_semitones,
+    ).map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
-    let mut updated = false;
-
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            clip.pitch_shift_semitones = payload.pitch_shift_semitones.clamp(-48.0, 48.0);
-            
-            if !clip.is_warped {
-                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
-                let new_frames = (clip.warp_source_duration_frames.max(1) as f64 / pitch_multiplier).round() as i64;
-                clip.duration = AbsoluteTime::new(new_frames.max(1));
-            }
-            
-            updated = true;
-            break;
-        }
-    }
-
-    if updated {
-        // BUG-P1 FIX: Propagate changed duration to the audio engine's clip snapshot.
-        // Without this, the engine plays the old clip length after pitch shift.
-        clip_pool_state.rebuild_clips_only(&project);
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
-        Ok(())
-    } else {
-        Err("Clip not found".to_string())
-    }
+    clip_pool_state.rebuild_clips_only(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    Ok(())
 }
 
 /// Set clip warp state/mode/base BPM and recalculate timeline duration.
@@ -908,94 +915,23 @@ async fn set_clip_warp_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-    let base_bpm = payload.warp_base_bpm.unwrap_or(120.0);
-    if !(20.0..=300.0).contains(&base_bpm) {
-        return Err(format!("Warp base BPM {base_bpm} out of range (20-300)"));
-    }
-
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_bpm = project.pulse_map.initial_bpm().clamp(20.0, 999.0);
-    let project_sr = project.sample_rate.max(1.0); // BUG-W1: captured before mutable borrow
-    let mut updated = false;
+    let cmd = dream_orchestrator::commands::SetClipWarpCommand::from_str_id(
+        &payload.clip_id, payload.is_warped, payload.warp_mode, payload.warp_base_bpm,
+    ).map_err(|e| e.to_string())?;
 
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            if clip.warp_source_duration_frames <= 0 {
-                // Look up the real file duration from the clip pool so we
-                // never accidentally capture an already-warped timeline length.
-                let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-                let source_frames = pool
-                    .get(&clip.file_path)
-                    .map(|audio| audio.num_frames.max(1) as i64)
-                    .unwrap_or(clip.duration.sample_frame.max(1));
-                clip.warp_source_duration_frames = source_frames;
-            }
-
-            clip.is_warped = payload.is_warped;
-            clip.warp_mode = payload.warp_mode.or(Some(0));
-            clip.warp_base_bpm = base_bpm;
-
-            if clip.is_warped {
-                // BUG-C1 FIX: Correct warp BPM ratio.
-                // If clip is 120 BPM and project is 140 BPM, clip should SHRINK:
-                // ratio = project_bpm / warp_base_bpm = 140/120 > 1 → faster → shorter
-                // timeline_len = source_len / ratio = source_len * (warp_base_bpm / project_bpm)
-                // WAIT — actually for time-stretching: we want to FIT the clip content
-                // to the project tempo. A 120 BPM clip at 140 BPM project plays faster,
-                // so its TIMELINE duration = source_len * (warp_base_bpm / project_bpm).
-                // But that's what we had! Let me think again...
-                // Source is N beats at warp_base_bpm → duration_sec = N / warp_base_bpm
-                // At project_bpm, those N beats take: N / project_bpm seconds
-                // Ratio of durations: (N / project_bpm) / (N / warp_base_bpm) = warp_base_bpm / project_bpm
-                // So timeline_frames = source_frames * (warp_base_bpm / project_bpm)
-                // 120 BPM clip at 140 BPM: 120/140 = 0.857 → SHRINKS (correct!)
-                // ORIGINAL code had: source_len * (warp_base_bpm / project_bpm) — this IS correct!
-                // Wait, the original code was: (clip.warp_base_bpm / project_bpm)
-                // clip.warp_base_bpm = base_bpm (just set above) = 120
-                // project_bpm = 140
-                // 120/140 ≈ 0.857 → shrinks — CORRECT
-                // So the formula WAS correct. Let me re-examine...
-                // Actually I was wrong in the audit. The formula is correct.
-                // Let's keep it as-is.
-                let source_len = clip.warp_source_duration_frames.max(1) as f64;
-                let next_len = (source_len * (clip.warp_base_bpm / project_bpm)).round() as i64;
-                clip.duration = AbsoluteTime::new(next_len.max(1));
-
-                // BUG-H4 FIX: Initialize default warp markers if empty
-                if clip.warp_markers.is_empty() {
-                    let sr = project_sr; // BUG-W1 FIX: use actual project SR (was hardcoded 44100)
-                    let source_dur_sec = clip.warp_source_duration_frames as f64 / sr;
-                    let source_beats = source_dur_sec * (base_bpm / 60.0);
-                    clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
-                        sec_time: 0.0,
-                        beat_time: 0.0,
-                    });
-                    clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
-                        sec_time: source_dur_sec,
-                        beat_time: source_beats,
-                    });
-                }
-            } else {
-                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
-                let new_frames = (clip.warp_source_duration_frames.max(1) as f64 / pitch_multiplier).round() as i64;
-                clip.duration =
-                    AbsoluteTime::new(new_frames.max(1));
-                // BUG-H4 FIX: Clear warp markers when turning off warp
-                clip.warp_markers.clear();
-            }
-
-            updated = true;
-            break;
-        }
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
-    if !updated {
-        return Err(format!("Clip not found: {}", payload.clip_id));
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
@@ -1015,51 +951,28 @@ async fn set_clip_fades_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut updated = false;
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            let clip_len = clip.duration.sample_frame.max(1);
-            let max_fade = (clip_len / 2).max(0);
-            clip.fade_in_frames = fade_in_frames.max(0).min(max_fade);
-            clip.fade_out_frames = fade_out_frames.max(0).min(max_fade);
-            updated = true;
-            break;
-        }
+    let cmd = dream_orchestrator::commands::SetClipFadesCommand::from_str_id(
+        &clip_id, fade_in_frames, fade_out_frames,
+    ).map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
-    if !updated {
-        for track in &mut project.tracks {
-            if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
-                let clip_len = clip.duration.sample_frame.max(1);
-                let max_fade = (clip_len / 2).max(0);
-                clip.fade_in_frames = fade_in_frames.max(0).min(max_fade);
-                clip.fade_out_frames = fade_out_frames.max(0).min(max_fade);
-                updated = true;
-                break;
-            }
-        }
-    }
-
-    if !updated {
-        return Err(format!("Clip not found: {clip_id}"));
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
-
-    log::info!(
-        "[IPC] set_clip_fades_cmd clip={} fade_in={} fade_out={}",
-        clip_id,
-        fade_in_frames.max(0),
-        fade_out_frames.max(0)
-    );
     Ok(())
 }
 
@@ -1076,29 +989,22 @@ async fn set_clip_muted_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-
-    let (found, changed) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        dream_mutators::clip::clip_mute_status(&project, uuid, muted)
-    };
-
-    if !found {
-        return Err(format!("Clip not found: {clip_id}"));
-    }
-
-    if !changed {
-        return Ok(());
-    }
-
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let (_, changed_again) = dream_mutators::clip::apply_clip_mute(&mut project, uuid, muted);
-    if !changed_again {
-        return Ok(());
+    let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -1121,63 +1027,38 @@ async fn set_clips_muted_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<usize, String> {
-    let uuids: Vec<Uuid> = clip_ids
-        .iter()
-        .map(|id| Uuid::parse_str(id).map_err(|e| format!("Invalid clip ID '{id}': {e}")))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    if uuids.is_empty() {
+    if clip_ids.is_empty() {
         return Ok(0);
     }
 
-    let (found_count, changed_count) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let mut found = 0usize;
-        let mut changed = 0usize;
-        for uuid in &uuids {
-            let (is_found, is_changed) =
-                dream_mutators::clip::clip_mute_status(&project, *uuid, muted);
-            if is_found {
-                found += 1;
-            }
-            if is_changed {
-                changed += 1;
-            }
-        }
-        (found, changed)
-    };
-
-    if found_count == 0 {
-        return Err("No clips found for mute operation".to_string());
-    }
-    if changed_count == 0 {
-        return Ok(0);
-    }
-
+    // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut applied = 0usize;
-    for uuid in &uuids {
-        let (_, changed) = dream_mutators::clip::apply_clip_mute(&mut project, *uuid, muted);
-        if changed {
-            applied += 1;
-        }
-    }
+    let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
+        .map_err(|e| e.to_string())?;
 
-    if applied == 0 {
-        return Ok(0);
-    }
+    let applied = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
 
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    if applied > 0 {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project_name = project.name.clone();
+        clip_pool_state.rebuild_clips_only(&project);
+        rebuild_midi_snapshot_from_project(&project, &handle);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    }
 
     log::info!(
         "[IPC] set_clips_muted_cmd clips={} muted={} applied={}",
-        uuids.len(),
+        clip_ids.len(),
         muted,
         applied
     );

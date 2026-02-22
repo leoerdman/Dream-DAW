@@ -122,6 +122,11 @@ struct PluginSandboxInstance {
     heartbeat_seq: u64,
     heartbeat_seen: bool,
     spawned_at: SystemTime,
+    /// LAZARUS PROTOCOL: Cached plugin state blob (base64) for crash recovery.
+    /// Updated periodically via SaveState/StateSaved handshake.
+    last_known_state_blob: Option<String>,
+    /// Tick counter for periodic state save requests.
+    ticks_since_last_save: u32,
 }
 
 struct DaemonSpawnSpec<'a> {
@@ -354,6 +359,8 @@ impl PluginSandboxSupervisor {
                 heartbeat_seq: 0,
                 heartbeat_seen: false,
                 spawned_at: SystemTime::now(),
+                last_known_state_blob: None,
+                ticks_since_last_save: 0,
             },
         );
         if let Some(inst) = self.instances.get_mut(&instance_id) {
@@ -384,7 +391,7 @@ impl PluginSandboxSupervisor {
         let mut bypass = Vec::new();
         let timeout = self.heartbeat_timeout();
         let now = SystemTime::now();
-        let max_auto_restarts: u32 = 1;
+        let max_auto_restarts: u32 = 3;
 
         for (id, instance) in &mut self.instances {
             if let Some(stdin) = instance.control_stdin.as_mut() {
@@ -395,6 +402,19 @@ impl PluginSandboxSupervisor {
                         seq: instance.heartbeat_seq,
                     },
                 );
+                // LAZARUS: Periodic state save every ~50 ticks (~5s at 100ms tick rate)
+                instance.ticks_since_last_save += 1;
+                if instance.ticks_since_last_save >= 50
+                    && matches!(instance.status, PluginSandboxStatus::Running)
+                {
+                    instance.ticks_since_last_save = 0;
+                    let _ = Self::send_control_message(
+                        stdin,
+                        &PluginHostControlMessage::SaveState {
+                            instance_id: *id,
+                        },
+                    );
+                }
             }
             if let Some(rx) = instance.event_rx.as_ref() {
                 loop {
@@ -429,6 +449,16 @@ impl PluginSandboxSupervisor {
                             PluginHostEventMessage::Loaded { .. }
                             | PluginHostEventMessage::EditorOpened { .. }
                             | PluginHostEventMessage::EditorClosed { .. } => {}
+                            PluginHostEventMessage::StateSaved {
+                                state_blob_b64, ..
+                            } => {
+                                instance.last_known_state_blob = Some(state_blob_b64);
+                                log::info!(
+                                    "[Lazarus] Cached state blob for plugin '{}' ({} bytes b64)",
+                                    instance.descriptor.name,
+                                    instance.last_known_state_blob.as_ref().map_or(0, |b| b.len())
+                                );
+                            }
                         },
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) => break,
@@ -474,7 +504,32 @@ impl PluginSandboxSupervisor {
                                     instance.spawned_at = SystemTime::now();
                                     instance.bypass_requested = false;
                                     let _ = Self::prime_instance_protocol(*id, instance);
-                                    continue;
+                                // LAZARUS: Restore cached state after respawn
+                                if let Some(ref state_blob) = instance.last_known_state_blob {
+                                    if let Some(ref mut stdin) = instance.control_stdin {
+                                        let _ = Self::send_control_message(
+                                            stdin,
+                                            &PluginHostControlMessage::RestoreState {
+                                                instance_id: *id,
+                                                state_blob_b64: state_blob.clone(),
+                                            },
+                                        );
+                                        log::info!(
+                                            "[Lazarus] Restored state for '{}' after crash restart #{}",
+                                            instance.descriptor.name,
+                                            instance.restart_count
+                                        );
+                                    }
+                                }
+                                self.crash_events.push(PluginCrashEvent {
+                                    instance_id: *id,
+                                    plugin_name: instance.descriptor.name.clone(),
+                                    plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                                    reason: instance.last_error.clone().unwrap_or_else(|| "process exited".to_string()),
+                                    crash_count: instance.crash_count,
+                                    auto_restarted: true,
+                                });
+                                continue;
                                 }
                                 Err(err) => {
                                     instance.last_error =
@@ -551,6 +606,31 @@ impl PluginSandboxSupervisor {
                                         timeout.as_millis()
                                     ));
                                     let _ = Self::prime_instance_protocol(*id, instance);
+                                    // LAZARUS: Restore cached state after timeout restart
+                                    if let Some(ref state_blob) = instance.last_known_state_blob {
+                                        if let Some(ref mut stdin) = instance.control_stdin {
+                                            let _ = Self::send_control_message(
+                                                stdin,
+                                                &PluginHostControlMessage::RestoreState {
+                                                    instance_id: *id,
+                                                    state_blob_b64: state_blob.clone(),
+                                                },
+                                            );
+                                            log::info!(
+                                                "[Lazarus] Restored state for '{}' after timeout restart #{}",
+                                                instance.descriptor.name,
+                                                instance.restart_count
+                                            );
+                                        }
+                                    }
+                                    self.crash_events.push(PluginCrashEvent {
+                                        instance_id: *id,
+                                        plugin_name: instance.descriptor.name.clone(),
+                                        plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                                        reason: instance.last_error.clone().unwrap_or_else(|| "heartbeat timeout".to_string()),
+                                        crash_count: instance.crash_count,
+                                        auto_restarted: true,
+                                    });
                                     continue;
                                 }
                                 Err(err) => {
@@ -822,6 +902,8 @@ mod tests {
                 heartbeat_seq: 0,
                 heartbeat_seen: false,
                 spawned_at: SystemTime::now(),
+                last_known_state_blob: None,
+                ticks_since_last_save: 0,
             },
         );
         sup.mark_heartbeat(id);

@@ -23,7 +23,6 @@
 
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void};
-use std::path::{Path, PathBuf};
 use std::ptr;
 
 use log::info;
@@ -33,6 +32,8 @@ use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::sandbox_instance::SandboxedPluginInstance;
+use crate::vst3::com_abi::{IPluginFactory, PClassInfo};
+use crate::vst3::factory::resolve_vst3_binary;
 
 #[cfg(target_os = "macos")]
 use cocoa::appkit::{
@@ -1031,37 +1032,6 @@ struct FUnknownVtbl {
     add_ref: unsafe extern "C" fn(*mut FUnknown) -> u32,
     release: unsafe extern "C" fn(*mut FUnknown) -> u32,
 }
-
-#[repr(C)]
-struct PClassInfo {
-    cid: Tuid,
-    cardinality: i32,
-    category: [c_char; 32],
-    name: [c_char; 64],
-}
-
-#[repr(C)]
-struct IPluginFactory {
-    vtbl: *const IPluginFactoryVtbl,
-}
-
-#[repr(C)]
-struct IPluginFactoryVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IPluginFactory, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
-    release: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
-    get_factory_info: unsafe extern "C" fn(*mut IPluginFactory, *mut c_void) -> Tresult,
-    count_classes: unsafe extern "C" fn(*mut IPluginFactory) -> i32,
-    get_class_info: unsafe extern "C" fn(*mut IPluginFactory, i32, *mut PClassInfo) -> Tresult,
-    create_instance: unsafe extern "C" fn(
-        *mut IPluginFactory,
-        *const Tuid,
-        *const c_char,
-        *mut *mut c_void,
-    ) -> Tresult,
-}
-
 
 #[repr(C)]
 struct IComponent {
@@ -2495,105 +2465,6 @@ mod cf_bundle {
 
 #[cfg(target_os = "macos")]
 use cf_bundle::{CFBundleRefGuard, create_cf_bundle_ref};
-
-/// Resolves the native binary path inside a VST3 bundle.
-///
-/// VST3 bundles on macOS are structured as:
-/// ```text
-/// MyPlugin.vst3/
-/// └── Contents/
-///     ├── Info.plist
-///     ├── MacOS/
-///     │   └── MyPlugin       ← native dylib
-///     └── Resources/
-///         └── moduleinfo.json
-/// ```
-///
-/// On Linux, the structure uses `x86_64-linux/` subdirectory.
-fn resolve_vst3_binary(bundle_path: &Path) -> Option<PathBuf> {
-    let stem = bundle_path.file_stem()?.to_str()?;
-
-    // macOS: Contents/MacOS/<stem>
-    #[cfg(target_os = "macos")]
-    {
-        let binary = bundle_path.join("Contents").join("MacOS").join(stem);
-        if binary.exists() {
-            return Some(binary);
-        }
-
-        // Fallback: some vendors ship a different executable name than bundle stem.
-        // Prefer likely matches by stem, then any executable file.
-        let macos_dir = bundle_path.join("Contents").join("MacOS");
-        if let Ok(entries) = std::fs::read_dir(&macos_dir) {
-            let mut files: Vec<PathBuf> = entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .collect();
-            files.sort();
-
-            let stem_lower = stem.to_ascii_lowercase();
-            if let Some(p) = files.iter().find(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.eq_ignore_ascii_case(stem))
-                    .unwrap_or(false)
-            }) {
-                return Some(p.clone());
-            }
-            if let Some(p) = files.iter().find(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.to_ascii_lowercase().starts_with(&stem_lower))
-                    .unwrap_or(false)
-            }) {
-                return Some(p.clone());
-            }
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Some(p) = files.iter().find(|p| {
-                    std::fs::metadata(p)
-                        .map(|m| (m.permissions().mode() & 0o111) != 0)
-                        .unwrap_or(false)
-                }) {
-                    return Some(p.clone());
-                }
-            }
-
-            if let Some(p) = files.first() {
-                return Some(p.clone());
-            }
-        }
-    }
-
-    // Linux: Contents/x86_64-linux/<stem>.so
-    #[cfg(target_os = "linux")]
-    {
-        let binary = bundle_path
-            .join("Contents")
-            .join("x86_64-linux")
-            .join(format!("{stem}.so"));
-        if binary.exists() {
-            return Some(binary);
-        }
-    }
-
-    // Windows: Contents/x86_64-win/<stem>.vst3
-    #[cfg(target_os = "windows")]
-    {
-        let binary = bundle_path
-            .join("Contents")
-            .join("x86_64-win")
-            .join(format!("{stem}.vst3"));
-        if binary.exists() {
-            return Some(binary);
-        }
-    }
-
-    None
-}
 
 // ── VST3 Instance ─────────────────────────────────────────────────────
 
@@ -5493,6 +5364,7 @@ impl PluginHost {
 mod tests {
     use super::*;
     use crate::format::PluginCategory;
+    use std::path::PathBuf;
 
     fn make_test_descriptor() -> PluginDescriptor {
         PluginDescriptor::new(

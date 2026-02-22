@@ -378,9 +378,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
                     if (clipsAtPlayhead.length === 0) return;
                     // Sequential split: prevents stale-state races from parallel backend calls
+                    const batchedDeltas: engine.ProjectDelta[] = [];
                     for (const clip of clipsAtPlayhead) {
-                        await engine.splitClip(clip.id, splitFrame);
+                        const response = await engine.splitClipWithDeltas(clip.id, splitFrame);
+                        batchedDeltas.push(...response.deltas);
                     }
+                    await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-split');
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Split clip failed:', err);
@@ -541,7 +544,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                             const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
                             const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                             const targetTrack = Math.max(0, Math.min(projectTracks.length - 1, clip.trackIndex + trackDelta));
-                            await engine.moveClip(results[i].new_id, targetTrack, destFrames);
+                            const response = await engine.moveClipWithDeltas(results[i].new_id, targetTrack, destFrames);
+                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-move');
                         }
 
                         onProjectMutated();

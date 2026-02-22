@@ -826,17 +826,45 @@ export interface MergeClipsResponse {
     new_id: string;
 }
 
+export type ProjectDelta =
+    | { kind: 'ClipMoved'; data: { clip_id: string; old_track_index: number; new_track_index: number; new_position: number } }
+    | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number } }
+    | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
+    | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }
+    | { kind: 'ClipMuteChanged'; data: { clip_id: string; muted: boolean } }
+    | { kind: 'FullRefreshRequired' };
+
+export interface DeltaMutationResponse {
+    deltas: ProjectDelta[];
+}
+
+export interface SplitClipWithDeltasResponse extends SplitClipResponse {
+    deltas: ProjectDelta[];
+}
+
 /** Move a clip to a new track and/or position (sample frames). */
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
+
+/** Move clip and return ProjectDelta events for incremental state updates. */
+export const moveClipWithDeltas = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
+    invoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
 
 /** Resize a clip to a new position and duration (sample frames). */
 export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
     invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames });
 
+/** Resize clip and return ProjectDelta events for incremental state updates. */
+export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
+    invoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames });
+
 /** Split a clip at the given sample frame. Returns IDs of both halves. */
 export const splitClip = (clipId: string, splitFrame: number) =>
     invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
+
+/** Split a clip and return IDs + ProjectDelta events. */
+export const splitClipWithDeltas = (clipId: string, splitFrame: number) =>
+    invoke<SplitClipWithDeltasResponse>('split_clip_with_deltas_cmd', { clipId, splitFrame });
 
 /** Duplicate a clip (optionally to a specific destination frame). */
 export const duplicateClip = (clipId: string, newPositionFrames?: number) =>

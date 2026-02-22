@@ -25,6 +25,7 @@ pub mod sandbox_instance;
 pub mod sandbox_ipc;
 pub mod scanner;
 pub mod shared_memory;
+pub mod vst3;
 pub mod vst2_host;
 #[cfg(target_os = "macos")]
 extern crate objc;

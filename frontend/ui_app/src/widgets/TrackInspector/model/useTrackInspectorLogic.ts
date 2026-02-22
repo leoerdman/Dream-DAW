@@ -383,11 +383,15 @@ export function useTrackInspectorLogic({
 
     const applyTrackHeightOptimistic = useCallback((trackId: string, height: number) => {
         if (!trackId || trackId === 'master') return;
-        useEngineStore.setState((state) => ({
-            projectTracks: state.projectTracks.map((track) => (
+        useEngineStore.setState((state) => {
+            const nextTracks = state.projectTracks.map((track) =>
                 track.id === trackId ? { ...track, height } : track
-            )),
-        }));
+            );
+            return {
+                projectTracks: nextTracks,
+                tracksById: Object.fromEntries(nextTracks.map(t => [t.id, t])),
+            };
+        });
     }, []);
 
     // ── Context Menu handlers ───────────────────────────────────────

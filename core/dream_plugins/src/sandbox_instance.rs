@@ -13,7 +13,9 @@
 // IPC control channel as a fallback.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 
 use uuid::Uuid;
 
@@ -31,15 +33,29 @@ use crate::shared_memory::{
 pub struct SandboxedPluginInstance {
     id: Uuid,
     descriptor: PluginDescriptor,
-    active: bool,
-    transport: TransportContext,
-    latency_samples: u32,
-    supports_editor: bool,
     shared_region: SharedAudioBufferRegion,
+    active: bool,
+    /// Transport context snapshot forwarded by the audio engine each render cycle.
+    transport: TransportContext,
+    /// Plugin-reported latency for host PDC (plugin delay compensation).
+    latency_samples: u32,
+    /// Whether this plugin supports opening a GUI editor window.
+    supports_editor: bool,
     request_seq: u32,
     /// Channel to send IPC control messages to the daemon (for overflow MIDI, params, etc.)
     ipc_sender: Option<mpsc::Sender<PluginHostControlMessage>>,
+    /// LAZARUS PROTOCOL: Atomic crash flag set by the supervisor.
+    /// The audio thread checks this without taking any lock.
+    /// Arc-shared with the supervisor so it can set it from another thread.
+    pub is_crashed: Arc<AtomicBool>,
+    /// LAZARUS PROTOCOL: Bypass ramp counter (smooths audio transition).
+    /// When recovering from crash, starts at BYPASS_RAMP_SAMPLES and
+    /// counts down to 0. Output is multiplied by (remaining / BYPASS_RAMP_SAMPLES).
+    bypass_ramp_remaining: u32,
 }
+
+/// Number of samples over which to ramp bypass→active after crash recovery.
+const BYPASS_RAMP_SAMPLES: u32 = 64;
 
 impl SandboxedPluginInstance {
     pub fn create(
@@ -60,13 +76,15 @@ impl SandboxedPluginInstance {
         Ok(Self {
             id,
             descriptor,
+            shared_region,
             active: false,
             transport: TransportContext::default(),
             latency_samples: 0,
             supports_editor: false,
-            shared_region,
             request_seq: 0,
             ipc_sender: None,
+            is_crashed: Arc::new(AtomicBool::new(false)),
+            bypass_ramp_remaining: 0,
         })
     }
 
@@ -221,13 +239,19 @@ impl PluginInstance for SandboxedPluginInstance {
             ));
         }
 
+        // LAZARUS PROTOCOL: Zero-lock crash check via atomic flag.
+        // If crashed, immediately passthrough — no blocking, no allocation.
+        if self.is_crashed.load(Ordering::Relaxed) {
+            return self.pass_through(inputs, outputs, num_frames);
+        }
+
         // Forward MIDI via shared memory (zero-allocation for ≤4 events)
         self.forward_midi_events(midi_events);
 
         // Read previous block's output BEFORE writing new inputs (1-block latency model)
         self.read_daemon_output(outputs, num_frames, inputs)?;
 
-        // Write inputs for daemon consumption (for the NEXT block)
+        // Submit inputs for daemon consumption (for the NEXT block)
         self.submit_inputs_to_daemon(
             inputs.iter().enumerate().map(|(ch, s)| (ch, *s)),
             num_frames,

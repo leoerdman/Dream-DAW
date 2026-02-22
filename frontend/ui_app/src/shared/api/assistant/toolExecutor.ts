@@ -458,7 +458,8 @@ async function executeToolInner(
             const fpbMove = (60.0 / (stMove.projectBpm || stMove.transport.bpm || 120)) * (resolveSampleRate(stMove.projectSampleRate));
             const posFrames = Math.round(newPositionBeats * fpbMove);
 
-            await engineApi.moveClip(clipId, newTrackIndex, posFrames);
+            const response = await engineApi.moveClipWithDeltas(clipId, newTrackIndex, posFrames);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-move-clip');
             return JSON.stringify({ success: true, clipId, newTrackIndex, newPositionBeats });
         }
 
@@ -480,7 +481,8 @@ async function executeToolInner(
             const stSplit = useEngineStore.getState();
             const fpbSplit = (60.0 / (stSplit.projectBpm || stSplit.transport.bpm || 120)) * (resolveSampleRate(stSplit.projectSampleRate));
             const splitFrames = Math.round(splitBeat * fpbSplit);
-            const result = await engineApi.splitClip(clipId, splitFrames);
+            const result = await engineApi.splitClipWithDeltas(clipId, splitFrames);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-split-clip');
             return JSON.stringify({ success: true, originalClipId: clipId, leftId: result.left_id, rightId: result.right_id });
         }
 
@@ -1024,7 +1026,8 @@ async function executeToolInner(
             const fpb = (60.0 / bpmVal) * srVal;
             const newPosFrames = Math.round((args.newStartBeat as number) * fpb);
             const newDurFrames = Math.round((args.newDurationBeats as number) * fpb);
-            await engineApi.resizeClip(args.clipId as string, newPosFrames, newDurFrames);
+            const response = await engineApi.resizeClipWithDeltas(args.clipId as string, newPosFrames, newDurFrames);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-resize-clip');
             return JSON.stringify({ success: true, clipId: args.clipId, newStartBeat: args.newStartBeat, newDurationBeats: args.newDurationBeats });
         }
 

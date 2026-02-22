@@ -29,7 +29,7 @@ use dream_graph::{
     NodeId, NodeKind,
 };
 use dream_plugins::{MidiEvent, TransportContext};
-use log::{error, info, warn};
+use log::{error, info};
 use uuid::Uuid;
 
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
@@ -45,6 +45,14 @@ use dream_models::project::AudioClip;
 
 use crate::render_callback::{RenderContext, MAX_TRACKS, MAX_BUFFER_FRAMES};
 use crate::sampler::{AdsrParams, SamplerEngine, SampleRackEngine, Waveform};
+#[path = "driver/cpal_backend.rs"]
+mod cpal_backend;
+#[path = "driver/midi_dispatcher.rs"]
+mod midi_dispatcher;
+use cpal_backend::resolve_output_setup;
+use midi_dispatcher::{
+    ActiveMappedNote, MidiNoteMapState, Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale,
+};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 
@@ -1267,146 +1275,6 @@ const TEST_TONE_AMPLITUDE: f32 = 0.25;
 /// AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent
 /// coefficient computed at usage site (see AUD-010 fix).
 
-#[derive(Clone)]
-struct MidiNoteMapState {
-    active_notes: Vec<ActiveMappedNote>,
-    rng_state: u32,
-}
-
-#[derive(Clone, Copy)]
-struct ActiveMappedNote {
-    uid: u64,
-    _src_pitch: u8,
-    mapped_pitch: u8,
-}
-
-/// AUD-051 FIX: Document RNG seed — xorshift32 requires a non-zero odd seed.
-/// Value 0xA5A5_1337 chosen for good bit distribution and non-zero guarantee.
-impl Default for MidiNoteMapState {
-    fn default() -> Self {
-        Self {
-            active_notes: Vec::with_capacity(128), // AUD-071 FIX: 128 is max polyphony, not 256
-            rng_state: 0xA5A5_1337, // xorshift32 seed (must be non-zero)
-        }
-    }
-}
-
-/// Per-track active note tracker for VST3 plugins.
-///
-/// Unlike the sampler engine which has its own voice management,
-/// VST3 plugins need explicit note-off tracking so we can flush
-/// all active notes on transport stop/seek.
-#[derive(Clone)]
-struct Vst3NoteTracker {
-    /// Active notes: (mapped_pitch, channel) pairs currently held.
-    active: Vec<(u8, u8)>,
-    /// RNG state for random MIDI FX (xorshift32, same algorithm as sampler path).
-    rng_state: u32,
-}
-
-impl Default for Vst3NoteTracker {
-    fn default() -> Self {
-        Self {
-            active: Vec::with_capacity(128),
-            // AUD-052 FIX: Document different seed — xorshift32 seeds differ
-            // per-tracker so two tracks with identical MIDI FX don't produce
-            // the same "random" pitch sequence.
-            rng_state: 0xB7B7_CAFE, // xorshift32 seed (must be non-zero, distinct from sampler)
-        }
-    }
-}
-
-impl Vst3NoteTracker {
-    /// Register an active note-on. Prevents duplicates by
-    /// releasing the previous instance of the same pitch first.
-    /// Returns an optional note-off event if a duplicate was found.
-    fn note_on(&mut self, pitch: u8, channel: u8) -> Option<MidiEvent> {
-        // Duplicate protection: if same pitch is already active, release it first.
-        if let Some(pos) = self.active.iter().position(|&(p, c)| p == pitch && c == channel) {
-            self.active.swap_remove(pos);
-            // Return a note-off for the duplicate so the plugin can clean up.
-            Some(MidiEvent::note_off(0, channel, pitch, 0))
-        } else {
-            None
-        }
-        // Push is done by the caller after sending the note-on.
-        // BUG-S1-06 FIX: Caller must check capacity via can_push() before pushing.
-    }
-
-    /// BUG-S1-06 FIX: Guard against unbounded growth. 256 simultaneous
-    /// notes per track is already beyond any legitimate polyphony.
-    /// Without this, a stuck VST3 or rapid seek could leak entries forever.
-    #[inline]
-    fn can_push(&self) -> bool {
-        self.active.len() < 256
-    }
-
-    /// Register a note-off — remove from active tracking.
-    fn note_off(&mut self, pitch: u8, channel: u8) {
-        if let Some(pos) = self.active.iter().position(|&(p, c)| p == pitch && c == channel) {
-            self.active.swap_remove(pos);
-        }
-    }
-
-    /// Flush all active notes: generates note-off events for every
-    /// currently active note + CC 120 (All Sound Off) + CC 123 (All Notes Off)
-    /// on ALL channels that had active notes.
-    /// CC120 immediately kills ALL audio output including reverb
-    /// and delay tails — essential for synths like Serum with internal FX.
-    fn flush_all(&mut self, out: &mut Vec<MidiEvent>) {
-        // AUD-011 FIX: Collect unique channels to send CC on all active channels,
-        // not just channel 0. Notes on channel 1+ would be missed by a channel-0-only flush.
-        let mut seen_channels = 0u16; // bitmask of channels 0-15
-        for &(pitch, channel) in &self.active {
-            out.push(MidiEvent::note_off(0, channel, pitch, 0));
-            seen_channels |= 1u16 << (channel as u16 & 0x0F);
-        }
-        self.active.clear();
-        // Always include channel 0 even if no notes were on it.
-        seen_channels |= 1;
-        for ch in 0..16u8 {
-            if (seen_channels & (1u16 << ch)) != 0 {
-                // CC 120 = All Sound Off — immediately silences all audio,
-                // including synth tails, reverbs, and delays (enterprise standard).
-                out.push(MidiEvent::cc(0, ch, 120, 0));
-                // CC 123 = All Notes Off — releases all held notes.
-                out.push(MidiEvent::cc(0, ch, 123, 0));
-            }
-        }
-    }
-
-}
-
-#[inline]
-fn clamp_midi_pitch(v: i16) -> u8 {
-    v.clamp(0, 127) as u8
-}
-
-#[inline]
-fn quantize_to_scale(pitch: u8, root: u8, mask: u16) -> u8 {
-    let mask = if mask == 0 { 0x0FFF } else { mask };
-    let base_oct = (pitch / 12) as i16;
-    let root = (root % 12) as i16;
-
-    let mut best_pitch = pitch as i16;
-    let mut best_dist = i16::MAX;
-    for degree in 0..12i16 {
-        if (mask & (1u16 << degree)) == 0 {
-            continue;
-        }
-        let target = (root + degree).rem_euclid(12);
-        for oct_off in [-1i16, 0, 1] {
-            let cand = ((base_oct + oct_off) * 12 + target).clamp(0, 127);
-            let dist = (cand - pitch as i16).abs();
-            if dist < best_dist {
-                best_dist = dist;
-                best_pitch = cand;
-            }
-        }
-    }
-    clamp_midi_pitch(best_pitch)
-}
-
 // ── Audio Stream Handle ─────────────────────────────────────────────────
 
 /// Holds the live cpal stream. Dropping this stops audio output.
@@ -1553,105 +1421,13 @@ pub fn start_audio_thread_on_device(
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
-    // ── 1. Host & Device ────────────────────────────────────────────
-    let host = cpal::default_host();
-    info!("Audio host: {:?}", host.id());
-
-    let requested_device_name = preferred_output_device.map(str::trim).filter(|s| !s.is_empty());
-
-    let device = if let Some(wanted_name) = requested_device_name {
-        if wanted_name.eq_ignore_ascii_case("Default Output") {
-            host.default_output_device()
-                .ok_or(AudioDriverError::NoOutputDevice)?
-        } else {
-            let mut found = None;
-            if let Ok(mut outputs) = host.output_devices() {
-                found = outputs.find(|dev| {
-                    dev.description()
-                        .map(|d| d.name().to_string())
-                        .ok()
-                        .as_deref()
-                        == Some(wanted_name)
-                });
-            }
-            found
-                .or_else(|| {
-                    warn!(
-                        "Requested output device '{}' not found; falling back to system default",
-                        wanted_name
-                    );
-                    host.default_output_device()
-                })
-                .ok_or(AudioDriverError::NoOutputDevice)?
-        }
-    } else {
-        host.default_output_device()
-            .ok_or(AudioDriverError::NoOutputDevice)?
-    };
-
-    let device_name = device
-        .description()
-        .map(|d| d.name().to_string())
-        .unwrap_or_else(|_| String::from("Unknown Device"));
-
-    if let Some(wanted) = requested_device_name
-        && !wanted.eq_ignore_ascii_case("Default Output")
-        && wanted != device_name
-    {
-        warn!(
-            "Output device '{}' resolved to '{}'",
-            wanted, device_name
-        );
-    }
-
-    info!("Output device: {}", device_name);
-
-    // ── 2. Config ───────────────────────────────────────────────────
-    let default_config = device
-        .default_output_config()
-        .map_err(|e| AudioDriverError::DefaultConfigError(e.to_string()))?;
-
-    let supported_config = if default_config.sample_format() == cpal::SampleFormat::F32 {
-        default_config
-    } else {
-        let fallback = device
-            .supported_output_configs()
-            .ok()
-            .and_then(|mut ranges| {
-                ranges.find_map(|range| {
-                    if range.sample_format() != cpal::SampleFormat::F32 {
-                        return None;
-                    }
-                    let desired_rate = default_config.sample_rate();
-                    let clamped_rate = desired_rate
-                        .clamp(range.min_sample_rate(), range.max_sample_rate());
-                    Some(range.with_sample_rate(clamped_rate))
-                })
-            });
-
-        if let Some(cfg) = fallback {
-            warn!(
-                "Default output sample format {:?} unsupported by engine, using f32 fallback",
-                default_config.sample_format()
-            );
-            cfg
-        } else {
-            return Err(AudioDriverError::DefaultConfigError(format!(
-                "No f32 output stream config available for device '{}'. Current engine supports f32 output only.",
-                device_name
-            )));
-        }
-    };
-
-    let sample_format = supported_config.sample_format();
-    let sample_rate = supported_config.sample_rate();
-    let channels = supported_config.channels() as usize;
-    let config: cpal::StreamConfig = supported_config.into();
-
-    info!(
-        "Stream config: {:?}, {}ch, {:?}",
-        sample_rate, channels, sample_format
-    );
+    let output_setup = resolve_output_setup(preferred_output_device)?;
+    let device = output_setup.device;
+    let device_name = output_setup.device_name;
+    let sample_format = output_setup.sample_format;
+    let sample_rate = output_setup.sample_rate;
+    let channels = output_setup.channels;
+    let config = output_setup.config;
 
     // ── 3. Build RenderContext ──────────────────────────────────────
     // cpal 0.17: sample_rate() returns u32 directly

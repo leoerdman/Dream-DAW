@@ -158,6 +158,7 @@ export const DawShell = () => {
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
     const fetchProject = useEngineStore(s => s.fetchProject);
+    const applyProjectDeltas = useEngineStore(s => s.applyProjectDeltas);
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
@@ -1025,11 +1026,15 @@ export const DawShell = () => {
     const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {
         if (trackIds.length === 0) return;
         const idSet = new Set(trackIds);
-        useEngineStore.setState((state) => ({
-            projectTracks: state.projectTracks.map((track) => (
+        useEngineStore.setState((state) => {
+            const nextTracks = state.projectTracks.map((track) =>
                 idSet.has(track.id) ? { ...track, height } : track
-            )),
-        }));
+            );
+            return {
+                projectTracks: nextTracks,
+                tracksById: Object.fromEntries(nextTracks.map(t => [t.id, t])),
+            };
+        });
     }, []);
 
     // Option(Alt)+Wheel: adjust selected track height.
@@ -1283,7 +1288,8 @@ export const DawShell = () => {
 
         const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
             const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sr);
-            await engineApi.moveClip(id, targetTrack, positionFrames);
+            const response = await engineApi.moveClipWithDeltas(id, targetTrack, positionFrames);
+            await applyProjectDeltas(response.deltas, 'clip-move');
         };
 
         const run = async () => {
@@ -1317,7 +1323,6 @@ export const DawShell = () => {
                     newStartBeat,
                     mode: moveAsGroup ? 'group' : 'single',
                 });
-                scheduleProjectRefresh('clip-move');
             })
             .catch(err => {
                 console.error('[DawShell] moveClip failed:', err);
@@ -1325,7 +1330,7 @@ export const DawShell = () => {
                     `Clip move failed: ${err instanceof Error ? err.message : String(err)}`
                 );
             });
-    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCountRaw]);
+    }, [projectBpm, transportBpm, projectSampleRate, timelineClipsForView, selectedClipIds, trackCountRaw, applyProjectDeltas]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
@@ -1334,10 +1339,10 @@ export const DawShell = () => {
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sr);
         const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sr));
 
-        engineApi.resizeClip(clipId, newPositionFrames, newDurationFrames)
-            .then(() => {
+        engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames)
+            .then(async (response) => {
+                await applyProjectDeltas(response.deltas, 'clip-resize');
                 console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
-                scheduleProjectRefresh('clip-resize');
             })
             .catch(err => {
                 console.error('[DawShell] resizeClip failed:', err);
@@ -1345,7 +1350,7 @@ export const DawShell = () => {
                     `Clip resize failed: ${err instanceof Error ? err.message : String(err)}`
                 );
             });
-    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh]);
+    }, [projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         engineApi.setClipFades(

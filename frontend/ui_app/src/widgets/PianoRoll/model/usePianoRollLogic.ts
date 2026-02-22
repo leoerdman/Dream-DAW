@@ -22,8 +22,6 @@ import {
     MIN_NOTE_HEIGHT,
     MIN_PPB,
     OCTAVE_LABEL_OFFSET,
-    ROOT_NOTES,
-    RULER_HEIGHT,
     TOTAL_KEYS,
     VELOCITY_LANE_HEIGHT,
     LOWEST_PITCH,
@@ -1601,13 +1599,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
     }, [clipBeats, beatsPerBar]);
 
 
-    // Clip duration label
-    const clipDurationLabel = useMemo(() => {
-        const bars = Math.floor(clipBeats / beatsPerBar);
-        const remainBeats = Math.round((clipBeats % beatsPerBar) * 100) / 100;
-        if (remainBeats > 0) return `${bars}.${remainBeats}`;
-        return `${bars} bar${bars !== 1 ? 's' : ''}`;
-    }, [clipBeats, beatsPerBar]);
 
     return {
         // Refs
@@ -1637,7 +1628,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
         canvasWidth, canvasHeight,
         visiblePitches, pitchRowIndex, scaleSet,
         gridLines, rulerBeatLabels, pianoKeys,
-        pluginGroupedRows: undefined, // not used
         currentGridInterval, beatsPerBar,
         clipDurationLabel,
         // Callbacks
@@ -1655,8 +1645,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         notes, ghostNotes, color, timeSignature,
         onNotesChange, onGenerateVariation, aiVariationBusy,
         trackIndex, clipStartBeat,
-        snapBeat, pianoPencilMode,
+        snapBeat, pianoPencilMode, snapEnabled,
         gridDivision, gridTriplet, setGridDivision,
-        snapEnabled: useGridStore((s) => s.snapEnabled),
     };
 }

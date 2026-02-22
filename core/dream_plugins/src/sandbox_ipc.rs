@@ -43,6 +43,18 @@ pub enum PluginHostControlMessage {
         instance_id: Uuid,
         events: Vec<(i32, u8, [u8; 3])>,
     },
+    /// LAZARUS PROTOCOL: Request daemon to serialize and return plugin state.
+    /// The daemon responds with PluginHostEventMessage::StateSaved.
+    SaveState {
+        instance_id: Uuid,
+    },
+    /// LAZARUS PROTOCOL: Restore a previously cached state blob after daemon respawn.
+    /// The `state_blob` is the exact byte sequence returned by a previous StateSaved.
+    RestoreState {
+        instance_id: Uuid,
+        /// Base64-encoded plugin state binary.
+        state_blob_b64: String,
+    },
     Shutdown,
 }
 
@@ -86,5 +98,12 @@ pub enum PluginHostEventMessage {
     },
     HeartbeatAck {
         seq: u64,
+    },
+    /// LAZARUS PROTOCOL: Daemon returns serialized plugin state (base64-encoded).
+    /// Host caches this for use in RestoreState after respawn.
+    StateSaved {
+        instance_id: Uuid,
+        /// Base64-encoded plugin state binary.
+        state_blob_b64: String,
     },
 }

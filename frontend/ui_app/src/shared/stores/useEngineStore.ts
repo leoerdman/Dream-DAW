@@ -23,6 +23,7 @@ import type {
     MeteringSnapshot,
     ImportAudioResponse,
     ProjectHistoryEvent,
+    ProjectDelta,
     PluginSandboxSnapshot,
     PluginCrashEvent,
 } from '@/shared/api/engine';
@@ -211,6 +212,12 @@ interface EngineStore {
     /** Track metadata from project. */
     projectTracks: ProjectTrack[];
 
+    /** O(1) indexed lookup: track.id → ProjectTrack. Built alongside projectTracks. */
+    tracksById: Record<string, ProjectTrack>;
+
+    /** O(1) indexed lookup: clip.id → TimelineClip. Built alongside timelineClips. */
+    clipsById: Record<string, TimelineClip>;
+
     /** Project sample rate (for beat conversion). */
     projectSampleRate: number;
 
@@ -293,6 +300,9 @@ interface EngineStore {
     /** Create an empty MIDI clip on a track at a given position. */
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
 
+    /** Apply backend ProjectDelta events to local normalized clip/track state. */
+    applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
+
     /** Fetch project state from Rust and convert to timeline format. */
     fetchProject: (reason?: string) => Promise<void>;
     /** Incrementally sync project history journal without full project fetch. */
@@ -357,6 +367,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     meters: { ...DEFAULT_METERS },
     timelineClips: [],
     projectTracks: [],
+    tracksById: {},
+    clipsById: {},
     projectSampleRate: 44100,
     projectBpm: 120,
     keySigEnabled: false,
@@ -544,15 +556,18 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     },
 
     setTrackMute: async (trackIndex: number, muted: boolean) => {
-        // Optimistic update — UI reflects state instantly.
-        // PERF-FIX: No fetchProject() — this only toggles a boolean.
-        // The backend persists via EngineCommand; full project re-fetch
-        // was causing heavy Mutex lock + JSON serialization on every click.
-        set((s) => ({
-            projectTracks: s.projectTracks.map((t, i) =>
-                i === trackIndex ? { ...t, is_mute: muted } : t
-            ),
-        }));
+        // Optimistic O(1) update — no .map() over entire array.
+        set((s) => {
+            const track = s.projectTracks[trackIndex];
+            if (!track || track.is_mute === muted) return s;
+            const updated = { ...track, is_mute: muted };
+            const nextTracks = [...s.projectTracks];
+            nextTracks[trackIndex] = updated;
+            return {
+                projectTracks: nextTracks,
+                tracksById: { ...s.tracksById, [track.id]: updated },
+            };
+        });
         try {
             await engine.setTrackMute(trackIndex, muted);
             set({ lastError: null });
@@ -562,13 +577,18 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     },
 
     setTrackSolo: async (trackIndex: number, soloed: boolean) => {
-        // Optimistic update — UI reflects state instantly.
-        // PERF-FIX: No fetchProject() — this only toggles a boolean.
-        set((s) => ({
-            projectTracks: s.projectTracks.map((t, i) =>
-                i === trackIndex ? { ...t, is_solo: soloed } : t
-            ),
-        }));
+        // Optimistic O(1) update — no .map() over entire array.
+        set((s) => {
+            const track = s.projectTracks[trackIndex];
+            if (!track || track.is_solo === soloed) return s;
+            const updated = { ...track, is_solo: soloed };
+            const nextTracks = [...s.projectTracks];
+            nextTracks[trackIndex] = updated;
+            return {
+                projectTracks: nextTracks,
+                tracksById: { ...s.tracksById, [track.id]: updated },
+            };
+        });
         try {
             await engine.setTrackSolo(trackIndex, soloed);
             set({ lastError: null });
@@ -653,6 +673,76 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.error(`[Engine] ${msg}`);
             set({ lastError: msg });
         }
+    },
+
+    applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
+        if (!Array.isArray(deltas) || deltas.length === 0) return;
+
+        const needsRefresh = deltas.some((d) => d.kind === 'FullRefreshRequired' || d.kind === 'ClipSplit');
+        if (needsRefresh) {
+            await get().fetchProject(`${reason}-full-refresh`);
+            return;
+        }
+
+        set((s) => {
+            const bpm = s.projectBpm || s.transport.bpm || 120;
+            const sr = resolveSampleRate(s.projectSampleRate, s.transport.sample_rate);
+            let timelineClips = s.timelineClips;
+            let clipsById = s.clipsById;
+            let changed = false;
+
+            for (const delta of deltas) {
+                if (delta.kind === 'ClipMoved') {
+                    const clip = clipsById[delta.data.clip_id];
+                    if (!clip) continue;
+                    const nextClip: TimelineClip = {
+                        ...clip,
+                        trackIndex: delta.data.new_track_index,
+                        startBeat: frameToBeat(delta.data.new_position, bpm, sr),
+                    };
+                    timelineClips = timelineClips.map((c) => (c.id === nextClip.id ? nextClip : c));
+                    clipsById = { ...clipsById, [nextClip.id]: nextClip };
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'ClipResized') {
+                    const clip = clipsById[delta.data.clip_id];
+                    if (!clip) continue;
+                    const nextClip: TimelineClip = {
+                        ...clip,
+                        startBeat: frameToBeat(delta.data.new_position, bpm, sr),
+                        durationBeats: frameToBeat(delta.data.new_duration, bpm, sr),
+                        durationSamples: delta.data.new_duration,
+                    };
+                    timelineClips = timelineClips.map((c) => (c.id === nextClip.id ? nextClip : c));
+                    clipsById = { ...clipsById, [nextClip.id]: nextClip };
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'ClipDeleted') {
+                    timelineClips = timelineClips.filter((c) => c.id !== delta.data.clip_id);
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                    const { [delta.data.clip_id]: _removed, ...rest } = clipsById;
+                    clipsById = rest;
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'ClipMuteChanged') {
+                    const clip = clipsById[delta.data.clip_id];
+                    if (!clip) continue;
+                    const nextClip: TimelineClip = { ...clip, muted: delta.data.muted };
+                    timelineClips = timelineClips.map((c) => (c.id === nextClip.id ? nextClip : c));
+                    clipsById = { ...clipsById, [nextClip.id]: nextClip };
+                    changed = true;
+                }
+            }
+
+            if (!changed) return s;
+            return { timelineClips, clipsById };
+        });
     },
 
     // ── Project Sync ───────────────────────────────────────────────────
@@ -928,6 +1018,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     })(),
                     timelineClips,
                     projectTracks,
+                    tracksById: Object.fromEntries(projectTracks.map(t => [t.id, t])),
+                    clipsById: Object.fromEntries(timelineClips.map(c => [c.id, c])),
                     projectSampleRate: sr,
                     projectBpm: bpm,
                     keySigEnabled: project.key_sig_enabled ?? false,

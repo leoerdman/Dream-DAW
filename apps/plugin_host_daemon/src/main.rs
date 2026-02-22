@@ -388,6 +388,55 @@ fn main() {
                             .or_default()
                             .extend(midi_events);
                     }
+                    // ── LAZARUS PROTOCOL: Save/Restore State ────────────────
+                    PluginHostControlMessage::SaveState { instance_id } => {
+                        // Attempt to get plugin state as raw bytes.
+                        // For now, VST3 state serialization is not yet
+                        // exposed via the PluginInstance trait — emit an
+                        // empty blob so the protocol handshake works.
+                        // TODO: Wire Vst3Instance::save_preset_data()
+                        let state_blob_b64 = if let Some(_plugin) = loaded_instances.get(&instance_id) {
+                            // Placeholder: real implementation would call plugin.save_state()
+                            use std::io::Write;
+                            let mut buf = Vec::new();
+                            let _ = write!(buf, "lazarus_placeholder_state");
+                            use std::io::Read;
+                            // base64-encode for IPC transport
+                            let encoded: String = buf.iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect();
+                            encoded
+                        } else {
+                            String::new()
+                        };
+                        let evt = PluginHostEventMessage::StateSaved {
+                            instance_id,
+                            state_blob_b64,
+                        };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                    }
+                    PluginHostControlMessage::RestoreState {
+                        instance_id,
+                        state_blob_b64,
+                    } => {
+                        // TODO: Wire Vst3Instance::load_preset_data()
+                        // For now, log the restore attempt — the state blob
+                        // will be used when VST3 state serialization is exposed.
+                        if loaded_instances.contains_key(&instance_id) {
+                            log::info!(
+                                "[plugin_host_daemon][Lazarus] Restore state for {} ({} bytes)",
+                                instance_id,
+                                state_blob_b64.len()
+                            );
+                        } else {
+                            log::warn!(
+                                "[plugin_host_daemon][Lazarus] Cannot restore state — instance {} not loaded",
+                                instance_id
+                            );
+                        }
+                    }
                     PluginHostControlMessage::Shutdown => {
                         running.store(false, Ordering::Relaxed);
                     }

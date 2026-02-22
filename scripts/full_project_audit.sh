@@ -52,7 +52,7 @@ emit "[FULL AUDIT] limits: rust>${RUST_LIMIT}, ts/tsx>${TS_LIMIT}"
 emit "[FULL AUDIT] root: $ROOT_DIR"
 
 find apps core frontend \
-  -type d \( -name node_modules -o -name target -o -name dist -o -name .next \) -prune -o \
+  -type d \( -name node_modules -o -name target -o -name dist -o -name .next -o -path 'frontend/shared_bindings' -o -path 'core/dream_models/bindings' \) -prune -o \
   -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \) -print0 \
   | xargs -0 wc -l \
   | awk -v rl="$RUST_LIMIT" -v tl="$TS_LIMIT" '
@@ -84,7 +84,7 @@ awk -F'\t' 'NR==FNR { keep[$1]=1; next } keep[$3] { print $0 }' \
   > "$OVERSIZED_UNTOUCHED"
 
 find apps core frontend \
-  -type d \( -name node_modules -o -name target -o -name dist -o -name .next \) -prune -o \
+  -type d \( -name node_modules -o -name target -o -name dist -o -name .next -o -path 'frontend/shared_bindings' -o -path 'core/dream_models/bindings' \) -prune -o \
   -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \) -print0 \
   | xargs -0 wc -l \
   | awk '$2!="total" {print $1 "\t" $2}' \

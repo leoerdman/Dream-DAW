@@ -15,17 +15,17 @@ use crate::ableton::xml_helpers::{node_child_value, parse_i64_value};
 pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
     match index {
         // Reds / Coral
-        0 | 1 | 2 => TrackColor::Coral,
+        0..=2 => TrackColor::Coral,
         // Oranges
-        3 | 4 | 5 => TrackColor::Orange,
+        3..=5 => TrackColor::Orange,
         // Golds
         6 | 7 => TrackColor::Gold,
         // Yellows
         8 | 9 => TrackColor::Yellow,
         // Limes
-        10 | 11 | 12 => TrackColor::Lime,
+        10..=12 => TrackColor::Lime,
         // Greens
-        13 | 14 | 15 => TrackColor::Green,
+        13..=15 => TrackColor::Green,
         // Teals
         16 | 17 => TrackColor::Teal,
         // Cyans
@@ -33,17 +33,17 @@ pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
         // Sky blues
         20 | 21 => TrackColor::Sky,
         // Blues
-        22 | 23 | 24 => TrackColor::Blue,
+        22..=24 => TrackColor::Blue,
         // Indigos
         25 | 26 => TrackColor::Indigo,
         // Purples
-        27 | 28 | 29 => TrackColor::Purple,
+        27..=29 => TrackColor::Purple,
         // Magentas
         30 | 31 => TrackColor::Magenta,
         // Pinks
-        32 | 33 | 34 => TrackColor::Pink,
+        32..=34 => TrackColor::Pink,
         // Roses
-        35 | 36 | 37 => TrackColor::Rose,
+        35..=37 => TrackColor::Rose,
         // Grays / Slates
         38..=69 => TrackColor::Slate,
         _ => TrackColor::for_index(fallback),

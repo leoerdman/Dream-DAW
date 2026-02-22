@@ -37,12 +37,9 @@ pub fn resolve_als_file_path(
             trimmed.replace("- ", "-"),
             trimmed.replace("160 - 200 BPM", "160-200 BPM"),
         ];
-        for candidate in candidates {
-            if std::path::Path::new(&candidate).exists() {
-                return Some(candidate);
-            }
-        }
-        None
+        candidates
+            .into_iter()
+            .find(|candidate| std::path::Path::new(candidate).exists())
     }
 
     fn search_near_project(als_path: &Path, raw: &str) -> Option<String> {
@@ -129,21 +126,20 @@ pub fn extract_audio_clip_source_path(
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("SampleRef"));
 
-    if let Some(sample_ref) = sample_ref {
-        if let Some(file_ref) = sample_ref
+    if let Some(sample_ref) = sample_ref
+        && let Some(file_ref) = sample_ref
             .children()
             .find(|n| n.is_element() && n.has_tag_name("FileRef"))
-        {
-            let abs_path = first_child_value(file_ref, "Path");
-            let rel_path = first_child_value(file_ref, "RelativePath")
-                .or_else(|| first_child_value(file_ref, "RelativePathElement"));
-            if let Some(resolved) = resolve_als_file_path(
-                als_path,
-                abs_path.as_deref(),
-                rel_path.as_deref(),
-            ) {
-                return resolved;
-            }
+    {
+        let abs_path = first_child_value(file_ref, "Path");
+        let rel_path = first_child_value(file_ref, "RelativePath")
+            .or_else(|| first_child_value(file_ref, "RelativePathElement"));
+        if let Some(resolved) = resolve_als_file_path(
+            als_path,
+            abs_path.as_deref(),
+            rel_path.as_deref(),
+        ) {
+            return resolved;
         }
     }
 

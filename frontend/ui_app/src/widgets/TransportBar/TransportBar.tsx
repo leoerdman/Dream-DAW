@@ -5,6 +5,17 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { useTransportEngineSlice } from './model/useTransportEngineSlice';
 import {
+    computeTransportPosition,
+    DEFAULT_PDC_PANEL_POS,
+    KEY_MODES,
+    KEY_TONICS,
+    PDC_PANEL_POS_KEY,
+    resolveKeyModeIndex,
+    resolveKeyTonicIndex,
+    TIME_SIGNATURES,
+} from './model/transportBarDomain';
+import { DebugPanel } from './ui/DebugPanel';
+import {
     Play,
     Square,
     Circle,
@@ -15,18 +26,9 @@ import {
     Settings,
     Eye,
     EyeOff,
-    RefreshCw,
-    X,
     Pencil,
     Bot,
 } from 'lucide-react';
-
-const PDC_PANEL_POS_KEY = 'dream_daw.pdc_panel_pos.v1';
-const DEFAULT_PDC_PANEL_POS = { right: 10, top: 44 };
-
-const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
-const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
-const TIME_SIGNATURES: ReadonlyArray<[number, number]> = [[4, 4], [3, 4], [6, 8], [5, 4]];
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -88,30 +90,17 @@ export const TransportBar = ({
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
 
     const [keyEnabled, setKeyEnabled] = useState(storeKeySigEnabled);
-    const [keyTonic, setKeyTonic] = useState(() => {
-        const idx = KEY_TONICS.findIndex(k => k.toLowerCase() === storeKeySigTonic.toLowerCase());
-        return idx >= 0 ? idx : 0;
-    });
-    const [keyMode, setKeyMode] = useState(() => {
-        const idx = KEY_MODES.findIndex(m => m.toLowerCase() === storeKeySigMode.toLowerCase());
-        return idx >= 0 ? idx : 0;
-    });
+    const [keyTonic, setKeyTonic] = useState(() => resolveKeyTonicIndex(storeKeySigTonic));
+    const [keyMode, setKeyMode] = useState(() => resolveKeyModeIndex(storeKeySigMode));
 
     // Sync local key sig state when project changes (e.g. project load).
     useEffect(() => {
         setKeyEnabled(storeKeySigEnabled);
-        const tonicIdx = KEY_TONICS.findIndex(k => k.toLowerCase() === storeKeySigTonic.toLowerCase());
-        if (tonicIdx >= 0) setKeyTonic(tonicIdx);
-        const modeIdx = KEY_MODES.findIndex(m => m.toLowerCase() === storeKeySigMode.toLowerCase());
-        if (modeIdx >= 0) setKeyMode(modeIdx);
+        setKeyTonic(resolveKeyTonicIndex(storeKeySigTonic));
+        setKeyMode(resolveKeyModeIndex(storeKeySigMode));
     }, [storeKeySigEnabled, storeKeySigTonic, storeKeySigMode]);
 
-    const position = (() => {
-        const bar = Math.floor(posBeats / timeSigNum) + 1;
-        const beat = Math.floor(posBeats % timeSigNum) + 1;
-        const sub = Math.floor((posBeats % 1) * 96);
-        return { bar, beat, sub };
-    })();
+    const position = computeTransportPosition(posBeats, timeSigNum);
 
     const tapTimestamps = useRef<number[]>([]);
     const midiLedRef = useRef<HTMLSpanElement>(null);
@@ -607,212 +596,47 @@ export const TransportBar = ({
                     </PillSection>
                 </div>
                 {pdcOpen && (
-                    <div
-                        ref={pdcPanelRef}
-                        style={{
-                            position: 'fixed',
-                            right: pdcPanelPos.right,
-                            top: pdcPanelPos.top,
-                            width: 440,
-                            maxHeight: 'min(58vh, 540px)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            background: 'color-mix(in srgb, var(--color-bg-panel) 96%, #000 4%)',
-                            border: '1px solid var(--color-divider)',
-                            borderRadius: 'var(--radius-xl)',
-                            boxShadow: '0 16px 42px var(--color-overlay-dark)',
-                            backdropFilter: 'blur(8px)',
-                            zIndex: 'var(--z-tooltip)' as unknown as number,
-                            overflow: 'hidden',
+                    <DebugPanel
+                        panelRef={pdcPanelRef}
+                        panelPos={pdcPanelPos}
+                        onDragStart={handlePdcDragStart}
+                        onRefresh={() => {
+                            void loadPdcSnapshot();
+                            void loadRtSnapshot();
+                            void loadSandboxSnapshot();
                         }}
-                    >
-                        <div
-                            onMouseDown={handlePdcDragStart}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '8px 10px',
-                                borderBottom: '1px solid var(--color-divider)',
-                                cursor: 'move',
-                                userSelect: 'none',
-                            }}
-                        >
-                            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>
-                                Debug Panel
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <button
-                                    onClick={() => {
-                                        void loadPdcSnapshot();
-                                        void loadRtSnapshot();
-                                        void loadSandboxSnapshot();
-                                    }}
-                                    title="Refresh"
-                                    style={miniButtonStyle}
-                                >
-                                    <RefreshCw size={13} />
-                                </button>
-                                <button
-                                    onClick={() => setPdcOpen(false)}
-                                    title="Close"
-                                    style={miniButtonStyle}
-                                >
-                                    <X size={13} />
-                                </button>
-                            </div>
-                        </div>
-                        <div
-                            style={{
-                                padding: '8px 10px',
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: 'var(--font-size-xs)',
-                                color: 'var(--color-text-secondary)',
-                                borderBottom: '1px solid var(--color-divider)',
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr',
-                                gap: 4,
-                            }}
-                        >
-                            <div>Engine: <strong style={{ color: 'var(--color-text-primary)' }}>{engineConnected ? 'online' : 'offline'}</strong></div>
-                            <div>Telemetry: <strong style={{ color: 'var(--color-text-primary)' }}>{telemetryRunning ? 'running' : 'stopped'}</strong></div>
-                            <div>PDC Nodes: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.node_count ?? '—'}</strong></div>
-                            <div>Sandbox: <strong style={{ color: 'var(--color-text-primary)' }}>{(sandboxRuntime ?? sandboxSnapshot)?.enabled ? 'enabled' : 'disabled'}</strong></div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, padding: '6px 10px', borderBottom: '1px solid var(--color-divider)' }}>
-                            <button style={debugTabBtnStyle(debugTab === 'overview')} onClick={() => setDebugTab('overview')}>Overview</button>
-                            <button style={debugTabBtnStyle(debugTab === 'pdc')} onClick={() => setDebugTab('pdc')}>PDC</button>
-                            <button style={debugTabBtnStyle(debugTab === 'sandbox')} onClick={() => setDebugTab('sandbox')}>Sandbox</button>
-                        </div>
-                        <div style={{ minHeight: 210, maxHeight: 'min(45vh, 380px)', overflow: 'auto' }}>
-                            {debugTab === 'overview' && (
-                                <div>
-                                    <div style={sectionHeaderStyle}>Runtime Overview</div>
-                                    <div style={rowStyle}>
-                                        <div style={{ color: 'var(--color-text-primary)' }}>Playback: {isPlaying ? 'playing' : 'stopped'}</div>
-                                        <div>BPM: {bpm.toFixed(2)} · Pos: {posString}</div>
-                                        <div>Sample Rate: {sampleRate || '—'} Hz · Tracks: {projectTracks.length}</div>
-                                        <div>Last Error: {engineLastError || 'none'}</div>
-                                        <div>RT callback: {rtSnapshot?.callbackDurationUsLast ?? '—'} us (max {rtSnapshot?.callbackDurationUsMax ?? '—'} us)</div>
-                                        <div>RT commands: {rtSnapshot?.commandCountLast ?? '—'} last / {rtSnapshot?.commandCountMax ?? '—'} max</div>
-                                        <div>Queue rejects: {rtSnapshot?.queueFullRejectTotal ?? '—'} · Host lock misses: {rtSnapshot?.pluginHostLockMissTotal ?? '—'}</div>
-                                        <div>Deferred topology: {rtSnapshot?.deferredTopologyLenLast ?? '—'}</div>
-                                    </div>
-                                </div>
-                            )}
-                            {debugTab === 'pdc' && (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-                                    <div style={{ borderRight: '1px solid var(--color-divider)', overflow: 'auto' }}>
-                                        <div style={sectionHeaderStyle}>Node Delays</div>
-                                        {(pdcSnapshot?.nodes ?? []).map((n) => (
-                                            <div key={`node-${n.node_id}`} style={rowStyle}>
-                                                <div style={{ color: 'var(--color-text-primary)' }}>{n.name}</div>
-                                                <div>#{n.node_id} · {n.kind}</div>
-                                                <div>own {n.own_latency_samples} / pdc {n.node_delay_samples} smp</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div style={{ overflow: 'auto' }}>
-                                        <div style={sectionHeaderStyle}>Edge Compensation</div>
-                                        {(pdcSnapshot?.edges ?? []).map((e, idx) => (
-                                            <div key={`edge-${e.from_node_id}-${e.to_node_id}-${idx}`} style={rowStyle}>
-                                                <div style={{ color: 'var(--color-text-primary)' }}>{e.from_name} → {e.to_name}</div>
-                                                <div>{e.from_node_id}→{e.to_node_id}</div>
-                                                <div>{e.edge_delay_samples} smp</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {debugTab === 'sandbox' && (
-                                <div>
-                                    <div style={sectionHeaderStyle}>Plugin Sandbox</div>
-                                    <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-divider)' }}>
-                                        <button
-                                            onClick={() => {
-                                                void engineApi.tickPluginSandboxWatchdog().then(setSandboxRuntime).catch((err) => {
-                                                    setSandboxError(err instanceof Error ? err.message : String(err));
-                                                });
-                                            }}
-                                            style={miniButtonStyle}
-                                            title="Tick watchdog"
-                                        >
-                                            <RefreshCw size={13} />
-                                        </button>
-                                    </div>
-                                    {((sandboxRuntime ?? sandboxSnapshot)?.instances ?? []).map((inst) => (
-                                        <div key={inst.plugin_instance_id} style={rowStyle}>
-                                            <div style={{ color: 'var(--color-text-primary)' }}>{inst.plugin_name}</div>
-                                            <div>{inst.status} · crashes {inst.crash_count} · restarts {inst.restart_count}</div>
-                                            <div>{inst.last_error || inst.plugin_path}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-divider)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                            {(pdcLoading || rtLoading || sandboxLoading)
-                                ? 'Updating…'
-                                : (pdcError || rtError || sandboxError)
-                                    ? `Error: ${pdcError ?? rtError ?? sandboxError}`
-                                    : (debugTab === 'pdc'
-                                        ? (pdcSnapshot?.edge_summary || 'No PDC diagnostics')
-                                        : 'Unified runtime debug panel')}
-                        </div>
-                    </div>
+                        onClose={() => setPdcOpen(false)}
+                        debugTab={debugTab}
+                        setDebugTab={setDebugTab}
+                        onTickWatchdog={() => {
+                            void engineApi.tickPluginSandboxWatchdog().then(setSandboxRuntime).catch((err) => {
+                                setSandboxError(err instanceof Error ? err.message : String(err));
+                            });
+                        }}
+                        pdcSnapshot={pdcSnapshot}
+                        rtSnapshot={rtSnapshot}
+                        sandboxSnapshot={sandboxSnapshot}
+                        sandboxRuntime={sandboxRuntime}
+                        engineConnected={engineConnected}
+                        telemetryRunning={telemetryRunning}
+                        isPlaying={isPlaying}
+                        bpm={bpm}
+                        posString={posString}
+                        sampleRate={sampleRate}
+                        trackCount={projectTracks.length}
+                        engineLastError={engineLastError}
+                        pdcLoading={pdcLoading}
+                        rtLoading={rtLoading}
+                        sandboxLoading={sandboxLoading}
+                        pdcError={pdcError}
+                        rtError={rtError}
+                        sandboxError={sandboxError}
+                    />
                 )}
             </div>
         </div>
     );
 };
-
-const miniButtonStyle: React.CSSProperties = {
-    width: 22,
-    height: 22,
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'transparent',
-    color: 'var(--color-text-secondary)',
-    cursor: 'pointer',
-};
-
-const sectionHeaderStyle: React.CSSProperties = {
-    position: 'sticky',
-    top: 0,
-    zIndex: 'var(--z-local)' as unknown as number,
-    padding: '6px 8px',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-    color: 'var(--color-text-primary)',
-    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #000 8%)',
-    borderBottom: '1px solid var(--color-divider)',
-};
-
-const rowStyle: React.CSSProperties = {
-    padding: '6px 8px',
-    borderBottom: '1px solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--color-text-secondary)',
-    lineHeight: 1.35,
-};
-
-const debugTabBtnStyle = (active: boolean): React.CSSProperties => ({
-    border: '1px solid var(--color-divider)',
-    borderRadius: 'var(--radius-md)',
-    height: 22,
-    padding: '0 8px',
-    background: active
-        ? 'color-mix(in srgb, var(--color-accent-primary) 18%, transparent)'
-        : 'transparent',
-    color: active ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-    cursor: 'pointer',
-});
 
 const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
     <div

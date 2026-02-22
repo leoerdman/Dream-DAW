@@ -682,10 +682,10 @@ pub fn collect_external_plugin_static_lanes(
         }
         if param_key.is_empty() {
             param_key = format!("param{param_idx}");
-        } else if let Some(v) = raw_id.parse::<i64>().ok() {
-            if v >= 0 {
-                param_key = format!("{param_key}_id{v}");
-            }
+        } else if let Ok(v) = raw_id.parse::<i64>()
+            && v >= 0
+        {
+            param_key = format!("{param_key}_id{v}");
         }
 
         out.push((

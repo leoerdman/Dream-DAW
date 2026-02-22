@@ -1063,8 +1063,9 @@ impl PluginInstance for Vst2Instance {
         // BUG-VP3 FIX: Ensure thread-locals are updated for the RT Audio Thread
         // so that if the plugin queries AUDIO_MASTER_GET_SAMPLE_RATE during process,
         // it gets the real values instead of the 44100 fallback default.
+        let frames_to_process = num_frames.min(self.max_buffer_size);
         HOST_SAMPLE_RATE.with(|sr| sr.set(self.sample_rate));
-        HOST_BLOCK_SIZE.with(|bs| bs.set(num_frames as i32));
+        HOST_BLOCK_SIZE.with(|bs| bs.set(frames_to_process as i32));
 
         // Send MIDI events if any
         if !midi_events.is_empty()
@@ -1087,13 +1088,12 @@ impl PluginInstance for Vst2Instance {
         // Build an array of input channel pointers
         // If the host provides fewer channels than the plugin expects, pad with silence.
         // BUG-VP1 FIX: Avoid slice resizing in the audio thread loop.
-        let safe_frames = num_frames.min(self.max_buffer_size);
-        let silence_ptr = if self.silence_buffer.len() >= safe_frames {
+        let silence_ptr = if self.silence_buffer.len() >= frames_to_process {
             self.silence_buffer.as_ptr()
         } else {
-            // Unlikely to ever happen due to activate() allocating properly,
-            // but if block size changes without activate(), fail safely.
-            std::ptr::null() 
+            return Err(PluginError::ProcessError(
+                "silence buffer smaller than current process block; re-activate plugin".to_string(),
+            ));
         };
 
         self.input_ptrs.clear();
@@ -1119,9 +1119,9 @@ impl PluginInstance for Vst2Instance {
                 self.output_ptrs.push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
                 dummy_idx += 1;
             } else {
-                // Safety net: should never be reached if activate() ran correctly.
-                // If it is reached, we just drop the extra output to avoid crashing.
-                self.output_ptrs.push(std::ptr::null_mut());
+                // Safety net for malformed plugin channel layouts:
+                // route excess outputs into a scratch sink rather than null pointers.
+                self.output_ptrs.push(self.silence_buffer.as_mut_ptr());
             }
         }
 
@@ -1134,7 +1134,7 @@ impl PluginInstance for Vst2Instance {
                         self.effect,
                         self.input_ptrs.as_ptr(),
                         self.output_ptrs.as_mut_ptr(),
-                        num_frames as i32,
+                        frames_to_process as i32,
                     );
                 }
             }
@@ -1151,13 +1151,23 @@ impl PluginInstance for Vst2Instance {
                     self.effect,
                     self.input_ptrs.as_ptr(),
                     self.output_ptrs.as_mut_ptr(),
-                    num_frames as i32,
+                    frames_to_process as i32,
                 );
             }
         } else {
             return Err(PluginError::ProcessError(
                 "Plugin has neither processReplacing nor process".to_string(),
             ));
+        }
+
+        // If host requested a bigger block than plugin was configured for,
+        // zero the tail to avoid leaking stale audio.
+        if frames_to_process < num_frames {
+            for out in outputs.iter_mut().take(num_plugin_outputs) {
+                if out.len() > frames_to_process {
+                    out[frames_to_process..].fill(0.0);
+                }
+            }
         }
 
         Ok(())

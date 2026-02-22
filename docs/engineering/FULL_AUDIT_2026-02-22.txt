@@ -1,0 +1,156 @@
+[FULL AUDIT] limits: rust>1000, ts/tsx>300
+[FULL AUDIT] root: /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW
+
+[FULL AUDIT] Oversized files (all)
+kind\tlines\tpath
+rust	5665	core/dream_plugins/src/vst3_host.rs
+rust	5049	apps/desktop_host/src/lib.rs
+rust	3868	core/dream_engine/src/driver.rs
+rust	2979	apps/desktop_host/src/commands/sections/clip_mutators.rs
+rust	2955	apps/desktop_host/src/commands/sections/plugins_routing.rs
+ts	2695	frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx
+rust	2588	core/dream_models/src/project.rs
+ts	2516	frontend/ui_app/src/app/layouts/DawShell.tsx
+ts	2035	frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx
+ts	1947	frontend/ui_app/src/shared/lib/TimelineEngine.ts
+ts	1905	frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx
+rust	1701	core/dream_engine/src/offline_bounce.rs
+rust	1671	core/dream_plugins/examples/test_serum2.rs
+ts	1487	frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx
+rust	1444	core/dream_plugins/src/vst2_host.rs
+ts	1389	frontend/ui_app/src/shared/api/engine.ts
+rust	1321	core/dream_engine/src/sampler.rs
+ts	1315	frontend/ui_app/src/shared/api/assistant/toolExecutor.ts
+ts	1234	frontend/ui_app/src/shared/stores/useEngineStore.ts
+rust	1226	core/dream_models/src/mutators.rs
+ts	1222	frontend/ui_app/src/shared/api/assistant/tools.ts
+ts	1201	frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts
+rust	1162	core/dream_graph/src/renderer.rs
+ts	1137	frontend/ui_app/src/widgets/DeviceRack/model/useDeviceRackLogic.ts
+ts	886	frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx
+ts	859	frontend/ui_app/src/shared/config/pluginManifest.ts
+ts	828	frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts
+ts	805	frontend/ui_app/src/widgets/Timeline/Timeline.tsx
+ts	778	frontend/ui_app/src/widgets/SettingsPanel/SettingsPanel.tsx
+ts	736	frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx
+ts	671	frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx
+ts	667	frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx
+ts	566	frontend/ui_app/src/shared/lib/internalPlugins.ts
+ts	508	frontend/shared_bindings/Project.ts
+ts	502	frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx
+ts	496	frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx
+ts	477	frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx
+ts	441	frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx
+ts	424	frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx
+ts	419	frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx
+ts	409	frontend/ui_app/src/shared/lib/ViewportMatrix.ts
+ts	406	frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx
+ts	383	frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts
+ts	377	frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx
+ts	364	frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx
+ts	356	frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx
+ts	350	frontend/ui_app/src/widgets/SampleRack/SampleRack.tsx
+ts	348	frontend/ui_app/src/shared/lib/ViewportMachine.ts
+ts	346	frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx
+ts	329	frontend/ui_app/src/widgets/MissingAssetsPanel/MissingAssetsPanel.tsx
+ts	324	frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx
+ts	321	frontend/ui_app/src/widgets/PluginWindow/PluginWindow.tsx
+ts	319	frontend/ui_app/src/shared/hooks/useNativeMenu.ts
+
+[FULL AUDIT] Oversized files untouched by current changes
+kind\tlines\tpath
+rust	5665	core/dream_plugins/src/vst3_host.rs
+rust	5049	apps/desktop_host/src/lib.rs
+rust	3868	core/dream_engine/src/driver.rs
+rust	2979	apps/desktop_host/src/commands/sections/clip_mutators.rs
+rust	2588	core/dream_models/src/project.rs
+ts	2516	frontend/ui_app/src/app/layouts/DawShell.tsx
+ts	2035	frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx
+ts	1947	frontend/ui_app/src/shared/lib/TimelineEngine.ts
+ts	1905	frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx
+rust	1701	core/dream_engine/src/offline_bounce.rs
+rust	1671	core/dream_plugins/examples/test_serum2.rs
+ts	1487	frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx
+ts	1389	frontend/ui_app/src/shared/api/engine.ts
+rust	1321	core/dream_engine/src/sampler.rs
+ts	1315	frontend/ui_app/src/shared/api/assistant/toolExecutor.ts
+ts	1234	frontend/ui_app/src/shared/stores/useEngineStore.ts
+rust	1226	core/dream_models/src/mutators.rs
+ts	1222	frontend/ui_app/src/shared/api/assistant/tools.ts
+ts	1201	frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts
+rust	1162	core/dream_graph/src/renderer.rs
+ts	1137	frontend/ui_app/src/widgets/DeviceRack/model/useDeviceRackLogic.ts
+ts	886	frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx
+ts	859	frontend/ui_app/src/shared/config/pluginManifest.ts
+ts	828	frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts
+ts	805	frontend/ui_app/src/widgets/Timeline/Timeline.tsx
+ts	778	frontend/ui_app/src/widgets/SettingsPanel/SettingsPanel.tsx
+ts	736	frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx
+ts	671	frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx
+ts	667	frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx
+ts	566	frontend/ui_app/src/shared/lib/internalPlugins.ts
+ts	508	frontend/shared_bindings/Project.ts
+ts	502	frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx
+ts	496	frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx
+ts	477	frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx
+ts	441	frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx
+ts	424	frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx
+ts	419	frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx
+ts	409	frontend/ui_app/src/shared/lib/ViewportMatrix.ts
+ts	406	frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx
+ts	383	frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts
+ts	377	frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx
+ts	364	frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx
+ts	356	frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx
+ts	350	frontend/ui_app/src/widgets/SampleRack/SampleRack.tsx
+ts	348	frontend/ui_app/src/shared/lib/ViewportMachine.ts
+ts	346	frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx
+ts	329	frontend/ui_app/src/widgets/MissingAssetsPanel/MissingAssetsPanel.tsx
+ts	324	frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx
+ts	321	frontend/ui_app/src/widgets/PluginWindow/PluginWindow.tsx
+ts	319	frontend/ui_app/src/shared/hooks/useNativeMenu.ts
+
+[FULL AUDIT] Top 30 largest code files
+lines\tpath
+5665	core/dream_plugins/src/vst3_host.rs
+5049	apps/desktop_host/src/lib.rs
+3868	core/dream_engine/src/driver.rs
+2979	apps/desktop_host/src/commands/sections/clip_mutators.rs
+2955	apps/desktop_host/src/commands/sections/plugins_routing.rs
+2695	frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx
+2588	core/dream_models/src/project.rs
+2516	frontend/ui_app/src/app/layouts/DawShell.tsx
+2035	frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx
+1947	frontend/ui_app/src/shared/lib/TimelineEngine.ts
+1905	frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx
+1701	core/dream_engine/src/offline_bounce.rs
+1671	core/dream_plugins/examples/test_serum2.rs
+1487	frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx
+1444	core/dream_plugins/src/vst2_host.rs
+1389	frontend/ui_app/src/shared/api/engine.ts
+1321	core/dream_engine/src/sampler.rs
+1315	frontend/ui_app/src/shared/api/assistant/toolExecutor.ts
+1234	frontend/ui_app/src/shared/stores/useEngineStore.ts
+1226	core/dream_models/src/mutators.rs
+1222	frontend/ui_app/src/shared/api/assistant/tools.ts
+1201	frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts
+1162	core/dream_graph/src/renderer.rs
+1137	frontend/ui_app/src/widgets/DeviceRack/model/useDeviceRackLogic.ts
+961	core/dream_dsp/src/stress_tests.rs
+958	apps/desktop_host/src/commands/sections/track_management.rs
+920	apps/desktop_host/src/commands/sections/project_management.rs
+917	apps/desktop_host/src/commands/sections/project_management_als_import_tests/live_set_and_audit_tests.rs
+905	core/dream_clip_engine/src/disk_streamer.rs
+886	frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx
+
+[FULL AUDIT] Debt markers by block
+block\tcount
+apps	5
+core	34
+frontend	12
+scripts	7
+
+[FULL AUDIT] Changed file count: 11
+[FULL AUDIT] Oversized total: 53
+[FULL AUDIT] Oversized untouched: 50
+[FULL AUDIT] DONE

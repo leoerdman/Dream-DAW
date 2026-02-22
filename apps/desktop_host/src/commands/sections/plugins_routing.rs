@@ -12,7 +12,6 @@ use dream_importers::routing_helpers::{
     normalize_plugin_key_local,
     lane_param_name_hints,
     find_device_node_on_track,
-    find_device_node_recursive,
 };
 
 fn bind_runtime_instance_for_plugin_slots(

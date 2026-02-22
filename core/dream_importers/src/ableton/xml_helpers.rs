@@ -403,10 +403,10 @@ pub fn collect_device_manual_params(
 ) -> std::collections::HashMap<String, f64> {
     let mut params = std::collections::HashMap::new();
     for child in device.children().filter(|n| n.is_element()) {
-        if let Some(val) = direct_manual_value(child) {
-            if let Some(f) = parse_f64_value(&val) {
-                params.insert(child.tag_name().name().to_string(), f);
-            }
+        if let Some(val) = direct_manual_value(child)
+            && let Some(f) = parse_f64_value(&val)
+        {
+            params.insert(child.tag_name().name().to_string(), f);
         }
     }
     params

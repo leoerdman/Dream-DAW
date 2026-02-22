@@ -98,33 +98,30 @@ pub fn parse_output_target(
                         .find(|n| n.is_element() && n.has_tag_name(routing_tag))
                 })
         });
-    let Some(routing) = routing_node else {
-        return None;
-    };
+    let routing = routing_node?;
 
     // Strategy 1: <Target><Value Value="..." /></Target>
     if let Some(target_val) = routing
         .children()
         .find(|n| n.is_element() && n.has_tag_name("Target"))
         .and_then(|t| t.attribute("Value"))
+        && let Some(result) = clean(Some(target_val))
     {
-        if let Some(result) = clean(Some(target_val)) {
-            return Some(result);
-        }
+        return Some(result);
     }
 
     // Strategy 2: <UpperDisplayString Value="..." />
-    if let Some(display) = first_child_value(routing, "UpperDisplayString") {
-        if let Some(result) = clean(Some(&display)) {
-            return Some(result);
-        }
+    if let Some(display) = first_child_value(routing, "UpperDisplayString")
+        && let Some(result) = clean(Some(&display))
+    {
+        return Some(result);
     }
 
     // Strategy 3: <LowerDisplayString Value="..." />
-    if let Some(display) = first_child_value(routing, "LowerDisplayString") {
-        if let Some(result) = clean(Some(&display)) {
-            return Some(result);
-        }
+    if let Some(display) = first_child_value(routing, "LowerDisplayString")
+        && let Some(result) = clean(Some(&display))
+    {
+        return Some(result);
     }
 
     None

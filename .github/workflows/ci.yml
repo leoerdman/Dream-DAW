@@ -45,6 +45,9 @@ jobs:
       - name: Audio null-test infrastructure
         run: cargo test -p dream_engine null_math_ -- --nocapture
 
+      - name: Audio chain guard (routing + master)
+        run: ./scripts/audio_chain_guard.sh
+
       - name: Architecture budget report
         run: |
           bash ./scripts/architecture_budget.sh --report /tmp/architecture_budget.txt

@@ -4607,13 +4607,13 @@ impl PluginInstance for Vst3Instance {
             // ═══════════════════════════════════════════════════════════════
             let actual_out_bus_count = self.audio_output_bus_count.max(1) as usize;
 
-            // Ensure auxiliary scratch buffers are large enough.
-            // (They are pre-allocated in activate(), but guard against edge cases.)
-            if self.scratch_aux_out_left.len() < num_frames {
-                self.scratch_aux_out_left.resize(num_frames, 0.0);
-            }
-            if self.scratch_aux_out_right.len() < num_frames {
-                self.scratch_aux_out_right.resize(num_frames, 0.0);
+            // RT safety: do not allocate in process(). Scratch buffers must be
+            // pre-allocated during activate() for max_buffer_size.
+            if self.scratch_aux_out_left.len() < num_frames
+                || self.scratch_aux_out_right.len() < num_frames
+            {
+                passthrough(inputs, outputs, num_frames);
+                return Ok(());
             }
             // Zero auxiliary output scratch so plugins don't read stale data.
             self.scratch_aux_out_left[..num_frames].fill(0.0);

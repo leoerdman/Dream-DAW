@@ -5,6 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Example harnesses are experimental and not part of production CI.
+plugin_examples = []
+
 [dependencies]
 serde = { workspace = true }
 serde_json = "1.0"
@@ -23,3 +28,23 @@ objc = "0.2"
 
 [dev-dependencies]
 env_logger = { workspace = true }
+
+[[example]]
+name = "test_all_vst3"
+required-features = ["plugin_examples"]
+
+[[example]]
+name = "test_serum2"
+required-features = ["plugin_examples"]
+
+[[example]]
+name = "test_vst2_headless"
+required-features = ["plugin_examples"]
+
+[[example]]
+name = "test_vst2_scan"
+required-features = ["plugin_examples"]
+
+[[example]]
+name = "test_vst2_timeout"
+required-features = ["plugin_examples"]

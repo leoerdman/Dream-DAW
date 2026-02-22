@@ -526,10 +526,10 @@ impl GraphRenderer {
                 }
 
                 let copy_n = {
-                    let src = &*node_buffers_ptr.add(src_idx);
+                    let src = unsafe { &*node_buffers_ptr.add(src_idx) };
                     let copy_n = frame_count.min(src.valid_frames);
 
-                    let edge_rt = &mut *edge_pdc_ptr.add(edge_runtime_idx);
+                    let edge_rt = unsafe { &mut *edge_pdc_ptr.add(edge_runtime_idx) };
                     edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
                     edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
 
@@ -541,8 +541,8 @@ impl GraphRenderer {
                     copy_n
                 };
 
-                let dst = &mut *node_buffers_ptr.add(idx);
-                let edge_rt = &*edge_pdc_ptr.add(edge_runtime_idx);
+                let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
+                let edge_rt = unsafe { &*edge_pdc_ptr.add(edge_runtime_idx) };
 
                 mix_in_place(
                     &mut dst.left[..copy_n],
@@ -565,8 +565,8 @@ impl GraphRenderer {
                 .collect();
 
             for src_idx in src_indices {
-                let src = &*node_buffers_ptr.add(src_idx);
-                let dst = &mut *node_buffers_ptr.add(idx);
+                let src = unsafe { &*node_buffers_ptr.add(src_idx) };
+                let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
 
                 let copy_n = frame_count.min(src.valid_frames);
                 mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);

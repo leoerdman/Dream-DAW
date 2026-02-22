@@ -226,6 +226,7 @@ pub(crate) fn invoke_handler()
         remove_plugin_from_track_cmd,
         remove_plugin_from_track_with_deltas_cmd,
         set_internal_plugin_param_cmd,
+        set_internal_plugin_param_with_deltas_cmd,
         set_external_plugin_param_cmd,
         set_external_plugin_param_for_slot_cmd,
         set_sampler_sample_cmd,

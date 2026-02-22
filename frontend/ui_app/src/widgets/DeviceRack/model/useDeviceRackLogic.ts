@@ -202,7 +202,7 @@ export function useDeviceRackLogic(
         selectedTrackId,
         chain,
         openEditorsByTrack,
-        prevTrackIdRef: prevTrackIdRef as React.MutableRefObject<string>,
+        prevTrackIdRef,
         cleanupGestures: gestures.cleanupGestures,
         setSelectedDeviceIds: core.setSelectedDeviceIds,
         setInlineSettingsOpen: core.setInlineSettingsOpen,

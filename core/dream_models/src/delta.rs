@@ -208,6 +208,14 @@ pub enum ProjectDelta {
         new_slot_index: usize,
     },
 
+    /// Internal plugin parameter changed.
+    InternalPluginParamChanged {
+        track_id: Uuid,
+        slot_id: Uuid,
+        param_id: String,
+        value: f64,
+    },
+
     /// Sidechain source for a plugin slot changed.
     PluginSidechainChanged {
         track_id: Uuid,

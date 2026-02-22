@@ -1024,9 +1024,14 @@ export const DawShell = () => {
             const nextTracks = state.projectTracks.map((track) =>
                 idSet.has(track.id) ? { ...track, height } : track
             );
+            const nextById = Object.fromEntries(nextTracks.map((t) => [t.id, t]));
             return {
                 projectTracks: nextTracks,
-                tracksById: Object.fromEntries(nextTracks.map(t => [t.id, t])),
+                tracksById: nextById,
+                tracks: {
+                    byId: nextById,
+                    allIds: state.tracks.allIds,
+                },
             };
         });
     }, []);

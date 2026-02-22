@@ -419,9 +419,14 @@ export function useTrackInspectorLogic({
             const nextTracks = state.projectTracks.map((track) =>
                 track.id === trackId ? { ...track, height } : track
             );
+            const nextById = Object.fromEntries(nextTracks.map((t) => [t.id, t]));
             return {
                 projectTracks: nextTracks,
-                tracksById: Object.fromEntries(nextTracks.map(t => [t.id, t])),
+                tracksById: nextById,
+                tracks: {
+                    byId: nextById,
+                    allIds: state.tracks.allIds,
+                },
             };
         });
     }, []);

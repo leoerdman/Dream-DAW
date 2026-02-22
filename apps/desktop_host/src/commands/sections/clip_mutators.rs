@@ -1110,18 +1110,35 @@ async fn set_clip_source_offset_cmd(
     // The orchestrator uses NoopClipPoolAccess (max_offset=i64::MAX).
     // Clamp against the REAL clip pool to prevent reading past the decoded buffer.
     {
-        let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
         let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        for track in &mut project.tracks {
-            if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_uuid) {
-                if let Some(audio) = pool.get(&clip.file_path) {
-                    let max_offset = (audio.num_frames as i64).saturating_sub(1).max(0);
-                    if clip.source_offset.sample_frame > max_offset {
-                        clip.source_offset = dream_models::time::AbsoluteTime::new(max_offset);
-                    }
-                }
-                break;
+        let clip_file_path = {
+            let project = project_state.project.lock().map_err(|e| e.to_string())?;
+            project
+                .tracks
+                .iter()
+                .flat_map(|t| t.clips.iter())
+                .find(|c| c.id == clip_uuid)
+                .map(|c| c.file_path.clone())
+                .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
+        };
+        let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        if let Some(audio) = pool.get(&clip_file_path) {
+            let max_offset = (audio.num_frames as i64).saturating_sub(1).max(0);
+            let clamp_cmd = dream_orchestrator::commands::ClampClipSourceOffsetCommand::from_str_id(
+                &clip_id, max_offset,
+            )
+            .map_err(|e| e.to_string())?;
+            let ctx = dream_orchestrator::OrchestratorContext::new(
+                project_state
+                    .project
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .clone(),
+            );
+            let changed = ctx.execute(&clamp_cmd).map_err(|e| e.to_string())?;
+            if changed {
+                *project_state.project.lock().map_err(|e| e.to_string())? =
+                    ctx.lock_project().map_err(|e| e.to_string())?.clone();
             }
         }
     }

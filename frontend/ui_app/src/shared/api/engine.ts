@@ -962,6 +962,22 @@ export const setInternalPluginParam = (
             pushUndoStep: options?.pushUndoStep,
         },
     });
+export const setInternalPluginParamWithDeltas = (
+    trackId: string,
+    slotId: string,
+    paramId: string,
+    value: number,
+    options?: { pushUndoStep?: boolean },
+) =>
+    invoke<DeltaMutationResponse>('set_internal_plugin_param_with_deltas_cmd', {
+        payload: {
+            trackId,
+            slotId,
+            paramId,
+            value,
+            pushUndoStep: options?.pushUndoStep,
+        },
+    });
 
 export const setExternalPluginParam = (
     pluginId: string,

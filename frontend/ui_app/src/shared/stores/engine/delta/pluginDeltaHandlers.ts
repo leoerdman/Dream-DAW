@@ -30,6 +30,12 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         return true;
     }
 
+    if (delta.kind === 'InternalPluginParamChanged') {
+        // Device parameter values are currently managed by device/rack UI state.
+        // Treat as handled to avoid fallback refresh for param automation gestures.
+        return true;
+    }
+
     if (delta.kind === 'PluginSidechainChanged') {
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;

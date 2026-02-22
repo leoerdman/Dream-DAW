@@ -5,7 +5,6 @@
 use dream_importers::routing_helpers::{
     find_project_plugin_slot,
     find_project_plugin_slot_by_slot_id,
-    find_slot_in_node_by_id,
     find_slot_on_track_mut,
     find_slot_on_track,
     diagnose_external_plugin_reference,
@@ -1775,6 +1774,41 @@ fn set_internal_plugin_param_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_internal_plugin_param_with_deltas_cmd(
+    payload: InternalPluginParamPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<PluginMutationDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+    let param_id = payload.param_id.clone();
+    let value = payload.value;
+
+    set_internal_plugin_param_cmd(
+        payload,
+        project_state,
+        clip_pool_state,
+        automation_runtime,
+        handle,
+        app,
+    )?;
+
+    Ok(PluginMutationDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::InternalPluginParamChanged {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+            param_id,
+            value,
+        }],
+    })
+}
+
 /// Assign sample file to a track sampler and stream it to the realtime engine.
 #[tauri::command]
 fn set_sampler_sample_cmd(
@@ -2173,10 +2207,6 @@ async fn move_effect_slot_cmd(
 
     // Rebuild FX snapshot so the audio engine picks up the new order
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let delta_track_id = match target {
-        dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
-        dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
-    };
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
@@ -2226,9 +2256,7 @@ async fn move_effect_slot_with_deltas_cmd(
     };
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let delta_track_id = match dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
-        .map_err(|e| e.to_string())?
-    {
+    let delta_track_id = match target {
         dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
         dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
     };

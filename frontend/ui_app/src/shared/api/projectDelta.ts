@@ -36,6 +36,7 @@ export type ProjectDelta =
     | { kind: 'PluginRemoved'; data: { track_id: string; slot_id: string } }
     | { kind: 'PluginBypassChanged'; data: { track_id: string; slot_id: string; bypassed: boolean } }
     | { kind: 'PluginMoved'; data: { track_id: string; slot_id: string; old_slot_index: number; new_slot_index: number } }
+    | { kind: 'InternalPluginParamChanged'; data: { track_id: string; slot_id: string; param_id: string; value: number } }
     | { kind: 'PluginSidechainChanged'; data: { track_id: string; slot_id: string; source_track_id: string | null } }
     | { kind: 'AutomationPointsChanged'; data: { track_id: string; param_id: string; points: Array<{ beat: number; value: number; curve_type: string; tension: number | null }> } }
     | { kind: 'TempoChanged'; data: { bpm: number } }

@@ -3,7 +3,7 @@ import * as engineApi from '@/shared/api/engine';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { defaultInternalPluginForTrack } from '@/shared/lib/internalPlugins';
-import { beatToFrame } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 
 interface UseBrowserDnDOrchestratorArgs {
     projectTracks: ProjectTrack[];
@@ -82,7 +82,7 @@ export const useBrowserDnDOrchestrator = ({
         if (!item.path) return;
 
         const bpm = projectBpm || transportBpm || 120;
-        const sr = projectSampleRate || 44100;
+        const sr = resolveSampleRate(projectSampleRate);
         const positionFrames = beatToFrame(beat, bpm, sr);
         await importFile(item.path, trackIndex, positionFrames);
     }, [projectTracks, dropPluginOnTrack, importFile, projectBpm, transportBpm, projectSampleRate]);

@@ -23,7 +23,7 @@ import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
+import { beatToFrame, beatDurationToFrames, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
@@ -167,7 +167,7 @@ export const DawShell = () => {
     // It changed every telemetry tick (~30fps), causing the entire DawShell
     // (2346 lines, all children) to re-render during playback.
     // Playhead position is now read on-demand in useKeyboardShortcuts.
-    const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
+    const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
     const importingRef = useRef(false);
@@ -1247,7 +1247,7 @@ export const DawShell = () => {
         projectTracks,
         projectBpm,
         transportBpm: transportBpm || 120,
-        projectSampleRate: projectSampleRateFromStore || 44100,
+        projectSampleRate: resolveSampleRate(projectSampleRateFromStore, transportSampleRate),
         importFile,
         fetchProject,
     });
@@ -2145,7 +2145,7 @@ const SampleClipEditor = ({
 }: {
     clip: TimelineClip;
 }) => {
-    const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
+    const sampleRate = useEngineStore((s) => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
@@ -2232,7 +2232,7 @@ const SampleClipEditor = ({
     }) => {
         const base = Math.max(20, Math.min(300, Math.round(next.baseBpm)));
         const store = useEngineStore.getState();
-        const sr = store.projectSampleRate || 44100;
+        const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
         const projectTempo = store.projectBpm || store.transport.bpm || 120;
 
         // BUG-P8 FIX: Read live clip from the store instead of stale closure.

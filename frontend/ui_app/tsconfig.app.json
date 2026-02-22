@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "src/*"
+      ],
+      "@bindings/*": [
+        "../shared_bindings/*"
       ]
     },
     /* Linting */

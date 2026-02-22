@@ -7,7 +7,7 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import { beatToFrame, secondsToBeat } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { scrollSync } from '@/shared/lib/useScrollSync';
@@ -125,7 +125,7 @@ export const Timeline = (props: TimelineProps) => {
     const engineConfig: UseTimelineEngineConfig = {
         beatsPerBar,
         bpm,
-        sampleRate: engineSampleRate || 44100,
+        sampleRate: resolveSampleRate(engineSampleRate),
         totalBeats,
         trackCount,
         trackHeight,
@@ -360,7 +360,7 @@ export const Timeline = (props: TimelineProps) => {
     useEffect(() => {
         commitLoopRef.current = (loop) => {
             const currentBpm = propsRef.current.bpm || 120;
-            const currentSampleRate = useEngineStore.getState().transport.sample_rate || 44100;
+            const currentSampleRate = resolveSampleRate(useEngineStore.getState().transport.sample_rate);
             const startFrames = beatToFrame(loop.start, currentBpm, currentSampleRate);
             const endFrames = beatToFrame(loop.end, currentBpm, currentSampleRate);
             useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);

@@ -4,7 +4,7 @@ import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/en
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import { beatToFrame } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import {
     INTERNAL_EFFECT_PLUGINS,
     INTERNAL_INSTRUMENT_PLUGINS,
@@ -1991,7 +1991,7 @@ export const AssetBrowser = () => {
             if (trackIndex < 0) return;
             const store = useEngineStore.getState();
             const bpm = store.projectBpm || store.transport.bpm || 120;
-            const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
+            const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
             const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
             if (enterNonceRef.current !== nonce) return; // BUG-13 FIX: Cancelled
             await engineApi.importAudioFile(item.path, trackIndex, positionFrames);

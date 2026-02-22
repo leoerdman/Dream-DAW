@@ -87,6 +87,16 @@ fn restart_audio_engine_impl(
         EngineCommand::SetTimelineSampleRate(snapshot.sample_rate),
     )?;
     push_command(&handle, EngineCommand::SetBpm(snapshot.bpm))?;
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        push_command(
+            &handle,
+            EngineCommand::SetTimeSignature {
+                numerator: project.time_signature.numerator.max(1),
+                denominator: project.time_signature.denominator.max(1),
+            },
+        )?;
+    }
     push_command(&handle, EngineCommand::SetFreq(snapshot.test_tone_freq))?;
     push_command(
         &handle,

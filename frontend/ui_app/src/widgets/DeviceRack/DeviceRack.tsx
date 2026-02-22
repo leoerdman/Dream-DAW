@@ -7,6 +7,7 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { linearToMeterNorm, dbToMeterNorm } from '@/shared/lib/meterManifest';
+import { resolveSampleRate } from '@/shared/lib/audioMath';
 import {
     PluginKnob,
     type PluginParam,
@@ -2721,7 +2722,7 @@ const PluginGuiSurface = ({
     const guiMode = (device.guiMode || '').toLowerCase();
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || guiMode || device.name.toLowerCase());
     // SSOT: canonical source of sample rate — consumed by EQ biquad curve renderer
-    const projectSampleRate = useEngineStore(s => s.projectSampleRate) || 44100;
+    const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
 
     useEffect(() => {
         const samplePath = device.samplePath?.trim();

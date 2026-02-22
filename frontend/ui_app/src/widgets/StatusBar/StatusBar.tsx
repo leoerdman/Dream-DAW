@@ -16,7 +16,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
-import { secondsToBeat } from '@/shared/lib/audioMath';
+import { resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
 
 interface StatusBarProps {
@@ -57,7 +57,7 @@ export const StatusBar = ({
     const statusClear = useStatusStore((s) => s.clear);
 
     // Live values from engine store
-    const sampleRate = projectSampleRate || 44100;
+    const sampleRate = resolveSampleRate(projectSampleRate);
     const trackCount = projectTracks.length;
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);

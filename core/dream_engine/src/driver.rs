@@ -1687,6 +1687,8 @@ pub fn start_audio_thread_on_device(
     let mut is_playing: bool = false;
     // BUG-035 FIX: Removed misleading underscore — BPM IS used in TransportContext.
     let mut bpm: f64 = 120.0;
+    let mut time_sig_numerator: u8 = 4;
+    let mut time_sig_denominator: u8 = 4;
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
     // AUD-035/036 FIX: Documented master gain system.
@@ -1891,6 +1893,10 @@ pub fn start_audio_thread_on_device(
                                     // extreme tempos for sound design (10 BPM) and
                                     // breakcore/speedcore (999 BPM).
                                     bpm = new_bpm.clamp(10.0, 999.0);
+                                }
+                                EngineCommand::SetTimeSignature { numerator, denominator } => {
+                                    time_sig_numerator = numerator.max(1);
+                                    time_sig_denominator = denominator.max(1);
                                 }
                                 EngineCommand::SetBpmAndLoop {
                                     bpm: new_bpm,
@@ -2909,9 +2915,8 @@ pub fn start_audio_thread_on_device(
                                                     tempo: bpm,
                                                     is_playing,
                                                     is_recording: false, // AUD-033: TODO — pass actual recording state when recording is implemented
-                                                    // AUD-032: TODO — pass project time signature instead of hardcoded 4/4
-                                                    time_sig_numerator: 4,
-                                                    time_sig_denominator: 4,
+                                                    time_sig_numerator: i32::from(time_sig_numerator),
+                                                    time_sig_denominator: i32::from(time_sig_denominator),
                                                 };
                                                 host.set_transport_context(transport);
 
@@ -3220,8 +3225,8 @@ pub fn start_audio_thread_on_device(
                                             tempo: bpm,
                                             is_playing,
                                             is_recording: false,
-                                            time_sig_numerator: 4,
-                                            time_sig_denominator: 4,
+                                            time_sig_numerator: i32::from(time_sig_numerator),
+                                            time_sig_denominator: i32::from(time_sig_denominator),
                                         };
                                         host.set_transport_context(transport);
 

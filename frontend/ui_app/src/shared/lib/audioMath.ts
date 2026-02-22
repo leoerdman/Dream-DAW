@@ -61,6 +61,27 @@ export function clampFramePosition(frame: number): number {
     return Math.max(0, frame);
 }
 
+export const DEFAULT_SAMPLE_RATE = 44_100;
+
+/**
+ * Resolve effective sample-rate from primary/secondary candidates.
+ *
+ * Accepts undefined/null/NaN/infinite values and always returns a valid Hz value.
+ */
+export function resolveSampleRate(
+    primary?: number | null,
+    secondary?: number | null,
+    fallback = DEFAULT_SAMPLE_RATE,
+): number {
+    if (typeof primary === 'number' && Number.isFinite(primary) && primary > 0) {
+        return primary;
+    }
+    if (typeof secondary === 'number' && Number.isFinite(secondary) && secondary > 0) {
+        return secondary;
+    }
+    return fallback;
+}
+
 /**
  * Normalize a peak dB value to 0..1 for VU meter display.
  *

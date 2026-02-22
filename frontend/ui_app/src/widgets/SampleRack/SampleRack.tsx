@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect } from 'react';
-import type { SampleRackConfig } from '@/shared/types/SampleRackConfig';
-import type { SampleRackPadConfig } from '@/shared/types/SampleRackPadConfig';
+import type { SampleRackConfig } from '@bindings/SampleRackConfig';
+import type { SampleRackPadConfig } from '@bindings/SampleRackPadConfig';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';

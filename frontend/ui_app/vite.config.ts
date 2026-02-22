@@ -100,6 +100,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@bindings': resolve(__dirname, '../shared_bindings'),
     },
   },
   server: {

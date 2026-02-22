@@ -16,8 +16,8 @@ import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
-import { frameToBeat } from '@/shared/lib/audioMath';
-import type { SampleRackConfig } from '@/shared/types/SampleRackConfig';
+import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -764,7 +764,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // for frame↔beat conversion. transport.bpm may be stale immediately
             // after open_project until the next telemetry tick arrives.
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
-            const sr = project.sample_rate || 44100;
+            const sr = resolveSampleRate(project.sample_rate, get().transport.sample_rate);
             const toFiniteNumber = (value: unknown, fallback = 0): number => {
                 if (typeof value === 'number') {
                     return Number.isFinite(value) ? value : fallback;

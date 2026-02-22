@@ -1492,118 +1492,7 @@ fn rebuild_sampler_snapshot_from_project(
 }
 
 fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
-    // Must match dream_dsp::dsp_processor::BuiltinEffectType discriminants.
-    const FX_EQ: u8 = 0;
-    const FX_COMPRESSOR: u8 = 1;
-    const FX_DELAY: u8 = 2;
-    const FX_REVERB: u8 = 3;
-    const FX_CHORUS: u8 = 4;
-    const FX_UTILITY: u8 = 5;
-    const FX_SATURATOR: u8 = 6;
-    const FX_LIMITER: u8 = 7;
-    const FX_GATE: u8 = 8;
-    const FX_AUTO_FILTER: u8 = 9;
-    const FX_PHASER: u8 = 10;
-    const FX_FLANGER: u8 = 11;
-    const FX_DISTORTION: u8 = 12;
-    const FX_BITCRUSHER: u8 = 13;
-    const FX_NOISE_MACHINE: u8 = 14;
-    const FX_AUTO_PAN: u8 = 15;
-    const FX_ANALYZER: u8 = 16;
-
-    let key = plugin_id.to_lowercase();
-
-    // ── Exact internal:// prefix matches (highest priority) ──────────
-    if key.starts_with("internal://effect/") {
-        return match key.as_str() {
-            "internal://effect/eq-eight" => Some(FX_EQ),
-            "internal://effect/compressor" => Some(FX_COMPRESSOR),
-            "internal://effect/delay" => Some(FX_DELAY),
-            "internal://effect/reverb" => Some(FX_REVERB),
-            "internal://effect/chorus" => Some(FX_CHORUS),
-            "internal://effect/utility" => Some(FX_UTILITY),
-            "internal://effect/saturator" => Some(FX_SATURATOR),
-            "internal://effect/limiter" => Some(FX_LIMITER),
-            "internal://effect/gate" => Some(FX_GATE),
-            "internal://effect/auto-filter" => Some(FX_AUTO_FILTER),
-            "internal://effect/phaser" => Some(FX_PHASER),
-            "internal://effect/flanger" => Some(FX_FLANGER),
-            "internal://effect/distortion" => Some(FX_DISTORTION),
-            "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
-            "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
-            "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
-            "internal://effect/analyzer" => Some(FX_ANALYZER),
-            _ => None,
-        };
-    }
-
-    // ── Keyword fallbacks (Ableton device names, aliases) ────────────
-    // Order: more specific matches before generic ones to avoid shadowing.
-    if key.contains("eq eight")
-        || key.contains("eq8")
-        || key.contains("eq3")
-        || key.contains("channel eq")
-        || key == "eq"
-        || key.contains(" equalizer ")
-        || key.starts_with("equalizer ")
-        || key.ends_with(" equalizer")
-    {
-        return Some(FX_EQ);
-    }
-    if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
-        return Some(FX_COMPRESSOR);
-    }
-    if key.contains("delay") || key.contains("echo") || key.contains("ping pong") {
-        return Some(FX_DELAY);
-    }
-    if key.contains("reverb") || key.contains("hybrid reverb") {
-        return Some(FX_REVERB);
-    }
-    if key.contains("chorus") || key.contains("chorus-ensemble") {
-        return Some(FX_CHORUS);
-    }
-    if key.contains("saturator") {
-        return Some(FX_SATURATOR);
-    }
-    if key.contains("limiter") {
-        return Some(FX_LIMITER);
-    }
-    if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
-        return Some(FX_AUTO_FILTER);
-    }
-    if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
-        return Some(FX_AUTO_PAN);
-    }
-    if key.contains("noise-machine")
-        || key.contains("noisemachine")
-        || key.contains("noise machine")
-    {
-        return Some(FX_NOISE_MACHINE);
-    }
-    if key.contains("phaser") || key.contains("phaser-flanger") {
-        return Some(FX_PHASER);
-    }
-    if key.contains("flanger") {
-        return Some(FX_FLANGER);
-    }
-    if key.contains("distortion")
-        || key.contains("overdrive")
-        || key.contains("pedal")
-        || key.contains("cabinet")
-        || key.contains("amp")
-    {
-        return Some(FX_DISTORTION);
-    }
-    if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
-        return Some(FX_BITCRUSHER);
-    }
-    if key.contains("utility") {
-        return Some(FX_UTILITY);
-    }
-    if key.contains("gate") {
-        return Some(FX_GATE);
-    }
-    None
+    dream_models::project::builtin_effect_type_from_plugin_id(plugin_id)
 }
 
 fn rebuild_runtime_device_chains_from_project(
@@ -2294,6 +2183,13 @@ fn sync_transport_from_project(
     push_command(handle, EngineCommand::SetPlay(false))?;
     push_command(handle, EngineCommand::SetTimelineSampleRate(timeline_sample_rate))?;
     push_command(handle, EngineCommand::SetBpm(bpm))?;
+    push_command(
+        handle,
+        EngineCommand::SetTimeSignature {
+            numerator: project.time_signature.numerator.max(1),
+            denominator: project.time_signature.denominator.max(1),
+        },
+    )?;
     if loop_enabled && loop_end > loop_start {
         push_command(
             handle,
@@ -4190,6 +4086,7 @@ fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), St
             EngineCommand::SetPlay(_)
                 | EngineCommand::Seek(_)
                 | EngineCommand::SetBpm(_)
+                | EngineCommand::SetTimeSignature { .. }
                 | EngineCommand::SetLoopEnabled(_)
                 | EngineCommand::SetLoopRegion { .. }
                 | EngineCommand::SetTrackMute { .. }

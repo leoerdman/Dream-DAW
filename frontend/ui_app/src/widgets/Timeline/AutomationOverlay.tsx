@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useMemo, memo } from 'react';
+import { resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useViewportStore } from '@/shared/stores/useViewportStore';
@@ -52,7 +53,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
 }: AutomationOverlayProps) {
     const lanes = useAutomationStore((s) => s.lanes);
     const projectTracks = useEngineStore((s) => s.projectTracks);
-    const sampleRate = useEngineStore((s) => s.transport.sample_rate) || 44100;
+    const sampleRate = resolveSampleRate(useEngineStore((s) => s.transport.sample_rate));
     const samplesPerPixel = useViewportStore((s) => s.samplesPerPixel);
     const viewportScrollX = useViewportStore((s) => s.scrollX);
 

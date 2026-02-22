@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { beatToFrame } from '../../shared/lib/audioMath';
+import { beatToFrame, resolveSampleRate } from '../../shared/lib/audioMath';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -486,7 +486,7 @@ export const TransportBar = ({
                             onClick={() => {
                                 const newEnabled = !isLooping;
                                 if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
-                                    const sr = sampleRate || 44100;
+                                    const sr = resolveSampleRate(sampleRate);
                                     const currentBpm = bpm || 120;
                                     const startF = beatToFrame(posBeats, currentBpm, sr);
                                     const endF = beatToFrame(posBeats + timeSigNum, currentBpm, sr);

@@ -37,7 +37,7 @@ use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_io::mp3_writer::Mp3Writer;
 use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
-use dream_models::project::{AudioClip, Project};
+use dream_models::project::{AudioClip, Project, builtin_effect_type_from_plugin_id};
 use dream_models::time::AbsoluteTime;
 use dream_plugins::TransportContext;
 use dream_plugins::vst3_host::PluginInstanceArc;
@@ -156,31 +156,6 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
-    /// Maps an internal plugin ID string to a BuiltinEffectType.
-    /// Mirrors the mapping in desktop_host/lib.rs.
-    fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<BuiltinEffectType> {
-        match plugin_id.to_lowercase().as_str() {
-            "internal://effect/eq-eight" => Some(BuiltinEffectType::Eq),
-            "internal://effect/compressor" => Some(BuiltinEffectType::Compressor),
-            "internal://effect/delay" => Some(BuiltinEffectType::Delay),
-            "internal://effect/reverb" => Some(BuiltinEffectType::Reverb),
-            "internal://effect/chorus" => Some(BuiltinEffectType::Chorus),
-            "internal://effect/utility" => Some(BuiltinEffectType::Utility),
-            "internal://effect/saturator" => Some(BuiltinEffectType::Saturator),
-            "internal://effect/limiter" => Some(BuiltinEffectType::Limiter),
-            "internal://effect/gate" => Some(BuiltinEffectType::Gate),
-            "internal://effect/auto-filter" => Some(BuiltinEffectType::AutoFilter),
-            "internal://effect/phaser" => Some(BuiltinEffectType::Phaser),
-            "internal://effect/flanger" => Some(BuiltinEffectType::Flanger),
-            "internal://effect/distortion" => Some(BuiltinEffectType::Distortion),
-            "internal://effect/bitcrusher" => Some(BuiltinEffectType::Bitcrusher),
-            "internal://effect/noise-machine" => Some(BuiltinEffectType::NoiseMachine),
-            "internal://effect/auto-pan" => Some(BuiltinEffectType::AutoPan),
-            "internal://effect/analyzer" => Some(BuiltinEffectType::Analyzer),
-            _ => None,
-        }
-    }
-
     /// Populates a DeviceChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
@@ -225,7 +200,9 @@ impl OfflineBouncer {
 
         let mut slot_index: usize = 0;
         for (slot, bypassed) in slots {
-            if let Some(effect_type) = Self::builtin_effect_type_from_plugin_id(&slot.plugin_id) {
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                .and_then(BuiltinEffectType::from_u8)
+            {
                 chain.add_device(slot_index, effect_type);
                 if bypassed {
                     chain.set_bypass(slot_index, true);
@@ -415,6 +392,8 @@ impl OfflineBouncer {
         track_idx: usize,
         frame_count: usize,
         sample_rate: f64,
+        time_sig_numerator: u8,
+        time_sig_denominator: u8,
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
         bpm: f64,
@@ -467,8 +446,8 @@ impl OfflineBouncer {
                                 tempo: bpm,
                                 is_playing: true,
                                 is_recording: false,
-                                time_sig_numerator: 4,
-                                time_sig_denominator: 4,
+                                time_sig_numerator: i32::from(time_sig_numerator),
+                                time_sig_denominator: i32::from(time_sig_denominator),
                             };
                             host.set_transport_context(transport);
 
@@ -542,6 +521,8 @@ impl OfflineBouncer {
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
         bpm: f64,
+        time_sig_numerator: u8,
+        time_sig_denominator: u8,
         master_device_chain: &mut DeviceChain,
     ) {
         let channels = render_ctx.channels.max(1);
@@ -600,6 +581,8 @@ impl OfflineBouncer {
                 track_idx,
                 frame_count,
                 sample_rate,
+                time_sig_numerator,
+                time_sig_denominator,
                 plugin_registry,
                 external_fx_map,
                 bpm,
@@ -692,8 +675,8 @@ impl OfflineBouncer {
                             tempo: bpm,
                             is_playing: true,
                             is_recording: false,
-                            time_sig_numerator: 4,
-                            time_sig_denominator: 4,
+                            time_sig_numerator: i32::from(time_sig_numerator),
+                            time_sig_denominator: i32::from(time_sig_denominator),
                         };
                         host.set_transport_context(transport);
 
@@ -1272,6 +1255,8 @@ impl OfflineBouncer {
                 plugin_registry,
                 external_fx_map,
                 self.config.bpm,
+                project.time_signature.numerator.max(1),
+                project.time_signature.denominator.max(1),
                 &mut master_device_chain,
             );
 

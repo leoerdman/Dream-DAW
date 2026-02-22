@@ -354,35 +354,38 @@ fn place_bounced_file_on_new_track(
         });
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_sr = project.sample_rate.max(1.0);
-    let source_sr = decoded.sample_rate.max(1) as f64;
-    let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
-
-    // Insert new track right after the source track, not at the bottom.
-    let new_track = Track::new(new_track_name);
-    let new_track_index = if let Some(after_idx) = insert_after_index {
-        let insert_pos = (after_idx + 1).min(project.tracks.len());
-        project.tracks.insert(insert_pos, new_track);
-        insert_pos
-    } else {
-        project.add_track(new_track);
-        project.tracks.len().saturating_sub(1)
+    let (project_sr, project_name) = {
+        let p = project_state.project.lock().map_err(|e| e.to_string())?;
+        (p.sample_rate.max(1.0), p.name.clone())
     };
 
-    let mut clip = AudioClip::new(
-        clip_name,
-        bounced_file_path,
-        AbsoluteTime::new(clip_start_frame.max(0)),
-        AbsoluteTime::new(timeline_frames.max(1)),
-    );
-    // FIX: warp_source_duration_frames must be the RAW source frame count,
-    // NOT the SR-scaled timeline duration.
-    clip.warp_source_duration_frames = decoded.num_frames.max(1) as i64;
-    if let Some(track) = project.tracks.get_mut(new_track_index) {
-        track.clips.push(clip);
+    let source_sr = decoded.sample_rate.max(1) as f64;
+    let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
+    
+    let cmd = dream_orchestrator::commands::InsertBouncedClipCommand {
+        file_path: bounced_file_path.to_string(),
+        clip_name: clip_name.to_string(),
+        start_frame: clip_start_frame,
+        timeline_duration_frames: timeline_frames,
+        source_duration_frames: decoded.num_frames as i64,
+        new_track_name: new_track_name.to_string(),
+        insert_after_index,
+    };
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
     }
-    let project_name = project.name.clone();
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, handle);
     drop(project);
@@ -433,27 +436,42 @@ fn place_stem_files_on_new_tracks(
         }
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_sr = project.sample_rate.max(1.0);
-    for stem in &metas {
-        project.add_track(Track::new(&stem.track_name));
-        let new_track_index = project.tracks.len().saturating_sub(1);
+    let (project_sr, project_name) = {
+        let p = project_state.project.lock().map_err(|e| e.to_string())?;
+        (p.sample_rate.max(1.0), p.name.clone())
+    };
+
+    let mut stems_input = Vec::new();
+    for stem in metas {
         let source_sr = stem.sample_rate.max(1) as f64;
         let timeline_frames = ((stem.num_frames as f64) * (project_sr / source_sr)).round() as i64;
-        let mut clip = AudioClip::new(
-            &stem.track_name,
-            &stem.path,
-            AbsoluteTime::new(clip_start_frame.max(0)),
-            AbsoluteTime::new(timeline_frames.max(1)),
-        );
-        // FIX: warp_source_duration_frames must be RAW source frame count.
-        clip.warp_source_duration_frames = stem.num_frames.max(1) as i64;
-        if let Some(track) = project.tracks.get_mut(new_track_index) {
-            track.clips.push(clip);
-        }
+        stems_input.push(dream_orchestrator::commands::StemMetaInput {
+            file_path: stem.path,
+            track_name: stem.track_name,
+            timeline_duration_frames: timeline_frames,
+            source_duration_frames: stem.num_frames as i64,
+        });
     }
 
-    let project_name = project.name.clone();
+    let cmd = dream_orchestrator::commands::InsertStemClipsCommand {
+        start_frame: clip_start_frame,
+        stems: stems_input,
+    };
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
+    }
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, handle);
     drop(project);
@@ -1448,46 +1466,34 @@ async fn paint_track_clips_with_track_color_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     push_undo(&project_state)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+    let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
+        .map_err(|e| e.to_string())?;
 
-    let mut changed = false;
-    let target_color = track.color.clone();
-    let target_color_hex = track.color_hex.clone();
-
-    for clip in &mut track.clips {
-        if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex
-        {
-            changed = true;
+    let changed = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let changed = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        if changed {
+            let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+            *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
         }
-        clip.color_override = Some(target_color.clone());
-        clip.color_hex = target_color_hex.clone();
-    }
-
-    for clip in &mut track.midi_clips {
-        if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex
-        {
-            changed = true;
-        }
-        clip.color_override = Some(target_color.clone());
-        clip.color_hex = target_color_hex.clone();
-    }
+        changed
+    };
 
     if changed {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         clip_pool_state.rebuild_clips_only(&project);
         rebuild_midi_snapshot_from_project(&project, &handle);
         let project_name = project.name.clone();
         drop(project);
         project_state.mark_dirty(&project_name, Some(&app))?;
-    } else {
-        drop(project);
     }
 
     Ok(())

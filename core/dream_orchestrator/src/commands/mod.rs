@@ -3,6 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Clip Commands ───────────────────────────────────────────────────────
+pub mod clip_bounce;
+pub mod clip_color;
 pub mod clip_delete;
 pub mod clip_duplicate;
 pub mod clip_fades;
@@ -17,6 +19,8 @@ pub mod clip_split;
 pub mod clip_warp;
 
 // Re-export all command structs for convenience
+pub use clip_bounce::{InsertBouncedClipCommand, InsertStemClipsCommand, StemMetaInput};
+pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_delete::DeleteClipCommand;
 pub use clip_duplicate::DuplicateClipCommand;
 pub use clip_fades::SetClipFadesCommand;

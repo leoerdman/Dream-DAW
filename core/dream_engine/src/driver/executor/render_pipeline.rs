@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::render_callback::soft_clip;
 use dream_ipc::metering::{compute_peak, compute_rms};
+use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
 pub(super) fn sync_sampler_engines(
@@ -57,6 +58,173 @@ pub(super) fn sync_sample_rack_engines(
                 }
             }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn process_master_runtime_fx_and_gain(
+    external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+    track_count: usize,
+    master_device_chain: &mut DeviceChain,
+    plugin_registry_ref: &std::collections::HashMap<uuid::Uuid, PluginInstanceArc>,
+    graph_out_left: &mut [f32],
+    graph_out_right: &mut [f32],
+    external_left: &mut [f32],
+    external_right: &mut [f32],
+    n: usize,
+    playhead_pos: i64,
+    sample_rate_f64: f64,
+    bpm: f64,
+    is_playing: bool,
+    time_sig_numerator: u8,
+    time_sig_denominator: u8,
+    master_gain_target: f32,
+    master_gain_current: &mut f32,
+    master_gain_smooth: f32,
+    render_ctx: &mut RenderContext,
+    graph_peak_decay: f32,
+) {
+    let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
+    if let Some(master_slots) = master_slots_opt {
+        if !master_slots.is_empty() {
+            for runtime_slot in master_slots {
+                if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                    master_device_chain.process_slot_with_sidechain(
+                        internal_idx,
+                        &mut graph_out_left[..n],
+                        &mut graph_out_right[..n],
+                        None,
+                        None,
+                        sample_rate_f64 as f32,
+                    );
+                    continue;
+                }
+
+                if let Some(instance_id) = runtime_slot.instance_id {
+                    if let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) {
+                        if let Some(mut host) = plugin_mtx.try_lock() {
+                            let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
+                            let transport = TransportContext {
+                                sample_rate: sample_rate_f64,
+                                position_samples: playhead_pos,
+                                tempo: bpm,
+                                is_playing,
+                                is_recording: false,
+                                time_sig_numerator: i32::from(time_sig_numerator),
+                                time_sig_denominator: i32::from(time_sig_denominator),
+                            };
+                            host.set_transport_context(transport);
+
+                            let empty_midi: &[MidiEvent] = &[];
+                            external_left[..n].copy_from_slice(&graph_out_left[..n]);
+                            external_right[..n].copy_from_slice(&graph_out_right[..n]);
+                            let mut out_slices: [&mut [f32]; 2] =
+                                [&mut external_left[..n], &mut external_right[..n]];
+                            let _ = host.process_with_sidechain(
+                                &main_inputs,
+                                None,
+                                &mut out_slices,
+                                n,
+                                &empty_midi,
+                            );
+                            graph_out_left[..n].copy_from_slice(&external_left[..n]);
+                            graph_out_right[..n].copy_from_slice(&external_right[..n]);
+                        }
+                    }
+                }
+            }
+        } else if !master_device_chain.is_empty() {
+            master_device_chain.process_stereo(
+                &mut graph_out_left[..n],
+                &mut graph_out_right[..n],
+                sample_rate_f64 as f32,
+            );
+        }
+    } else if !master_device_chain.is_empty() {
+        master_device_chain.process_stereo(
+            &mut graph_out_left[..n],
+            &mut graph_out_right[..n],
+            sample_rate_f64 as f32,
+        );
+    }
+
+    for i in 0..n {
+        *master_gain_current += (master_gain_target - *master_gain_current) * master_gain_smooth;
+        graph_out_left[i] *= *master_gain_current;
+        graph_out_right[i] *= *master_gain_current;
+    }
+
+    let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
+    let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
+    let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
+    let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
+    render_ctx.meter_bank.master_left().store_rms(rms_l);
+    render_ctx.meter_bank.master_right().store_rms(rms_r);
+    render_ctx
+        .meter_bank
+        .master_left()
+        .store_peak_decay(peak_l, graph_peak_decay);
+    render_ctx
+        .meter_bank
+        .master_right()
+        .store_peak_decay(peak_r, graph_peak_decay);
+}
+
+pub(super) fn interleave_graph_output(
+    graph_out_left: &[f32],
+    graph_out_right: &[f32],
+    n: usize,
+    channels: usize,
+    data: &mut [f32],
+) {
+    for i in 0..n {
+        let base = i * channels;
+        if base >= data.len() {
+            break;
+        }
+        if channels == 1 {
+            data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
+            continue;
+        }
+        data[base] = graph_out_left[i];
+        if base + 1 < data.len() {
+            data[base + 1] = graph_out_right[i];
+        }
+        for ch in 2..channels {
+            let idx = base + ch;
+            if idx < data.len() {
+                data[idx] = 0.0;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_test_tone_if_needed(
+    test_tone_enabled: bool,
+    is_playing: bool,
+    sample_rate_f64: f64,
+    channels: usize,
+    data: &mut [f32],
+    test_tone_current_freq: &mut f32,
+    test_tone_target_freq: f32,
+    test_tone_phase: &mut f64,
+    test_tone_amplitude: f32,
+) {
+    if !test_tone_enabled || is_playing {
+        return;
+    }
+
+    let freq_smooth_coeff = 1.0 - (-1.0_f64 / (0.03 * sample_rate_f64)).exp() as f32;
+    for frame in data.chunks_exact_mut(channels) {
+        *test_tone_current_freq += (test_tone_target_freq - *test_tone_current_freq) * freq_smooth_coeff;
+        let phase_inc = *test_tone_current_freq as f64 / sample_rate_f64;
+        let sample = (*test_tone_phase * std::f64::consts::TAU).sin() as f32 * test_tone_amplitude;
+        for ch in frame.iter_mut() {
+            *ch = sample;
+        }
+        *test_tone_phase += phase_inc;
+        *test_tone_phase = test_tone_phase.fract();
     }
 }
 

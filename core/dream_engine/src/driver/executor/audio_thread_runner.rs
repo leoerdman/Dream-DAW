@@ -8,7 +8,9 @@ use super::command_dispatch::{
     DeferredTopologyCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
 use super::render_pipeline::{
-    finalize_output_and_publish, mix_preview_audio, sync_sample_rack_engines, sync_sampler_engines,
+    finalize_output_and_publish, interleave_graph_output, mix_preview_audio,
+    process_master_runtime_fx_and_gain, render_test_tone_if_needed, sync_sample_rack_engines,
+    sync_sampler_engines,
 };
 
 use crate::driver::automation::{
@@ -17,7 +19,6 @@ use crate::driver::automation::{
 use crate::driver::midi_dispatcher::{
     ActiveMappedNote, Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale,
 };
-use crate::render_callback::soft_clip;
 use crate::sampler::{AdsrParams, Waveform};
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_graph::GraphRenderer;
@@ -1447,170 +1448,47 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
-                        // ── Post-graph master external FX processing ─────────
-                        // CRITICAL FIX: External VST3 plugins on the master bus
-                        // (e.g. Muse, OTT, limiter) were never processed because:
-                        //   1. The graph callback returns early for MASTER_OUTPUT_ID=0
-                        //   2. master_track was separate from project.tracks
-                        // Now that rebuild_external_fx_snapshot appends master FX
-                        // after active tracks, process them on graph_out_left/right
-                        // BEFORE interleaving to the output buffer.
-                        //
-                        // SSOT safety: prefer index `track_count` for the current
-                        // capped topology, but if the snapshot was built with an
-                        // older/uncapped shape (len > track_count + 1), fallback
-                        // to the last entry where master FX are appended.
-                        let master_slots_opt =
-                            resolve_master_runtime_slots(external_fx_map.as_slice(), track_count);
-                        if let Some(master_slots) = master_slots_opt {
-                            if !master_slots.is_empty() {
-                                for runtime_slot in master_slots.iter() {
-                                    // Internal effects on master bus (EQ, compressor, etc.)
-                                    // are processed via the master_device_chain.
-                                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                                        master_device_chain.process_slot_with_sidechain(
-                                            internal_idx,
-                                            &mut graph_out_left[..n],
-                                            &mut graph_out_right[..n],
-                                            None,
-                                            None,
-                                            sample_rate_f64 as f32,
-                                        );
-                                        continue;
-                                    }
+                        process_master_runtime_fx_and_gain(
+                            external_fx_map.as_slice(),
+                            track_count,
+                            &mut master_device_chain,
+                            plugin_registry_ref,
+                            &mut graph_out_left,
+                            &mut graph_out_right,
+                            &mut external_left,
+                            &mut external_right,
+                            n,
+                            playhead_pos,
+                            sample_rate_f64,
+                            bpm,
+                            is_playing,
+                            time_sig_numerator,
+                            time_sig_denominator,
+                            master_gain_target,
+                            &mut master_gain_current,
+                            master_gain_smooth,
+                            &mut render_ctx,
+                            graph_peak_decay,
+                        );
+                        interleave_graph_output(
+                            &graph_out_left,
+                            &graph_out_right,
+                            n,
+                            channels,
+                            data,
+                        );
 
-                                    if let Some(instance_id) = runtime_slot.instance_id
-                                        && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
-                                        && let Some(mut host) = plugin_mtx.try_lock()
-                                    {
-                                        let c = n;
-                                        let main_inputs: [&[f32]; 2] = [
-                                            &graph_out_left[..c],
-                                            &graph_out_right[..c],
-                                        ];
-                                        let transport = TransportContext {
-                                            sample_rate: sample_rate_f64,
-                                            position_samples: playhead_pos,
-                                            tempo: bpm,
-                                            is_playing,
-                                            is_recording: false,
-                                            time_sig_numerator: i32::from(time_sig_numerator),
-                                            time_sig_denominator: i32::from(time_sig_denominator),
-                                        };
-                                        host.set_transport_context(transport);
-
-                                        // Master bus plugins don't receive MIDI.
-                                        // Use empty slice (zero-alloc) for RT-safety.
-                                        let empty_midi: &[MidiEvent] = &[];
-
-                                        // Seed output with current master input so plugin failure
-                                        // or partial writes cannot leak stale buffer data.
-                                        external_left[..c].copy_from_slice(&graph_out_left[..c]);
-                                        external_right[..c].copy_from_slice(&graph_out_right[..c]);
-                                        let mut out_slices: [&mut [f32]; 2] = [
-                                            &mut external_left[..c],
-                                            &mut external_right[..c],
-                                        ];
-                                        let _ = host.process_with_sidechain(
-                                            &main_inputs,
-                                            None, // No sidechain on master bus
-                                            &mut out_slices,
-                                            c,
-                                            &empty_midi,
-                                        );
-
-                                        // Write processed output back to graph_out buffers.
-                                        graph_out_left[..c].copy_from_slice(&external_left[..c]);
-                                        graph_out_right[..c].copy_from_slice(&external_right[..c]);
-                                    }
-                                }
-                            } else if !master_device_chain.is_empty() {
-                                // Safety fallback: if snapshot exists but has no runtime
-                                // entries, still run the master native chain.
-                                master_device_chain.process_stereo(
-                                    &mut graph_out_left[..n],
-                                    &mut graph_out_right[..n],
-                                    sample_rate_f64 as f32,
-                                );
-                            }
-                        } else if !master_device_chain.is_empty() {
-                            // Safety fallback: stale/missing external snapshot must never
-                            // bypass master native processing.
-                            master_device_chain.process_stereo(
-                                &mut graph_out_left[..n],
-                                &mut graph_out_right[..n],
-                                sample_rate_f64 as f32,
-                            );
-                        }
-
-                        // ── BUG-R4/R5 FIX: Apply master gain to graph_out BEFORE metering ──
-                        // Previously master gain was applied after interleave at L3157,
-                        // causing: (1) master meters to show pre-fader levels (wrong), and
-                        // (2) double soft_clip on hot signals (altered saturation character).
-                        // Now master gain is per-sample smoothed into graph_out buffers first,
-                        // so metering reflects the true output level.
-                        for i in 0..n {
-                            master_gain_current +=
-                                (master_gain_target - master_gain_current) * master_gain_smooth;
-                            graph_out_left[i] *= master_gain_current;
-                            graph_out_right[i] *= master_gain_current;
-                        }
-
-                        // ── Master bus metering (post-FX, post-master-gain) ──────────
-                        {
-                            let decay = graph_peak_decay;
-                            let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
-                            let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
-                            let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
-                            let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
-                            render_ctx.meter_bank.master_left().store_rms(rms_l);
-                            render_ctx.meter_bank.master_right().store_rms(rms_r);
-                            render_ctx.meter_bank.master_left().store_peak_decay(peak_l, decay);
-                            render_ctx.meter_bank.master_right().store_peak_decay(peak_r, decay);
-                        }
-
-
-
-                        // BUG-R5 FIX: Interleave without soft_clip here — final soft_clip
-                        // is applied once at the output stage below. Previously signal was
-                        // soft-clipped twice (here + master gain loop), altering saturation.
-                        for i in 0..n {
-                            let base = i * channels;
-                            if base >= data.len() { break; }
-                            if channels == 1 {
-                                // AUD-062 FIX: Equal-power mono fold.
-                                data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
-                                continue;
-                            }
-                            data[base] = graph_out_left[i];
-                            if base + 1 < data.len() {
-                                data[base + 1] = graph_out_right[i];
-                            }
-                            for ch in 2..channels {
-                                let idx = base + ch;
-                                if idx < data.len() { data[idx] = 0.0; }
-                            }
-                        }
-
-                        if test_tone_enabled && !is_playing {
-                            // Test tone only when stopped (otherwise clips handle it)
-                            // AUD-010 FIX: Use sample-rate-dependent smoothing so the
-                            // frequency transition time is identical regardless of sample
-                            // rate. FREQ_SMOOTHING was a fixed constant producing ~30ms
-                            // at 44.1kHz but ~15ms at 96kHz.
-                            let freq_smooth_coeff = 1.0 - (-1.0_f64 / (0.03 * sample_rate_f64)).exp() as f32;
-                            for frame in data.chunks_exact_mut(channels) {
-                                test_tone_current_freq += (test_tone_target_freq - test_tone_current_freq) * freq_smooth_coeff;
-                                let phase_inc = test_tone_current_freq as f64 / sample_rate_f64;
-                                let sample = (test_tone_phase * std::f64::consts::TAU).sin() as f32 * TEST_TONE_AMPLITUDE;
-                                for ch in frame.iter_mut() { *ch = sample; }
-                                test_tone_phase += phase_inc;
-                                // BUG-014 FIX: Use fract() for safe phase wrapping.
-                                // The previous `if >= 1.0 { -= 1.0 }` fails when phase_inc > 1.0
-                                // (high frequencies / low sample rates), causing pitch aliasing.
-                                test_tone_phase = test_tone_phase.fract();
-                            }
-                        }
+                        render_test_tone_if_needed(
+                            test_tone_enabled,
+                            is_playing,
+                            sample_rate_f64,
+                            channels,
+                            data,
+                            &mut test_tone_current_freq,
+                            test_tone_target_freq,
+                            &mut test_tone_phase,
+                            TEST_TONE_AMPLITUDE,
+                        );
 
                         if is_playing && !playhead_advanced_in_render {
                             render_ctx.advance_playhead_by_frames(frame_count);

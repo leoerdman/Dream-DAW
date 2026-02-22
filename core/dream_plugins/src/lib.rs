@@ -22,6 +22,7 @@ pub mod format;
 pub mod instance;
 pub mod sandbox_host;
 pub mod sandbox_instance;
+pub mod sandbox_types;
 pub mod sandbox_ipc;
 pub mod scanner;
 pub mod shared_memory;

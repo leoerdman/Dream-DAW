@@ -12,7 +12,7 @@ use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use uuid::Uuid;
 

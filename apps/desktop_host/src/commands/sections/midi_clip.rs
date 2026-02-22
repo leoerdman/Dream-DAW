@@ -433,53 +433,35 @@ async fn update_midi_clip_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-    enum UpdateTarget {
-        MidiClip {
-            track_index: usize,
-            normalized: Vec<MidiNote>,
-        },
-        LegacyAudioClip {
-            track_index: usize,
-            normalized: Vec<MidiNote>,
-        },
-        Noop,
-    }
 
-    let target = {
+    // 1. Get clip duration for normalization, and check for Noop
+    let (clip_duration_frames, is_noop, is_legacy, project_name) = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let mut found: Option<UpdateTarget> = None;
-
-        for (track_index, track) in project.tracks.iter().enumerate() {
-            if let Some(clip) = track.midi_clips.iter().find(|c| c.id == uuid) {
-                let normalized = normalize_note_payloads(&notes, clip.duration.sample_frame);
-                if clip.notes == normalized {
-                    found = Some(UpdateTarget::Noop);
-                } else {
-                    found = Some(UpdateTarget::MidiClip { track_index, normalized });
-                }
+        let mut dur = 0;
+        let mut is_noop = false;
+        let mut is_legacy = false;
+        
+        for track in &project.tracks {
+            if let Some(c) = track.midi_clips.iter().find(|c| c.id == uuid) {
+                dur = c.duration.sample_frame;
+                let normalized = normalize_note_payloads(&notes, dur);
+                is_noop = c.notes == normalized;
+                break;
+            }
+            if let Some(c) = track.clips.iter().find(|c| c.id == uuid && c.file_path.trim().is_empty()) {
+                dur = c.duration.sample_frame;
+                let normalized = normalize_note_payloads(&notes, dur);
+                is_legacy = true;
                 break;
             }
         }
-
-        if found.is_none() {
-            for (track_index, track) in project.tracks.iter().enumerate() {
-                if let Some(idx) = track
-                    .clips
-                    .iter()
-                    .position(|c| c.id == uuid && c.file_path.trim().is_empty())
-                {
-                    let legacy = &track.clips[idx];
-                    let normalized = normalize_note_payloads(&notes, legacy.duration.sample_frame);
-                    found = Some(UpdateTarget::LegacyAudioClip { track_index, normalized });
-                    break;
-                }
-            }
+        if dur == 0 {
+            return Err(format!("MIDI clip not found: {clip_id}"));
         }
-
-        found.ok_or_else(|| format!("MIDI clip not found: {clip_id}"))?
+        (dur, is_noop, is_legacy, project.name.clone())
     };
 
-    if matches!(target, UpdateTarget::Noop) {
+    if is_noop {
         return Ok(());
     }
 
@@ -487,49 +469,25 @@ async fn update_midi_clip_cmd(
         push_undo(&project_state)?;
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut should_rebuild_clip_snapshot = false;
-    match target {
-        UpdateTarget::MidiClip {
-            track_index,
-            normalized,
-        } => {
-            let track = project
-                .tracks
-                .get_mut(track_index)
-                .ok_or_else(|| format!("Track not found for MIDI clip: {clip_id}"))?;
-            let clip = track
-                .midi_clips
-                .iter_mut()
-                .find(|c| c.id == uuid)
-                .ok_or_else(|| format!("MIDI clip disappeared during update: {clip_id}"))?;
-            clip.notes = normalized;
-        }
-        UpdateTarget::LegacyAudioClip {
-            track_index,
-            normalized,
-        } => {
-            let track = project
-                .tracks
-                .get_mut(track_index)
-                .ok_or_else(|| format!("Track not found for legacy MIDI clip: {clip_id}"))?;
-            let idx = track
-                .clips
-                .iter()
-                .position(|c| c.id == uuid && c.file_path.trim().is_empty())
-                .ok_or_else(|| format!("Legacy MIDI clip disappeared during update: {clip_id}"))?;
-            let legacy = track.clips.remove(idx);
-            let mut migrated = MidiClip::new(legacy.name, legacy.position, legacy.duration);
-            migrated.id = legacy.id;
-            migrated.notes = normalized;
-            track.midi_clips.push(migrated);
-            should_rebuild_clip_snapshot = true;
-        }
-        UpdateTarget::Noop => {}
+    let normalized = normalize_note_payloads(&notes, clip_duration_frames);
+    let cmd = dream_orchestrator::commands::UpdateMidiClipCommand::from_str_id(&clip_id, normalized)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
     }
 
-    let project_name = project.name.clone();
-    if should_rebuild_clip_snapshot {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    if is_legacy {
         clip_pool_state.rebuild_snapshot(&project);
     }
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -547,63 +505,55 @@ async fn set_midi_clip_envelopes_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
+        .iter()
+        .filter(|env| !env.param_id.trim().is_empty())
+        .map(|env| {
+            let mut points: Vec<dream_models::project::AutomationPoint> = env
+                .points
+                .iter()
+                .map(|p| dream_models::project::AutomationPoint {
+                    beat: p.beat.max(0.0),
+                    value: p.value.clamp(0.0, 1.0),
+                    curve_type: "linear".to_string(),
+                    tension: None,
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
+                })
+                .collect();
+            points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+            dream_models::project::ClipEnvelope {
+                pointee_id: 0,
+                param_id: env.param_id.clone(),
+                points,
+            }
+        })
+        .collect();
+    normalized.sort_by(|a, b| a.param_id.cmp(&b.param_id));
 
     if push_undo_step.unwrap_or(true) {
         push_undo(&project_state)?;
     }
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut found = false;
-    let mut updated = false;
+    let cmd = dream_orchestrator::commands::SetMidiClipEnvelopesCommand::from_str_id(&clip_id, normalized)
+        .map_err(|e| e.to_string())?;
 
-    for track in &mut project.tracks {
-        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
-            found = true;
-            let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
-                .iter()
-                .filter(|env| !env.param_id.trim().is_empty())
-                .map(|env| {
-                    let mut points: Vec<dream_models::project::AutomationPoint> = env
-                        .points
-                        .iter()
-                        .map(|p| dream_models::project::AutomationPoint {
-                            beat: p.beat.max(0.0),
-                            value: p.value.clamp(0.0, 1.0),
-                            curve_type: "linear".to_string(),
-                            tension: None,
-                            bezier_cp1x: None,
-                            bezier_cp1y: None,
-                            bezier_cp2x: None,
-                            bezier_cp2y: None,
-                        })
-                        .collect();
-                    points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-                    dream_models::project::ClipEnvelope {
-                        pointee_id: 0,
-                        param_id: env.param_id.clone(),
-                        points,
-                    }
-                })
-                .collect();
-            normalized.sort_by(|a, b| a.param_id.cmp(&b.param_id));
-
-            if clip.envelopes != normalized {
-                clip.envelopes = normalized;
-                updated = true;
-            }
-            break;
-        }
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? = result_project.clone();
     }
 
-    if !found {
-        return Err(format!("MIDI clip not found: {clip_id}"));
-    }
-
-    if !updated {
-        return Ok(());
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);

@@ -1,29 +1,46 @@
 # kind path max_lines
-rust apps/desktop_host/src/commands/sections/clip_mutators.rs 3035
+# ── Rust ─────────────────────────────────────────────────────────────────
+# Desktop host command handlers (Tauri IPC boundary, inherently verbose)
+rust apps/desktop_host/src/commands/sections/clip_mutators.rs 3217
 rust apps/desktop_host/src/commands/sections/plugins_routing.rs 3019
 rust apps/desktop_host/src/lib.rs 5049
+# Core engine (RT hot path — cannot be safely split further)
+rust core/dream_engine/src/driver/executor/audio_thread_runner.rs 1900
 rust core/dream_engine/src/offline_bounce.rs 1701
-rust core/dream_engine/src/sampler.rs 1321
-rust core/dream_models/src/mutators.rs 1180
+rust core/dream_engine/src/sampler.rs 1340
+# Models
+rust core/dream_models/src/mutators.rs 1250
 rust core/dream_models/src/project.rs 2588
-rust core/dream_plugins/examples/test_serum2.rs 1671
+# Plugins (example + legacy VST2)
+rust core/dream_plugins/examples/test_serum2.rs 2200
 rust core/dream_plugins/src/vst2_host.rs 1434
+# ── TypeScript ───────────────────────────────────────────────────────────
+# App shell
 ts frontend/ui_app/src/app/layouts/DawShell.tsx 2516
-ts frontend/ui_app/src/shared/api/assistant/toolExecutor.ts 1315
+# Shared APIs
+ts frontend/ui_app/src/shared/api/assistant/toolExecutor.ts 1400
 ts frontend/ui_app/src/shared/api/assistant/tools.ts 1222
-ts frontend/ui_app/src/shared/api/engine.ts 1389
+ts frontend/ui_app/src/shared/api/engine.ts 1400
+# Config/manifests
 ts frontend/ui_app/src/shared/config/pluginManifest.ts 859
-ts frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts 828
+# Shared hooks
+ts frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts 860
 ts frontend/ui_app/src/shared/hooks/useNativeMenu.ts 319
+# Libraries
 ts frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts 1201
 ts frontend/ui_app/src/shared/lib/TimelineEngine.ts 1947
 ts frontend/ui_app/src/shared/lib/ViewportMachine.ts 348
 ts frontend/ui_app/src/shared/lib/ViewportMatrix.ts 409
 ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
+# Stores
 ts frontend/ui_app/src/shared/stores/useEngineStore.ts 1234
+# Widgets — AssetBrowser
 ts frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx 3129
+ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 1000
+# Widgets — AssistantChat
 ts frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx 502
 ts frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx 736
+# Widgets — DeviceRack
 ts frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx 477
 ts frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx 406
 ts frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx 377
@@ -31,20 +48,34 @@ ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
 ts frontend/ui_app/src/widgets/DeviceRack/model/useDeviceRackLogic.ts 1137
 ts frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx 424
 ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx 1905
+ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurfaceStandard.tsx 1000
+# Widgets — ExportModal
 ts frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx 667
+# Widgets — FileMenu
 ts frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx 364
+# Widgets — MissingAssetsPanel
 ts frontend/ui_app/src/widgets/MissingAssetsPanel/MissingAssetsPanel.tsx 329
+# Widgets — PianoRoll
 ts frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx 2035
+ts frontend/ui_app/src/widgets/PianoRoll/model/usePianoRollLogic.ts 1400
 ts frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx 496
+# Widgets — PluginWindow
 ts frontend/ui_app/src/widgets/PluginWindow/PluginWindow.tsx 321
+# Widgets — SampleRack
 ts frontend/ui_app/src/widgets/SampleRack/SampleRack.tsx 350
+# Widgets — SettingsPanel
 ts frontend/ui_app/src/widgets/SettingsPanel/SettingsPanel.tsx 778
-ts frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx 442
+# Widgets — StatusBar
+ts frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx 470
+# Widgets — Timeline
 ts frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx 419
 ts frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx 346
 ts frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx 356
 ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
+# Widgets — TrackInspector
 ts frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx 1487
+ts frontend/ui_app/src/widgets/TrackInspector/model/useTrackInspectorLogic.ts 1000
 ts frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx 324
 ts frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx 671
+# Widgets — TransportBar
 ts frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx 891

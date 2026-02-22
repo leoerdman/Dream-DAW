@@ -14,10 +14,6 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import {
-    INTERNAL_EFFECT_ITEMS,
-    INTERNAL_INSTRUMENT_ITEMS,
-    PLUGIN_SOURCE_LABEL,
-    PLUGIN_SOURCE_ORDER,
     STATIC_CATEGORIES,
 } from './assetBrowserSchema';
 import type { BrowserCategory, BrowserItem, PluginGroupedRow } from './assetBrowserSchema';
@@ -32,11 +28,7 @@ export {
     SOURCE_FILTERS,
 } from './assetBrowserSchema';
 import {
-    detectPluginSource,
     fileTypeToItemType,
-    fuzzyScore,
-    isLikelyDrumAudio,
-    isLikelyInstrumentPlugin,
     loadCollectionLabels,
     loadCollections,
     saveCollectionLabels,
@@ -44,6 +36,16 @@ import {
     selectBestPeakLevel,
     type CollectionId,
 } from './assetBrowserUtils';
+import {
+    buildPluginGroupedRows,
+    buildPluginLetterAnchors,
+    computeBrowserItems,
+    flattenFolderBrowserItems,
+    mapPluginBrowserItems,
+    mapRealBrowserItems,
+} from './assetBrowserItemPipeline';
+import { useAssetBrowserUiEffects } from './useAssetBrowserUiEffects';
+import { useAssetBrowserEffects } from './useAssetBrowserEffects';
 
 // ── Hook ────────────────────────────────────────────────────
 
@@ -150,182 +152,62 @@ export function useAssetBrowserLogic() {
             : activeCategory?.folderPath || null;
 
     // ── Browser items ───────────────────────────────────────
-    const realBrowserItems: BrowserItem[] = useMemo(() => {
-        return realFiles.map((f, i) => {
-            const sizeKb = Math.round(f.size_bytes / 1024);
-            const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
-            const sizeLabel = sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
-            return {
-                id: `real-${i}`, name: f.name, type: 'audio' as const,
-                format: f.format, meta: sizeLabel, path: f.path,
-                durationSeconds: f.duration_seconds ?? undefined,
-                sizeBytes: f.size_bytes,
-            };
-        });
-    }, [realFiles]);
+    const realBrowserItems: BrowserItem[] = useMemo(
+        () => mapRealBrowserItems(realFiles),
+        [realFiles],
+    );
 
-    const pluginBrowserItems: BrowserItem[] = useMemo(() => {
-        return pluginFiles.map((f, i) => ({
-            id: `plugin-${i}`, name: f.name, type: 'plugin' as const,
-            format: f.extension, meta: f.extension, path: f.path,
-            slotHint: 'auto' as const, sizeBytes: f.size_bytes,
-            pluginSource: detectPluginSource(`${f.extension ?? ''} ${f.path ?? ''} ${f.name ?? ''}`),
-        }));
-    }, [pluginFiles]);
+    const pluginBrowserItems: BrowserItem[] = useMemo(
+        () => mapPluginBrowserItems(pluginFiles),
+        [pluginFiles],
+    );
 
-    const folderBrowserItems: BrowserItem[] = useMemo(() => {
-        const rootItems: BrowserItem[] = folderItems.map((f, i) => {
-            const sizeKb = Math.round(f.size_bytes / 1024);
-            const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
-            const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
-            return {
-                id: `folder-${i}`, name: f.name,
-                type: fileTypeToItemType(f.file_type), format: f.extension || undefined,
-                meta: f.is_directory ? 'Folder' : sizeLabel, path: f.path,
-                isDirectory: f.is_directory,
-                durationSeconds: f.duration_seconds ?? undefined,
-                sizeBytes: f.size_bytes, _depth: 0,
-            };
-        });
-        const result: BrowserItem[] = [];
-        const insertWithChildren = (items: BrowserItem[], depth: number) => {
-            for (const item of items) {
-                const isExp = item.isDirectory && item.path ? expandedFolders.has(item.path) : false;
-                const isLoad = item.isDirectory && item.path ? loadingFolders.has(item.path) : false;
-                result.push({ ...item, _depth: depth, _expanded: isExp, _loading: isLoad });
-                if (isExp && item.path) {
-                    const children = folderChildrenCache.get(item.path);
-                    if (children) insertWithChildren(children, depth + 1);
-                }
-            }
-        };
-        insertWithChildren(rootItems, 0);
-        return result;
-    }, [folderItems, expandedFolders, folderChildrenCache, loadingFolders]);
+    const folderBrowserItems: BrowserItem[] = useMemo(
+        () => flattenFolderBrowserItems({ folderItems, expandedFolders, folderChildrenCache, loadingFolders }),
+        [folderItems, expandedFolders, folderChildrenCache, loadingFolders],
+    );
 
     // ── Filtered & sorted items ─────────────────────────────
-    const items = useMemo(() => {
-        let base: BrowserItem[] = [];
-        const pluginSearchMode = selectedCategoryId === 'plugins' && debouncedQuery.trim().length > 0;
-        if (activeCategory?.folderPath) {
-            base = folderBrowserItems;
-        } else {
-            switch (selectedCategoryId) {
-                case 'all':
-                    base = [...realBrowserItems, ...INTERNAL_INSTRUMENT_ITEMS, ...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems, ...folderBrowserItems]
-                        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-                    break;
-                case 'samples': base = realBrowserItems; break;
-                case 'drums': base = realBrowserItems.filter((i) => isLikelyDrumAudio(i)); break;
-                case 'plugins': base = [...INTERNAL_INSTRUMENT_ITEMS, ...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems]; break;
-                case 'audioEffects': base = [...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems.filter((p) => !isLikelyInstrumentPlugin(p))]; break;
-                case 'instruments': base = [...INTERNAL_INSTRUMENT_ITEMS, ...pluginBrowserItems.filter((p) => isLikelyInstrumentPlugin(p))]; break;
-                case 'collection-red': case 'collection-yellow': case 'collection-green': {
-                    const collId = selectedCategoryId as CollectionId;
-                    const memberPaths = collectionItems[collId];
-                    const allKnown = [...realBrowserItems, ...INTERNAL_INSTRUMENT_ITEMS, ...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems];
-                    base = allKnown.filter(i => i.path && memberPaths.has(i.path));
-                    break;
-                }
-                case 'currentProject': case 'userLibrary': base = folderBrowserItems; break;
-                default: base = realBrowserItems;
-            }
-        }
-        if (selectedCategoryId === 'all') base = base.filter((i) => i.type !== 'project');
-        if (debouncedQuery.trim()) {
-            const q = debouncedQuery.trim();
-            base = base
-                .map((item) => {
-                    const searchText = `${item.name} ${item.format ?? ''} ${item.meta ?? ''}${item.pluginSource ? ` ${item.pluginSource}` : ''}`;
-                    return { item, score: fuzzyScore(searchText, q) };
-                })
-                .filter((entry) => entry.score !== null)
-                .sort((a, b) => {
-                    if (a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
-                    return a.item.name.toLowerCase().localeCompare(b.item.name.toLowerCase());
-                })
-                .map((entry) => entry.item);
-        }
-        const isLibraryCategory = ['samples', 'all', 'drums', 'plugins', 'instruments', 'audioEffects',
-            'collection-red', 'collection-yellow', 'collection-green'].includes(selectedCategoryId)
-            && !activeCategory?.folderPath;
-        if (isLibraryCategory) {
-            if (sourceFilter === 1) base = base.filter((i) => i.type === 'audio' || i.pluginSource === 'internal');
-            else if (sourceFilter === 2) base = base.filter((i) => i.type === 'audio');
-            else if (sourceFilter === 3) base = base.filter((i) => i.type === 'plugin');
-        }
-        if (isLibraryCategory) {
-            if (formatFilter > 0) {
-                const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
-                const wanted = formatNames[formatFilter];
-                if (wanted) base = base.filter((i) => i.format && i.format.toLowerCase() === wanted);
-            }
-            if (audioFilter > 0) {
-                const audioFilterFns: Record<number, (i: BrowserItem) => boolean> = {
-                    1: (i) => /loop|bpm/i.test(i.name + (i.meta ?? '')),
-                    2: (i) => /one.?shot|hit|stab/i.test(i.name + (i.meta ?? '')),
-                    3: (i) => isLikelyDrumAudio(i),
-                    4: (i) => /vocal|vox|voice|acapella/i.test(i.name + (i.meta ?? '')),
-                };
-                const fn = audioFilterFns[audioFilter];
-                if (fn) base = base.filter(fn);
-            }
-        }
-        if (selectedCategoryId === 'plugins' && pluginSourceFilter !== 'all') {
-            base = base.filter((i) => i.type === 'plugin' && i.pluginSource === pluginSourceFilter);
-        }
-        if (isLibraryCategory) {
-            if (sizeFilter === 1) base = base.filter((i) => (i.sizeBytes ?? 0) < 1024 * 1024);
-            else if (sizeFilter === 2) base = base.filter((i) => (i.sizeBytes ?? 0) >= 1024 * 1024);
-        }
-        if (pluginSearchMode) return base;
-        const isSearchActive = !!debouncedQuery.trim();
-        if (activeCategory?.folderPath && !isSearchActive && sortFilter === 0) return base;
-        const folderFirst = (a: BrowserItem, b: BrowserItem): number => {
-            const aDir = a.isDirectory ? 1 : 0;
-            const bDir = b.isDirectory ? 1 : 0;
-            return bDir - aDir;
-        };
-        if (!isSearchActive || sortFilter !== 0) {
-            if (sortFilter === 0) base = [...base].sort((a, b) => folderFirst(a, b) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
-            else if (sortFilter === 1) base = [...base].sort((a, b) => folderFirst(a, b) || b.name.toLowerCase().localeCompare(a.name.toLowerCase()) || a.id.localeCompare(b.id));
-            else if (sortFilter === 2) base = [...base].sort((a, b) => folderFirst(a, b) || (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0) || a.id.localeCompare(b.id));
-            else base = [...base].sort((a, b) => folderFirst(a, b) || (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || a.id.localeCompare(b.id));
-        }
-        return base;
-    }, [selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, sizeFilter, sortFilter, pluginSourceFilter, collectionItems, formatFilter, audioFilter, sourceFilter]);
+    const items = useMemo(() => computeBrowserItems({
+        selectedCategoryId,
+        debouncedQuery,
+        realBrowserItems,
+        pluginBrowserItems,
+        folderBrowserItems,
+        activeFolderCategoryPath: activeCategory?.folderPath,
+        sizeFilter,
+        sortFilter,
+        pluginSourceFilter,
+        collectionItems,
+        formatFilter,
+        audioFilter,
+        sourceFilter,
+    }), [
+        selectedCategoryId,
+        debouncedQuery,
+        realBrowserItems,
+        pluginBrowserItems,
+        folderBrowserItems,
+        activeCategory,
+        sizeFilter,
+        sortFilter,
+        pluginSourceFilter,
+        collectionItems,
+        formatFilter,
+        audioFilter,
+        sourceFilter,
+    ]);
 
     // ── Plugin grouped rows ─────────────────────────────────
-    const pluginGroupedRows = useMemo<PluginGroupedRow[]>(() => {
-        if (selectedCategoryId !== 'plugins') return [];
-        const rows: PluginGroupedRow[] = [];
-        for (const source of PLUGIN_SOURCE_ORDER) {
-            const sourceItems = items.filter((it) => it.type === 'plugin' && (it.pluginSource ?? 'external') === source);
-            if (sourceItems.length === 0) continue;
-            rows.push({ kind: 'header', id: `plugin-group-${source}`, title: PLUGIN_SOURCE_LABEL[source], count: sourceItems.length });
-            for (const item of sourceItems) {
-                rows.push({ kind: 'item', id: `plugin-item-${item.id}`, item });
-            }
-        }
-        return rows;
-    }, [selectedCategoryId, items]);
+    const pluginGroupedRows = useMemo<PluginGroupedRow[]>(
+        () => buildPluginGroupedRows(selectedCategoryId, items),
+        [selectedCategoryId, items],
+    );
 
-    const pluginLetterAnchors = useMemo(() => {
-        const itemByLetter: Record<string, string> = {};
-        if (selectedCategoryId !== 'plugins') return { letters: [] as string[], itemByLetter };
-        for (const row of pluginGroupedRows) {
-            if (row.kind !== 'item') continue;
-            const firstChar = row.item.name.trim().charAt(0).toUpperCase();
-            const letter = /^[A-Z]$/.test(firstChar) ? firstChar : '#';
-            if (!itemByLetter[letter]) itemByLetter[letter] = row.item.id;
-        }
-        const letters = Object.keys(itemByLetter).sort((a, b) => {
-            if (a === '#') return 1;
-            if (b === '#') return -1;
-            return a.localeCompare(b);
-        });
-        return { letters, itemByLetter };
-    }, [selectedCategoryId, pluginGroupedRows]);
+    const pluginLetterAnchors = useMemo(
+        () => buildPluginLetterAnchors(selectedCategoryId, pluginGroupedRows),
+        [selectedCategoryId, pluginGroupedRows],
+    );
 
     const selectedPluginLetter = useMemo(() => {
         if (selectedCategoryId !== 'plugins' || !selectedItemId) return null;
@@ -665,251 +547,60 @@ export function useAssetBrowserLogic() {
         window.addEventListener('mouseup', onUp);
     }, [persistBrowserPrefs]);
 
-    // ── Effects ──────────────────────────────────────────────
-
-    // Sync leftPaneWidth ref
-    useEffect(() => { leftPaneWidthRef.current = leftPaneWidth; }, [leftPaneWidth]);
-
-    // Load user folders on mount
-    useEffect(() => {
-        engineApi.getBrowserFolders()
-            .then(folders => setUserFolders(folders))
-            .catch(err => console.warn('[Browser] Failed to load folders:', err));
-    }, []);
-
-    // BUG-7 FIX: Reset filters when category changes
-    useEffect(() => {
-        if (prevCategoryRef.current !== selectedCategoryId) {
-            prevCategoryRef.current = selectedCategoryId;
-            setSourceFilter(0);
-            setFormatFilter(0);
-            setAudioFilter(0);
-            setSizeFilter(0);
-            setPluginSourceFilter('all');
-        }
-    }, [selectedCategoryId]);
-
-    // Keyboard shortcut: Cmd+F
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                searchRef.current?.focus();
-                searchRef.current?.select();
-            }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, []);
-
-    // Custom event listeners for browser focus/search
-    useEffect(() => {
-        const focusBrowserSearch = (evt: Event) => {
-            const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
-            if (detail?.categoryId) {
-                setSelectedCategoryId(detail.categoryId);
-                setExpandedFolders(new Set());
-                setFolderChildrenCache(new Map());
-            }
-            searchRef.current?.focus();
-            searchRef.current?.select();
-        };
-        const setBrowserSearch = (evt: Event) => {
-            const detail = (evt as CustomEvent<{ query?: string; categoryId?: string }>).detail;
-            if (detail?.categoryId) {
-                setSelectedCategoryId(detail.categoryId);
-                setExpandedFolders(new Set());
-                setFolderChildrenCache(new Map());
-            }
-            if (typeof detail?.query === 'string') setDebouncedQuery(detail.query);
-            searchRef.current?.focus();
-        };
-        window.addEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
-        window.addEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
-        return () => {
-            window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
-            window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
-        };
-    }, []);
-
-    // Close context menu on click-outside or Escape
-    useEffect(() => {
-        if (!contextMenu) return;
-        const onClick = (e: MouseEvent) => {
-            if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) setContextMenu(null);
-        };
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
-        window.addEventListener('mousedown', onClick, true);
-        window.addEventListener('keydown', onKey);
-        return () => {
-            window.removeEventListener('mousedown', onClick, true);
-            window.removeEventListener('keydown', onKey);
-        };
-    }, [contextMenu]);
-
-    // Load current project folder
-    useEffect(() => {
-        if (selectedCategoryId !== 'currentProject') return;
-        let mounted = true;
-        void engineApi.getProjectStatus()
-            .then((status) => { if (mounted) setCurrentProjectFolder(status.projectFolder ?? null); })
-            .catch(() => { if (mounted) setCurrentProjectFolder(null); });
-        return () => { mounted = false; };
-    }, [selectedCategoryId]);
-
-    // Sync settings
-    useEffect(() => {
-        if (!settingsLoaded) return;
-        setShowSizeColumn(settings.browserShowSizeColumn);
-        setShowTypeColumn(settings.browserShowTypeColumn);
-        setLeftPaneWidth(Math.max(84, Math.min(180, settings.browserLeftPaneWidth || 92)));
-    }, [settingsLoaded, settings.browserShowSizeColumn, settings.browserShowTypeColumn, settings.browserLeftPaneWidth]);
-
-    // Sample scanning
-    useEffect(() => {
-        if (!isSamplesCategory || scanTriggeredRef.current) return;
-        let cancelled = false;
-        const timerId = setTimeout(() => {
-            if (cancelled) return;
-            setSampleScanLoading(true);
-            setSampleScanError(null);
-            engineApi.generateDemoSamples()
-                .catch(err => console.warn('[AssetBrowser] Demo sample generation skipped:', err))
-                .then(() => {
-                    if (cancelled) return Promise.reject('cancelled');
-                    return engineApi.scanAllAudioSources();
-                })
-                .then(files => {
-                    if (!cancelled) {
-                        scanTriggeredRef.current = true;
-                        setRealFiles(files);
-                        setSampleScanLoading(false);
-                    }
-                })
-                .catch(err => {
-                    if (!cancelled && err !== 'cancelled') {
-                        console.warn('[AssetBrowser] Scan failed:', err);
-                        setSampleScanError(String(err));
-                        setSampleScanLoading(false);
-                    }
-                });
-        }, 300);
-        return () => { cancelled = true; clearTimeout(timerId); };
-    }, [isSamplesCategory]);
-
-    // Plugin scanning
-    useEffect(() => {
-        const needsPluginCatalog = selectedCategoryId === 'plugins' || selectedCategoryId === 'all'
-            || selectedCategoryId === 'instruments' || selectedCategoryId === 'audioEffects';
-        if (!needsPluginCatalog) return;
-        const forceRescan = selectedCategoryId === 'plugins' || pluginScanNonce > 0;
-        if (pluginScanned && !forceRescan) return;
-        let cancelled = false;
-        setPluginScanError(null);
-        setPluginScanLoading(true);
-        engineApi.scanPluginFolders()
-            .then(files => {
-                if (cancelled) return;
-                setPluginFiles(files);
-                setPluginScanned(true);
-                setPluginScanLoading(false);
-            })
-            .catch(err => {
-                if (cancelled) return;
-                console.warn('[Browser] Plugin scan failed:', err);
-                setPluginScanError(String(err));
-                setPluginScanLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, [selectedCategoryId, pluginScanNonce, pluginScanned]);
-
-    // Folder scanning
-    useEffect(() => {
-        if (!activeFolderPath || activeFolderPath === folderScanPath) return;
-        let cancelled = false;
-        setFolderScanPath(activeFolderPath);
-        setFolderScanLoading(true);
-        setFolderScanError(null);
-        engineApi.scanFolderAll(activeFolderPath)
-            .then(files => {
-                if (cancelled) return;
-                setFolderItems(files);
-                setFolderScanLoading(false);
-            })
-            .catch(err => {
-                if (cancelled) return;
-                console.warn('[Browser] Folder scan failed:', err);
-                setFolderScanError(String(err));
-                setFolderScanLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, [activeFolderPath, folderScanPath]);
-
-    // Reset folder tree on category change
-    useEffect(() => {
-        const changed = activeFolderPath !== prevActiveFolderRef.current;
-        prevActiveFolderRef.current = activeFolderPath;
-        setExpandedFolders(new Set());
-        setFolderChildrenCache(new Map());
-        setLoadingFolders(new Set());
-        if (changed) {
-            setFolderScanPath(null);
-            setFolderItems([]);
-        }
-    }, [selectedCategoryId, activeFolderPath]);
-
-    // Auto-select first item
-    useEffect(() => {
-        if (items.length === 0) { setSelectedItemId(null); return; }
-        if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) {
-            setSelectedItemId(items[0].id);
-        }
-    }, [items, selectedItemId]);
-
-    // Column menu dismiss
-    useEffect(() => {
-        if (!columnMenuPos) return;
-        const onMouseDown = (e: MouseEvent) => {
-            if (!columnMenuRef.current) return;
-            if (!columnMenuRef.current.contains(e.target as Node)) setColumnMenuPos(null);
-        };
-        const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setColumnMenuPos(null); };
-        window.addEventListener('mousedown', onMouseDown);
-        window.addEventListener('keydown', onKeyDown);
-        return () => {
-            window.removeEventListener('mousedown', onMouseDown);
-            window.removeEventListener('keydown', onKeyDown);
-        };
-    }, [columnMenuPos]);
-
-    // Stop preview on category change
-    useEffect(() => {
-        if (prevCatForPreviewRef.current !== selectedCategoryId) {
-            prevCatForPreviewRef.current = selectedCategoryId;
-            engineApi.stopPreview().catch(() => { /* ignore */ });
-            isPreviewPlayingRef.current = false;
-        }
-    }, [selectedCategoryId]);
-
-    // Scroll selected item into view
-    useEffect(() => {
-        if (!selectedItemId) return;
-        if (selectedCategoryId === 'plugins') {
-            const row = itemRowRefs.current[selectedItemId];
-            row?.scrollIntoView({ block: 'nearest' });
-            return;
-        }
-        const index = items.findIndex(it => it.id === selectedItemId);
-        if (index === -1) return;
-        const el = fileListRef.current;
-        if (!el) return;
-        const ROW_HEIGHT = 28;
-        const headerOffset = 24;
-        const itemTop = index * ROW_HEIGHT;
-        const itemBottom = itemTop + ROW_HEIGHT;
-        if (itemTop < el.scrollTop + headerOffset) el.scrollTop = itemTop - headerOffset;
-        else if (itemBottom > el.scrollTop + el.clientHeight) el.scrollTop = itemBottom - el.clientHeight;
-    }, [selectedItemId, items, selectedCategoryId]);
+    useAssetBrowserEffects({
+        leftPaneWidth,
+        leftPaneWidthRef,
+        setUserFolders,
+        prevCategoryRef,
+        selectedCategoryId,
+        setSourceFilter,
+        setFormatFilter,
+        setAudioFilter,
+        setSizeFilter,
+        setPluginSourceFilter,
+        searchRef,
+        setDebouncedQuery,
+        fileListRef,
+        setExpandedFolders,
+        setFolderChildrenCache,
+        contextMenu,
+        contextMenuRef,
+        setContextMenu,
+        setCurrentProjectFolder,
+        settingsLoaded,
+        settings,
+        setShowSizeColumn,
+        setShowTypeColumn,
+        setLeftPaneWidth,
+        isSamplesCategory,
+        scanTriggeredRef,
+        setSampleScanLoading,
+        setSampleScanError,
+        setRealFiles,
+        pluginScanNonce,
+        pluginScanned,
+        setPluginScanError,
+        setPluginScanLoading,
+        setPluginFiles,
+        setPluginScanned,
+        activeFolderPath,
+        folderScanPath,
+        setFolderScanPath,
+        setFolderScanLoading,
+        setFolderScanError,
+        setFolderItems,
+        prevActiveFolderRef,
+        setLoadingFolders,
+        items,
+        selectedItemId,
+        setSelectedItemId,
+        columnMenuPos,
+        columnMenuRef,
+        setColumnMenuPos,
+        prevCatForPreviewRef,
+        isPreviewPlayingRef,
+        itemRowRefs,
+    });
 
     // ── Return ──────────────────────────────────────────────
     return {

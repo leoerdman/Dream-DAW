@@ -13,7 +13,9 @@ include!("sections/midi_clip.rs");
 include!("sections/waveform.rs");
 include!("sections/clip_mutators.rs");
 include!("sections/undo_redo.rs");
-include!("sections/track_management.rs");
+include!("sections/track_crud.rs");
+include!("sections/track_group_color.rs");
+include!("sections/track_routing.rs");
 include!("sections/splash.rs");
 include!("sections/project_management.rs");
 include!("sections/settings.rs");
@@ -31,8 +33,8 @@ include!("sections/sample_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler()
--> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler(
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,

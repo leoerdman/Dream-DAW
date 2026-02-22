@@ -755,14 +755,11 @@ impl GraphRenderer {
         if !plan.parallel_stages.is_empty() {
             let node_buffers_ptr = self.node_buffers.as_mut_ptr();
             let edge_pdc_ptr = self.edge_pdc_delays.as_mut_ptr();
-            // We use rayon par_iter on the stages!
-            use rayon::prelude::*;
-
             for stage in &plan.parallel_stages {
-                stage.par_iter().for_each(|&node_idx| {
+                for &node_idx in stage {
                     let idx = node_idx.index();
                     if idx >= self.capacity() {
-                        return;
+                        continue;
                     }
 
                     unsafe {
@@ -791,7 +788,7 @@ impl GraphRenderer {
                             std::ptr::copy_nonoverlapping(buf.right.as_ptr(), out_r_ptr, master_n);
                         }
                     }
-                });
+                }
             }
         } else {
             // Fallback for sequential plans

@@ -2173,6 +2173,10 @@ async fn move_effect_slot_cmd(
 
     // Rebuild FX snapshot so the audio engine picks up the new order
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let delta_track_id = match target {
+        dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
+        dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
+    };
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
@@ -2222,6 +2226,12 @@ async fn move_effect_slot_with_deltas_cmd(
     };
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let delta_track_id = match dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
+        .map_err(|e| e.to_string())?
+    {
+        dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
+        dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
+    };
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
@@ -2234,10 +2244,7 @@ async fn move_effect_slot_with_deltas_cmd(
 
     Ok(PluginMutationDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::PluginMoved {
-            track_id: match target {
-                dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
-                dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
-            },
+            track_id: delta_track_id,
             slot_id: slot_uuid,
             old_slot_index: result.old_slot_index,
             new_slot_index: result.new_slot_index,
@@ -2308,56 +2315,27 @@ fn paste_device_to_track_cmd(
         .map_err(|_| format!("Invalid track_id: {track_id}"))?;
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {track_id}"))?;
-
-    // Determine placement: instrument slot vs effects chain.
-    let hint = slot_hint.as_deref().unwrap_or("auto").to_lowercase();
-    let plugin_id = pasted_node.plugin_id();
-    let is_instrument_plugin = plugin_id.contains("instrument/");
-    let use_instrument = match hint.as_str() {
-        "instrument" => track.track_type == TrackType::Midi,
-        "effect" => false,
-        _ => { // "auto"
-            if track.track_type != TrackType::Midi {
-                false
-            } else {
-                is_instrument_plugin
-            }
-        }
+    let cmd = dream_orchestrator::commands::PasteDeviceToTrackCommand {
+        track_id: track_uuid,
+        slot_hint: slot_hint.clone(),
+        pasted_node,
     };
-
-    // Collect all new slot IDs for plugin host loading.
-    let new_slots: Vec<PluginSlot> = pasted_node.collect_plugin_slots().into_iter().cloned().collect();
-
-    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
-    if use_instrument {
-        // Set up sampler config if pasting a sampler/wave-synth instrument.
-        let pid_lower = plugin_id.to_lowercase();
-        if (pid_lower.contains("sampler") || pid_lower.contains("wave-synth"))
-            && track.sampler.is_none()
-        {
-            track.sampler = Some(SamplerConfig::default());
-        }
-        track.instrument = Some(pasted_node);
-    } else {
-        let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(track, pasted_node.clone(), None);
-
-        // Compute AddDevice info for internal effects.
-        if let DeviceNode::Single(slot) = &pasted_node {
-            if slot.plugin_id.starts_with("internal://effect/") {
-                if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id) {
-                    if let Some(internal_slot_index) = opt_internal_idx {
-                        runtime_add = Some((track.id, internal_slot_index, effect_type));
-                    }
-                }
-            }
-        }
-    }
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+    let use_instrument = result.use_instrument;
+    let new_slots = result.new_slots;
+    let runtime_add = result.runtime_add;
 
     // Load external plugins for all slots in the pasted device.
     let mut plugin_load_error: Option<String> = None;
@@ -2374,6 +2352,7 @@ fn paste_device_to_track_cmd(
     }
 
     // Rebuild engine state.
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -2381,12 +2360,16 @@ fn paste_device_to_track_cmd(
     plugin_host_state.publish_registry();
 
     // Send AddDevice engine command for internal effects.
-    if let Some((tid, slot_index, effect_type)) = runtime_add {
-        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == tid) {
+    if let Some(runtime_add) = runtime_add {
+        if let Some(runtime_track_index) = project
+            .tracks
+            .iter()
+            .position(|t| t.id == runtime_add.track_id)
+        {
             if let Err(e) = push_command(&handle, EngineCommand::AddDevice {
                 track_index: runtime_track_index as u16,
-                slot_index,
-                effect_type,
+                slot_index: runtime_add.slot_index,
+                effect_type: runtime_add.effect_type,
             }) {
                 log::error!("[IPC] Failed to push AddDevice command for track {}: {}", runtime_track_index, e);
             }

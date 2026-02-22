@@ -20,6 +20,7 @@ pub mod clip_split;
 pub mod clip_warp;
 pub mod plugin_add;
 pub mod plugin_move_effect;
+pub mod plugin_paste_device;
 pub mod plugin_remove;
 pub mod plugin_replace_missing;
 pub mod plugin_set_bypass;
@@ -48,6 +49,9 @@ pub use clip_split::SplitClipCommand;
 pub use clip_warp::SetClipWarpCommand;
 pub use plugin_add::{AddPluginToTrackCommand, AddPluginToTrackResult, PluginSlotPreference};
 pub use plugin_move_effect::{EffectTrackTarget, MoveEffectSlotCommand, MoveEffectSlotResult};
+pub use plugin_paste_device::{
+    PasteDeviceToTrackCommand, PasteDeviceToTrackResult, RuntimeAddDevice,
+};
 pub use plugin_remove::{RemovePluginFromTrackCommand, RemovePluginFromTrackResult};
 pub use plugin_replace_missing::ReplaceMissingPluginSlotCommand;
 pub use plugin_set_bypass::{SetPluginSlotBypassCommand, SetPluginSlotBypassResult};

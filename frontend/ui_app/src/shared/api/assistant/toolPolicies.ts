@@ -58,6 +58,9 @@ export const DELTA_APPLIED_TOOLS = new Set([
     'set_track_routing',
     'arm_track',
     'set_automation_points',
+    'set_arrangement_grid',
+    'set_key_signature',
+    'duplicate_tracks',
 ]);
 
 export function shouldFetchProjectAfterTool(name: string): boolean {

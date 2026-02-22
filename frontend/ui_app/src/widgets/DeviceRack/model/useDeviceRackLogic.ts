@@ -7,14 +7,12 @@
  * @module widgets/DeviceRack/model/useDeviceRackLogic
  */
 
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
-import * as engineApi from '@/shared/api/engineApi';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
-import { errorMessage } from '@/shared/lib/helpers';
 import type { ProjectDelta } from '@/shared/api/engine';
 
 // Micro-hook imports
@@ -24,6 +22,8 @@ import { useDeviceParamGestures } from './useDeviceParamGestures';
 import { useDeviceSnapshots } from './useDeviceSnapshots';
 import { useDeviceKeyboardShortcuts } from './useDeviceKeyboardShortcuts';
 import { useDeviceRackDnD } from './useDeviceRackDnD';
+import { useDeviceRackSlotActions } from './useDeviceRackSlotActions';
+import { useDeviceRackLifecycle } from './useDeviceRackLifecycle';
 import type { DeviceRackLogic } from './types';
 import type { AutomationLane } from '@/shared/stores/useAutomationStore';
 
@@ -170,27 +170,22 @@ export function useDeviceRackLogic(
         return () => window.removeEventListener('mousedown', close);
     }, [autoCtxMenu]);
 
-    // --- Specific local handlers ---
-    const toggleDevice = useCallback((device: any) => {
-        const currentBypassed = core.localBypass[device.id] ?? !device.isEnabled;
-        const nextBypassed = !currentBypassed;
-        core.setLocalBypass((prev) => ({ ...prev, [device.id]: nextBypassed }));
-
-        if (!core.selectedTrack) return;
-
-        void engineApi.setSlotBypassWithDeltas(core.selectedTrack.id.toString(), device.id, nextBypassed)
-            .then((response) => applyProjectDeltas(response.deltas, 'device-rack:bypass'))
-            .catch((err) => console.error('[DeviceRack] setSlotBypass failed:', err));
-
-        if (device.source === 'internal') {
-            const trackIdx = projectTracks.findIndex((t) => t.id === core.selectedTrack.id);
-            const slotIdx = core.selectedTrack.effects.findIndex((fx: any) => fx.id === device.id);
-            if (trackIdx >= 0 && slotIdx >= 0) {
-                void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed)
-                    .catch((err: any) => console.error('[DeviceRack] bypassDevice failed:', err));
-            }
-        }
-    }, [core.localBypass, core.selectedTrack, projectTracks, core.setLocalBypass]);
+    const {
+        toggleDevice,
+        ensureSlotRuntimeActive,
+        setPluginSidechainSource,
+        sidechainOptions,
+    } = useDeviceRackSlotActions({
+        selectedTrack: core.selectedTrack as any,
+        localBypass: core.localBypass,
+        setLocalBypass: core.setLocalBypass,
+        projectTracks: projectTracks as any,
+        pluginRuntimeBySlot,
+        setPluginRuntimeBySlot,
+        applyProjectDeltas,
+        statusError,
+        statusClear,
+    });
 
     const selectDevice = useCallback((deviceId: string, additive: boolean) => {
         core.setSelectedDeviceIds((prev) => {
@@ -203,99 +198,15 @@ export function useDeviceRackLogic(
         core.setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
     }, [core.setLocalParams]);
 
-    // Ensure slot runtime
-    const ensureSlotRuntimeActive = useCallback(async (slotId: string) => {
-        if (!core.selectedTrack) return null;
-        const known = pluginRuntimeBySlot[slotId];
-        if (known?.runtime === 'unsupported') {
-            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
-            return null;
-        }
-
-        const runActivation = async () => {
-            await engineApi.ensurePluginSlotActive(core.selectedTrack.id, slotId);
-            const status = await engineApi.getPluginSlotRuntimeStatus(core.selectedTrack.id, slotId);
-            setPluginRuntimeBySlot((prev) => ({ ...prev, [slotId]: status }));
-            return status;
-        };
-
-        try {
-            const status = await runActivation();
-            statusClear();
-            return status;
-        } catch (err) {
-            const firstMsg = errorMessage(err).toLowerCase();
-            const shouldRescan = firstMsg.includes('cannot find native binary') || firstMsg.includes('plugin not found') || firstMsg.includes('failed to load plugin');
-            if (shouldRescan) {
-                try {
-                    await engineApi.scanPluginFolders();
-                    const status = await runActivation();
-                    statusClear();
-                    return status;
-                } catch (retryErr) {
-                    statusError(`Plugin activation failed: ${errorMessage(retryErr)}`);
-                    return null;
-                }
-            }
-            statusError(`Plugin activation failed: ${errorMessage(err)}`);
-            return null;
-        }
-    }, [core.selectedTrack, pluginRuntimeBySlot, statusError, statusClear, setPluginRuntimeBySlot]);
-
-    const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
-        if (!core.selectedTrack) return;
-        try {
-            const response = await engineApi.setPluginSidechainSourceWithDeltas(
-                core.selectedTrack.id,
-                slotId,
-                sourceTrackId || 'none',
-            );
-            await applyProjectDeltas(response.deltas, 'device-rack:set-sidechain-source');
-            statusClear();
-        } catch (err: any) {
-            statusError(`Failed to set plugin sidechain source: ${errorMessage(err)}`);
-        }
-    }, [core.selectedTrack, applyProjectDeltas, statusClear, statusError]);
-
-    const sidechainOptions = useMemo(
-        () => projectTracks.filter((t) => t.id !== (core.selectedTrack?.id ?? '')).map((t) => ({ id: t.id, name: t.name })),
-        [projectTracks, core.selectedTrack?.id],
-    );
-
-    // Sync state layout
-    useEffect(() => {
-        core.setSelectedDeviceIds((prev) => prev.filter((id) => chain.some((d) => d.id === id)));
-        core.setInlineSettingsOpen((prev) => {
-            const next: Record<string, boolean> = {};
-            const ids = new Set(chain.map((d) => d.id));
-            for (const [id, isOpen] of Object.entries(prev)) {
-                if (ids.has(id) && isOpen) next[id] = true;
-            }
-            return next;
-        });
-    }, [chain, core.setSelectedDeviceIds, core.setInlineSettingsOpen]);
-
-    useEffect(() => {
-        const prevId = prevTrackIdRef.current;
-        prevTrackIdRef.current = selectedTrackId;
-        if (prevId === selectedTrackId) return;
-
-        const prevSlots = openEditorsByTrack[prevId];
-        if (prevSlots && prevSlots.size > 0 && prevId) {
-            for (const slotId of prevSlots) {
-                engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
-                    console.warn('[DeviceRack] close editor on track leave failed:', err),
-                );
-            }
-            useEngineStore.setState((s) => ({
-                openEditorsByTrack: { ...s.openEditorsByTrack, [prevId]: new Set<string>() },
-            }));
-        }
-    }, [selectedTrackId, openEditorsByTrack]);
-
-    useEffect(() => {
-        gestures.cleanupGestures();
-    }, [selectedTrackId, gestures]);
+    useDeviceRackLifecycle({
+        selectedTrackId,
+        chain,
+        openEditorsByTrack,
+        prevTrackIdRef: prevTrackIdRef as React.MutableRefObject<string>,
+        cleanupGestures: gestures.cleanupGestures,
+        setSelectedDeviceIds: core.setSelectedDeviceIds,
+        setInlineSettingsOpen: core.setInlineSettingsOpen,
+    });
 
     return {
         chain,

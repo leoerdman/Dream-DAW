@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::driver::midi_dispatcher::{ActiveMappedNote, clamp_midi_pitch, quantize_to_scale};
-use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
+use dream_clip_engine::midi_scheduler::MidiScheduler;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_sampler_sources(
@@ -10,9 +10,6 @@ pub(super) fn render_sampler_sources(
     sampler_engines: &mut [SamplerEngine],
     sample_rack_engines: &mut [SampleRackEngine],
     midi_note_states: &mut [MidiNoteMapState],
-    midi_schedule_scratch: &mut Vec<ScheduledNote>,
-    midi_schedule_tmp: &mut Vec<ScheduledNote>,
-    midi_events_scratch: &mut Vec<(usize, u8, u8, u8, u64)>,
     vst3_rt_midi_queue: &mut [Vec<MidiEvent>],
     rt_midi_uid_counter: &mut u64,
     midi_chase_needed: bool,
@@ -41,15 +38,15 @@ pub(super) fn render_sampler_sources(
             .as_ref()
             .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
 
-        midi_schedule_scratch.clear();
+        slot.midi_schedule_scratch.clear();
         if is_playing {
             MidiScheduler::fill_active_looped_with_tmp(
                 &midi_track.clips,
                 midi_playhead_pos,
                 frame_count,
                 midi_loop_region.as_ref(),
-                midi_schedule_scratch,
-                midi_schedule_tmp,
+                &mut slot.midi_schedule_scratch,
+                &mut slot.midi_schedule_tmp,
             );
         }
 
@@ -66,7 +63,7 @@ pub(super) fn render_sampler_sources(
         let has_rt_midi =
             track_idx < vst3_rt_midi_queue.len() && !vst3_rt_midi_queue[track_idx].is_empty();
 
-        if midi_schedule_scratch.is_empty()
+        if slot.midi_schedule_scratch.is_empty()
             && !has_rt_midi
             && !engine.has_active_voices()
             && !rack_active
@@ -79,10 +76,10 @@ pub(super) fn render_sampler_sources(
         let fx = &midi_track.fx;
         let note_state = &mut midi_note_states[track_idx];
 
-        midi_events_scratch.clear();
-        for event in &*midi_schedule_scratch {
+        slot.midi_events_scratch.clear();
+        for event in &slot.midi_schedule_scratch {
             if event.is_note_off {
-                midi_events_scratch.push((
+                slot.midi_events_scratch.push((
                     event.buffer_offset_end.min(fc),
                     0,
                     event.pitch,
@@ -91,7 +88,7 @@ pub(super) fn render_sampler_sources(
                 ));
             }
             if event.is_note_on {
-                midi_events_scratch.push((
+                slot.midi_events_scratch.push((
                     event.buffer_onset.min(fc),
                     1,
                     event.pitch,
@@ -100,7 +97,8 @@ pub(super) fn render_sampler_sources(
                 ));
             }
             if midi_chase_needed && !event.is_note_on && !event.is_note_off {
-                midi_events_scratch.push((0, 1, event.pitch, event.velocity, event.note_uid));
+                slot.midi_events_scratch
+                    .push((0, 1, event.pitch, event.velocity, event.note_uid));
             }
         }
 
@@ -109,7 +107,7 @@ pub(super) fn render_sampler_sources(
                 let raw_offset = evt.sample_offset.max(0) as usize;
                 let offset = raw_offset.min(fc);
                 if evt.is_note_off() {
-                    midi_events_scratch.push((
+                    slot.midi_events_scratch.push((
                         offset,
                         0,
                         evt.note(),
@@ -118,7 +116,7 @@ pub(super) fn render_sampler_sources(
                     ));
                     *rt_midi_uid_counter = rt_midi_uid_counter.wrapping_add(1);
                 } else if evt.is_note_on() {
-                    midi_events_scratch.push((
+                    slot.midi_events_scratch.push((
                         offset,
                         1,
                         evt.note(),
@@ -130,14 +128,15 @@ pub(super) fn render_sampler_sources(
             }
         }
 
-        midi_events_scratch.sort_unstable_by(|a, b| {
+        slot.midi_events_scratch.sort_unstable_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| a.2.cmp(&b.2))
                 .then_with(|| a.4.cmp(&b.4))
         });
 
-        for &(frame, kind, pitch, velocity, event_uid) in &*midi_events_scratch {
+        for i in 0..slot.midi_events_scratch.len() {
+            let (frame, kind, pitch, velocity, event_uid) = slot.midi_events_scratch[i];
             let seg = frame.saturating_sub(cursor).min(fc - cursor);
             if seg > 0 {
                 if engine.has_active_voices() {

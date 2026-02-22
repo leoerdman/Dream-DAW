@@ -1,5 +1,6 @@
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActionStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
 import {
@@ -27,7 +28,6 @@ export async function executeTool(
     args: Record<string, unknown>,
     onSelectClips?: (ids: string[]) => void,
 ): Promise<string> {
-    // Show visual feedback for every action
     useAgentActionStore.getState().showAction(getToolLabel(name));
 
     let result: string;
@@ -161,7 +161,6 @@ async function executeToolInner(
             return JSON.stringify({ seekedTo: args.beat });
 
         case 'set_track_volume': {
-            // BUG-13 FIX: Clamp volume to valid range
             const vol = Math.max(0, Math.min(1, args.volume as number));
             const response = await engineApi.setTrackVolumeWithDeltas(args.trackIndex as number, vol);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-volume');
@@ -169,7 +168,6 @@ async function executeToolInner(
         }
 
         case 'set_track_pan': {
-            // BUG-13 FIX: Clamp pan to valid range
             const pan = Math.max(-1, Math.min(1, args.pan as number));
             const response = await engineApi.setTrackPanWithDeltas(args.trackIndex as number, pan);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-pan');
@@ -224,7 +222,6 @@ async function executeToolInner(
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-tracks-batch');
                     deleted += 1;
                 } catch {
-                    // Index may become invalid as tracks shift or if already removed; skip.
                 }
             }
             return JSON.stringify({ success: true, requested: normalized.length, deleted });
@@ -236,7 +233,6 @@ async function executeToolInner(
             return JSON.stringify({ deleted: args.clipId });
         }
 
-        // ── Batch Operations (10x faster) ──
         case 'add_audio_clips_batch': {
             const clipDefs = args.clips as { trackIndex: number; samplePath: string; startBeat: number }[];
             if (!Array.isArray(clipDefs) || clipDefs.length === 0) return JSON.stringify({ error: 'clips array is required' });
@@ -245,7 +241,6 @@ async function executeToolInner(
             const srBatch = resolveSampleRate(stBatch.projectSampleRate);
             const fpbBatch = (60.0 / bpmBatch) * srBatch;
 
-            // BUG-7 FIX: Pre-delete overlapping clips for the entire batch
             let batchOverlapsRemoved = 0;
             for (const def of clipDefs) {
                 const existing = clips.filter(c =>
@@ -317,7 +312,6 @@ async function executeToolInner(
             await engineApi.setMasterVolume(args.volume as number);
             return JSON.stringify({ masterVolume: args.volume });
 
-        // ── MIDI Composition Tools ──
         case 'add_midi_track': {
             const trackName = (args.name as string) || undefined;
             const addTrackResponse = await engineApi.addTrackWithDeltasAdvanced('midi', null, trackName);
@@ -329,7 +323,6 @@ async function executeToolInner(
                 : updatedState.projectTracks.length - 1;
             const newTrackId = newIdx >= 0 ? updatedState.projectTracks[newIdx]?.id : undefined;
 
-            // Auto-assign instrument if requested
             const instrumentArg = (args.instrument as string | undefined)?.toLowerCase();
             let instrumentAssigned: string | null = null;
             if (instrumentArg && newTrackId) {
@@ -382,7 +375,6 @@ async function executeToolInner(
             if (!spTrackId) return JSON.stringify({ error: `Track ${spTrackIdx} not found` });
             const spParamId = args.paramId as string;
             const spValue = args.value as number;
-            // Find the instrument slot ID on the track
             const spTrack = tracks[spTrackIdx];
             const instrumentSlotId = spTrack.instrument?.id;
             if (!instrumentSlotId) return JSON.stringify({ error: `Track ${spTrackIdx} has no instrument assigned. Use set_track_instrument first.` });
@@ -396,8 +388,6 @@ async function executeToolInner(
             const durBeats = args.durationBeats as number;
             const clipName = (args.name as string) || undefined;
 
-            // OVERLAP GUARD: Auto-delete clips that collide with the new clip's range.
-            // This prevents the agent from stacking clips on top of each other.
             const endBeat = startBeat + durBeats;
             const overlapping = clips.filter(c =>
                 c.trackIndex === tIdx &&
@@ -411,7 +401,6 @@ async function executeToolInner(
                 } catch { /* skip missing */ }
             }
 
-            // Convert beats to frames: frames = beats * 60 / BPM * sampleRate
             const st = useEngineStore.getState();
             const bpmVal = st.projectBpm || st.transport.bpm || 120;
             const srVal = resolveSampleRate(st.projectSampleRate);
@@ -447,13 +436,10 @@ async function executeToolInner(
             return JSON.stringify({ clipId, notesWritten: engineNotes.length });
         }
 
-        // ── AI Producer Tools ──
         case 'search_browser': {
             const query = (args.query as string).toLowerCase();
             const files = await engineApi.scanAllAudioSources();
-            // Fuzzy match logic:
             const matches = files.filter(f => f.name.toLowerCase().includes(query));
-            // Return top 10 matches to avoid blowing up context window
             const limited = matches.slice(0, 10).map(f => ({
                 name: f.name,
                 path: f.path,
@@ -480,7 +466,6 @@ async function executeToolInner(
             const samplePath = args.samplePath as string;
             const startBeat = args.startBeat as number;
 
-            // OVERLAP GUARD (BUG-4): auto-delete clips at the same position
             const overlapping = clips.filter(c =>
                 c.trackIndex === trackIndex &&
                 c.startBeat <= startBeat &&
@@ -504,7 +489,6 @@ async function executeToolInner(
             return JSON.stringify({ success: true, clipId: result.clip_id, clipName: result.clip_name, startBeat, overlapsRemoved: overlapping.length });
         }
 
-        // ── Phase 1: Core Operations ──
         case 'move_clip': {
             const clipId = args.clipId as string;
             const newTrackIndex = args.newTrackIndex as number;
@@ -613,14 +597,12 @@ async function executeToolInner(
             return JSON.stringify({ success: true, loopEnabled: enabled, startBeat: args.startBeat, endBeat: args.endBeat });
         }
 
-        // ── Phase 2: Music Theory & MIDI Algorithms ──
         case 'quantize_notes': {
             const clipId = args.clipId as string;
             const grid = args.gridBeats as number;
             const strength = (args.strength as number ?? 100) / 100;
             const clip = clips.find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: 'Clip not found' });
-            // Get existing notes, quantize them, write back
             const stQ = useEngineStore.getState();
             const bpmQ = stQ.projectBpm || stQ.transport.bpm || 120;
             const srQ = resolveSampleRate(stQ.projectSampleRate);
@@ -725,7 +707,6 @@ async function executeToolInner(
                 melodic_minor: [0, 2, 3, 5, 7, 9, 11], whole_tone: [0, 2, 4, 6, 8, 10],
                 chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             };
-            // BUG-8 FIX: Return error instead of silently falling back to major
             const intervals = SCALES[scaleType];
             if (!intervals) return JSON.stringify({ error: `Unknown scale type: "${scaleType}". Valid types: ${Object.keys(SCALES).join(', ')}` });
             const pitches: number[] = [];
@@ -735,7 +716,6 @@ async function executeToolInner(
             return JSON.stringify({ root, scaleType, pitches, count: pitches.length });
         }
 
-        // ── Phase 2: Sample Rack Pad Controls ──
         case 'set_pad_volume': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
@@ -768,7 +748,6 @@ async function executeToolInner(
             return JSON.stringify({ success: true });
         }
 
-        // ── Phase 2/3: Track Styling, Bypass, Preview ──
         case 'set_track_color': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
@@ -796,7 +775,6 @@ async function executeToolInner(
             const vel = (args.velocity as number) || 100;
             const tIdx = args.trackIndex as number;
             await engineApi.previewSamplerNoteOn(tIdx, pitch, vel);
-            // BUG-6 FIX: Cancel previous preview timer to prevent leaked note-offs
             const globals = globalThis as GlobalWithPreviewTimer;
             if (globals.__dreamPreviewTimer) clearTimeout(globals.__dreamPreviewTimer);
             globals.__dreamPreviewTimer = setTimeout(() => {
@@ -806,7 +784,6 @@ async function executeToolInner(
             return JSON.stringify({ success: true, pitch, velocity: vel });
         }
 
-        // ── Phase 3: Intelligent Mixing ──
         case 'auto_gain_stage': {
             const target = (args.targetVolume as number) ?? 0.7;
             for (let i = 0; i < tracks.length; i++) {
@@ -823,14 +800,12 @@ async function executeToolInner(
                 if (excludes.has(i)) continue;
                 const t = tracks[i];
                 const name = t.name.toLowerCase();
-                // Auto high-pass tracks that don't need low-end
                 if (name.includes('hat') || name.includes('hi-hat') || name.includes('hihat') ||
                     name.includes('vocal') || name.includes('vox') || name.includes('shaker') ||
                     name.includes('perc') || name.includes('clap') || name.includes('crash') ||
                     name.includes('ride') || name.includes('cymbal') || name.includes('fx') ||
                     name.includes('pad') || name.includes('syn') || name.includes('lead')) {
                     try {
-                        // BUG-5 FIX: Use named constant instead of magic number
                         await engineApi.addDevice(i, 0, engineApi.BuiltinEffectType.AutoFilter);
                         cleaned++;
                     } catch { /* slot may be occupied */ }
@@ -839,12 +814,10 @@ async function executeToolInner(
             return JSON.stringify({ success: true, tracksCleaned: cleaned });
         }
 
-        // ── Phase 4: Creative Arrangement ──
         case 'suggest_arrangement': {
             const genre = (args.genre as string).toLowerCase();
             const durBars = (args.durationBars as number) || 64;
             const beatsPerBar = 4;
-            // Genre-aware arrangement templates
             const templates: Record<string, { name: string; startBar: number; endBar: number }[]> = {
                 house: [
                     { name: 'Intro (Kick Only)', startBar: 0, endBar: 8 },
@@ -895,7 +868,6 @@ async function executeToolInner(
                 ],
             };
             const template = templates[genre] || templates.house;
-            // Scale to target duration
             const scaleFactor = durBars / (template[template.length - 1]?.endBar || 64);
             const sections = template.map(s => ({
                 ...s,
@@ -933,65 +905,50 @@ async function executeToolInner(
             }
         }
 
-        // ── Beat Pattern Generator ──
         case 'generate_beat_pattern': {
             const genre = ((args.genre as string) || 'house').toLowerCase();
             const bars = Math.max(1, Math.min(64, (args.bars as number) || 4));
             const swing = Math.max(0, Math.min(0.5, (args.swing as number) || 0));
 
-            // Define one-bar patterns per genre: {pitch, beatOffset, velocity}
-            // Kick=36, Snare/Clap=37/38, ClosedHat=42, OpenHat=46, Ride=51
             type NoteHit = { pitch: number; beat: number; velocity: number; dur: number };
             const patterns: Record<string, NoteHit[]> = {
                 house: [
-                    // 4/4 kick
                     { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
                     { pitch: 36, beat: 1, velocity: 120, dur: 0.25 },
                     { pitch: 36, beat: 2, velocity: 120, dur: 0.25 },
                     { pitch: 36, beat: 3, velocity: 120, dur: 0.25 },
-                    // Clap on 1, 3
                     { pitch: 37, beat: 1, velocity: 100, dur: 0.25 },
                     { pitch: 37, beat: 3, velocity: 100, dur: 0.25 },
-                    // Closed hat offbeats
                     { pitch: 42, beat: 0.5, velocity: 80, dur: 0.125 },
                     { pitch: 42, beat: 1.5, velocity: 80, dur: 0.125 },
                     { pitch: 42, beat: 2.5, velocity: 80, dur: 0.125 },
                     { pitch: 42, beat: 3.5, velocity: 80, dur: 0.125 },
                 ],
                 techno: [
-                    // Hard 4/4 kick
                     { pitch: 36, beat: 0, velocity: 127, dur: 0.25 },
                     { pitch: 36, beat: 1, velocity: 127, dur: 0.25 },
                     { pitch: 36, beat: 2, velocity: 127, dur: 0.25 },
                     { pitch: 36, beat: 3, velocity: 127, dur: 0.25 },
-                    // Clap on 1, 3
                     { pitch: 37, beat: 1, velocity: 90, dur: 0.25 },
                     { pitch: 37, beat: 3, velocity: 90, dur: 0.25 },
-                    // 16th hats
                     ...Array.from({ length: 16 }, (_, i) => ({
                         pitch: 42, beat: i * 0.25, velocity: i % 4 === 0 ? 100 : i % 2 === 0 ? 70 : 55, dur: 0.125,
                     })),
                 ],
                 dnb: [
-                    // DnB kick (1, 2.75)
                     { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
                     { pitch: 36, beat: 2.75, velocity: 110, dur: 0.25 },
-                    // Snare on 1, 3
                     { pitch: 38, beat: 1, velocity: 110, dur: 0.25 },
                     { pitch: 38, beat: 3, velocity: 110, dur: 0.25 },
-                    // Fast hats (8th notes)
                     ...Array.from({ length: 8 }, (_, i) => ({
                         pitch: 42, beat: i * 0.5, velocity: i % 2 === 0 ? 90 : 65, dur: 0.125,
                     })),
                 ],
                 hiphop: [
-                    // Boom bap kick
                     { pitch: 36, beat: 0, velocity: 110, dur: 0.5 },
                     { pitch: 36, beat: 2.5, velocity: 100, dur: 0.5 },
-                    // Snare on 1, 3
                     { pitch: 38, beat: 1, velocity: 105, dur: 0.25 },
                     { pitch: 38, beat: 3, velocity: 105, dur: 0.25 },
-                    // Hats with groove
                     { pitch: 42, beat: 0, velocity: 75, dur: 0.125 },
                     { pitch: 42, beat: 0.5, velocity: 60, dur: 0.125 },
                     { pitch: 42, beat: 1, velocity: 75, dur: 0.125 },
@@ -1002,14 +959,11 @@ async function executeToolInner(
                     { pitch: 42, beat: 3.5, velocity: 60, dur: 0.125 },
                 ],
                 trap: [
-                    // 808 kick
                     { pitch: 36, beat: 0, velocity: 127, dur: 0.5 },
                     { pitch: 36, beat: 1.75, velocity: 110, dur: 0.5 },
                     { pitch: 36, beat: 2.5, velocity: 115, dur: 0.5 },
-                    // Snare on 1, 3
                     { pitch: 38, beat: 1, velocity: 120, dur: 0.25 },
                     { pitch: 38, beat: 3, velocity: 120, dur: 0.25 },
-                    // Trap hi-hat rolls (32nd notes on offbeats)
                     { pitch: 42, beat: 0.5, velocity: 85, dur: 0.0625 },
                     { pitch: 42, beat: 0.5625, velocity: 70, dur: 0.0625 },
                     { pitch: 42, beat: 0.625, velocity: 60, dur: 0.0625 },
@@ -1024,13 +978,10 @@ async function executeToolInner(
                     { pitch: 42, beat: 3.625, velocity: 60, dur: 0.0625 },
                 ],
                 lofi: [
-                    // Lazy boom bap
                     { pitch: 36, beat: 0, velocity: 95, dur: 0.5 },
                     { pitch: 36, beat: 2.33, velocity: 85, dur: 0.5 },
-                    // Snare on 1, 3 (softer)
                     { pitch: 38, beat: 1, velocity: 80, dur: 0.25 },
                     { pitch: 38, beat: 3, velocity: 80, dur: 0.25 },
-                    // Lazy hats
                     { pitch: 42, beat: 0.5, velocity: 55, dur: 0.125 },
                     { pitch: 42, beat: 1.5, velocity: 50, dur: 0.125 },
                     { pitch: 42, beat: 2.5, velocity: 55, dur: 0.125 },
@@ -1040,12 +991,10 @@ async function executeToolInner(
 
             const oneBar = patterns[genre] || patterns['house'];
 
-            // Expand to N bars + apply swing
             const notes: { pitch: number; startBeat: number; velocity: number; durationBeats: number }[] = [];
             for (let bar = 0; bar < bars; bar++) {
                 for (const hit of oneBar) {
                     let beat = bar * 4 + hit.beat;
-                    // Apply swing to offbeat notes
                     if (swing > 0 && hit.beat % 1 !== 0) {
                         const isOffbeat16th = (hit.beat * 4) % 2 !== 0;
                         if (isOffbeat16th) beat += swing;
@@ -1070,9 +1019,6 @@ async function executeToolInner(
             });
         }
 
-        // ═══════════════════════════════════════════════════════════════════
-        // Phase 5: Deep Music Production Tools (20 implementations)
-        // ═══════════════════════════════════════════════════════════════════
 
         case 'get_midi_clip_notes': {
             const clipId = args.clipId as string;
@@ -1151,27 +1097,40 @@ async function executeToolInner(
         }
 
         case 'set_arrangement_grid': {
-            await engineApi.setArrangementGrid(
-                args.numerator as number,
-                args.denominator as number,
-                1, // ntoles (default no tuplets)
-                (args.snapToGrid as boolean) ?? true,
-                false, // not fixed
+            const numerator = args.numerator as number;
+            const denominator = args.denominator as number;
+            const ntoles = 1;
+            const snapToGrid = (args.snapToGrid as boolean) ?? true;
+            const fixed = false;
+            const response = await engineApi.setArrangementGridWithDeltas(
+                numerator,
+                denominator,
+                ntoles,
+                snapToGrid,
+                fixed,
             );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-arrangement-grid');
+            useGridStore.getState().applyProjectGrid({
+                numerator,
+                denominator,
+                ntoles,
+                snapToGrid,
+                fixed,
+            });
             return JSON.stringify({ success: true, grid: `${args.numerator}/${args.denominator}`, snapToGrid: args.snapToGrid ?? true });
         }
 
         case 'set_key_signature': {
-            // Normalize tonic/mode to title-case for consistency with KEY_MODES/KEY_TONICS
             const rawTonic = (args.tonic as string).trim();
             const rawMode = (args.mode as string).trim();
             const tonic = rawTonic.charAt(0).toUpperCase() + rawTonic.slice(1).toLowerCase();
             const mode = rawMode.charAt(0).toUpperCase() + rawMode.slice(1).toLowerCase();
-            await engineApi.setKeySignature(
+            const response = await engineApi.setKeySignatureWithDeltas(
                 (args.enabled as boolean) ?? true,
                 tonic,
                 mode,
             );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-key-signature');
             return JSON.stringify({ success: true, key: `${tonic} ${mode}` });
         }
 
@@ -1179,7 +1138,8 @@ async function executeToolInner(
             const indices = args.trackIndices as number[];
             const trackIds = indices.map(i => tracks[i]?.id).filter(Boolean);
             if (trackIds.length === 0) return JSON.stringify({ error: 'No valid tracks to duplicate' });
-            await engineApi.duplicateTracks(trackIds);
+            const response = await engineApi.duplicateTracksWithDeltas(trackIds);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-duplicate-tracks');
             return JSON.stringify({ success: true, duplicated: indices.length });
         }
 
@@ -1296,7 +1256,6 @@ async function executeToolInner(
     }
 }
 
-// ─── System prompt builder ──────────────────────────────────────────────────
 
 export function buildSystemPrompt(): string {
     const s = useEngineStore.getState();
@@ -1306,7 +1265,6 @@ export function buildSystemPrompt(): string {
     const sr = resolveSampleRate(s.projectSampleRate);
     const transport = s.transport;
 
-    // Build rich track list with full context
     const trackList = tracks
         .map((t, i) => {
             const trackClips = clips.filter(c => c.trackIndex === i);

@@ -105,14 +105,6 @@ pub(super) fn find_audio_clip_delta_state(
     None
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Stem separation & bounce utilities extracted to:
-// core/dream_importers/src/stem_separation.rs
-// ═══════════════════════════════════════════════════════════════════════
-use dream_importers::stem_separation::{
-    get_cached_or_build_stems, make_bounce_output_path,
-};
-
 pub(super) fn place_bounced_file_on_new_track(
     project_state: &tauri::State<'_, ProjectState>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
@@ -123,7 +115,7 @@ pub(super) fn place_bounced_file_on_new_track(
     clip_start_frame: i64,
     new_track_name: &str,
     insert_after_index: Option<usize>,
-) -> Result<dream_orchestrator::commands::InsertBouncedClipResult, String> {
+) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String> {
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
     push_undo(project_state)?;
@@ -263,19 +255,3 @@ pub(super) fn place_stem_files_on_new_tracks(
     project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
-
-///
-/// The clip is identified by UUID string. After mutation, the
-/// clip snapshot is atomically rebuilt for the audio thread.
-#[tauri::command]
-async fn move_clip_cmd(
-    clip_id: String,
-    new_track_index: usize,
-    new_position_frames: i64,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
-    handle: tauri::State<'_, AudioEngineHandle>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    // CQRS: undo + delegate to orchestrator + snapshot rebuild
-    push_undo_coalesced(&project_state)?;

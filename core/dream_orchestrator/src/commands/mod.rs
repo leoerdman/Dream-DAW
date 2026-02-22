@@ -33,9 +33,12 @@ pub mod track_move_to_index;
 pub mod track_parenting;
 pub mod track_set_armed;
 pub mod track_set_automation_points;
+pub mod track_topology;
 
 // Re-export all command structs for convenience
-pub use clip_bounce::{InsertBouncedClipCommand, InsertStemClipsCommand, StemMetaInput};
+pub use clip_bounce::{
+    InsertBouncedClipCommand, InsertBouncedClipResult, InsertStemClipsCommand, StemMetaInput,
+};
 pub use clip_clamp_source_offset::ClampClipSourceOffsetCommand;
 pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_delete::DeleteClipCommand;
@@ -69,3 +72,7 @@ pub use track_parenting::{
 };
 pub use track_set_armed::SetTrackArmedCommand;
 pub use track_set_automation_points::SetTrackAutomationPointsCommand;
+pub use track_topology::{
+    MoveTrackBlockToIndexCommand, MoveTrackBlockToIndexResult, UngroupTrackCommand,
+    UngroupTrackResult,
+};

@@ -494,3 +494,117 @@ impl Default for SharedSampleRackSamples {
         Self::new()
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Disk Streaming Handles (OOM Prevention)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Shared container for disk streaming handles.
+///
+/// Files exceeding `RAM_THRESHOLD_BYTES` (~50 MB) are not loaded into the
+/// `ClipPool`.  Instead, a `DiskStreamerHandle` spawns a background I/O
+/// thread that reads audio ahead of the playhead via an `rtrb` ring buffer.
+///
+/// **Thread model:**
+/// - UI thread: calls `spawn()` during project loading / clip import,
+///   and removes handles on clip delete / project close.
+/// - Audio thread: calls `try_lock()` (non-blocking) each callback to
+///   `drain_into()` pending chunks into `RenderContext::streaming_windows`.
+///   If the lock is contended, the callback simply skips the drain — the
+///   existing window data remains valid for another buffer cycle.
+///
+/// The inner `Mutex` is NOT held across any I/O or allocation — only a
+/// brief iteration to drain ring buffer consumers.
+pub struct SharedDiskStreamers {
+    inner: std::sync::Mutex<Vec<dream_clip_engine::DiskStreamerHandle>>,
+}
+
+impl SharedDiskStreamers {
+    pub fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Adds a new disk streaming handle (called from UI thread).
+    pub fn push(&self, handle: dream_clip_engine::DiskStreamerHandle) {
+        if let Ok(mut vec) = self.inner.lock() {
+            vec.push(handle);
+        }
+    }
+
+    /// Removes all handles matching the given source path.
+    pub fn remove_by_path(&self, source_path: &str) {
+        if let Ok(mut vec) = self.inner.lock() {
+            vec.retain(|h| h.source_path != source_path);
+        }
+    }
+
+    /// Removes ALL handles (project close / clear).
+    pub fn clear(&self) {
+        if let Ok(mut vec) = self.inner.lock() {
+            vec.clear();
+        }
+    }
+
+    /// Drains pending chunks from all handles into the render context's
+    /// streaming windows, and updates playhead positions.
+    ///
+    /// # Real-Time Safety
+    /// Uses `try_lock()` — returns immediately if the UI thread holds the
+    /// lock.  `rtrb::Consumer::pop()` is wait-free.  Zero allocations
+    /// (streaming windows are pre-allocated in `RenderContext`).
+    pub fn drain_all_into(
+        &self,
+        windows: &mut Vec<(String, dream_clip_engine::disk_streamer::StreamingWindow)>,
+        playhead: i64,
+    ) {
+        let Ok(mut handles) = self.inner.try_lock() else {
+            return; // UI thread is modifying handles — skip this cycle
+        };
+
+        for handle in handles.iter_mut() {
+            // Update the I/O thread's playhead so it reads ahead correctly
+            handle.set_playhead(playhead);
+
+            // Find or create the streaming window for this source
+            let window = if let Some(pos) = windows.iter().position(|(p, _)| *p == handle.source_path) {
+                &mut windows[pos].1
+            } else {
+                windows.push((
+                    handle.source_path.clone(),
+                    dream_clip_engine::disk_streamer::StreamingWindow::new(
+                        &handle.source_path,
+                        handle.total_frames,
+                        handle.num_channels,
+                        handle.sample_rate,
+                    ),
+                ));
+                let inserted = windows.len() - 1;
+                &mut windows[inserted].1
+            };
+
+            // Drain ring buffer chunks (lock-free pop)
+            handle.drain_into(window);
+
+            // Evict chunks far behind the playhead to bound memory
+            window.evict_behind(playhead);
+        }
+    }
+
+    /// Returns the number of active disk streamers.
+    pub fn len(&self) -> usize {
+        self.inner.lock().map(|v| v.len()).unwrap_or(0)
+    }
+
+    /// Returns true if there are no active disk streamers.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Default for SharedDiskStreamers {
+    fn default() -> Self {
+        Self::new()
+    }
+}

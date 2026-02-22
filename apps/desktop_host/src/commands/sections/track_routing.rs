@@ -199,34 +199,39 @@ async fn ungroup_track_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let gid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group_id: {group_id}"))?;
+    let cmd = dream_orchestrator::commands::UngroupTrackCommand::from_str_group_id(&group_id)
+        .map_err(|e| e.to_string())?;
+
     push_undo(&project_state)?;
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let group_index = project
-        .tracks
-        .iter()
-        .position(|t| t.id == gid)
-        .ok_or_else(|| format!("Group track not found: {group_id}"))?;
-
-    let parent_of_group = project.tracks[group_index].parent_track_id;
-    if project.tracks[group_index].track_type != TrackType::Group {
-        return Err("Selected track is not a group".to_string());
-    }
-
-    for t in &mut project.tracks {
-        if t.parent_track_id == Some(gid) {
-            t.parent_track_id = parent_of_group;
-            t.output_destination_id = parent_of_group;
-        }
-    }
-
-    project.tracks.remove(group_index);
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
-    log::info!("[IPC] ungroup_track_cmd({group_id})");
+    log::info!(
+        "[IPC] ungroup_track_cmd({group_id}, removed_index={}, reassigned_children={})",
+        result.removed_index,
+        result.reassigned_children
+    );
     Ok(())
 }
 
@@ -240,51 +245,42 @@ async fn move_track_block_to_index_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let root_id = Uuid::parse_str(&root_track_id).map_err(|_| format!("Invalid root_track_id: {root_track_id}"))?;
+    let cmd = dream_orchestrator::commands::MoveTrackBlockToIndexCommand::from_str_root_track_id(
+        &root_track_id,
+        target_index,
+    )
+    .map_err(|e| e.to_string())?;
+
     push_undo(&project_state)?;
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let block_ids = collect_block_track_ids(&project, root_id);
-    if block_ids.is_empty() {
-        return Err(format!("Track not found: {root_track_id}"));
-    }
-
-    let mut block_indices: Vec<usize> = project
-        .tracks
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, t)| if block_ids.contains(&t.id) { Some(idx) } else { None })
-        .collect();
-    block_indices.sort_unstable();
-
-    let first_index = block_indices[0];
-    let block_len = block_indices.len();
-
-    let mut block_tracks: Vec<Track> = Vec::with_capacity(block_len);
-    for idx in block_indices.iter().rev() {
-        block_tracks.push(project.tracks.remove(*idx));
-    }
-    block_tracks.reverse();
-
-    let removed_before_target = block_indices.iter().filter(|idx| **idx < target_index).count();
-    let mut adjusted_target = target_index.saturating_sub(removed_before_target);
-    if adjusted_target > project.tracks.len() {
-        adjusted_target = project.tracks.len();
-    }
-
-    for (offset, t) in block_tracks.into_iter().enumerate() {
-        project.tracks.insert(adjusted_target + offset, t);
-    }
-
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] move_track_block_to_index_cmd({root_track_id}: {} -> {}, len={})",
-        first_index,
-        adjusted_target,
-        block_len
+        result.old_first_index,
+        result.new_first_index,
+        result.block_len
     );
     Ok(())
 }

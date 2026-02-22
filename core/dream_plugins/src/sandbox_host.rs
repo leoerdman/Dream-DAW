@@ -950,5 +950,4 @@ impl Drop for PluginSandboxSupervisor {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests;

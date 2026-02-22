@@ -16,6 +16,10 @@ find "$SSOT_DIR" -maxdepth 1 -type f -name '*.ts' -delete 2>/dev/null || true
 # Always regenerate Rust -> TS bindings into frontend/shared_bindings (SSOT).
 cargo test -p dream_models export_typescript_bindings -- --nocapture >/dev/null
 
+# Some ts-rs export paths can still emit legacy files during dependency export.
+# Enforce SSOT after generation as well.
+rm -rf "$LEGACY_MODEL_BINDINGS" "$LEGACY_UI_TYPES"
+
 if [ ! -d "$SSOT_DIR" ]; then
   echo "[sync_bindings] SSOT bindings directory not found: $SSOT_DIR" >&2
   exit 1

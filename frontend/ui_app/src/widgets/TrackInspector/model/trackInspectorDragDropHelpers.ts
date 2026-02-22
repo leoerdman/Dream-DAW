@@ -7,8 +7,9 @@ export function isDescendantOf(
 ): boolean {
     let current = tracks.find((t) => t.id === candidateId);
     while (current?.groupId) {
-        if (current.groupId === ancestorId) return true;
-        current = tracks.find((t) => t.id === current.groupId);
+        const nextGroupId = current.groupId;
+        if (nextGroupId === ancestorId) return true;
+        current = tracks.find((t) => t.id === nextGroupId);
     }
     return false;
 }

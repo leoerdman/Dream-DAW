@@ -59,7 +59,8 @@ export function useTrackInspectorLogic({
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: UseTrackInspectorLogicProps) {
     const {
-        projectTracks,
+        trackIds,
+        tracksByIdState,
         engineSetTrackMute,
         engineSetTrackSolo,
         engineSetTrackVolume,
@@ -69,7 +70,8 @@ export function useTrackInspectorLogic({
         renameTrackAction,
         meters,
     } = useEngineStore(useShallow((s) => ({
-        projectTracks: s.projectTracks,
+        trackIds: s.tracks.allIds,
+        tracksByIdState: s.tracks.byId,
         engineSetTrackMute: s.setTrackMute,
         engineSetTrackSolo: s.setTrackSolo,
         engineSetTrackVolume: s.setTrackVolume,
@@ -79,6 +81,13 @@ export function useTrackInspectorLogic({
         renameTrackAction: s.renameTrack,
         meters: s.meters,
     })));
+
+    const projectTracks = useMemo(
+        () => trackIds
+            .map((id) => tracksByIdState[id])
+            .filter((track): track is NonNullable<typeof track> => Boolean(track)),
+        [trackIds, tracksByIdState],
+    );
 
     const trackActiveStates = useMemo(() => {
         return projectTracks.map((_t, i, arr) => isTrackActive(i, arr));
@@ -143,8 +152,9 @@ export function useTrackInspectorLogic({
     const masterTrack = useMemo((): TrackData => {
         const masterVuL = meters.master_left.peak;
         const masterVuR = meters.master_right.peak;
+        const masterTrackColor = 'var(--color-panel-master)';
         return {
-            id: 'master', name: 'Master', type: 'master', color: masterColor,
+            id: 'master', name: 'Master', type: 'master', color: masterTrackColor,
             volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
             vuLevel: Math.max(masterVuL, masterVuR),
             vuLevelL: masterVuL,
@@ -152,7 +162,7 @@ export function useTrackInspectorLogic({
             routing: '', sends: [], input: '', output: 'Main',
             height: trackHeight,
         };
-    }, [meters, masterVolume, masterColor, trackHeight]);
+    }, [meters, masterVolume, trackHeight]);
 
     const tracks = useMemo(() => {
         return liveTracks.map(t => ({ ...t, ...(localOverrides[t.id] || {}) }));

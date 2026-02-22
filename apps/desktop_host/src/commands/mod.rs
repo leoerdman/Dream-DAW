@@ -185,6 +185,7 @@ pub(crate) fn invoke_handler()
         get_plugin_sandbox_runtime,
         set_plugin_sandbox_enabled,
         tick_plugin_sandbox_watchdog,
+        reload_plugin_sandbox_instance,
         log_frontend_error,
         get_routing_targets,
         set_track_routing_cmd,

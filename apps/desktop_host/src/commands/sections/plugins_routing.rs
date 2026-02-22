@@ -1312,6 +1312,41 @@ fn tick_plugin_sandbox_watchdog(
     plugin_host_state.tick_sandbox_watchdog()
 }
 
+/// Manually restart a sandboxed plugin host process and clear forced bypass.
+#[tauri::command]
+fn reload_plugin_sandbox_instance(
+    instance_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<PluginSandboxSnapshot, String> {
+    let instance_uuid =
+        Uuid::parse_str(&instance_id).map_err(|_| format!("Invalid instance_id: {instance_id}"))?;
+    let slot_ids = plugin_host_state.manual_restart_sandbox_instance(instance_uuid)?;
+
+    if !slot_ids.is_empty() {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let changed = set_plugin_slots_bypass_in_project(&mut project, &slot_ids, false);
+        if changed > 0 {
+            clip_pool_state.rebuild_routing_only(&project);
+            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+            let _ = project_state.mark_dirty(&project.name, Some(&app));
+        }
+        let _ = app.emit(
+            "plugin_sandbox_reloaded",
+            serde_json::json!({
+                "instanceId": instance_id,
+                "slotIds": slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                "changedSlots": changed,
+            }),
+        );
+    }
+
+    plugin_host_state.sandbox_snapshot()
+}
+
 /// Unified frontend error logger (ErrorBoundary -> backend log).
 #[tauri::command]
 fn log_frontend_error(module: String, error: String, stack: Option<String>) -> Result<(), String> {

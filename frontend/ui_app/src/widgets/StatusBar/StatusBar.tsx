@@ -46,6 +46,7 @@ export const StatusBar = ({
         latestHistory,
         projectHistory,
         pluginSandbox,
+        reloadCrashedSandboxPlugins,
     } = useStatusEngineSlice();
 
     // Status bar messages
@@ -71,6 +72,9 @@ export const StatusBar = ({
     const sub = Math.floor((totalBeats % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
     const gridLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
+    const crashedSandboxCount = pluginSandbox?.instances.filter(
+        (inst) => inst.status === 'crashed' || inst.status === 'timed_out' || inst.bypass_requested,
+    ).length ?? 0;
 
     useEffect(() => {
         if (!gridOpen) return;
@@ -300,6 +304,25 @@ export const StatusBar = ({
                         >
                             {pluginSandbox.enabled ? `Sandbox ${pluginSandbox.instances.length}` : 'Sandbox Off'}
                         </StatusText>
+                    )}
+                    {pluginSandbox?.enabled && crashedSandboxCount > 0 && (
+                        <button
+                            onClick={() => void reloadCrashedSandboxPlugins()}
+                            style={{
+                                border: '1px solid var(--color-control-border)',
+                                borderRadius: 'var(--radius-md)',
+                                background: 'var(--color-control-bg)',
+                                color: 'var(--color-status-error)',
+                                fontSize: 'var(--font-size-xs)',
+                                fontFamily: 'var(--font-mono)',
+                                fontWeight: 600,
+                                padding: '2px 6px',
+                                cursor: 'pointer',
+                            }}
+                            title={`Reload ${crashedSandboxCount} crashed/timed-out sandbox plugin instance(s)`}
+                        >
+                            Reload {crashedSandboxCount}
+                        </button>
                     )}
 
                     <div style={{

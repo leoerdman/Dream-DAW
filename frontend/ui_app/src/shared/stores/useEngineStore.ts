@@ -228,6 +228,9 @@ interface EngineStore {
     /** Stop push telemetry listener. */
     stopTelemetryLoop: () => void;
 
+    /** Restart all crashed/timed-out sandbox plugin instances and clear forced bypass. */
+    reloadCrashedSandboxPlugins: () => Promise<void>;
+
     /** Toggle native plugin window visibility. Enforces SSOT and prevents double-close. */
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     /** Close all open native editors across all tracks (cleanup). */
@@ -1127,6 +1130,36 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (_pluginSandboxCrashUnlisten) {
             _pluginSandboxCrashUnlisten();
             _pluginSandboxCrashUnlisten = null;
+        }
+    },
+
+    reloadCrashedSandboxPlugins: async () => {
+        const snapshot = get().pluginSandbox;
+        if (!snapshot || !snapshot.enabled) return;
+
+        const restartTargets = snapshot.instances.filter(
+            (inst) => inst.status === 'crashed' || inst.status === 'timed_out' || inst.bypass_requested,
+        );
+        if (restartTargets.length === 0) return;
+
+        let latestSnapshot: PluginSandboxSnapshot | null = null;
+        const failures: string[] = [];
+
+        for (const inst of restartTargets) {
+            try {
+                latestSnapshot = await engine.reloadPluginSandboxInstance(inst.plugin_instance_id);
+            } catch (e) {
+                failures.push(`${inst.plugin_name}: ${String(e)}`);
+            }
+        }
+
+        if (latestSnapshot) {
+            set({ pluginSandbox: latestSnapshot });
+        }
+        if (failures.length > 0) {
+            set({ lastError: `Sandbox reload failed: ${failures.join('; ')}` });
+        } else {
+            set({ lastError: null });
         }
     },
 

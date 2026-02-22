@@ -14,5 +14,6 @@ export const useStatusEngineSlice = () =>
             latestHistory: h.length > 0 ? h[h.length - 1] : undefined,
             projectHistory: h,
             pluginSandbox: s.pluginSandbox,
+            reloadCrashedSandboxPlugins: s.reloadCrashedSandboxPlugins,
         };
     }));

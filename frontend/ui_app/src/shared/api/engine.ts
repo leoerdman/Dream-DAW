@@ -957,6 +957,10 @@ export const setPluginSandboxEnabled = (enabled: boolean) =>
 export const tickPluginSandboxWatchdog = () =>
     invoke<PluginSandboxSnapshot>('tick_plugin_sandbox_watchdog');
 
+/** Manually restart a crashed/timed-out sandboxed plugin instance. */
+export const reloadPluginSandboxInstance = (instanceId: string) =>
+    invoke<PluginSandboxSnapshot>('reload_plugin_sandbox_instance', { instanceId });
+
 /** Send a frontend crash/error payload to backend unified logs. */
 export const logFrontendError = (module: string, error: string, stack?: string) =>
     invoke<void>('log_frontend_error', { module, error, stack: stack ?? null });

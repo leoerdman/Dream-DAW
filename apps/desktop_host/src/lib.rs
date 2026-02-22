@@ -2783,6 +2783,21 @@ impl PluginHostState {
         self.tick_sandbox_watchdog_with_events().map(|(snapshot, _)| snapshot)
     }
 
+    fn manual_restart_sandbox_instance(&self, instance_id: Uuid) -> Result<HashSet<Uuid>, String> {
+        let slot_ids = self.slot_ids_for_instance_ids(&HashSet::from([instance_id]));
+        if slot_ids.is_empty() {
+            return Err(format!(
+                "No plugin slots are bound to sandbox instance {}",
+                instance_id
+            ));
+        }
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        supervisor
+            .manual_restart(instance_id)
+            .map_err(|e| format!("Sandbox manual restart failed: {e}"))?;
+        Ok(slot_ids)
+    }
+
     fn open_sandbox_editor(&self, plugin_key: &str) -> Result<bool, String> {
         let maybe_id = self
             .loaded_sandbox_by_key

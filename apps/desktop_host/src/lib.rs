@@ -2163,6 +2163,54 @@ fn rebuild_runtime_device_chains_from_project(
             }
         }
     }
+
+    // ── Master track internal FX (CRITICAL FIX) ────────────────────────
+    // The master track's internal effects (EQ, compressor, etc.) were never
+    // sent to the engine because this function only iterated project.tracks.
+    // Use MASTER_TRACK_INDEX (u16::MAX) as the track_index sentinel value
+    // so the driver routes these commands to master_device_chain.
+    {
+        const MASTER_TRACK_INDEX: u16 = u16::MAX;
+        let master = &project.master_track;
+        let master_internal_effects: Vec<(String, bool)> = master
+            .effects
+            .iter()
+            .filter_map(|node| node.as_single())
+            .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+            .map(|slot| (slot.plugin_id.clone(), slot.is_bypassed))
+            .collect();
+
+        for (slot_index, (plugin_id, bypassed)) in master_internal_effects
+            .into_iter()
+            .take(MAX_DEVICE_SLOTS as usize)
+            .enumerate()
+        {
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&plugin_id) {
+                push_command(
+                    handle,
+                    EngineCommand::AddDevice {
+                        track_index: MASTER_TRACK_INDEX,
+                        slot_index: slot_index.min(u8::MAX as usize) as u8,
+                        effect_type,
+                    },
+                )?;
+                if bypassed {
+                    push_command(
+                        handle,
+                        EngineCommand::BypassDevice {
+                            track_index: MASTER_TRACK_INDEX,
+                            slot_index: slot_index.min(u8::MAX as usize) as u8,
+                            bypassed: true,
+                        },
+                    )?;
+                }
+                // NOTE: apply_static_imported_params_for_slot not called for master
+                // because it takes a Track reference. Master params are handled
+                // through automation or direct SetDeviceParam commands.
+            }
+        }
+    }
+
     Ok(())
 }
 

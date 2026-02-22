@@ -2016,6 +2016,19 @@ async fn export_mix_cmd(
                             .filter(|slot| !slot.is_bypassed)
                             .collect();
 
+                        // BUG-E4 FIX: Pad output buffers for FX tail (reverb/delay).
+                        // Without this, tails from MIDI instrument FX chains are cut off
+                        // at the exact end of the last MIDI note. Mirrors BUG-E3 for audio.
+                        const MIDI_FX_TAIL_FRAMES: usize = 44100 * 4; // 4 seconds
+                        let has_vst3_fx = fx_slots.iter().any(|s| slot_instance_map.contains_key(&s.id));
+                        let padded_total = if has_vst3_fx {
+                            total_frames + MIDI_FX_TAIL_FRAMES
+                        } else {
+                            total_frames
+                        };
+                        out_left.resize(padded_total, 0.0);
+                        out_right.resize(padded_total, 0.0);
+
                         for fx_slot in &fx_slots {
                             let Some(fx_instance_id) = slot_instance_map.get(&fx_slot.id).copied() else {
                                 log::debug!(
@@ -2032,8 +2045,8 @@ async fn export_mix_cmd(
 
                             // Process the entire pre-rendered buffer through this FX in chunks.
                             let mut fx_offset = 0usize;
-                            while fx_offset < total_frames {
-                                let remaining = total_frames - fx_offset;
+                            while fx_offset < padded_total {
+                                let remaining = padded_total - fx_offset;
                                 let chunk = remaining.min(CHUNK_FRAMES);
 
                                 let mut fx_out_l = vec![0.0f32; chunk];
@@ -2101,6 +2114,9 @@ async fn export_mix_cmd(
 
                     // ── Create synthetic ClipAudio + AudioClip ──
                     let synth_path = format!("__vst3_midi_prerender__/track_{}", track_idx);
+                    // BUG-E4: Capture actual buffer length (includes FX tail padding)
+                    // BEFORE out_left is moved into ClipAudio.
+                    let rendered_frames = out_left.len();
                     let clip_audio = ClipAudio::new(
                         synth_path.clone(),
                         vec![out_left, out_right],
@@ -2112,7 +2128,7 @@ async fn export_mix_cmd(
                         format!("{} (VST3 Pre-render)", track_name),
                         synth_path,
                         AbsoluteTime::new(start_frame),
-                        AbsoluteTime::new(total_frames as i64),
+                        AbsoluteTime::new(rendered_frames as i64),
                     );
                     project.tracks[track_idx].clips.push(synth_clip);
                     vst3_rendered += 1;
@@ -2133,7 +2149,11 @@ async fn export_mix_cmd(
         // completely missing from the export. Pre-render each audio track's clips
         // through its VST3 FX chain here, then replace the clip audio in the pool
         // with the processed version.
+        //
+        // BUG-E10 FIX: Use per-track synthetic keys to prevent cross-track
+        // contamination when multiple tracks reference the same audio file.
         {
+            const FX_CHUNK_FRAMES: usize = 4096;
             let mut vst3_fx_rendered = 0usize;
             for track_idx in 0..project.tracks.len() {
                 let track = &project.tracks[track_idx];
@@ -2166,18 +2186,30 @@ async fn export_mix_cmd(
                 );
 
                 // For each audio clip on this track, read its raw audio from the pool,
-                // process through VST3 FX chain, and write back into the pool.
-                for clip in &project.tracks[track_idx].clips {
-                    if clip.file_path.is_empty() {
+                // process through VST3 FX chain, and write to a NEW per-track key.
+                // BUG-E2 FIX: Deduplicate by file_path to prevent double-processing.
+                // BUG-E10 FIX: Use per-track synthetic keys instead of overwriting
+                // the original pool entry, so other tracks sharing the same file
+                // read the unprocessed original.
+                let mut already_processed: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for clip_idx in 0..project.tracks[track_idx].clips.len() {
+                    let original_path = project.tracks[track_idx].clips[clip_idx].file_path.clone();
+                    if original_path.is_empty() {
+                        continue;
+                    }
+                    if !already_processed.insert(original_path.clone()) {
+                        // Already processed this file for this track — just update the clip ref.
+                        let fx_key = format!("__fx_processed__/track_{}/{}", track_idx, original_path);
+                        project.tracks[track_idx].clips[clip_idx].file_path = fx_key;
                         continue;
                     }
 
-                    let clip_audio = match local_pool.get(&clip.file_path) {
+                    let clip_audio = match local_pool.get(&original_path) {
                         Some(ca) => ca,
                         None => {
                             log::warn!(
                                 "[Export/AudioFX] Track '{}': clip '{}' not in pool — skipping",
-                                track.name, clip.file_path
+                                project.tracks[track_idx].name, original_path
                             );
                             continue;
                         }
@@ -2201,12 +2233,20 @@ async fn export_mix_cmd(
                         clip_audio.channels[0].clone() // Mono → duplicate to R
                     };
 
+                    // BUG-E3 FIX: Allow FX tail to ring out beyond clip boundary.
+                    // Reverb/delay tails extend past the source audio duration.
+                    // Pad buffers with 4 seconds of silence so tails are captured.
+                    const FX_TAIL_FRAMES: usize = 44100 * 4;
+                    let padded_frames = total_clip_frames + FX_TAIL_FRAMES;
+                    buf_l.resize(padded_frames, 0.0);
+                    buf_r.resize(padded_frames, 0.0);
+
                     // Process through each VST3 FX plugin in chain order.
                     for (fx_name, fx_instance_id) in &vst3_fx {
                         let mut fx_offset = 0usize;
-                        while fx_offset < total_clip_frames {
-                            let remaining = total_clip_frames - fx_offset;
-                            let chunk = remaining.min(CHUNK_FRAMES);
+                        while fx_offset < padded_frames {
+                            let remaining = padded_frames - fx_offset;
+                            let chunk = remaining.min(FX_CHUNK_FRAMES);
 
                             let mut fx_out_l = vec![0.0f32; chunk];
                             let mut fx_out_r = vec![0.0f32; chunk];
@@ -2245,24 +2285,25 @@ async fn export_mix_cmd(
                         }
                     }
 
-                    // Write processed audio back into the pool, replacing the original.
-                    let processed_channels = if num_channels > 1 {
-                        vec![buf_l, buf_r]
-                    } else {
-                        vec![buf_l]
-                    };
+                    // BUG-E1 FIX: VST3 FX produce stereo output even for mono input.
+                    // Always save both channels after FX processing to preserve stereo image.
+                    // BUG-E10 FIX: Write to per-track synthetic key, NOT the original path.
+                    let fx_key = format!("__fx_processed__/track_{}/{}", track_idx, original_path);
+                    let processed_channels = vec![buf_l, buf_r];
                     let processed_clip = ClipAudio::new(
-                        clip.file_path.clone(),
+                        fx_key.clone(),
                         processed_channels,
                         clip_audio.sample_rate,
                     );
                     let _ = local_pool.insert(processed_clip);
+                    // Update the clip's file_path to point to the FX-processed version.
+                    project.tracks[track_idx].clips[clip_idx].file_path = fx_key;
                 }
 
                 vst3_fx_rendered += 1;
                 log::info!(
                     "[Export/AudioFX] Track '{}': VST3 FX pre-render complete ({} FX applied)",
-                    track.name, vst3_fx.len()
+                    project.tracks[track_idx].name, vst3_fx.len()
                 );
             }
 

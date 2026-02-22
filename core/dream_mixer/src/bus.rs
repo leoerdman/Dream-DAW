@@ -132,6 +132,17 @@ impl SummingBus {
         &mut self.right
     }
 
+    /// Returns simultaneous mutable access to both channels.
+    ///
+    /// Required when a processor needs `&mut left` and `&mut right` at the
+    /// same time (e.g., `DeviceChain::process_stereo`). Rust's borrow checker
+    /// cannot prove that `left_mut()` and `right_mut()` are disjoint borrows,
+    /// so this method returns both from a single `&mut self`.
+    #[inline]
+    pub fn left_right_mut(&mut self) -> (&mut [f32], &mut [f32]) {
+        (&mut self.left, &mut self.right)
+    }
+
     /// Number of sources added this frame.
     #[inline]
     pub fn source_count(&self) -> usize {

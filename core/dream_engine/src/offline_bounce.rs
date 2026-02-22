@@ -42,6 +42,9 @@ use dream_models::time::AbsoluteTime;
 use dream_plugins::TransportContext;
 use dream_plugins::vst3_host::PluginInstanceArc;
 
+use dream_dsp::device_chain::DeviceChain;
+use dream_dsp::dsp_processor::BuiltinEffectType;
+
 use crate::driver::ExternalFxRuntimeSlot;
 use crate::render_callback::{soft_clip, RenderContext};
 use crate::sampler::{AdsrParams, SamplerEngine, SampleRackEngine, Waveform};
@@ -153,6 +156,31 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
+    /// Maps an internal plugin ID string to a BuiltinEffectType discriminant u8.
+    /// Mirrors the mapping in desktop_host/lib.rs builtin_effect_type_from_plugin_id.
+    fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
+        match plugin_id.to_lowercase().as_str() {
+            "internal://effect/eq-eight" => Some(0),       // Eq
+            "internal://effect/compressor" => Some(1),     // Compressor
+            "internal://effect/delay" => Some(2),          // Delay
+            "internal://effect/reverb" => Some(3),         // Reverb
+            "internal://effect/chorus" => Some(4),         // Chorus
+            "internal://effect/utility" => Some(5),        // Utility
+            "internal://effect/saturator" => Some(6),      // Saturator
+            "internal://effect/limiter" => Some(7),        // Limiter
+            "internal://effect/gate" => Some(8),           // Gate
+            "internal://effect/auto-filter" => Some(9),    // AutoFilter
+            "internal://effect/phaser" => Some(10),        // Phaser
+            "internal://effect/flanger" => Some(11),       // Flanger
+            "internal://effect/distortion" => Some(12),    // Distortion
+            "internal://effect/bitcrusher" => Some(13),    // Bitcrusher
+            "internal://effect/noise-machine" => Some(14), // NoiseMachine
+            "internal://effect/auto-pan" => Some(15),      // AutoPan
+            "internal://effect/analyzer" => Some(16),      // Analyzer
+            _ => None,
+        }
+    }
+
     fn configure_render_ctx_track_mix_state(
         project: &Project,
         render_ctx: &mut RenderContext,
@@ -380,6 +408,7 @@ impl OfflineBouncer {
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
         bpm: f64,
+        master_device_chain: &mut DeviceChain,
     ) {
         let channels = render_ctx.channels.max(1);
         let frame_count = output.len() / channels;
@@ -534,6 +563,17 @@ impl OfflineBouncer {
             render_ctx.master_bus.add_stereo(
                 &slot.buf_left[..frame_count],
                 &slot.buf_right[..frame_count],
+            );
+        }
+
+        // Phase 4.5: Process master internal FX (EQ, compressor, etc.)
+        // This mirrors the real-time driver's master_device_chain processing.
+        if !master_device_chain.is_empty() {
+            let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+            master_device_chain.process_stereo(
+                &mut master_l[..frame_count],
+                &mut master_r[..frame_count],
+                render_ctx.sample_rate as f32,
             );
         }
 
@@ -1017,6 +1057,56 @@ impl OfflineBouncer {
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
 
         let mut render_ctx = self.create_render_ctx(project, loop_region, project_sr);
+
+        // ── Master DeviceChain: internal FX on master bus ──────────
+        // Build from project.master_track.effects, matching the
+        // real-time driver's rebuild_runtime_device_chains_from_project.
+        let mut master_device_chain = DeviceChain::new(project_sr as f32);
+        {
+            use dream_dsp::dsp_processor::BuiltinEffectType;
+
+            /// Maps internal plugin IDs to BuiltinEffectType.
+            /// Only handles exact `internal://effect/` prefix matches
+            /// because the caller pre-filters for this prefix.
+            fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<BuiltinEffectType> {
+                match plugin_id.to_lowercase().as_str() {
+                    "internal://effect/eq-eight" => Some(BuiltinEffectType::Eq),
+                    "internal://effect/compressor" => Some(BuiltinEffectType::Compressor),
+                    "internal://effect/delay" => Some(BuiltinEffectType::Delay),
+                    "internal://effect/reverb" => Some(BuiltinEffectType::Reverb),
+                    "internal://effect/chorus" => Some(BuiltinEffectType::Chorus),
+                    "internal://effect/utility" => Some(BuiltinEffectType::Utility),
+                    "internal://effect/saturator" => Some(BuiltinEffectType::Saturator),
+                    "internal://effect/limiter" => Some(BuiltinEffectType::Limiter),
+                    "internal://effect/gate" => Some(BuiltinEffectType::Gate),
+                    "internal://effect/auto-filter" => Some(BuiltinEffectType::AutoFilter),
+                    "internal://effect/phaser" => Some(BuiltinEffectType::Phaser),
+                    "internal://effect/flanger" => Some(BuiltinEffectType::Flanger),
+                    "internal://effect/distortion" => Some(BuiltinEffectType::Distortion),
+                    "internal://effect/bitcrusher" => Some(BuiltinEffectType::Bitcrusher),
+                    "internal://effect/noise-machine" => Some(BuiltinEffectType::NoiseMachine),
+                    "internal://effect/auto-pan" => Some(BuiltinEffectType::AutoPan),
+                    "internal://effect/analyzer" => Some(BuiltinEffectType::Analyzer),
+                    _ => None,
+                }
+            }
+
+            let mut slot_index: usize = 0;
+            for node in &project.master_track.effects {
+                if let Some(slot) = node.as_single() {
+                    if slot.plugin_id.starts_with("internal://effect/") {
+                        if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                        {
+                            master_device_chain.add_device(slot_index, effect_type);
+                            if slot.is_bypassed {
+                                master_device_chain.set_bypass(slot_index, true);
+                            }
+                            slot_index += 1;
+                        }
+                    }
+                }
+            }
+        }
         
         // Single-pass render into contiguous RAM at Project SR
         let mut mix_l = vec![0.0f32; total_frames];
@@ -1047,6 +1137,7 @@ impl OfflineBouncer {
                 plugin_registry,
                 external_fx_map,
                 self.config.bpm,
+                &mut master_device_chain,
             );
 
             let mut out_idx = 0;
@@ -1224,6 +1315,7 @@ mod tests {
             tail_frames: 4410,
             format: "wav".to_string(),
             project_sample_rate: 44100.0,
+            bpm: 120.0,
         };
         assert_eq!(config.total_frames(), 48510);
     }

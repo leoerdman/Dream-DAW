@@ -37,6 +37,7 @@ use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
+use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 use dream_ipc::metering::{METER_FLOOR_DB, MeterBank, compute_peak, compute_rms, linear_to_db, peak_decay_for_block};
 use dream_ipc::{EngineCommand, MasterClock};
@@ -1695,6 +1696,11 @@ pub fn start_audio_thread_on_device(
     //   Formula: 1.0 - exp(-1/(tau * sr)) where tau = 5ms.
     //   At 44.1kHz: ~0.00455, at 96kHz: ~0.00208.
     let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
+    // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
+    // Previously these were completely bypassed (TODO stub at the master FX processing point).
+    // Sentinel value for commands: MASTER_TRACK_INDEX = u16::MAX (65535).
+    const MASTER_TRACK_INDEX: u16 = u16::MAX;
+    let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
@@ -2226,11 +2232,15 @@ pub fn start_audio_thread_on_device(
                                     slot_index,
                                     bypassed,
                                 } => {
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        master_device_chain.set_bypass(slot_index as usize, bypassed);
+                                    } else {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx]
                                             .device_chain
                                             .set_bypass(slot_index as usize, bypassed);
+                                    }
                                     }
                                 }
                                 EngineCommand::SetDeviceParam {
@@ -2239,6 +2249,13 @@ pub fn start_audio_thread_on_device(
                                     param_index,
                                     value,
                                 } => {
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        master_device_chain.set_param(
+                                            slot_index as usize,
+                                            param_index,
+                                            value,
+                                        );
+                                    } else {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx].device_chain.set_param(
@@ -2246,6 +2263,7 @@ pub fn start_audio_thread_on_device(
                                             param_index,
                                             value,
                                         );
+                                    }
                                     }
                                 }
                             }
@@ -2351,7 +2369,11 @@ pub fn start_audio_thread_on_device(
                                     effect_type,
                                 } => {
                                     let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len()
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
+                                            master_device_chain.add_device(slot_index as usize, etype);
+                                        }
+                                    } else if idx < render_ctx.track_slots.len()
                                         && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
                                     {
                                         render_ctx.track_slots[idx]
@@ -2364,7 +2386,9 @@ pub fn start_audio_thread_on_device(
                                     slot_index,
                                 } => {
                                     let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len() {
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        master_device_chain.remove_device(slot_index as usize);
+                                    } else if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx]
                                             .device_chain
                                             .remove_device(slot_index as usize);
@@ -3147,9 +3171,16 @@ pub fn start_audio_thread_on_device(
                             if !master_slots.is_empty() {
                                 for runtime_slot in master_slots.iter() {
                                     // Internal effects on master bus (EQ, compressor, etc.)
-                                    // are processed via the master's device_chain — skip them here.
-                                    if runtime_slot.internal_slot_index.is_some() {
-                                        // TODO: If we add per-master DeviceChain, process here.
+                                    // are processed via the master_device_chain.
+                                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                                        master_device_chain.process_slot_with_sidechain(
+                                            internal_idx,
+                                            &mut graph_out_left[..n],
+                                            &mut graph_out_right[..n],
+                                            None,
+                                            None,
+                                            sample_rate_f64 as f32,
+                                        );
                                         continue;
                                     }
 

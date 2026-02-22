@@ -217,61 +217,6 @@ impl StreamingWindow {
         any_hit
     }
 
-    #[inline(always)]
-    fn sample_at_frame(&self, frame: i64, right_channel: bool) -> Option<f32> {
-        if frame < 0 || frame >= self.total_frames {
-            return None;
-        }
-
-        for chunk in &self.chunks {
-            let start = chunk.start_frame;
-            let end = chunk.start_frame + chunk.num_frames as i64;
-            if frame < start || frame >= end {
-                continue;
-            }
-            let idx = (frame - start) as usize;
-            if right_channel {
-                return chunk.right.get(idx).copied();
-            }
-            return chunk.left.get(idx).copied();
-        }
-
-        None
-    }
-
-    #[inline(always)]
-    fn sample_cubic_at(&self, pos: f64, right_channel: bool) -> Option<f32> {
-        if !pos.is_finite() {
-            return None;
-        }
-        let max_pos = (self.total_frames.saturating_sub(1)) as f64;
-        if max_pos < 0.0 {
-            return None;
-        }
-
-        let clamped = pos.clamp(0.0, max_pos);
-        let idx = clamped.floor() as i64;
-        let t = (clamped - idx as f64) as f32;
-
-        // 4-point Catmull-Rom window
-        let i0 = (idx - 1).max(0);
-        let i1 = idx.max(0).min(self.total_frames.saturating_sub(1));
-        let i2 = (idx + 1).max(0).min(self.total_frames.saturating_sub(1));
-        let i3 = (idx + 2).max(0).min(self.total_frames.saturating_sub(1));
-
-        let s1 = self.sample_at_frame(i1, right_channel)?; // Must have at least the primary sample
-        let s0 = self.sample_at_frame(i0, right_channel).unwrap_or(s1);
-        let s2 = self.sample_at_frame(i2, right_channel).unwrap_or(s1);
-        let s3 = self.sample_at_frame(i3, right_channel).unwrap_or(s2);
-
-        let a = -0.5 * s0 + 1.5 * s1 - 1.5 * s2 + 0.5 * s3;
-        let b = s0 - 2.5 * s1 + 2.0 * s2 - 0.5 * s3;
-        let c = -0.5 * s0 + 0.5 * s2;
-        let d = s1;
-
-        Some(((a * t + b) * t + c) * t + d)
-    }
-
     /// SR/warp aware read with linear interpolation.
     ///
     /// This is used when timeline-domain and source-domain frame rates diverge

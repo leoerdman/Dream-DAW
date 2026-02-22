@@ -58,6 +58,7 @@ impl SoloResolver {
     /// 2. If ANY solo exists: silence all non-soloed, non-master tracks.
     /// 3. Muted tracks are always silenced, even if soloed.
     /// 4. Master track is never silenced by solo logic.
+    ///
     /// BUG-012 FIX: Zero-alloc variant — writes results into a caller-provided slice.
     ///
     /// `out` must be at least `tracks.len()` elements long.

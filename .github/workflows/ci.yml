@@ -56,11 +56,17 @@ jobs:
           name: architecture-budget
           path: /tmp/architecture_budget.txt
 
+      - name: Architecture budget guard
+        run: ./scripts/architecture_budget_guard.sh
+
       - name: SSOT bindings guard
         run: ./scripts/check_ssot_bindings.sh
 
       - name: SSOT alias/import guard
         run: ./scripts/ssot_guard.sh
+
+      - name: Zustand selector guard
+        run: ./scripts/zustand_selector_guard.sh
 
   frontend:
     name: Frontend Type Tribunal
@@ -89,6 +95,9 @@ jobs:
 
       - name: SSOT bindings guard
         run: ./scripts/check_ssot_bindings.sh
+
+      - name: Zustand selector guard
+        run: ./scripts/zustand_selector_guard.sh
 
       - name: TypeScript noEmit
         run: pnpm -C frontend/ui_app exec tsc --noEmit

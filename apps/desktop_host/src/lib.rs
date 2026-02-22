@@ -2958,6 +2958,20 @@ impl PluginHostState {
         self.slot_instance_map.load_full()
     }
 
+    fn slot_ids_for_instance_ids(&self, instance_ids: &HashSet<Uuid>) -> HashSet<Uuid> {
+        self.slot_instance_map
+            .load()
+            .iter()
+            .filter_map(|(slot_id, instance_id)| {
+                if instance_ids.contains(instance_id) {
+                    Some(*slot_id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     fn clear_slot_instance_bindings(&self) {
         self.slot_instance_map.store(Arc::new(HashMap::new()));
     }
@@ -3468,6 +3482,34 @@ impl PluginHostState {
             .map_err(|e| format!("Sandbox set parameter failed: {e}"))?;
         Ok(true)
     }
+}
+
+fn bypass_plugin_slots_in_project(
+    project: &mut Project,
+    slot_ids: &HashSet<Uuid>,
+) -> usize {
+    fn bypass_in_node(node: &mut DeviceNode, slot_ids: &HashSet<Uuid>, changed: &mut usize) {
+        for slot in node.collect_plugin_slots_mut() {
+            if slot_ids.contains(&slot.id) && !slot.is_bypassed {
+                slot.is_bypassed = true;
+                *changed = changed.saturating_add(1);
+            }
+        }
+    }
+
+    let mut changed = 0usize;
+    for track in &mut project.tracks {
+        if let Some(inst) = track.instrument.as_mut() {
+            bypass_in_node(inst, slot_ids, &mut changed);
+        }
+        for node in &mut track.effects {
+            bypass_in_node(node, slot_ids, &mut changed);
+        }
+    }
+    for node in &mut project.master_track.effects {
+        bypass_in_node(node, slot_ids, &mut changed);
+    }
+    changed
 }
 
 impl RecordingRuntime {
@@ -4484,6 +4526,36 @@ pub fn run() {
                             Err(_) => continue,
                         };
                         let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
+                        if !crashes.is_empty() {
+                            let crashed_instance_ids: HashSet<Uuid> =
+                                crashes.iter().map(|c| c.instance_id).collect();
+                            let slot_ids =
+                                plugin_host_state.slot_ids_for_instance_ids(&crashed_instance_ids);
+                            if !slot_ids.is_empty() {
+                                let clip_pool_state: tauri::State<'_, ClipPoolState> = sandbox_app.state();
+                                let project_state: tauri::State<'_, ProjectState> = sandbox_app.state();
+                                if let Ok(mut project) = project_state.project.lock() {
+                                    let changed = bypass_plugin_slots_in_project(&mut project, &slot_ids);
+                                    if changed > 0 {
+                                        clip_pool_state.rebuild_routing_only(&project);
+                                        let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                                        clip_pool_state.rebuild_external_fx_snapshot(
+                                            &project,
+                                            slot_instance_map.as_ref(),
+                                        );
+                                        let _ = project_state.mark_dirty(&project.name, Some(&sandbox_app));
+                                        let _ = sandbox_app.emit(
+                                            "plugin_sandbox_auto_bypass",
+                                            serde_json::json!({
+                                                "instanceIds": crashes.iter().map(|c| c.instance_id.to_string()).collect::<Vec<_>>(),
+                                                "slotIds": slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                                                "changedSlots": changed,
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         for crash in crashes {
                             let _ = sandbox_app.emit("plugin_sandbox_crashed", &crash);
                         }
@@ -4820,6 +4892,43 @@ mod tests {
             "bypassed internal FX on master must be excluded from runtime slots"
         );
         assert_eq!(master_slots[0].internal_slot_index, Some(0));
+    }
+
+    #[test]
+    fn bypass_plugin_slots_in_project_sets_only_target_slots() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let mut track = Track::with_type("Audio 1", TrackType::Audio, 0);
+        let slot_a = PluginSlot::new("A", "vst3://a");
+        let slot_a_id = slot_a.id;
+        let slot_b = PluginSlot::new("B", "vst3://b");
+        let slot_b_id = slot_b.id;
+        track.effects.push(DeviceNode::single(slot_a));
+        track.effects.push(DeviceNode::single(slot_b));
+        project.add_track(track);
+
+        let mut target_ids = HashSet::new();
+        target_ids.insert(slot_a_id);
+
+        let changed = bypass_plugin_slots_in_project(&mut project, &target_ids);
+        assert_eq!(changed, 1);
+
+        let mut a_bypassed = None;
+        let mut b_bypassed = None;
+        for node in &project.tracks[0].effects {
+            for slot in node.collect_plugin_slots() {
+                if slot.id == slot_a_id {
+                    a_bypassed = Some(slot.is_bypassed);
+                }
+                if slot.id == slot_b_id {
+                    b_bypassed = Some(slot.is_bypassed);
+                }
+            }
+        }
+
+        assert_eq!(a_bypassed, Some(true));
+        assert_eq!(b_bypassed, Some(false));
     }
 
     #[test]

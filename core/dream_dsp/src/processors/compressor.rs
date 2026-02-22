@@ -152,7 +152,7 @@ impl CompressorProcessor {
             // 20 * log10(x) = 20 * log2(x) / log2(10) ≈ 6.0206 * log2(x)
             // Fast log2 via integer bit manipulation (~3x faster than log10).
             let bits = x.to_bits() as i32;
-            let log2_approx = (bits as f32) * 1.1920928955078125e-7 - 126.94269504;
+            let log2_approx = (bits as f32) * 1.192_092_9e-7 - 126.942_696;
             log2_approx * 6.0206
         }
     }

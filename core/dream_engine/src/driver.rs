@@ -414,13 +414,6 @@ impl SharedRtDebugStats {
             .store(deferred_topology_len as u64, Ordering::Relaxed);
     }
 
-    fn record_plugin_host_lock_miss(&self) {
-        if !self.is_enabled() {
-            return;
-        }
-        self.plugin_host_lock_miss_total.fetch_add(1, Ordering::Relaxed);
-    }
-
     /// RT-SAFE topology overflow counter. Replaces log::warn! which
     /// would acquire a global Mutex inside the audio callback.
     fn record_topology_overflow(&self) {
@@ -630,6 +623,7 @@ fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
     saw_center_hint || (min_v <= 0.01 && max_v >= 0.99)
 }
 
+#[cfg(test)]
 #[inline]
 fn apply_plugin_automation_sample_accurate(
     left: &mut [f32],
@@ -1364,11 +1358,6 @@ impl Vst3NoteTracker {
         }
     }
 
-    /// Clears all tracked active notes without sending note-off events.
-    /// Used when the plugin instance is being destroyed or completely reset.
-    fn clear(&mut self) {
-        self.active.clear();
-    }
 }
 
 #[inline]

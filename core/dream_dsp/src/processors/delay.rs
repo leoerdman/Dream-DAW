@@ -127,7 +127,7 @@ impl DelayProcessor {
                 .next_power_of_two()
                 .min(self.buf_capacity);
             self.buf_size = required_size;
-            self.write_pos = self.write_pos & (self.buf_size - 1);
+            self.write_pos &= self.buf_size - 1;
             self.update_filter();
             self.update_delay_l();
             self.update_delay_r();

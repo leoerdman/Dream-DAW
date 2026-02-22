@@ -82,9 +82,9 @@ pub fn generate_hann_fade_in_into(output: &mut [f32]) {
         return;
     }
     let len_f = (length - 1) as f32;
-    for i in 0..length {
+    for (i, sample) in output.iter_mut().enumerate().take(length) {
         let normalized = i as f32 / len_f;
-        output[i] = 0.5 * (1.0 - (PI * normalized).cos());
+        *sample = 0.5 * (1.0 - (PI * normalized).cos());
     }
 }
 
@@ -97,9 +97,9 @@ pub fn generate_hann_fade_out_into(output: &mut [f32]) {
         return;
     }
     let len_f = (length - 1) as f32;
-    for i in 0..length {
+    for (i, sample) in output.iter_mut().enumerate().take(length) {
         let normalized = i as f32 / len_f;
-        output[i] = 0.5 * (1.0 + (PI * normalized).cos());
+        *sample = 0.5 * (1.0 + (PI * normalized).cos());
     }
 }
 

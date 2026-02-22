@@ -25,23 +25,29 @@ cargo clippy -p dream_plugins -p dream_engine -p desktop_host --lib --bins -- \
 echo "[4/8] Rust tests (library crates)"
 cargo test --workspace --lib
 
-echo "[5/8] Frontend type-check (no emit)"
+echo "[5/9] Architecture budget ratchet guard"
+bash scripts/architecture_budget_guard.sh
+
+echo "[6/9] Frontend type-check (no emit)"
 pnpm -C frontend/ui_app exec tsc --noEmit
 
-echo "[6/8] Frontend build"
+echo "[7/9] Zustand selector guard"
+bash scripts/zustand_selector_guard.sh
+
+echo "[8/9] Frontend build"
 pnpm -C frontend/ui_app build
 
 echo "[info] Frontend lint report (non-blocking while lint debt is burned down)"
 pnpm -C frontend/ui_app exec eslint . || true
 
-echo "[7/8] Optional headless fuzz gate"
+echo "[9/10] Optional headless fuzz gate"
 if [[ "${DREAM_ENABLE_HEADLESS_FUZZ:-0}" == "1" ]]; then
   bash scripts/headless_fuzz_gate.sh
 else
   echo "Skipping (set DREAM_ENABLE_HEADLESS_FUZZ=1 to enable)"
 fi
 
-echo "[8/8] Optional sanitizer gate"
+echo "[10/10] Optional sanitizer gate"
 if [[ "${DREAM_ENABLE_SANITIZERS:-0}" == "1" ]]; then
   bash scripts/sanitizer_gate.sh
 else

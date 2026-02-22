@@ -169,7 +169,7 @@ impl DspProcessor for EqProcessor {
 
         // Params 33–40 = filter type for bands 0–7
         // Values: 0=Highpass, 1=Lowpass, 2=LowShelf, 3=HighShelf, 4=Peaking, 5=Notch
-        if idx >= 33 && idx <= 40 {
+        if (33..=40).contains(&idx) {
             let band_idx = idx - 33;
             if band_idx < NUM_BANDS {
                 let new_type = match value as u8 {

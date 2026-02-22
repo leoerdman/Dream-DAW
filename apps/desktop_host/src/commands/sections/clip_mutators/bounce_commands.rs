@@ -647,6 +647,3 @@ async fn bounce_group_with_deltas_cmd(
         }],
     })
 }
-
-/// Split a track into 4 stems (drums, bass, other, vocals) and place each stem on a new track.
-#[tauri::command]

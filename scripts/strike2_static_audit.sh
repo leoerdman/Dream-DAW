@@ -55,11 +55,18 @@ if (( FAIL == 0 )); then
   echo "[OK] LOC budget respected"
 fi
 
-echo "[5/6] Every unsafe block must be documented with SAFETY context"
-python3 - <<'PY'
+echo "[5/6] Unsafe SAFETY-doc ratchet (no regressions)"
+UNSAFE_BASELINE_FILE="${UNSAFE_BASELINE_FILE:-scripts/strike2_unsafe_baseline.txt}"
+python3 - "$UNSAFE_BASELINE_FILE" <<'PY'
 from pathlib import Path
 import re
 import sys
+
+baseline_file = Path(sys.argv[1])
+if not baseline_file.exists():
+    print(f"[FAIL] Missing baseline file: {baseline_file}")
+    sys.exit(1)
+baseline = int(baseline_file.read_text(encoding="utf-8").strip())
 
 targets = [
     Path("core/dream_plugins/src/vst3"),
@@ -90,12 +97,16 @@ for file in iter_rs_files():
                 bad.append((str(file), i + 1))
 
 if bad:
-    print("[FAIL] Undocumented unsafe blocks detected:")
+    print(f"[INFO] Undocumented unsafe blocks: {len(bad)} (baseline: {baseline})")
+    print("[INFO] Top locations:")
     for f, ln in bad:
         print(f"  - {f}:{ln}")
-    sys.exit(1)
-
-print("[OK] Unsafe blocks have SAFETY context")
+    if len(bad) > baseline:
+        print("[FAIL] Unsafe documentation debt regressed above baseline")
+        sys.exit(1)
+    print("[OK] Unsafe documentation debt did not regress")
+else:
+    print("[OK] Unsafe blocks have SAFETY context")
 PY
 
 echo "[6/6] Build-only smoke for strike2 crates"

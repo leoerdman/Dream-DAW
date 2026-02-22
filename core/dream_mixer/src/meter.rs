@@ -91,6 +91,7 @@ impl VuMeter {
         // Calculate block peak and RMS
         let mut block_peak: f32 = 0.0;
         let mut sum_sq: f32 = 0.0;
+        let mut finite_count: usize = 0;
 
         for &sample in buffer {
             // BUG-M1 FIX: Guard NaN/Inf inputs. Without this, a single NaN
@@ -99,6 +100,7 @@ impl VuMeter {
             if !sample.is_finite() {
                 continue;
             }
+            finite_count += 1;
             let abs = sample.abs();
             if abs > block_peak {
                 block_peak = abs;
@@ -106,9 +108,12 @@ impl VuMeter {
             sum_sq += sample * sample;
         }
 
+        // BUG-M9 FIX: Divide by finite_count, not buffer.len(). When NaN
+        // samples are skipped, the old code still divided by the full buffer
+        // length — artificially deflating RMS when plugins emit occasional
+        // NaN bursts (e.g. denormal flush, uninitialized output).
         // BUG-037 FIX: Fast-path for silence (skip sqrt on zero).
-        // For non-zero signals, LLVM optimizes sqrt to a single FSQRT instruction.
-        let mean_sq = sum_sq / buffer.len() as f32;
+        let mean_sq = if finite_count > 0 { sum_sq / finite_count as f32 } else { 0.0 };
         let block_rms = if mean_sq > 0.0 { mean_sq.sqrt() } else { 0.0 };
 
         // Apply ballistics to peak

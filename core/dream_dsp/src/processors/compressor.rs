@@ -322,6 +322,20 @@ impl DspProcessor for CompressorProcessor {
                 release
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
+            // BUG-029 FIX: Flush denormals in envelope/RMS/SC-HPF state.
+            // This guard was present in process_stereo (BUG-AUD-103) but
+            // missing from the sidechain path, causing CPU stalls during
+            // long silence on x86 without DAZ/FTZ.
+            if self.rms_state.abs() < 1.0e-20 {
+                self.rms_state = 0.0;
+            }
+            if self.sc_hp_state_l.abs() < 1.0e-20 {
+                self.sc_hp_state_l = 0.0;
+            }
+            if self.sc_hp_state_r.abs() < 1.0e-20 {
+                self.sc_hp_state_r = 0.0;
+            }
+
             let gain_db = self.compute_gain_reduction(self.envelope_db);
             let gain = Self::db_to_linear(gain_db) * makeup;
 

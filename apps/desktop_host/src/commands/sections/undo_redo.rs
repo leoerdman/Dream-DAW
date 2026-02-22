@@ -61,6 +61,12 @@ async fn redo_cmd(
     // Save current state to undo stack
     let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.undo_stack.back());
     undo.undo_stack.push_back(current_snapshot);
+    // BUG-025 FIX: Cap undo stack during redo — mirror of BUG-024 fix in undo_cmd.
+    // Without this, repeated undo/redo cycles (Ctrl+Z / Ctrl+Shift+Z) cause
+    // unbounded memory growth because every redo pushes a snapshot without eviction.
+    while undo.undo_stack.len() > MAX_UNDO_DEPTH {
+        undo.undo_stack.pop_front();
+    }
     *project = next.to_project();
     drop(undo);
 

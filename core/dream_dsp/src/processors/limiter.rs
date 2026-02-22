@@ -167,6 +167,12 @@ impl DspProcessor for LimiterProcessor {
                 self.gain =
                     self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
+            // BUG-030 FIX: Flush denormals in gain state. During release after
+            // limiting, gain exponentially approaches 1.0 through tiny increments
+            // that become denormals on x86 without DAZ/FTZ, causing CPU stalls.
+            if (1.0 - self.gain).abs() < 1.0e-10 {
+                self.gain = 1.0;
+            }
 
             // Apply gain and ceiling.
             // When no limiting (gain ≈ 1.0): output = sample * ceiling_lin

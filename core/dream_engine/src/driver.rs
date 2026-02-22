@@ -1745,6 +1745,10 @@ pub fn start_audio_thread_on_device(
     // The previous global flag killed notes on ALL VST3 instruments when only
     // one track needed flushing (e.g. single-track bypass/stop).
     let mut vst3_flush_per_track: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
+    // MIDI Chase flag: when true, sustaining notes (is_note_on=false but active)
+    // get a synthetic note-on injected at frame 0 so the sampler re-triggers them.
+    // Set on Seek/Play — cleared after the first render callback uses it.
+    let mut midi_chase_needed = false;
     // Per-track real-time MIDI queue: keyboard/preview NoteOn/Off events
     // are pushed here in the command loop and drained into vst3_midi_scratch
     // during the graph pass so external VST3 instruments (Serum, etc.)
@@ -1873,6 +1877,8 @@ pub fn start_audio_thread_on_device(
                                     }
                                     // BUG-012 FIX: Flush all tracks on seek.
                                     vst3_flush_per_track.fill(true);
+                                    // MIDI-CHASE: Re-trigger sustaining notes at the new position.
+                                    midi_chase_needed = true;
                                 }
                                 EngineCommand::SetBpm(new_bpm) => {
                                     // AUD-088 FIX: Extended BPM range. DAWs support
@@ -2590,6 +2596,20 @@ pub fn start_audio_thread_on_device(
                                         event.note_uid,
                                     ));
                                 }
+                                // MIDI-CHASE FIX: After a seek, notes that were already
+                                // playing (started before playhead) have is_note_on=false.
+                                // The sampler was never told about them → silence until the
+                                // next natural note-on. Inject a synthetic note-on at frame 0
+                                // so the sampler re-triggers sustaining notes immediately.
+                                if midi_chase_needed && !event.is_note_on && !event.is_note_off {
+                                    midi_events_scratch.push((
+                                        0, // Trigger at start of buffer
+                                        1, // Note On
+                                        event.pitch,
+                                        event.velocity,
+                                        event.note_uid,
+                                    ));
+                                }
                             }
                             // RT-SAFETY: sort_unstable_by is zero-alloc (pdqsort).
                             // sort_by (merge sort) allocates a temp buffer on the heap.
@@ -2734,6 +2754,9 @@ pub fn start_audio_thread_on_device(
 
                         // Graph pass: route pre-rendered tracks through DAG.
                         // This UNIFIED block handles both playing (clips) and stopped (tails/real-time MIDI) states.
+                        // MIDI-CHASE: Clear the chase flag after all tracks have been processed.
+                        // It only needs to be active for the first buffer after a seek.
+                        midi_chase_needed = false;
                         let n = frame_count;
                         graph_out_left[..n].fill(0.0);
                         graph_out_right[..n].fill(0.0);

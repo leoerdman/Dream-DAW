@@ -1055,6 +1055,7 @@ struct SetClipPitchPayload {
 async fn set_clip_pitch_cmd(
     payload: SetClipPitchPayload,
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -1080,6 +1081,9 @@ async fn set_clip_pitch_cmd(
     }
 
     if updated {
+        // BUG-P1 FIX: Propagate changed duration to the audio engine's clip snapshot.
+        // Without this, the engine plays the old clip length after pitch shift.
+        clip_pool_state.rebuild_clips_only(&project);
         drop(project);
         project_state.mark_dirty(&project_name, Some(&app))?;
         Ok(())
@@ -1798,6 +1802,7 @@ async fn export_mix_cmd(
 
     let local_pool = build_local_pool_for_project(&project, &clip_pool_state)?;
 
+    let export_bpm = handle.playback_state.lock().map_err(|e| e.to_string())?.bpm;
     let cfg = BounceConfig {
         output_path: settings.output_path.clone(),
         sample_rate: settings.sample_rate,
@@ -1808,11 +1813,18 @@ async fn export_mix_cmd(
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
         format: export_format,
         project_sample_rate: project.sample_rate.max(1.0),
+        bpm: export_bpm,
     };
 
     // ── VST3 instrument pre-render: clone host + slot map for spawn_blocking ──
     let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    // NOTE: VST3 FX are NOT passed to bounce() — PluginInstanceArc is shared
+    // with the RT audio thread, and calling process() from the offline thread
+    // corrupts plugin state (rapid spurious audio, missing tracks).
+    // VST3 MIDI instrument tracks are pre-rendered above via plugin_host_arc.
+    // Audio track VST3 FX are applied via the pre-render FX loop (lines 2006+).
+    // Only native device_chain FX are processed inside bounce().
 
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
     
@@ -2115,8 +2127,159 @@ async fn export_mix_cmd(
             }
         }
 
+        // ── EXPORT-FIX-01: Pre-render audio tracks through VST3 FX chain ──
+        // The bounce engine only applies native device_chain FX. Any VST3 insert
+        // FX on audio tracks (reverb, EQ, compressor plugins etc.) would be
+        // completely missing from the export. Pre-render each audio track's clips
+        // through its VST3 FX chain here, then replace the clip audio in the pool
+        // with the processed version.
+        {
+            let mut vst3_fx_rendered = 0usize;
+            for track_idx in 0..project.tracks.len() {
+                let track = &project.tracks[track_idx];
+
+                // Skip tracks without audio clips.
+                if track.clips.is_empty() {
+                    continue;
+                }
+
+                // Collect VST3 FX slots for this track's insert chain.
+                let fx_slots: Vec<_> = track.effects.iter()
+                    .flat_map(|node| node.collect_plugin_slots())
+                    .filter(|slot| !slot.is_bypassed)
+                    .collect();
+
+                // Find VST3 FX slots that have bound instances.
+                let vst3_fx: Vec<_> = fx_slots.iter()
+                    .filter_map(|slot| {
+                        slot_instance_map.get(&slot.id).map(|&iid| (slot.name.clone(), iid))
+                    })
+                    .collect();
+
+                if vst3_fx.is_empty() {
+                    continue;
+                }
+
+                log::info!(
+                    "[Export/AudioFX] Track '{}': {} audio clips, {} VST3 FX to pre-render",
+                    track.name, track.clips.len(), vst3_fx.len()
+                );
+
+                // For each audio clip on this track, read its raw audio from the pool,
+                // process through VST3 FX chain, and write back into the pool.
+                for clip in &project.tracks[track_idx].clips {
+                    if clip.file_path.is_empty() {
+                        continue;
+                    }
+
+                    let clip_audio = match local_pool.get(&clip.file_path) {
+                        Some(ca) => ca,
+                        None => {
+                            log::warn!(
+                                "[Export/AudioFX] Track '{}': clip '{}' not in pool — skipping",
+                                track.name, clip.file_path
+                            );
+                            continue;
+                        }
+                    };
+
+                    let num_channels = clip_audio.channels.len();
+                    if num_channels == 0 {
+                        continue;
+                    }
+
+                    let total_clip_frames = clip_audio.num_frames;
+                    if total_clip_frames == 0 {
+                        continue;
+                    }
+
+                    // Create writable copies of L/R channels.
+                    let mut buf_l: Vec<f32> = clip_audio.channels[0].clone();
+                    let mut buf_r: Vec<f32> = if num_channels > 1 {
+                        clip_audio.channels[1].clone()
+                    } else {
+                        clip_audio.channels[0].clone() // Mono → duplicate to R
+                    };
+
+                    // Process through each VST3 FX plugin in chain order.
+                    for (fx_name, fx_instance_id) in &vst3_fx {
+                        let mut fx_offset = 0usize;
+                        while fx_offset < total_clip_frames {
+                            let remaining = total_clip_frames - fx_offset;
+                            let chunk = remaining.min(CHUNK_FRAMES);
+
+                            let mut fx_out_l = vec![0.0f32; chunk];
+                            let mut fx_out_r = vec![0.0f32; chunk];
+
+                            let in_l = &buf_l[fx_offset..fx_offset + chunk];
+                            let in_r = &buf_r[fx_offset..fx_offset + chunk];
+                            let inputs: [&[f32]; 2] = [in_l, in_r];
+                            let mut outputs: [&mut [f32]; 2] = [&mut fx_out_l, &mut fx_out_r];
+
+                            match plugin_host_arc.lock() {
+                                Ok(mut host) => {
+                                    let empty_midi: Vec<PluginMidiEvent> = Vec::new();
+                                    if let Err(e) = host.process_with_sidechain(
+                                        *fx_instance_id,
+                                        &inputs,
+                                        None,
+                                        &mut outputs,
+                                        chunk,
+                                        &empty_midi,
+                                    ) {
+                                        log::warn!(
+                                            "[Export/AudioFX] FX '{}' process failed: {}",
+                                            fx_name, e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("[Export/AudioFX] PluginHost lock poisoned: {}", e);
+                                    break;
+                                }
+                            }
+
+                            buf_l[fx_offset..fx_offset + chunk].copy_from_slice(&fx_out_l);
+                            buf_r[fx_offset..fx_offset + chunk].copy_from_slice(&fx_out_r);
+                            fx_offset += chunk;
+                        }
+                    }
+
+                    // Write processed audio back into the pool, replacing the original.
+                    let processed_channels = if num_channels > 1 {
+                        vec![buf_l, buf_r]
+                    } else {
+                        vec![buf_l]
+                    };
+                    let processed_clip = ClipAudio::new(
+                        clip.file_path.clone(),
+                        processed_channels,
+                        clip_audio.sample_rate,
+                    );
+                    let _ = local_pool.insert(processed_clip);
+                }
+
+                vst3_fx_rendered += 1;
+                log::info!(
+                    "[Export/AudioFX] Track '{}': VST3 FX pre-render complete ({} FX applied)",
+                    track.name, vst3_fx.len()
+                );
+            }
+
+            if vst3_fx_rendered > 0 {
+                log::info!(
+                    "[Export/AudioFX] Pre-rendered {} audio track(s) through VST3 FX chains",
+                    vst3_fx_rendered
+                );
+            }
+        }
+
+        // Pass empty plugin maps: VST3 FX are now pre-rendered above, native FX
+        // are handled by device_chain inside render_routing_aware.
+        let no_plugins: std::collections::HashMap<uuid::Uuid, dream_engine::driver::PluginInstanceArc> = std::collections::HashMap::new();
+        let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
         let result = bouncer
-            .bounce(&mut project, &mut local_pool, None, move |progress| {
+            .bounce(&mut project, &mut local_pool, None, &no_plugins, &no_fx, move |progress| {
                 let payload = serde_json::json!({
                     "jobId": &job_id_for_progress,
                     "progress": (progress * 100.0).clamp(0.0, 100.0),
@@ -2348,6 +2511,7 @@ async fn bounce_selection_to_track_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
+        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
@@ -2363,7 +2527,9 @@ async fn bounce_selection_to_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
+        let no_plugins: std::collections::HashMap<uuid::Uuid, dream_engine::driver::PluginInstanceArc> = std::collections::HashMap::new();
+        let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &no_plugins, &no_fx, move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2464,6 +2630,7 @@ async fn bounce_track_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
+        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
@@ -2479,7 +2646,7 @@ async fn bounce_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2605,6 +2772,7 @@ async fn bounce_group_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
+        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
@@ -2620,7 +2788,7 @@ async fn bounce_group_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2747,6 +2915,7 @@ async fn split_track_to_stems_cmd(
         tail_frames: 0,
         format: "wav".to_string(),
         project_sample_rate: project.sample_rate.max(1.0),
+        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
 
     let (job_id, job_cancel) = start_job(&app, "split_to_stems", true)?;
@@ -2767,7 +2936,7 @@ async fn split_track_to_stems_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
             let p = (progress * 45.0).clamp(0.0, 45.0);
             let _ = set_job_progress(&app_for_progress, &job_id_for_progress, p, "Rendering source mix");
         })

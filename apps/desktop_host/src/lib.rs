@@ -2786,6 +2786,10 @@ struct PluginHostState {
     /// Cached plugin scan results to avoid re-scanning the filesystem on every
     /// `resolve_descriptor` call. Cleared on explicit rescan request.
     cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
+    /// Shared reference to the audio thread's plugin registry.
+    /// Used by `publish_registry()` to publish loaded `PluginInstanceArc`s
+    /// so the RT driver can call `process()` on VST3 instruments/FX.
+    plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
 }
 
 impl PluginHostState {
@@ -2826,6 +2830,37 @@ impl PluginHostState {
             slot_instance_map: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
             cached_scan: Mutex::new(None),
+            plugin_registry: None,
+        }
+    }
+
+    /// Attaches the audio thread's plugin registry to this state object.
+    /// Must be called once during engine setup, before any plugins are loaded.
+    fn set_plugin_registry(&mut self, registry: Arc<dream_engine::driver::SharedPluginRegistry>) {
+        self.plugin_registry = Some(registry);
+    }
+
+    /// Publishes all loaded plugin instances from `PluginHost` to the audio
+    /// thread's `SharedPluginRegistry`. Call after every plugin load/unload.
+    ///
+    /// Without this, `plugin_registry` remains empty and `driver.rs`
+    /// `plugin_registry_ref.get(&instance_id)` always returns `None`,
+    /// causing "DAW suspended processing" in VST3 instruments.
+    fn publish_registry(&self) {
+        let Some(registry) = &self.plugin_registry else {
+            log::warn!("[publish_registry] plugin_registry not attached — skipping");
+            return;
+        };
+        if let Ok(host) = self.host.lock() {
+            let snapshot = host.snapshot_registry();
+            let count = snapshot.len();
+            registry.swap(snapshot);
+            log::debug!(
+                "[publish_registry] Published {} plugin instance(s) to audio thread",
+                count
+            );
+        } else {
+            log::warn!("[publish_registry] Failed to lock PluginHost — registry not updated");
         }
     }
 
@@ -4082,7 +4117,7 @@ pub fn run() {
     let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64)); // 64 tracks max
-    let plugin_host_state = PluginHostState::new();
+    let mut plugin_host_state = PluginHostState::new();
 
     // Create shared clip pool and snapshot
     let clip_pool_state = ClipPoolState::new();
@@ -4119,6 +4154,7 @@ pub fn run() {
     let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
     let plugin_registry = Arc::new(dream_engine::driver::SharedPluginRegistry::new());
+    plugin_host_state.set_plugin_registry(Arc::clone(&plugin_registry));
     let plugin_registry_for_engine = Arc::clone(&plugin_registry);
     let plugin_registry_for_handle = Arc::clone(&plugin_registry);
     let rt_debug_stats = Arc::new(SharedRtDebugStats::new());

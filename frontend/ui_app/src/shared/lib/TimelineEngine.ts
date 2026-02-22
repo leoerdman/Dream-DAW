@@ -1136,18 +1136,35 @@ export class TimelineEngine {
                 const snappedBeat = this._snapBeat(hit.beat);
 
                 if (e.shiftKey) {
-                    const selectedClips = this._clips.filter((c) => c.selected);
-                    if (selectedClips.length > 0) {
-                        const anchorClip = selectedClips[0];
-                        const anchorBeat = anchorClip.startBeat;
-                        const anchorTrack = anchorClip.trackIndex;
+                    // Shift+click on empty area → create time selection from edit cursor to click position.
+                    // This is standard DAW behavior: cursor at pos A, Shift+click at pos B → select A..B.
+                    // Fallback: if no edit cursor, try selected clip as anchor.
+                    let anchorBeat: number;
+                    let anchorTrack: number;
+                    let hasAnchor = false;
 
+                    if (this._editCursorBeat >= 0) {
+                        // Primary anchor: edit cursor position
+                        anchorBeat = this._editCursorBeat;
+                        anchorTrack = this._editCursorTrack >= 0 ? this._editCursorTrack : hit.trackIndex;
+                        hasAnchor = true;
+                    } else {
+                        // Fallback: first selected clip
+                        const selectedClips = this._clips.filter((c) => c.selected);
+                        if (selectedClips.length > 0) {
+                            anchorBeat = selectedClips[0].startBeat;
+                            anchorTrack = selectedClips[0].trackIndex;
+                            hasAnchor = true;
+                        }
+                    }
+
+                    if (hasAnchor) {
                         this.onMarqueeSelectionStart?.();
                         this._drag = {
                             mode: DragMode.MarqueeSelect,
                             clipId: null,
-                            startBeat: anchorBeat,
-                            startTrack: anchorTrack,
+                            startBeat: anchorBeat!,
+                            startTrack: anchorTrack!,
                             currentBeat: snappedBeat,
                             currentTrack: hit.trackIndex,
                             clipOriginalBeat: 0,
@@ -1158,12 +1175,15 @@ export class TimelineEngine {
                         };
 
                         // Immediately do one selection pass and draw the box
-                        const minBeat = Math.min(anchorBeat, snappedBeat);
-                        const maxBeat = Math.max(anchorBeat, snappedBeat);
-                        const minTrack = Math.min(anchorTrack, hit.trackIndex);
-                        const maxTrack = Math.max(anchorTrack, hit.trackIndex);
+                        const minBeat = Math.min(anchorBeat!, snappedBeat);
+                        const maxBeat = Math.max(anchorBeat!, snappedBeat);
+                        const minTrack = Math.min(anchorTrack!, hit.trackIndex);
+                        const maxTrack = Math.max(anchorTrack!, hit.trackIndex);
                         this._setMarquee({ startBeat: minBeat, endBeat: maxBeat, startTrack: minTrack, endTrack: maxTrack }, false);
                         this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
+
+                        // Update edit cursor end to the shift+click position
+                        this.onEditCursorChange?.(anchorBeat!, anchorTrack!, hit.trackIndex);
                         break;
                     }
                 }
@@ -1701,10 +1721,17 @@ export class TimelineEngine {
             clipOriginalBeat: 0,
             clipOriginalTrack: 0,
             clipOriginalDuration: 0,
+            // BUG-B1 FIX: Reset startClientX/Y to prevent stale values leaking
+            // into the next drag state, which could cause incorrect dx/dy threshold
+            // calculations in MarqueeSelect and MultiCursorSelect.
+            startClientX: 0,
+            startClientY: 0,
         };
     }
 
     private _onDoubleClick(e: MouseEvent): void {
+        // BUG-B2 FIX: Prevent browser text selection overlay on canvas.
+        e.preventDefault();
         const hit = this.hitTest(e.clientX, e.clientY);
 
         switch (hit.type) {

@@ -222,7 +222,9 @@ export const PianoRoll = memo(function PianoRoll({
         if (trackIndex != null) {
             _scrollTopByTrack.delete(trackIndex);
         }
-    }, [clipLengthBeats, trackIndex]);
+        // BUG-P5 FIX: clipStartBeat in deps ensures the counter resets
+        // even when switching to a clip of the same length.
+    }, [clipLengthBeats, clipStartBeat, trackIndex]);
     const [quantizeAmount, setQuantizeAmount] = useState(100);
     const [foldToUsedNotes, setFoldToUsedNotes] = useState(false);
     const [stepInputOctave, setStepInputOctave] = useState(4);
@@ -1271,7 +1273,7 @@ export const PianoRoll = memo(function PianoRoll({
                 setLaneValuesByNote((prev) => {
                     const next = { ...prev, [activeLane]: { ...prev[activeLane] } };
                     targets.forEach((id) => {
-                        const base = startedValues.get(id) ?? 96;
+                        const base = startedValues.get(id) ?? 0; // BUG-P11 FIX: no stored CC = no modulation = 0
                         next[activeLane][id] = Math.max(1, Math.min(127, base + delta));
                     });
                     return next;
@@ -1651,10 +1653,14 @@ export const PianoRoll = memo(function PianoRoll({
                 // Shift+Up/Down: transpose by octave (12 semitones)
                 if (e.key === 'ArrowUp') {
                     const pitchStep = e.shiftKey ? 12 : 1;
+                    // BUG-P6 FIX: Update clipTranspose counter to match sidebar display.
+                    setClipTranspose(prev => Math.max(-24, Math.min(24, prev + pitchStep)));
                     return { ...n, pitch: Math.min(HIGHEST_PITCH, n.pitch + pitchStep) };
                 }
                 if (e.key === 'ArrowDown') {
                     const pitchStep = e.shiftKey ? 12 : 1;
+                    // BUG-P6 FIX: Update clipTranspose counter to match sidebar display.
+                    setClipTranspose(prev => Math.max(-24, Math.min(24, prev - pitchStep)));
                     return { ...n, pitch: Math.max(LOWEST_PITCH, n.pitch - pitchStep) };
                 }
 
@@ -2313,10 +2319,13 @@ export const PianoRoll = memo(function PianoRoll({
                             ))}
 
                             {/* Clip end marker */}
+                            {/* BUG-P9 FIX: Use clipBeats * pixelsPerBeat (actual clip end)
+                                not canvasWidth (zoom-dependent totalBeats × ppb) which drifts
+                                past the real clip boundary when zoomed out. */}
                             <div style={{
                                 position: 'absolute',
                                 top: 0,
-                                left: canvasWidth - 2,
+                                left: clipBeats * pixelsPerBeat - 2,
                                 width: 2,
                                 height: RULER_HEIGHT,
                                 background: color,

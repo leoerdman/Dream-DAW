@@ -144,12 +144,14 @@ export const ExportModal = ({
     loopEndBeat = 0,
 }: ExportModalProps) => {
     // ── Settings State (restored from saved preferences) ─────────────
-    const [format, setFormat] = useState<ExportFormat>(() => loadExportPrefs().format);
-    const [exportSampleRate, setExportSampleRate] = useState<SampleRate>(() => loadExportPrefs().sampleRate);
-    const [bitDepth, setBitDepth] = useState<BitDepth>(() => loadExportPrefs().bitDepth);
+    // BUG-A1 FIX: Parse localStorage once instead of 5 separate times.
+    const [savedPrefs] = useState(() => loadExportPrefs());
+    const [format, setFormat] = useState<ExportFormat>(savedPrefs.format);
+    const [exportSampleRate, setExportSampleRate] = useState<SampleRate>(savedPrefs.sampleRate);
+    const [bitDepth, setBitDepth] = useState<BitDepth>(savedPrefs.bitDepth);
     const [exportRange, setExportRange] = useState<ExportRange>('full');
-    const [normalize, setNormalize] = useState(() => loadExportPrefs().normalize);
-    const [tailMs, setTailMs] = useState(() => loadExportPrefs().tailMs);
+    const [normalize, setNormalize] = useState(savedPrefs.normalize);
+    const [tailMs, setTailMs] = useState(savedPrefs.tailMs);
 
     // ── Submit State ─────────────────────────────────────────────────
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -167,6 +169,20 @@ export const ExportModal = ({
             setBounceError(null);
         }
     }, [isOpen]);
+
+    // ── BUG-B8 FIX: Escape key to close modal ────────────────────────
+    useEffect(() => {
+        if (!isOpen) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isSubmitting) {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, { capture: true });
+        return () => window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
+    }, [isOpen, isSubmitting, onClose]);
 
     // ── Whether "Selected" range is available ────────────────────────
     const hasSelection = selectedClipIds.length > 0;
@@ -258,10 +274,12 @@ export const ExportModal = ({
             }
 
             // 2. Build export settings with optional frame data for 'selected' range.
+            // BUG-C5 FIX: Only send bitDepth for WAV exports. For MP3, bitDepth is
+            // irrelevant and sending the stale WAV value could confuse the backend.
             const settings: engineApi.ExportSettings = {
                 outputPath,
                 sampleRate: exportSampleRate,
-                bitDepth,
+                bitDepth: format === 'wav' ? bitDepth : 24, // MP3: use sane default
                 range: exportRange,
                 normalize,
                 tailMs,

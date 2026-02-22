@@ -677,6 +677,7 @@ fn open_plugin_window_for_slot(
                                 &project,
                                 plugin_host_state.slot_instance_snapshot().as_ref(),
                             );
+                            plugin_host_state.publish_registry();
                             log::info!(
                                 "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox fallback instance {}",
                                 track_id,
@@ -756,6 +757,7 @@ fn open_plugin_window_for_slot(
     }
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
 
     // Mark project dirty — plugin editor opening implies parameters may be
     // changed via the native GUI (which doesn't notify our project model).
@@ -1043,6 +1045,7 @@ fn ensure_plugin_slot_active_cmd(
     }
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
     log::info!(
         "[IPC] ensure_plugin_slot_active_cmd(track={}, slot={}) -> instance {}",
         track_id,
@@ -1073,6 +1076,7 @@ fn unload_plugin_slot_cmd(
 
     plugin_host_state.unload_slot_instance(slot.id)?;
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
     log::info!(
         "[IPC] unload_plugin_slot_cmd(track={}, slot={})",
         track_id,
@@ -1167,6 +1171,7 @@ fn replace_missing_plugin_slot_cmd(
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
@@ -1468,6 +1473,7 @@ fn set_external_plugin_param_for_slot_cmd(
                 &project_mut,
                 plugin_host_state.slot_instance_snapshot().as_ref(),
             );
+            plugin_host_state.publish_registry();
             let project_name = project_mut.name.clone();
             drop(project_mut);
             project_state.mark_dirty(&project_name, Some(&app))?;
@@ -1653,6 +1659,7 @@ fn get_external_plugin_params_for_slot(
     drop(host);
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
     Ok(params)
 }
 
@@ -1922,6 +1929,7 @@ fn set_plugin_sidechain_source_cmd(
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -2362,6 +2370,7 @@ fn add_plugin_to_track_cmd(
     }
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     if let Some((track_id, slot_index, effect_type)) = runtime_add {
         // Map project UUID track ordering to runtime track index.
         if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
@@ -2472,6 +2481,7 @@ fn remove_plugin_from_track_cmd(
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     if let Some(slot_index) = runtime_remove_slot
         && let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_uuid)
     {
@@ -3069,6 +3079,7 @@ fn eager_activate_external_plugins(
 
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
 
     Ok(serde_json::json!({
         "total": total,
@@ -3130,6 +3141,7 @@ fn set_slot_bypass_cmd(
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
@@ -3201,6 +3213,7 @@ async fn move_effect_slot_cmd(
     // Rebuild FX snapshot so the audio engine picks up the new order
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
 
     let project_name = project.name.clone();
     drop(project);
@@ -3388,6 +3401,7 @@ fn paste_device_to_track_cmd(
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
 
     // Send AddDevice engine command for internal effects.
     if let Some((tid, slot_index, effect_type)) = runtime_add {

@@ -7122,6 +7122,7 @@ fn new_project(
     let _ = plugin_host_state.unload_all_instances();
     clip_pool_state.rebuild_snapshot(&new);
     clip_pool_state.rebuild_external_fx_snapshot(&new, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
     rebuild_midi_snapshot_from_project(&new, &handle);
     rebuild_sampler_snapshot_from_project(&new, &clip_pool_state, &handle);
@@ -7327,6 +7328,7 @@ fn open_project(
 
     clip_pool_state.rebuild_snapshot(&loaded);
     clip_pool_state.rebuild_external_fx_snapshot(&loaded, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
     clip_pool_state.load_project_clips(&loaded);
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
     rebuild_midi_snapshot_from_project(&loaded, &handle);

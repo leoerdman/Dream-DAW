@@ -5329,6 +5329,22 @@ impl PluginHost {
         self.instances.len()
     }
 
+    /// Returns a snapshot of all active plugin instances for publishing to the
+    /// audio thread's `SharedPluginRegistry`. Each entry maps
+    /// `instance_id -> Arc<Mutex<PluginInstance>>`.
+    ///
+    /// This is called after every plugin load/unload to keep the registry in
+    /// sync with the host. The audio thread uses this registry to call
+    /// `process()` on VST3 instruments and FX.
+    pub fn snapshot_registry(&self) -> HashMap<Uuid, PluginInstanceArc> {
+        let mut map = HashMap::with_capacity(self.instances.len());
+        for instance_arc in &self.instances {
+            let id = instance_arc.lock().id();
+            map.insert(id, std::sync::Arc::clone(instance_arc));
+        }
+        map
+    }
+
     /// Returns an immutable reference to a plugin instance by its ID.
     pub fn get(&self, id: Uuid) -> Option<&PluginInstanceArc> {
         let idx = *self.instance_index.get(&id)?;

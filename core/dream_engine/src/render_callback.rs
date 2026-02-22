@@ -488,9 +488,18 @@ impl RenderContext {
                             clip.gain as f32,
                         );
                     } else {
+                        // BUG-A1/A2 FIX: Unwarped streaming path must match pool path
+                        // (L443-463). Previously ignored pitch_shift_semitones and
+                        // source_offset, causing pitch-shifted or trimmed streaming
+                        // clips to play back at wrong pitch/position.
+                        let clip_local_timeline_start = (ac.source_start_frame
+                            - clip.source_offset.sample_frame)
+                            .max(0) as f64;
+                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                            + clip_local_timeline_start * pitch_multiplier * source_to_timeline_ratio;
                         window.read_into_rate(
-                            (ac.source_start_frame as f64) * source_to_timeline_ratio,
-                            source_to_device_rate,
+                            source_start,
+                            pitch_multiplier * source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,

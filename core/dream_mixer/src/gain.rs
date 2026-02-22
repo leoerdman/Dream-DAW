@@ -14,7 +14,10 @@
 #[inline]
 #[must_use]
 pub fn db_to_linear(db: f32) -> f32 {
-    if db <= -120.0 {
+    // BUG-M10 FIX: Guard NaN/Inf inputs. Without this, NaN propagates
+    // through exp() → NaN gain → every sample in the buffer becomes NaN
+    // → total silence or unbounded output depending on downstream handling.
+    if !db.is_finite() || db <= -120.0 {
         0.0
     } else {
         // BUG-040 FIX: exp() is 2-3x faster than powf() on all platforms.

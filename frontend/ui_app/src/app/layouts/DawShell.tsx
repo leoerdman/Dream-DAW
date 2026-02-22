@@ -723,7 +723,10 @@ export const DawShell = () => {
     );
     // Memoize loop region beat values to avoid recomputing inline in JSX on every render
     // (which would trigger spurious downstream effects during playback position updates).
-    const _loopBpm = projectBpm || transportBpm || 120;
+    // BUG-C3 FIX: Ensure BPM is always >= 1 to prevent division by zero in
+    // frameToBeat/beatToFrame conversions. The `||` fallback chain fails when
+    // BPM is exactly 0 (empty project), but 0 is never a valid BPM.
+    const _loopBpm = Math.max(1, projectBpm || transportBpm || 120);
     const loopStartBeat = useMemo(
         () => frameToBeat(transportLoopStart, _loopBpm, projectSampleRate),
         [transportLoopStart, _loopBpm, projectSampleRate],
@@ -747,8 +750,14 @@ export const DawShell = () => {
         };
     }, [timelineClipsForView, projectTracks]);
 
+    // BUG-B7 FIX: Only open the resolver on transition from 0 → N (not on every
+    // re-count). This prevents the panel from re-opening after the user dismisses
+    // it, e.g. when a clip is fixed and another simultaneously goes offline.
+    const prevMissingTotalRef = useRef(0);
     useEffect(() => {
-        if (missingMediaSummary.total > 0) {
+        const prev = prevMissingTotalRef.current;
+        prevMissingTotalRef.current = missingMediaSummary.total;
+        if (missingMediaSummary.total > 0 && prev === 0) {
             setMissingAssetsOpen(true);
         }
     }, [missingMediaSummary.total]);
@@ -848,6 +857,7 @@ export const DawShell = () => {
 
     useEffect(() => {
         const incoming: Record<string, MidiNote[]> = {};
+        let hasChanges = false;
         for (const clip of timelineClips) {
             if (clip.type !== 'midi') continue;
             if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
@@ -862,7 +872,22 @@ export const DawShell = () => {
                 }));
             }
         }
-        setMidiNotesByClip(incoming);
+        // BUG-C15 FIX: Only update state if the incoming data actually differs.
+        // Replacing the entire map on every timelineClips change forces PianoRoll
+        // to re-render even when the currently edited clip's notes are identical.
+        setMidiNotesByClip((prev) => {
+            const prevKeys = Object.keys(prev);
+            const incomingKeys = Object.keys(incoming);
+            if (prevKeys.length !== incomingKeys.length) return incoming;
+            for (const key of incomingKeys) {
+                if (prev[key] !== incoming[key]) {
+                    // Only replace if truly different (reference check is sufficient
+                    // since dirty clips keep their ref and clean clips get new arrays).
+                    return incoming;
+                }
+            }
+            return prev; // No change — skip re-render
+        });
     }, [timelineClips]);
 
     useEffect(() => {
@@ -910,24 +935,28 @@ export const DawShell = () => {
         const onPointerUp = () => {
             void flushTrackControlFinals();
             flushMidiThrottles();
-            const clip = selectedTimelineClipRef.current;
-            if (!clip || clip.type !== 'midi') return;
-            if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
-                const notes = latestMidiNotesRef.current[clip.id] ?? [];
+            // BUG-C14 FIX: Early-exit if no dirty clips.
+            if (dirtyMidiNotesClipIdsRef.current.size === 0 && dirtyMidiEnvelopeClipIdsRef.current.size === 0) return;
+
+            // BUG-P13 FIX: Flush ALL dirty clips, not just the selected one.
+            // If the user edits clip A then switches to clip B before releasing
+            // the pointer, clip A's final undo-stamped save was being skipped.
+            for (const clipId of Array.from(dirtyMidiNotesClipIdsRef.current)) {
+                const notes = latestMidiNotesRef.current[clipId] ?? [];
                 void engineApi
-                    .updateMidiClip(clip.id, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
+                    .updateMidiClip(clipId, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
                     .then(() => {
-                        dirtyMidiNotesClipIdsRef.current.delete(clip.id);
+                        dirtyMidiNotesClipIdsRef.current.delete(clipId);
                     })
                     .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
             }
 
-            if (dirtyMidiEnvelopeClipIdsRef.current.has(clip.id)) {
-                const envelopes = latestMidiEnvelopesRef.current[clip.id] ?? [];
+            for (const clipId of Array.from(dirtyMidiEnvelopeClipIdsRef.current)) {
+                const envelopes = latestMidiEnvelopesRef.current[clipId] ?? [];
                 void engineApi
-                    .setMidiClipEnvelopes(clip.id, envelopes, { pushUndoStep: true })
+                    .setMidiClipEnvelopes(clipId, envelopes, { pushUndoStep: true })
                     .then(() => {
-                        dirtyMidiEnvelopeClipIdsRef.current.delete(clip.id);
+                        dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
                     })
                     .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
             }
@@ -1133,8 +1162,10 @@ export const DawShell = () => {
     }, []);
 
     const handleMarqueeSelectionStart = useCallback(() => {
-        // Selection-box mode is mutually exclusive with cursor and clip selection.
-        setEditCursorBeat(-1);
+        // Selection-box mode is mutually exclusive with clip selection.
+        // BUG-A10 FIX: Do NOT clear editCursorBeat here — it serves as the
+        // anchor for Shift+Click time selection. Only clear clip selection
+        // and prior marquee.
         setSelectedClipIds([]);
         setMarqueeSelection(null);
     }, []);
@@ -1232,7 +1263,9 @@ export const DawShell = () => {
         console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
         const bpm = projectBpm || transportBpm || 120;
         const sr = projectSampleRate;
-        const beatsPerBar = 4; // TODO: read from project time signature when backend supports it
+        // BUG-C20 FIX: Read beatsPerBar from store when available, fall back to 4.
+        const storeState = useEngineStore.getState();
+        const beatsPerBar = (storeState as typeof storeState & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
         const positionFrames = beatToFrame(beat, bpm, sr);
         const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sr);
         createMidiClip(trackIndex, positionFrames, durationFrames);
@@ -1268,7 +1301,11 @@ export const DawShell = () => {
             // clip state, so parallel moves would each see stale positions for other clips.
             for (const clip of selectedClips) {
                 const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                const targetTrack = Math.max(0, Math.min(trackCount - 1, clip.trackIndex + deltaTrack));
+                // BUG-A5 FIX: Use trackCountRaw (raw project track count) instead of
+                // trackCount (visible-only count). Clip trackIndex references raw project
+                // indices, not visible-only indices. Using visible count could prevent
+                // moves to tracks that exist but are inside collapsed groups.
+                const targetTrack = Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack));
                 await moveOne(clip.id, targetBeat, targetTrack);
             }
         };
@@ -1659,17 +1696,7 @@ export const DawShell = () => {
                                 </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (
                                 <SampleClipEditor
-                                    key={[
-                                        selectedTimelineClip.id,
-                                        selectedTimelineClip.isWarped ? 'warp-on' : 'warp-off',
-                                        selectedTimelineClip.warpMode ?? 0,
-                                        selectedTimelineClip.warpBaseBpm ?? 120,
-                                        selectedTimelineClip.sourceOffset ?? 0,
-                                        selectedTimelineClip.fadeIn ?? 0,
-                                        selectedTimelineClip.fadeOut ?? 0,
-                                        selectedTimelineClip.fadeInCurve ?? 0.5,
-                                        selectedTimelineClip.fadeOutCurve ?? 0.5,
-                                    ].join(':')}
+                                    key={selectedTimelineClip.id}
                                     clip={selectedTimelineClip}
                                 />
                             ) : (
@@ -1773,6 +1800,7 @@ export const DawShell = () => {
                         allClips={timelineClipsForView}
                         bpm={projectBpm || transportBpm || 120}
                         sampleRate={projectSampleRate}
+                        loopStartBeat={loopStartBeat}
                         loopEndBeat={loopEndBeat}
                     />
                 </Suspense>
@@ -2128,6 +2156,14 @@ const SampleClipEditor = ({
     const [draftPitch, setDraftPitch] = useState<number>(clip.pitchShiftSemitones ?? 0);
     const [isPreviewing, setIsPreviewing] = useState(false);
 
+    // BUG-P2 FIX: Sync draft state whenever clip props change externally
+    // (undo/redo, project reload, backend updates). Without this, the
+    // slider/checkbox shows stale values after Ctrl+Z.
+    useEffect(() => { setDraftPitch(clip.pitchShiftSemitones ?? 0); }, [clip.pitchShiftSemitones]);
+    useEffect(() => { setDraftWarpEnabled(Boolean(clip.isWarped)); }, [clip.isWarped]);
+    useEffect(() => { setDraftWarpMode((clip.warpMode ?? 0) > 0 ? 1 : 0); }, [clip.warpMode]);
+    useEffect(() => { setDraftWarpBaseBpm(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm))); }, [clip.warpBaseBpm, bpm]);
+
     const commitPitch = useCallback(async (val: number) => {
         const nextPitch = Math.max(-48, Math.min(48, val));
 
@@ -2139,6 +2175,9 @@ const SampleClipEditor = ({
                 let nextDurationBeats = c.durationBeats;
                 let nextDurationSamples = c.durationSamples;
 
+                // BUG-P3 FIX: Read isWarped/warpSourceDurationFrames/durationSamples
+                // from the live clip `c` in the store instead of the stale outer `clip`
+                // closure, which may hold values from a previous render.
                 if (!c.isWarped) {
                     const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
                     const sourceFrames = Math.max(1, c.warpSourceDurationFrames ?? c.durationSamples ?? 1);
@@ -2194,9 +2233,14 @@ const SampleClipEditor = ({
         const store = useEngineStore.getState();
         const sr = store.projectSampleRate || 44100;
         const projectTempo = store.projectBpm || store.transport.bpm || 120;
-        const sourceFrames = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
 
-        const pitchMultiplier = Math.pow(2.0, (clip.pitchShiftSemitones ?? 0) / 12.0);
+        // BUG-P8 FIX: Read live clip from the store instead of stale closure.
+        // After a pitch change, the outer `clip` still has the old pitchShiftSemitones.
+        const liveClip = store.timelineClips.find(c => c.id === clip.id);
+        if (!liveClip) return;
+        const sourceFrames = Math.max(1, liveClip.warpSourceDurationFrames ?? liveClip.durationSamples ?? 1);
+        const pitchMultiplier = Math.pow(2.0, (liveClip.pitchShiftSemitones ?? 0) / 12.0);
+
         const nextDurationBeats = next.enabled
             ? frameToBeat(sourceFrames, base, sr)
             : frameToBeat(Math.round(sourceFrames / pitchMultiplier), projectTempo, sr);
@@ -2234,7 +2278,7 @@ const SampleClipEditor = ({
             useEngineStore.setState({ timelineClips: previousClips });
             console.error('[SampleClipEditor] setClipWarp failed:', err);
         }
-    }, [clip.id, clip.durationSamples, clip.warpSourceDurationFrames]);
+    }, [clip.id]);
 
     const beatsPerBar = 4;
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));

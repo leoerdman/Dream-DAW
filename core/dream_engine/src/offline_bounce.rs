@@ -25,6 +25,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -38,7 +39,10 @@ use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project};
 use dream_models::time::AbsoluteTime;
+use dream_plugins::TransportContext;
+use dream_plugins::vst3_host::PluginInstanceArc;
 
+use crate::driver::ExternalFxRuntimeSlot;
 use crate::render_callback::{soft_clip, RenderContext};
 use crate::sampler::{AdsrParams, SamplerEngine, SampleRackEngine, Waveform};
 
@@ -85,10 +89,10 @@ pub struct BounceConfig {
 
     /// The project's internal sample rate (Hz).
     /// Clip positions and durations are stored in this domain.
-    /// Must be set so the offline render can correctly separate the
-    /// timeline domain from the export sample rate — matching how the
-    /// real-time driver uses `SetTimelineSampleRate`.
     pub project_sample_rate: f64,
+
+    /// Project tempo in BPM. Used for VST3 transport context.
+    pub bpm: f64,
 }
 
 impl BounceConfig {
@@ -261,6 +265,106 @@ impl OfflineBouncer {
         (routing, mask)
     }
 
+    /// Processes the unified FX chain for a single track slot.
+    ///
+    /// Mirrors the RT driver's Insert processing logic:
+    /// 1. If `external_fx_map[track_idx]` exists, iterate each `ExternalFxRuntimeSlot` in order.
+    ///    - `internal_slot_index` → native FX: `device_chain.process_slot_with_sidechain()`
+    ///    - `instance_id` → VST3: lock the `PluginInstanceArc`, set transport, call `process_with_sidechain()`
+    /// 2. If no external FX map entry, fall back to `device_chain.process_stereo()`.
+    fn process_track_fx_chain(
+        slot: &mut crate::render_callback::TrackSlot,
+        track_idx: usize,
+        frame_count: usize,
+        sample_rate: f64,
+        plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
+        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+        bpm: f64,
+        playhead_pos: i64,
+    ) {
+        let c = frame_count
+            .min(slot.buf_left.len())
+            .min(slot.buf_right.len());
+
+        if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+            if !runtime_slots.is_empty() {
+                for (_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                    // ── Native FX slot ──
+                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                        slot.device_chain.process_slot_with_sidechain(
+                            internal_idx,
+                            &mut slot.buf_left[..c],
+                            &mut slot.buf_right[..c],
+                            None,
+                            None,
+                            sample_rate as f32,
+                        );
+                        continue;
+                    }
+
+                    // ── VST3 FX slot ──
+                    if let Some(instance_id) = runtime_slot.instance_id {
+                        if let Some(plugin_mtx) = plugin_registry.get(&instance_id) {
+                            let mut host = plugin_mtx.lock();
+                            let transport = TransportContext {
+                                sample_rate,
+                                position_samples: playhead_pos,
+                                tempo: bpm,
+                                is_playing: true,
+                                is_recording: false,
+                                time_sig_numerator: 4,
+                                time_sig_denominator: 4,
+                            };
+                            host.set_transport_context(transport);
+
+                            let mut out_left = vec![0.0f32; c];
+                            let mut out_right = vec![0.0f32; c];
+                            let main_inputs: [&[f32]; 2] = [
+                                &slot.buf_left[..c],
+                                &slot.buf_right[..c],
+                            ];
+                            let mut out_slices: [&mut [f32]; 2] = [
+                                &mut out_left[..c],
+                                &mut out_right[..c],
+                            ];
+                            let empty_midi: Vec<dream_plugins::MidiEvent> = Vec::new();
+                            let _ = host.process_with_sidechain(
+                                &main_inputs,
+                                None,
+                                &mut out_slices,
+                                c,
+                                &empty_midi,
+                            );
+                            slot.buf_left[..c].copy_from_slice(&out_left[..c]);
+                            slot.buf_right[..c].copy_from_slice(&out_right[..c]);
+                        } else {
+                            log::warn!(
+                                "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
+                                track_idx, instance_id
+                            );
+                        }
+                    }
+                }
+            } else {
+                if !slot.device_chain.is_empty() {
+                    slot.device_chain.process_stereo(
+                        &mut slot.buf_left[..c],
+                        &mut slot.buf_right[..c],
+                        sample_rate as f32,
+                    );
+                }
+            }
+        } else {
+            if !slot.device_chain.is_empty() {
+                slot.device_chain.process_stereo(
+                    &mut slot.buf_left[..c],
+                    &mut slot.buf_right[..c],
+                    sample_rate as f32,
+                );
+            }
+        }
+    }
+
     /// Routing-aware render: replaces `RenderContext::render()` with
     /// DAG-ordered summing that correctly processes group/bus tracks.
     ///
@@ -273,6 +377,9 @@ impl OfflineBouncer {
         clip_pool: &ClipPool,
         routing: &[Option<usize>],
         post_sum_mask: &[bool],
+        plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
+        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+        bpm: f64,
     ) {
         let channels = render_ctx.channels.max(1);
         let frame_count = output.len() / channels;
@@ -291,21 +398,25 @@ impl OfflineBouncer {
         // immediately after read_audio_clips_into_tracks().
         render_ctx.advance_playhead_by_frames(frame_count);
 
-        // Phase 1.5: Apply Track FX and Channel Strip for standard tracks (non-group)
+        // Phase 1.5: Apply Track FX (Native + VST3) and Channel Strip for standard tracks (non-group)
+        let playhead_pos = render_ctx.playhead.position();
+        let sample_rate = render_ctx.sample_rate;
         for (track_idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
             if !slot.active { continue; }
             let is_group = post_sum_mask.get(track_idx).copied().unwrap_or(false);
             if is_group { continue; } // Processed later in Phase 3
 
-            if !slot.device_chain.is_empty() {
-                // In offline bounce, sample_rate is taken from the render context, which is the export rate.
-                let sr = render_ctx.sample_rate as f32;
-                slot.device_chain.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
-                    sr,
-                );
-            }
+            // Unified FX chain: process native FX + VST3 in project order
+            Self::process_track_fx_chain(
+                slot,
+                track_idx,
+                frame_count,
+                sample_rate,
+                plugin_registry,
+                external_fx_map,
+                bpm,
+                playhead_pos,
+            );
 
             slot.strip.process_stereo(
                 &mut slot.buf_left[..frame_count],
@@ -355,22 +466,26 @@ impl OfflineBouncer {
             }
         }
 
-        // Phase 3: Process group/bus track strips (gain, pan)
+        // Phase 3: Process group/bus track FX (Native + VST3) and strips (gain, pan)
+        let playhead_pos_phase3 = render_ctx.playhead.position();
+        let sample_rate_phase3 = render_ctx.sample_rate;
         for (idx, is_group) in post_sum_mask.iter().enumerate() {
             if !*is_group || idx >= render_ctx.track_slots.len() {
                 continue;
             }
             let slot = &mut render_ctx.track_slots[idx];
 
-            // ── AE-15 FIX: Group tracks must process their native FX (Inserts) before Mixer Strip ──
-            if !slot.device_chain.is_empty() {
-                let sr = render_ctx.sample_rate as f32;
-                slot.device_chain.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
-                    sr,
-                );
-            }
+            // ── AE-15 FIX: Group tracks must process their FX (native + VST3) before Mixer Strip ──
+            Self::process_track_fx_chain(
+                slot,
+                idx,
+                frame_count,
+                sample_rate_phase3,
+                plugin_registry,
+                external_fx_map,
+                bpm,
+                playhead_pos_phase3,
+            );
 
             if slot.strip.is_output_enabled() {
                 slot.strip.process_stereo(
@@ -845,6 +960,8 @@ impl OfflineBouncer {
         project: &mut Project,
         clip_pool: &mut ClipPool,
         loop_region: Option<&ClipLoopRegion>,
+        plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
+        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
         mut progress_callback: F,
     ) -> Result<(), BounceError>
     where
@@ -927,6 +1044,9 @@ impl OfflineBouncer {
                 clip_pool,
                 &routing,
                 &post_sum_mask,
+                plugin_registry,
+                external_fx_map,
+                self.config.bpm,
             );
 
             let mut out_idx = 0;
@@ -1120,13 +1240,14 @@ mod tests {
             tail_frames: 0,
             format: "wav".to_string(),
             project_sample_rate: 44100.0,
+            bpm: 120.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
         let mut project = make_test_project();
         let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
         assert!(matches!(result, Err(BounceError::InvalidConfig(_))));
     }
 
@@ -1142,13 +1263,14 @@ mod tests {
             tail_frames: 0,
             format: "wav".to_string(),
             project_sample_rate: 44100.0,
+            bpm: 120.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
         let mut project = make_test_project();
         let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
         assert!(matches!(result, Err(BounceError::InvalidConfig(_))));
     }
 
@@ -1165,6 +1287,7 @@ mod tests {
             tail_frames: 0,
             format: "wav".to_string(),
             project_sample_rate: 44100.0,
+            bpm: 120.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -1172,7 +1295,7 @@ mod tests {
         let mut pool = ClipPool::new();
 
         let mut progress_values: Vec<f32> = Vec::new();
-        let result = bouncer.bounce(&mut project, &mut pool, None, |p| {
+        let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |p| {
             progress_values.push(p);
         });
 
@@ -1200,13 +1323,14 @@ mod tests {
             tail_frames: 0,
             format: "wav".to_string(),
             project_sample_rate: 44100.0,
+            bpm: 120.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
         let mut project = make_test_project();
         let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
         assert!(result.is_ok());
 
         let _ = std::fs::remove_file(&out_path);

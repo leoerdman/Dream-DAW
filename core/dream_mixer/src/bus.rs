@@ -95,8 +95,14 @@ impl SummingBus {
         let len = mono.len().min(self.left.len());
 
         for (i, sample) in mono.iter().copied().enumerate().take(len) {
-            self.left[i] += sample;
-            self.right[i] += sample;
+            // BUG-M8 FIX: Guard NaN/Inf — same protection as add_stereo().
+            // Previously missing, a single NaN from a mono source (sidechain return,
+            // noise generator, broken plugin) poisoned the entire master bus sum
+            // (NaN + x = NaN) causing total silence on ALL tracks.
+            if sample.is_finite() {
+                self.left[i] += sample;
+                self.right[i] += sample;
+            }
         }
 
         self.source_count += 1;

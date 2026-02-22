@@ -492,7 +492,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 // Bug #63: if cursor is near beat 0 and clipboard has clips with
                 // relative offsets, destBeat could go negative, collapsing the group.
                 // Clamp the group start to 0 and shift all clips accordingly.
-                const minRelative = Math.min(...clipboardRef.current.map((c) => c.startBeat - firstBeat));
+                // BUG-A6 FIX: Use loop instead of Math.min(...spread) to avoid
+                // RangeError: Maximum call stack size exceeded with large clipboards.
+                let minRelative = Infinity;
+                for (const c of clipboardRef.current) {
+                    const rel = c.startBeat - firstBeat;
+                    if (rel < minRelative) minRelative = rel;
+                }
                 const groupStartBeat = Math.max(0, cursorBeat + minRelative);
                 const groupOffset = groupStartBeat - (cursorBeat + minRelative);
 
@@ -526,17 +532,17 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                             ),
                         );
 
-                        // Now move each duplicate to the correct target track and position.
-                        await Promise.all(
-                            results.map((r, i) => {
-                                const clip = clipboardRef.current[i];
-                                const relative = clip.startBeat - firstBeat;
-                                const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
-                                const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
-                                const targetTrack = Math.max(0, Math.min(projectTracks.length - 1, clip.trackIndex + trackDelta));
-                                return engine.moveClip(r.new_id, targetTrack, destFrames);
-                            }),
-                        );
+                        // BUG-A3 FIX: Sequential moves to avoid race conditions.
+                        // Parallel Promise.all causes backend to see stale clip state
+                        // for subsequent clips, leading to overlapping/misplaced clips.
+                        for (let i = 0; i < results.length; i++) {
+                            const clip = clipboardRef.current[i];
+                            const relative = clip.startBeat - firstBeat;
+                            const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
+                            const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
+                            const targetTrack = Math.max(0, Math.min(projectTracks.length - 1, clip.trackIndex + trackDelta));
+                            await engine.moveClip(results[i].new_id, targetTrack, destFrames);
+                        }
 
                         onProjectMutated();
                         onClipSelectionChanged(results.map((r) => r.new_id));
@@ -597,6 +603,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
                 try {
                     await Promise.all(targets.map((id) => engine.deleteClip(id)));
+                    // BUG-A9 FIX: Clear selection after delete to prevent ghost state.
+                    // Without this, stale clip IDs remain in selection, causing broken
+                    // subsequent operations and ghost outlines in the timeline.
+                    onClipSelectionChanged([]);
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Delete clip failed:', err);

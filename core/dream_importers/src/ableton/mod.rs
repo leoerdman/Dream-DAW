@@ -34,5 +34,4 @@ pub mod rack_parser;
 pub mod device_params;
 pub mod device_import;
 pub mod track_import;
-pub mod device_parser;
 pub mod parser;

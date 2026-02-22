@@ -370,13 +370,31 @@ pub fn apply_external_plugin_meta(slot: &mut PluginSlot, meta: &ExternalPluginMe
 /// during ALS import. Supports multiple search strategies: exact name match,
 /// file stem match, file name match, and normalized key match.
 pub struct ExternalPluginIndex {
-    by_name: HashMap<String, String>,
-    by_stem: HashMap<String, String>,
-    by_file_name: HashMap<String, String>,
-    by_normalized: HashMap<String, String>,
+    pub by_name: HashMap<String, String>,
+    pub by_stem: HashMap<String, String>,
+    pub by_file_name: HashMap<String, String>,
+    pub by_normalized: HashMap<String, String>,
 }
 
 impl ExternalPluginIndex {
+    /// Creates a plugin index from pre-built maps.
+    ///
+    /// Intended for deterministic tests and tooling where plugin scanner IO
+    /// should be bypassed.
+    pub fn from_maps(
+        by_name: HashMap<String, String>,
+        by_stem: HashMap<String, String>,
+        by_file_name: HashMap<String, String>,
+        by_normalized: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            by_name,
+            by_stem,
+            by_file_name,
+            by_normalized,
+        }
+    }
+
     /// Scans all locally installed plugins and builds the resolution index.
     pub fn build() -> Self {
         let mut by_name = HashMap::new();
@@ -526,6 +544,17 @@ impl ExternalPluginIndex {
             }
         }
         None
+    }
+}
+
+impl Default for ExternalPluginIndex {
+    fn default() -> Self {
+        Self {
+            by_name: HashMap::new(),
+            by_stem: HashMap::new(),
+            by_file_name: HashMap::new(),
+            by_normalized: HashMap::new(),
+        }
     }
 }
 

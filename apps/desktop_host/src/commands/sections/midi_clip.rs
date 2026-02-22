@@ -160,7 +160,8 @@ struct MidiVariationTrackContextPayload {
 struct GenerateMidiVariationRequest {
     bpm: f64,
     beats_per_bar: u8,
-    clip_name: String,
+    #[serde(rename = "clipName")]
+    _clip_name: String,
     clip_duration_beats: f64,
     notes: Vec<MidiVariationNotePayload>,
     track_context: MidiVariationTrackContextPayload,

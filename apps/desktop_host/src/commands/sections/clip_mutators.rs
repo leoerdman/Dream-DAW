@@ -2454,7 +2454,7 @@ async fn bounce_selection_to_track_cmd(
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let mut bounce_project = project.clone();
     let mut bounce_track_name = "Bounce".to_string();
-    let mut insert_after_track_index: Option<usize> = None;
+    let insert_after_track_index: Option<usize>;
 
     let clip_ids: std::collections::HashSet<Uuid> = payload
         .clip_ids

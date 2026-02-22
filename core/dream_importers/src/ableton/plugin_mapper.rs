@@ -384,6 +384,20 @@ pub struct ExternalPluginIndex {
 }
 
 impl ExternalPluginIndex {
+    pub fn from_maps(
+        by_name: std::collections::HashMap<String, String>,
+        by_stem: std::collections::HashMap<String, String>,
+        by_file_name: std::collections::HashMap<String, String>,
+        by_normalized: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self {
+            by_name,
+            by_stem,
+            by_file_name,
+            by_normalized,
+        }
+    }
+
     pub fn build() -> Self {
         let mut by_name = std::collections::HashMap::new();
         let mut by_stem = std::collections::HashMap::new();
@@ -475,6 +489,17 @@ impl ExternalPluginIndex {
             }
         }
         None
+    }
+}
+
+impl Default for ExternalPluginIndex {
+    fn default() -> Self {
+        Self::from_maps(
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        )
     }
 }
 

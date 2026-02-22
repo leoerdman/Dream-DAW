@@ -409,9 +409,18 @@ impl PluginSandboxSupervisor {
                                 let _ = fs::write(&instance.heartbeat_file, b"ack");
                             }
                             PluginHostEventMessage::Crashed { reason, .. } => {
+                                instance.crash_count = instance.crash_count.saturating_add(1);
                                 instance.status = PluginSandboxStatus::Crashed;
                                 instance.bypass_requested = true;
-                                instance.last_error = Some(reason);
+                                instance.last_error = Some(reason.clone());
+                                self.crash_events.push(PluginCrashEvent {
+                                    instance_id: *id,
+                                    plugin_name: instance.descriptor.name.clone(),
+                                    plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                                    reason,
+                                    crash_count: instance.crash_count,
+                                    auto_restarted: false,
+                                });
                             }
                             PluginHostEventMessage::Error { message, .. } => {
                                 instance.last_error = Some(message);
@@ -564,11 +573,23 @@ impl PluginSandboxSupervisor {
                         bypass.push(*id);
                     }
                     Err(err) => {
+                        let should_emit =
+                            !matches!(instance.status, PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut);
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.crash_count = instance.crash_count.saturating_add(1);
                         instance.bypass_requested = true;
                         instance.last_error =
                             Some(format!("Failed to poll plugin host process: {err}"));
+                        if should_emit {
+                            self.crash_events.push(PluginCrashEvent {
+                                instance_id: *id,
+                                plugin_name: instance.descriptor.name.clone(),
+                                plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                                reason: instance.last_error.clone().unwrap_or_default(),
+                                crash_count: instance.crash_count,
+                                auto_restarted: false,
+                            });
+                        }
                         bypass.push(*id);
                     }
                 }

@@ -1,0 +1,59 @@
+[ARCH BUDGET] rust_limit=1000 ts_limit=300
+
+[ARCH BUDGET] Rust files over limit
+    5664 core/dream_plugins/src/vst3_host.rs
+    4916 apps/desktop_host/src/commands/sections/project_management.rs
+    4879 apps/desktop_host/src/lib.rs
+    3833 core/dream_engine/src/driver.rs
+    3304 apps/desktop_host/src/commands/sections/plugins_routing.rs
+    3072 apps/desktop_host/src/commands/sections/clip_mutators.rs
+    2588 core/dream_models/src/project.rs
+    1671 core/dream_plugins/examples/test_serum2.rs
+    1555 core/dream_engine/src/offline_bounce.rs
+    1437 core/dream_plugins/src/vst2_host.rs
+    1321 core/dream_engine/src/sampler.rs
+    1162 core/dream_graph/src/renderer.rs
+    1074 core/dream_models/src/mutators.rs
+
+[ARCH BUDGET] TS/TSX files over limit
+    3129 frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx
+    2516 frontend/ui_app/src/app/layouts/DawShell.tsx
+    2035 frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx
+    1947 frontend/ui_app/src/shared/lib/TimelineEngine.ts
+    1905 frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx
+    1653 frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx
+    1570 frontend/ui_app/src/shared/api/assistantService.ts
+    1487 frontend/ui_app/src/widgets/TrackInspector/TrackInspector.tsx
+    1380 frontend/ui_app/src/shared/api/engine.ts
+    1222 frontend/ui_app/src/shared/api/assistant/tools.ts
+    1201 frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts
+    1192 frontend/ui_app/src/shared/stores/useEngineStore.ts
+     889 frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx
+     859 frontend/ui_app/src/shared/config/pluginManifest.ts
+     828 frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts
+     806 frontend/ui_app/src/widgets/Timeline/Timeline.tsx
+     778 frontend/ui_app/src/widgets/SettingsPanel/SettingsPanel.tsx
+     736 frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx
+     671 frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx
+     667 frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx
+     566 frontend/ui_app/src/shared/lib/internalPlugins.ts
+     502 frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx
+     496 frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx
+     444 frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx
+     424 frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx
+     419 frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx
+     409 frontend/ui_app/src/shared/lib/ViewportMatrix.ts
+     406 frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx
+     383 frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts
+     377 frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx
+     364 frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx
+     356 frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx
+     350 frontend/ui_app/src/widgets/SampleRack/SampleRack.tsx
+     348 frontend/ui_app/src/shared/lib/ViewportMachine.ts
+     346 frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx
+     329 frontend/ui_app/src/widgets/MissingAssetsPanel/MissingAssetsPanel.tsx
+     324 frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx
+     321 frontend/ui_app/src/widgets/PluginWindow/PluginWindow.tsx
+     319 frontend/ui_app/src/shared/hooks/useNativeMenu.ts
+
+[ARCH BUDGET] DONE

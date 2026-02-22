@@ -24,9 +24,9 @@ jobs:
       - name: Cargo fmt (check)
         run: cargo fmt --check
 
-      - name: Cargo clippy (policy lints)
+      - name: Cargo clippy (workspace, deny warnings)
         run: |
-          cargo clippy -p dream_plugins -p dream_engine -p desktop_host --lib --bins -- \
+          cargo clippy --workspace --all-targets -- -D warnings \
             -D clippy::unwrap_used \
             -D clippy::expect_used \
             -D clippy::todo \
@@ -38,10 +38,28 @@ jobs:
       - name: Audio null-test infrastructure
         run: cargo test -p dream_engine null_math_ -- --nocapture
 
+      - name: Architecture budget report
+        run: |
+          bash ./scripts/architecture_budget.sh --report /tmp/architecture_budget.txt
+          cat /tmp/architecture_budget.txt
+          {
+            echo "## Architecture Budget Report"
+            echo ""
+            echo '```text'
+            cat /tmp/architecture_budget.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload architecture budget artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-budget
+          path: /tmp/architecture_budget.txt
+
       - name: SSOT bindings guard
         run: ./scripts/check_ssot_bindings.sh
 
-      - name: SSOT bindings guard
+      - name: SSOT alias/import guard
         run: ./scripts/ssot_guard.sh
 
   frontend:

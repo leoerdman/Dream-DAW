@@ -15,11 +15,11 @@ if [ ! -d "$SSOT_DIR" ]; then
   exit 1
 fi
 
-if ! compgen -G "$SSOT_DIR"/*.ts > /dev/null; then
+TS_COUNT="$(find "$SSOT_DIR" -maxdepth 1 -type f -name '*.ts' | wc -l | tr -d ' ')"
+if [ "$TS_COUNT" -eq 0 ]; then
   echo "[sync_bindings] WARNING: No .ts files found in $SSOT_DIR after export" >&2
   exit 1
 fi
 
-COUNT="$(find "$SSOT_DIR" -maxdepth 1 -type f -name '*.ts' | wc -l | tr -d ' ')"
-echo "[sync_bindings] Exported $COUNT files to SSOT dir:"
+echo "[sync_bindings] Exported $TS_COUNT files to SSOT dir:"
 echo "  - $SSOT_DIR"

@@ -968,6 +968,15 @@ export interface PluginSandboxRuntimeInfo {
     last_error?: string | null;
 }
 
+export interface PluginCrashEvent {
+    instance_id: string;
+    plugin_name: string;
+    plugin_path: string;
+    reason: string;
+    crash_count: number;
+    auto_restarted: boolean;
+}
+
 export interface PluginSandboxSnapshot {
     enabled: boolean;
     heartbeat_timeout_ms: number;

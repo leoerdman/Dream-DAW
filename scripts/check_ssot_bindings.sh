@@ -22,9 +22,10 @@ if [ ! -d "$SSOT_BINDINGS" ]; then
   exit 1
 fi
 
-if ! compgen -G "$SSOT_BINDINGS"/*.ts >/dev/null; then
+TS_COUNT="$(find "$SSOT_BINDINGS" -maxdepth 1 -type f -name '*.ts' | wc -l | tr -d ' ')"
+if [ "$TS_COUNT" -eq 0 ]; then
   echo "[ssot] FAIL: SSOT bindings dir has no generated .ts files: $SSOT_BINDINGS" >&2
   exit 1
 fi
 
-echo "[ssot] OK: single source of truth bindings are in $SSOT_BINDINGS"
+echo "[ssot] OK: single source of truth bindings are in $SSOT_BINDINGS ($TS_COUNT files)"

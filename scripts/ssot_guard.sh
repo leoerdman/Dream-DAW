@@ -21,7 +21,7 @@ if [[ ! -d frontend/shared_bindings ]]; then
   exit 1
 fi
 
-if ! rg -n '"@bindings/\\*"' frontend/ui_app/tsconfig.app.json >/dev/null; then
+if ! rg -n '"@bindings/\*"' frontend/ui_app/tsconfig.app.json >/dev/null; then
   err "tsconfig alias @bindings/* is missing in frontend/ui_app/tsconfig.app.json"
   exit 1
 fi

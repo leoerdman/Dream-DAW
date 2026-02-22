@@ -24,6 +24,7 @@ import type {
     ImportAudioResponse,
     ProjectHistoryEvent,
     PluginSandboxSnapshot,
+    PluginCrashEvent,
 } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -344,6 +345,7 @@ const DEFAULT_METERS: MeteringSnapshot = {
 
 let _telemetryUnlisten: UnlistenFn | null = null;
 let _pluginSandboxUnlisten: UnlistenFn | null = null;
+let _pluginSandboxCrashUnlisten: UnlistenFn | null = null;
 
 // ── Store Creation ───────────────────────────────────────────────────────
 
@@ -1122,6 +1124,42 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         }
                     },
                 );
+                _pluginSandboxCrashUnlisten = await listen<PluginCrashEvent>(
+                    'plugin_sandbox_crashed',
+                    (event) => {
+                        const crash = event.payload;
+                        const state = get();
+                        const nextSandbox = state.pluginSandbox
+                            ? {
+                                ...state.pluginSandbox,
+                                instances: state.pluginSandbox.instances.map((inst) =>
+                                    inst.plugin_instance_id === crash.instance_id
+                                        ? {
+                                            ...inst,
+                                            status: 'crashed',
+                                            bypass_requested: true,
+                                            crash_count: Math.max(inst.crash_count, crash.crash_count),
+                                            last_error: crash.reason,
+                                        }
+                                        : inst,
+                                ),
+                            }
+                            : state.pluginSandbox;
+                        _pendingUpdate.pluginSandbox = nextSandbox;
+                        _pendingUpdate.lastError = `Plugin crashed: ${crash.plugin_name} (${crash.reason})`;
+                        if (!_rafPending) {
+                            _rafPending = true;
+                            requestAnimationFrame(() => {
+                                _rafPending = false;
+                                const update = _pendingUpdate;
+                                _pendingUpdate = {};
+                                if (Object.keys(update).length > 0) {
+                                    set(update);
+                                }
+                            });
+                        }
+                    },
+                );
             } catch (e) {
                 const msg = String(e);
                 console.error('[Telemetry] listen() failed — resetting guard for retry:', msg);
@@ -1146,6 +1184,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (_pluginSandboxUnlisten) {
             _pluginSandboxUnlisten();
             _pluginSandboxUnlisten = null;
+        }
+        if (_pluginSandboxCrashUnlisten) {
+            _pluginSandboxCrashUnlisten();
+            _pluginSandboxCrashUnlisten = null;
         }
     },
 

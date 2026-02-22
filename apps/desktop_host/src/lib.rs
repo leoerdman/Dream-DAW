@@ -69,7 +69,7 @@ use dream_models::time::AbsoluteTime;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     MidiEvent as PluginMidiEvent, PluginDescriptor, PluginHost, PluginSandboxConfig,
-    PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
+    PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner, PluginCrashEvent,
 };
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
@@ -1283,8 +1283,6 @@ fn rebuild_sampler_snapshot_from_project(
         track_idx: u16,
         pad_idx: u8,
         volume: f32,
-        is_muted: bool,
-        is_soloed: bool,
         attack: f32,
         decay: f32,
         sustain: f32,
@@ -1370,8 +1368,6 @@ fn rebuild_sampler_snapshot_from_project(
                         track_idx: idx as u16,
                         pad_idx: p as u8,
                         volume: pad.volume as f32,
-                        is_muted: pad.is_muted,
-                        is_soloed: pad.is_soloed,
                         attack: pad.attack as f32,
                         decay: pad.decay as f32,
                         sustain: pad.sustain as f32,
@@ -2518,7 +2514,7 @@ impl ClipPoolState {
                 DeviceNode::Single(slot) => {
                     let effective_bypassed = parent_bypassed || slot.is_bypassed;
                     let sidechain_track_index = resolve_sidechain_track_index(slot, project);
-                    if slot.plugin_id.starts_with("internal://effect/") {
+                    if slot.plugin_id.starts_with("internal://effect/") && !effective_bypassed {
                         let idx = *internal_slot_index;
                         *internal_slot_index = internal_slot_index.saturating_add(1);
                         out.push(dream_engine::driver::ExternalFxRuntimeSlot {
@@ -3388,7 +3384,9 @@ impl PluginHostState {
         Ok(())
     }
 
-    fn tick_sandbox_watchdog(&self) -> Result<PluginSandboxSnapshot, String> {
+    fn tick_sandbox_watchdog_with_events(
+        &self,
+    ) -> Result<(PluginSandboxSnapshot, Vec<PluginCrashEvent>), String> {
         let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
         let timed_out = supervisor.tick_watchdog();
         if !timed_out.is_empty() {
@@ -3413,7 +3411,13 @@ impl PluginHostState {
                 }
             }
         }
-        Ok(supervisor.snapshot())
+        let crashes = supervisor.drain_crash_events();
+        let snapshot = supervisor.snapshot();
+        Ok((snapshot, crashes))
+    }
+
+    fn tick_sandbox_watchdog(&self) -> Result<PluginSandboxSnapshot, String> {
+        self.tick_sandbox_watchdog_with_events().map(|(snapshot, _)| snapshot)
     }
 
     fn open_sandbox_editor(&self, plugin_key: &str) -> Result<bool, String> {
@@ -4475,11 +4479,14 @@ pub fn run() {
                         }
                         std::thread::sleep(Duration::from_millis(75));
                         let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
-                        let snapshot = match plugin_host_state.tick_sandbox_watchdog() {
+                        let (snapshot, crashes) = match plugin_host_state.tick_sandbox_watchdog_with_events() {
                             Ok(v) => v,
                             Err(_) => continue,
                         };
                         let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
+                        for crash in crashes {
+                            let _ = sandbox_app.emit("plugin_sandbox_crashed", &crash);
+                        }
                     }
                 })
             {
@@ -4763,6 +4770,56 @@ mod tests {
         assert_eq!(master_slots.len(), 2, "expected internal + external master FX");
         assert_eq!(master_slots[0].internal_slot_index, Some(0));
         assert!(master_slots[1].instance_id.is_some());
+    }
+
+    #[test]
+    fn external_fx_snapshot_skips_bypassed_internal_effects() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let mut track = Track::with_type("Audio 1", TrackType::Audio, 0);
+        let mut bypassed_internal = PluginSlot::new("BypassedEQ", "internal://effect/eq_eight");
+        bypassed_internal.is_bypassed = true;
+        let active_internal = PluginSlot::new("ActiveComp", "internal://effect/compressor");
+        track.effects.push(DeviceNode::single(bypassed_internal));
+        track.effects.push(DeviceNode::single(active_internal));
+        project.add_track(track);
+
+        let mut bypassed_master_internal =
+            PluginSlot::new("MasterBypassedEQ", "internal://effect/eq_eight");
+        bypassed_master_internal.is_bypassed = true;
+        let active_master_internal =
+            PluginSlot::new("MasterActiveComp", "internal://effect/compressor");
+        project
+            .master_track
+            .effects
+            .push(DeviceNode::single(bypassed_master_internal));
+        project
+            .master_track
+            .effects
+            .push(DeviceNode::single(active_master_internal));
+
+        let state = ClipPoolState::new();
+        state.rebuild_external_fx_snapshot(&project, &HashMap::new());
+        let snapshot = state.external_fx_snapshot.load();
+
+        assert_eq!(snapshot.len(), 2, "expected 1 track + master snapshot");
+
+        let track_slots = &snapshot[0];
+        assert_eq!(
+            track_slots.len(),
+            1,
+            "bypassed internal FX on track must be excluded from runtime slots"
+        );
+        assert_eq!(track_slots[0].internal_slot_index, Some(0));
+
+        let master_slots = &snapshot[1];
+        assert_eq!(
+            master_slots.len(),
+            1,
+            "bypassed internal FX on master must be excluded from runtime slots"
+        );
+        assert_eq!(master_slots[0].internal_slot_index, Some(0));
     }
 
     #[test]

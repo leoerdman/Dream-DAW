@@ -12,7 +12,6 @@ interface UseTrackInspectorKeyboardShortcutsArgs {
     handleGroupTrack: (trackId: string) => void;
     handleDeleteSelectedTracks: () => void;
     handleDuplicateSelectedTracks: () => void;
-    debouncedFetchProject: (reason: string) => void;
 }
 
 export function useTrackInspectorKeyboardShortcuts({
@@ -24,7 +23,6 @@ export function useTrackInspectorKeyboardShortcuts({
     handleGroupTrack,
     handleDeleteSelectedTracks,
     handleDuplicateSelectedTracks,
-    debouncedFetchProject,
 }: UseTrackInspectorKeyboardShortcutsArgs): void {
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
@@ -43,7 +41,6 @@ export function useTrackInspectorKeyboardShortcuts({
                 if (ids.length > 1) {
                     void engineApi.createGroupWithDeltas(ids).then(async (response) => {
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group-multi');
-                        debouncedFetchProject('create-group-multi');
                     }).catch((err) => {
                         console.error('[TrackInspector] createGroup(multi) failed:', err);
                     });
@@ -58,7 +55,6 @@ export function useTrackInspectorKeyboardShortcuts({
                 if (groupToUngroup) {
                     void engineApi.ungroupTrackWithSnapshotDelta(groupToUngroup).then(async (response) => {
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup-shortcut');
-                        debouncedFetchProject('ungroup-shortcut');
                     }).catch((err) => {
                         console.error('[TrackInspector] ungroupTrack failed:', err);
                     });
@@ -90,6 +86,5 @@ export function useTrackInspectorKeyboardShortcuts({
         handleGroupTrack,
         handleDeleteSelectedTracks,
         handleDuplicateSelectedTracks,
-        debouncedFetchProject,
     ]);
 }

@@ -14,14 +14,12 @@ interface UseTrackInspectorDragDropArgs {
     tracks: TrackData[];
     visibleTracks: TrackData[];
     scrollRef: React.RefObject<HTMLDivElement | null>;
-    debouncedFetchProject: (reason: string) => void;
 }
 
 export function useTrackInspectorDragDrop({
     tracks,
     visibleTracks,
     scrollRef,
-    debouncedFetchProject,
 }: UseTrackInspectorDragDropArgs) {
     const dragPointerYRef = useRef<number | null>(null);
     const autoScrollRafRef = useRef<number | null>(null);
@@ -86,8 +84,10 @@ export function useTrackInspectorDragDrop({
 
         if (draggingTrack.type === 'group') {
             const rawInsertIndex = computeRawInsert(visibleIndex);
-            void engineApi.moveTrackBlockToIndex(dragId, rawInsertIndex)
-                .then(() => debouncedFetchProject('move-group-block'))
+            void engineApi.moveTrackBlockToIndexWithSnapshotDelta(dragId, rawInsertIndex)
+                .then(async (response) => {
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-group-block');
+                })
                 .catch((err) => {
                     console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
                 });
@@ -95,7 +95,7 @@ export function useTrackInspectorDragDrop({
         }
 
         commitTrackReorder(dragId, visibleIndex);
-    }, [tracks, computeRawInsert, commitTrackReorder, debouncedFetchProject]);
+    }, [tracks, computeRawInsert, commitTrackReorder]);
 
     const commitTrackToGroup = useCallback((trackId: string, groupId: string, visibleInsertIndex: number | null = null) => {
         if (!canDropIntoGroup(trackId, groupId) || trackMoveInFlightRef.current) return;

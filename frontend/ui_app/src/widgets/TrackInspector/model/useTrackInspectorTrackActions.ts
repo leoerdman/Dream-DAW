@@ -92,7 +92,8 @@ export function useTrackInspectorTrackActions({
 
     const setTrackInput = useCallback(async (trackId: string, inputId: string) => {
         try {
-            await engineApi.setTrackInput(trackId, inputId);
+            const response = await engineApi.setTrackInputWithSnapshotDelta(trackId, inputId);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:set-input');
             setLocalOverrides((prev) => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
         } catch (err) {
             console.error('[TrackInspector] setTrackInput failed:', err);

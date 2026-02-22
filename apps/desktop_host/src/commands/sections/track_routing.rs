@@ -109,6 +109,37 @@ async fn move_track_with_parent_cmd(
 }
 
 #[tauri::command]
+async fn move_track_with_parent_with_deltas_cmd(
+    track_id: String,
+    target_index: usize,
+    target_parent_group_id: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    move_track_with_parent_cmd(
+        track_id,
+        target_index,
+        target_parent_group_id,
+        project_state.clone(),
+        clip_pool_state,
+        plugin_host_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
+}
+
+#[tauri::command]
 async fn set_track_group_cmd(
     track_id: String,
     group_id: Option<String>,
@@ -137,6 +168,35 @@ async fn set_track_group_cmd(
         cmd.target_group_id
     );
     Ok(())
+}
+
+#[tauri::command]
+async fn set_track_group_with_deltas_cmd(
+    track_id: String,
+    group_id: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    set_track_group_cmd(
+        track_id,
+        group_id,
+        project_state.clone(),
+        clip_pool_state,
+        plugin_host_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
 }
 
 #[tauri::command]
@@ -170,6 +230,33 @@ async fn ungroup_track_cmd(
         result.reassigned_children
     );
     Ok(())
+}
+
+#[tauri::command]
+async fn ungroup_track_with_deltas_cmd(
+    group_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    ungroup_track_cmd(
+        group_id,
+        project_state.clone(),
+        clip_pool_state,
+        plugin_host_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
 }
 
 #[tauri::command]
@@ -208,6 +295,35 @@ async fn move_track_block_to_index_cmd(
         result.block_len
     );
     Ok(())
+}
+
+#[tauri::command]
+async fn move_track_block_to_index_with_deltas_cmd(
+    root_track_id: String,
+    target_index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    move_track_block_to_index_cmd(
+        root_track_id,
+        target_index,
+        project_state.clone(),
+        clip_pool_state,
+        plugin_host_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
 }
 
 #[tauri::command]

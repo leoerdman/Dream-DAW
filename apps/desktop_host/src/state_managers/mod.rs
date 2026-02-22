@@ -18,6 +18,7 @@ pub(crate) mod clip_pool;
 pub(crate) mod plugin_host;
 pub(crate) mod project_state;
 pub(crate) mod recording;
+pub(crate) mod runtime_bootstrap;
 pub mod sync_engine;
 
 pub(crate) use audio_engine::{AudioEngineHandle, SpectrumState, SpectrumStateInner};
@@ -26,4 +27,5 @@ pub(crate) use clip_pool::ClipPoolState;
 pub(crate) use plugin_host::PluginHostState;
 pub(crate) use project_state::ProjectState;
 pub(crate) use recording::{AutomationRuntime, MidiInputRuntime, RecordingRuntime};
+pub(crate) use runtime_bootstrap::{RuntimeBootstrap, initialize_runtime};
 pub use sync_engine::*;

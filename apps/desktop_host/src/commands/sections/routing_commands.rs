@@ -105,6 +105,22 @@ fn set_track_input_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_track_input_with_deltas_cmd(
+    track_id: String,
+    input_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    set_track_input_cmd(track_id, input_id, project_state.clone(), app)?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(project),
+        }],
+    })
+}
+
 /// Set sidechain source track for a plugin slot on a track.
 #[tauri::command]
 fn set_plugin_sidechain_source_cmd(

@@ -206,13 +206,6 @@ export const addTrackAdvanced = (
         insertAfterIndex: insertAfterIndex ?? null,
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
-export const addTrackAdvancedWithSnapshotDelta = (
-    trackType: TrackCreateType,
-    insertAfterIndex?: number | null,
-    name?: string,
-    inheritFromTrackId?: string | null,
-) =>
-    mutateThenSnapshotDelta(() => addTrackAdvanced(trackType, insertAfterIndex, name, inheritFromTrackId));
 
 export const addTrackWithDeltasAdvanced = (
     trackType: TrackCreateType,
@@ -289,7 +282,11 @@ export const moveTrackWithParentWithSnapshotDelta = (
     targetIndex: number,
     targetParentGroupId?: string | null,
 ) =>
-    mutateThenSnapshotDelta(() => moveTrackWithParent(trackId, targetIndex, targetParentGroupId));
+    invoke<DeltaMutationResponse>('move_track_with_parent_with_deltas_cmd', {
+        trackId,
+        targetIndex,
+        targetParentGroupId: targetParentGroupId ?? null,
+    });
 
 export const setTrackGroup = (trackId: string, groupId?: string | null) =>
     invoke<void>('set_track_group_cmd', {
@@ -297,17 +294,23 @@ export const setTrackGroup = (trackId: string, groupId?: string | null) =>
         groupId: groupId ?? null,
     });
 export const setTrackGroupWithSnapshotDelta = (trackId: string, groupId?: string | null) =>
-    mutateThenSnapshotDelta(() => setTrackGroup(trackId, groupId));
+    invoke<DeltaMutationResponse>('set_track_group_with_deltas_cmd', {
+        trackId,
+        groupId: groupId ?? null,
+    });
 
 export const ungroupTrack = (groupId: string) =>
     invoke<void>('ungroup_track_cmd', { groupId });
 export const ungroupTrackWithSnapshotDelta = (groupId: string) =>
-    mutateThenSnapshotDelta(() => ungroupTrack(groupId));
+    invoke<DeltaMutationResponse>('ungroup_track_with_deltas_cmd', { groupId });
 
 export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
     invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
 export const moveTrackBlockToIndexWithSnapshotDelta = (rootTrackId: string, targetIndex: number) =>
-    mutateThenSnapshotDelta(() => moveTrackBlockToIndex(rootTrackId, targetIndex));
+    invoke<DeltaMutationResponse>('move_track_block_to_index_with_deltas_cmd', {
+        rootTrackId,
+        targetIndex,
+    });
 
 export const duplicateTracks = (trackIds: string[]) =>
     invoke<void>('duplicate_tracks_cmd', { trackIds });
@@ -540,11 +543,6 @@ export const getRecentProjects = () =>
 export const getProjectSnapshotDelta = () =>
     invoke<DeltaMutationResponse>('get_project_snapshot_delta_cmd');
 
-async function mutateThenSnapshotDelta(mutate: () => Promise<void>): Promise<DeltaMutationResponse> {
-    await mutate();
-    return getProjectSnapshotDelta();
-}
-
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
 
 export const createBackup = () => invoke<string>('create_backup_cmd');
@@ -771,7 +769,7 @@ export const setClipsMutedWithDeltas = (clipIds: string[], muted: boolean) =>
 export const paintTrackClipsWithTrackColor = (trackId: string) =>
     invoke<void>('paint_track_clips_with_track_color_cmd', { trackId });
 export const paintTrackClipsWithTrackColorWithSnapshotDelta = (trackId: string) =>
-    mutateThenSnapshotDelta(() => paintTrackClipsWithTrackColor(trackId));
+    invoke<DeltaMutationResponse>('paint_track_clips_with_track_color_with_deltas_cmd', { trackId });
 
 export interface AudioDevices {
     outputs: string[];
@@ -935,7 +933,7 @@ export const setTrackRoutingWithDeltas = (trackId: string, targetId: string) =>
 export const setTrackInput = (trackId: string, inputId: string) =>
     invoke<void>('set_track_input_cmd', { trackId, inputId });
 export const setTrackInputWithSnapshotDelta = (trackId: string, inputId: string) =>
-    mutateThenSnapshotDelta(() => setTrackInput(trackId, inputId));
+    invoke<DeltaMutationResponse>('set_track_input_with_deltas_cmd', { trackId, inputId });
 
 export const setPluginSidechainSource = (
     trackId: string,
@@ -1215,14 +1213,16 @@ export const bounceTrackWithDeltas = (trackId: string) =>
 export const bounceGroup = (groupTrackId: string) =>
     invoke<void>('bounce_group_cmd', { groupTrackId });
 export const bounceGroupWithSnapshotDelta = (groupTrackId: string) =>
-    mutateThenSnapshotDelta(() => bounceGroup(groupTrackId));
+    invoke<DeltaMutationResponse>('bounce_group_with_deltas_cmd', { groupTrackId });
 
 export const splitTrackToStems = (trackId: string) =>
     invoke<void>('split_track_to_stems_cmd', {
         payload: { trackId },
     });
 export const splitTrackToStemsWithSnapshotDelta = (trackId: string) =>
-    mutateThenSnapshotDelta(() => splitTrackToStems(trackId));
+    invoke<DeltaMutationResponse>('split_track_to_stems_with_deltas_cmd', {
+        payload: { trackId },
+    });
 
 export const undo = () => invoke<void>('undo_cmd');
 export const undoWithDeltas = () =>

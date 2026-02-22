@@ -55,7 +55,50 @@ if (( FAIL == 0 )); then
   echo "[OK] LOC budget respected"
 fi
 
-echo "[5/5] Build-only smoke for strike2 crates"
+echo "[5/6] Every unsafe block must be documented with SAFETY context"
+python3 - <<'PY'
+from pathlib import Path
+import re
+import sys
+
+targets = [
+    Path("core/dream_plugins/src/vst3"),
+    Path("core/dream_plugins/src/vst3_host.rs"),
+    Path("core/dream_engine/src/driver"),
+    Path("core/dream_engine/src/driver.rs"),
+]
+
+def iter_rs_files():
+    for t in targets:
+        if t.is_file() and t.suffix == ".rs":
+            yield t
+            continue
+        if t.is_dir():
+            for p in t.rglob("*.rs"):
+                yield p
+
+bad = []
+for file in iter_rs_files():
+    if file.name.endswith("tests.rs") or file.name.endswith("_test.rs"):
+        continue
+    lines = file.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        if re.search(r"\bunsafe\s*\{", line):
+            start = max(0, i - 3)
+            context = "\n".join(lines[start:i+1])
+            if "SAFETY:" not in context:
+                bad.append((str(file), i + 1))
+
+if bad:
+    print("[FAIL] Undocumented unsafe blocks detected:")
+    for f, ln in bad:
+        print(f"  - {f}:{ln}")
+    sys.exit(1)
+
+print("[OK] Unsafe blocks have SAFETY context")
+PY
+
+echo "[6/6] Build-only smoke for strike2 crates"
 cargo check -p dream_plugins -p dream_engine -p dream_graph --locked
 
 if (( FAIL != 0 )); then

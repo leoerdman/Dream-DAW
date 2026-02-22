@@ -37,7 +37,6 @@ ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 1000
 ts frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx 502
 ts frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx 736
 # Widgets — DeviceRack
-ts frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx 477
 ts frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx 406
 ts frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx 377
 ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
@@ -69,6 +68,5 @@ ts frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx 356
 ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
 # Widgets — TrackInspector
 ts frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx 324
-ts frontend/ui_app/src/widgets/TrackInspector/ui/TrackRow.tsx 671
 # Widgets — TransportBar
 ts frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx 891

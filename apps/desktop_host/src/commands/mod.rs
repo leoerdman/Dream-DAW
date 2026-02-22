@@ -1,5 +1,4 @@
 use super::*;
-use crate::state_managers::sync_engine::*;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
 
@@ -159,9 +158,13 @@ pub(crate) fn invoke_handler()
         move_track_to_index_cmd,
         move_track_to_index_with_deltas_cmd,
         move_track_with_parent_cmd,
+        move_track_with_parent_with_deltas_cmd,
         set_track_group_cmd,
+        set_track_group_with_deltas_cmd,
         ungroup_track_cmd,
+        ungroup_track_with_deltas_cmd,
         move_track_block_to_index_cmd,
+        move_track_block_to_index_with_deltas_cmd,
         duplicate_tracks_cmd,
         duplicate_tracks_with_deltas_cmd,
         // Clip Editing
@@ -189,6 +192,7 @@ pub(crate) fn invoke_handler()
         set_clips_muted_cmd,
         set_clips_muted_with_deltas_cmd,
         paint_track_clips_with_track_color_cmd,
+        paint_track_clips_with_track_color_with_deltas_cmd,
         resolve_missing_file_cmd,
         resolve_missing_file_with_deltas_cmd,
         // Automation / recording / export
@@ -207,7 +211,9 @@ pub(crate) fn invoke_handler()
         bounce_track_cmd,
         bounce_track_with_deltas_cmd,
         bounce_group_cmd,
+        bounce_group_with_deltas_cmd,
         split_track_to_stems_cmd,
+        split_track_to_stems_with_deltas_cmd,
         // Undo/Redo
         undo_cmd,
         redo_cmd,
@@ -244,6 +250,7 @@ pub(crate) fn invoke_handler()
         set_track_routing_cmd,
         set_track_routing_with_deltas_cmd,
         set_track_input_cmd,
+        set_track_input_with_deltas_cmd,
         set_plugin_sidechain_source_cmd,
         set_plugin_sidechain_source_with_deltas_cmd,
         add_plugin_to_track_cmd,

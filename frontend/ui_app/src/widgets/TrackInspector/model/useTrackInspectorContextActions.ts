@@ -13,7 +13,6 @@ interface UseTrackInspectorContextActionsParams {
     onSelectTrack?: (id: string) => void;
     onSelectTracks?: (ids: string[], primaryId: string) => void;
     renameTrackAction: (index: number, name: string) => Promise<void> | void;
-    onRefresh: (reason: string) => void;
 }
 export function useTrackInspectorContextActions({
     tracks,
@@ -26,7 +25,6 @@ export function useTrackInspectorContextActions({
     onSelectTrack,
     onSelectTracks,
     renameTrackAction,
-    onRefresh,
 }: UseTrackInspectorContextActionsParams) {
     const deletionInFlightRef = useRef(false);
     const [contextMenu, setContextMenu] = useState<{
@@ -49,16 +47,15 @@ export function useTrackInspectorContextActions({
         const resolvedInsertAfter = Number.isInteger(insertAfterIndex) && (insertAfterIndex ?? -1) >= 0
             ? (insertAfterIndex as number)
             : null;
-        void engineApi.addTrackAdvancedWithSnapshotDelta(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
+        void engineApi.addTrackWithDeltasAdvanced(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, `track-inspector:add-${trackType}`);
-                onRefresh(`track-context:add-${trackType}`);
             })
             .catch((err) => {
                 console.error(`[TrackInspector] add ${trackType} track failed:`, err);
             });
         setContextMenu(null);
-    }, [contextMenu, onRefresh]);
+    }, [contextMenu]);
 
     const handleRenameStart = useCallback((trackId: string) => {
         const track = tracks.find(t => t.id === trackId);
@@ -110,10 +107,9 @@ export function useTrackInspectorContextActions({
             } else {
                 setLocalSelectedTrackIds(nextId ? new Set([nextId]) : new Set());
             }
-            onRefresh('delete-single');
         })().catch(err => console.error('[TrackInspector] deleteTrack failed:', err));
         setContextMenu(null);
-    }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides, onRefresh]);
+    }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides]);
 
     const handleDeleteSelectedTracks = useCallback(() => {
         if (deletionInFlightRef.current) return;
@@ -164,35 +160,32 @@ export function useTrackInspectorContextActions({
                 setLocalSelectedTrackIds(nextSelectedId ? new Set([nextSelectedId]) : new Set());
             }
             if (onSelectTrack) onSelectTrack(nextSelectedId ?? 'master');
-            onRefresh('delete-selected');
         })().catch((err) => {
             console.error('[TrackInspector] delete selected tracks failed:', err);
         }).finally(() => {
             deletionInFlightRef.current = false;
         });
-    }, [selectedTrackIdSet, getTrackIndex, liveTracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides, onRefresh]);
+    }, [selectedTrackIdSet, getTrackIndex, liveTracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp, setLocalSelectedTrackIds, setLocalOverrides]);
 
     const handleDuplicateSelectedTracks = useCallback(() => {
         const ids = Array.from(selectedTrackIdSet);
         if (ids.length === 0) return;
         void engineApi.duplicateTracksWithDeltas(ids).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:duplicate-selected');
-            onRefresh('duplicate-selected');
             return;
         }).catch((err) => {
             console.error('[TrackInspector] duplicate selected tracks failed:', err);
         });
-    }, [selectedTrackIdSet, onRefresh]);
+    }, [selectedTrackIdSet]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');
-            onRefresh('create-group');
         }).catch((err) => {
             console.error('[TrackInspector] createGroup failed:', err);
         });
         setContextMenu(null);
-    }, [onRefresh]);
+    }, []);
 
     const handleUngroupTrack = useCallback((trackId: string) => {
         const target = tracks.find((t) => t.id === trackId);
@@ -201,12 +194,11 @@ export function useTrackInspectorContextActions({
             : engineApi.setTrackGroupWithSnapshotDelta(trackId, null);
         void op.then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
-            onRefresh('ungroup');
         }).catch((err) => {
             console.error('[TrackInspector] ungroup failed:', err);
         });
         setContextMenu(null);
-    }, [tracks, onRefresh]);
+    }, [tracks]);
 
     const handleOpenColorPicker = useCallback((trackId: string, x: number, y: number) => {
         setColorPickerState({ trackId, x, y });
@@ -223,25 +215,23 @@ export function useTrackInspectorContextActions({
         void engineApi.setTrackColorWithDeltas(trackId, color)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:track-color-change');
-                onRefresh('track-color-change');
             })
             .catch((err) => {
                 console.error('[TrackInspector] setTrackColor failed:', err);
             });
         setColorPickerState(null);
-    }, [onRefresh, setLocalOverrides]);
+    }, [setLocalOverrides]);
 
     const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
         void engineApi.paintTrackClipsWithTrackColorWithSnapshotDelta(trackId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-clips-with-track-color');
-                onRefresh('track-context:paint-clips-with-track-color');
             })
             .catch((err) => {
                 console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
             });
         setContextMenu(null);
-    }, [onRefresh]);
+    }, []);
 
     const handlePaintGroupColor = useCallback((groupTrackId: string) => {
         const group = tracks.find((t) => t.id === groupTrackId);
@@ -254,43 +244,45 @@ export function useTrackInspectorContextActions({
                 for (const response of responses) {
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-group-color');
                 }
-                onRefresh('track-context:paint-group-color');
             })
             .catch((err) => {
                 console.error('[TrackInspector] paintGroupColor failed:', err);
             });
         setContextMenu(null);
-    }, [tracks, onRefresh]);
+    }, [tracks]);
 
     const handleBounceTrack = useCallback((trackId: string) => {
         void engineApi.bounceTrackWithDeltas(trackId)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:bounce-track');
-                onRefresh('track-context:bounce-track');
             })
             .catch((err) => {
                 console.error('[TrackInspector] bounceTrack failed:', err);
             });
         setContextMenu(null);
-    }, [onRefresh]);
+    }, []);
 
     const handleBounceGroup = useCallback((groupTrackId: string) => {
-        void engineApi.bounceGroup(groupTrackId)
-            .then(() => onRefresh('track-context:bounce-group'))
+        void engineApi.bounceGroupWithSnapshotDelta(groupTrackId)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:bounce-group');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] bounceGroup failed:', err);
             });
         setContextMenu(null);
-    }, [onRefresh]);
+    }, []);
 
     const handleSplitTrackToStems = useCallback((trackId: string) => {
-        void engineApi.splitTrackToStems(trackId)
-            .then(() => onRefresh('track-context:split-to-stems'))
+        void engineApi.splitTrackToStemsWithSnapshotDelta(trackId)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-context:split-to-stems');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] splitTrackToStems failed:', err);
             });
         setContextMenu(null);
-    }, [onRefresh]);
+    }, []);
 
     return { contextMenu, colorPickerState, renamingTrackId, renameValue, masterColor, setRenameValue, setContextMenu, setColorPickerState, handleContextMenu, handleAddTrackFromContext, handleRenameStart, handleRenameCommit, handleRenameCancel, handleDeleteTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks, handleGroupTrack, handleUngroupTrack, handleOpenColorPicker, handleColorSelect, handlePaintClipsWithTrackColor, handlePaintGroupColor, handleBounceTrack, handleBounceGroup, handleSplitTrackToStems };
 }

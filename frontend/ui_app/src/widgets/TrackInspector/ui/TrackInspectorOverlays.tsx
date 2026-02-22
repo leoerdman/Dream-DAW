@@ -1,6 +1,6 @@
 import * as engineApi from '@/shared/api/engine';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TrackInspectorLogicState } from '@/widgets/TrackInspector/model/useTrackInspectorLogic';
-import { useTrackInspectorProjectRefresh } from '@/widgets/TrackInspector/model/useTrackInspectorProjectRefresh';
 import { ColorPickerPopup } from '@/widgets/TrackInspector/ui/ColorPickerPopup';
 import { ContextMenuPopup } from '@/widgets/TrackInspector/ui/ContextMenuPopup';
 
@@ -9,8 +9,6 @@ interface TrackInspectorOverlaysProps {
 }
 
 export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
-    const refreshProject = useTrackInspectorProjectRefresh();
-
     return (
         <>
             {logic.contextMenu && (
@@ -27,9 +25,9 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     onDuplicate={() => {
                         if (!logic.contextMenu?.trackId) return;
                         void engineApi
-                            .duplicateTracks([logic.contextMenu.trackId])
-                            .then(() => {
-                                refreshProject('duplicate-context');
+                            .duplicateTracksWithDeltas([logic.contextMenu.trackId])
+                            .then(async (response) => {
+                                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:duplicate-context');
                             })
                             .catch((err) => {
                                 console.error('[TrackInspector] duplicate track (context menu) failed:', err);

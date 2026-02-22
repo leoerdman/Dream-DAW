@@ -9,7 +9,6 @@ import { useTrackInspectorResize } from '@/widgets/TrackInspector/model/useTrack
 import { useTrackInspectorKeyboardShortcuts } from '@/widgets/TrackInspector/model/useTrackInspectorKeyboardShortcuts';
 import { useTrackInspectorDragDrop } from '@/widgets/TrackInspector/model/useTrackInspectorDragDrop';
 import { useTrackInspectorDerivedState } from '@/widgets/TrackInspector/model/useTrackInspectorDerivedState';
-import { useTrackInspectorProjectRefresh } from '@/widgets/TrackInspector/model/useTrackInspectorProjectRefresh';
 export interface UseTrackInspectorLogicProps {
     selectedTrackId: string;
     selectedTrackIds?: string[];
@@ -32,7 +31,6 @@ export function useTrackInspectorLogic({
     collapsedGroups: collapsedGroupsProp,
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: UseTrackInspectorLogicProps) {
-    const debouncedFetchProject = useTrackInspectorProjectRefresh();
     const {
         trackIds,
         tracksByIdState,
@@ -184,7 +182,6 @@ export function useTrackInspectorLogic({
         onSelectTrack,
         onSelectTracks,
         renameTrackAction,
-        onRefresh: debouncedFetchProject,
     });
 
     const {
@@ -203,7 +200,6 @@ export function useTrackInspectorLogic({
         tracks,
         visibleTracks,
         scrollRef,
-        debouncedFetchProject,
     });
 
     useEffect(() => {
@@ -225,7 +221,6 @@ export function useTrackInspectorLogic({
         handleGroupTrack,
         handleDeleteSelectedTracks,
         handleDuplicateSelectedTracks,
-        debouncedFetchProject,
     });
 
     return {

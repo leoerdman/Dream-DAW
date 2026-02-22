@@ -1802,6 +1802,7 @@ export const DawShell = () => {
                         sampleRate={projectSampleRate}
                         loopStartBeat={loopStartBeat}
                         loopEndBeat={loopEndBeat}
+                        marqueeSelection={marqueeSelection}
                     />
                 </Suspense>
             </ErrorBoundary>

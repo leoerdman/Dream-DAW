@@ -3164,10 +3164,19 @@ pub fn start_audio_thread_on_device(
                         //   1. The graph callback returns early for MASTER_OUTPUT_ID=0
                         //   2. master_track was separate from project.tracks
                         // Now that rebuild_external_fx_snapshot appends master FX
-                        // at index track_count, process them on graph_out_left/right
+                        // after active tracks, process them on graph_out_left/right
                         // BEFORE interleaving to the output buffer.
-                        let master_fx_idx = track_count; // master FX appended after all tracks
-                        if let Some(master_slots) = external_fx_map.get(master_fx_idx) {
+                        //
+                        // SSOT safety: prefer index `track_count` for the current
+                        // capped topology, but if the snapshot was built with an
+                        // older/uncapped shape (len > track_count + 1), fallback
+                        // to the last entry where master FX are appended.
+                        let master_slots_opt = if external_fx_map.len() > track_count + 1 {
+                            external_fx_map.last()
+                        } else {
+                            external_fx_map.get(track_count)
+                        };
+                        if let Some(master_slots) = master_slots_opt {
                             if !master_slots.is_empty() {
                                 for runtime_slot in master_slots.iter() {
                                     // Internal effects on master bus (EQ, compressor, etc.)

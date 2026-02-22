@@ -48,6 +48,7 @@ use dream_engine::driver::{
     SharedClipSnapshot, SharedExternalFxSnapshot, SharedPreparedGraphSnapshot,
     SharedRoutingSnapshot, SharedRtDebugStats, SharedSidechainSnapshot, TrackAutomationState,
 };
+use dream_engine::render_callback::MAX_TRACKS;
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
 use dream_io::audio_reader::AudioReader;
@@ -2072,6 +2073,17 @@ fn rebuild_runtime_device_chains_from_project(
         Ok(())
     }
 
+    fn selected_runtime_chain(
+        rack: &dream_models::project::DeviceRack,
+    ) -> Option<&dream_models::project::RackChain> {
+        let has_solo = rack.chains.iter().any(|c| c.is_solo);
+        if has_solo {
+            rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+        } else {
+            rack.chains.iter().find(|c| !c.is_mute)
+        }
+    }
+
     fn collect_runtime_internal_effects(
         nodes: &[DeviceNode],
         parent_bypassed: bool,
@@ -2087,15 +2099,9 @@ fn rebuild_runtime_device_chains_from_project(
                 DeviceNode::Rack(rack) => {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
                     // Runtime chain in dream_dsp is currently serial.
-                    // For rack nodes (parallel topology), choose the first audible chain
-                    // deterministically to avoid flattening parallel branches incorrectly.
-                    let has_solo = rack.chains.iter().any(|c| c.is_solo);
-                    let selected_chain = if has_solo {
-                        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
-                    } else {
-                        rack.chains.iter().find(|c| !c.is_mute)
-                    };
-                    if let Some(chain) = selected_chain {
+                    // For rack nodes (parallel topology), choose one audible chain
+                    // deterministically and use the same strategy everywhere.
+                    if let Some(chain) = selected_runtime_chain(rack) {
                         collect_runtime_internal_effects(&chain.devices, rack_bypassed, out);
                     }
                 }
@@ -2172,20 +2178,50 @@ fn rebuild_runtime_device_chains_from_project(
     {
         const MASTER_TRACK_INDEX: u16 = u16::MAX;
         let master = &project.master_track;
-        let master_internal_effects: Vec<(String, bool)> = master
-            .effects
-            .iter()
-            .filter_map(|node| node.as_single())
-            .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-            .map(|slot| (slot.plugin_id.clone(), slot.is_bypassed))
-            .collect();
 
-        for (slot_index, (plugin_id, bypassed)) in master_internal_effects
+        // Collect internal effects with their params for startup sync
+        struct MasterFxEntry {
+            plugin_id: String,
+            bypassed: bool,
+            params: Option<Vec<f32>>,
+        }
+        fn collect_master_internal_effects(
+            node: &DeviceNode,
+            parent_bypassed: bool,
+            out: &mut Vec<MasterFxEntry>,
+        ) {
+            match node {
+                DeviceNode::Single(slot) => {
+                    if slot.plugin_id.starts_with("internal://effect/") {
+                        out.push(MasterFxEntry {
+                            plugin_id: slot.plugin_id.clone(),
+                            bypassed: parent_bypassed || slot.is_bypassed,
+                            params: slot.params.clone(),
+                        });
+                    }
+                }
+                DeviceNode::Rack(rack) => {
+                    let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                    if let Some(chain) = selected_runtime_chain(rack) {
+                        for child in &chain.devices {
+                            collect_master_internal_effects(child, rack_bypassed, out);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut master_internal_effects: Vec<MasterFxEntry> = Vec::new();
+        for node in &master.effects {
+            collect_master_internal_effects(node, false, &mut master_internal_effects);
+        }
+
+        for (slot_index, entry) in master_internal_effects
             .into_iter()
             .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
-            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&plugin_id) {
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&entry.plugin_id) {
                 push_command(
                     handle,
                     EngineCommand::AddDevice {
@@ -2194,7 +2230,7 @@ fn rebuild_runtime_device_chains_from_project(
                         effect_type,
                     },
                 )?;
-                if bypassed {
+                if entry.bypassed {
                     push_command(
                         handle,
                         EngineCommand::BypassDevice {
@@ -2204,9 +2240,25 @@ fn rebuild_runtime_device_chains_from_project(
                         },
                     )?;
                 }
-                // NOTE: apply_static_imported_params_for_slot not called for master
-                // because it takes a Track reference. Master params are handled
-                // through automation or direct SetDeviceParam commands.
+                // BUG-R4 FIX: Sync stored params to engine at startup.
+                // Without this, master EQ always starts with flat/default
+                // settings regardless of what the user configured.
+                if let Some(ref params) = entry.params {
+                    for (param_idx, &value) in params.iter().enumerate() {
+                        if value != 0.0 || param_idx < 33 {
+                            // Always sync EQ bands (0..32) + output gain (32)
+                            push_command(
+                                handle,
+                                EngineCommand::SetDeviceParam {
+                                    track_index: MASTER_TRACK_INDEX,
+                                    slot_index: slot_index.min(u8::MAX as usize) as u8,
+                                    param_index: param_idx.min(u8::MAX as usize) as u8,
+                                    value,
+                                },
+                            )?;
+                        }
+                    }
+                }
             }
         }
     }
@@ -2344,6 +2396,53 @@ impl ClipPoolState {
         }
     }
 
+    fn selected_runtime_chain(
+        rack: &dream_models::project::DeviceRack,
+    ) -> Option<&dream_models::project::RackChain> {
+        let has_solo = rack.chains.iter().any(|c| c.is_solo);
+        if has_solo {
+            rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+        } else {
+            rack.chains.iter().find(|c| !c.is_mute)
+        }
+    }
+
+    fn collect_sidechain_sources_from_node(
+        node: &DeviceNode,
+        project: &Project,
+        parent_bypassed: bool,
+        out: &mut Vec<Option<usize>>,
+    ) {
+        match node {
+            DeviceNode::Single(slot) => {
+                if parent_bypassed || slot.is_bypassed {
+                    return;
+                }
+                if let Some(source_id) = &slot.sidechain_source_track_id {
+                    let idx = project
+                        .tracks
+                        .iter()
+                        .take(MAX_TRACKS)
+                        .position(|t| t.id.to_string() == *source_id);
+                    out.push(idx);
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                if let Some(chain) = Self::selected_runtime_chain(rack) {
+                    for child in &chain.devices {
+                        Self::collect_sidechain_sources_from_node(
+                            child,
+                            project,
+                            rack_bypassed,
+                            out,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Rebuilds the clip snapshot from the current project state.
     ///
     /// Called after any project mutation (import, delete, etc.).
@@ -2383,20 +2482,12 @@ impl ClipPoolState {
                 // Instrument (if external) + all effects.
                 let mut sources = Vec::new();
 
-                if let Some(inst) = track.instrument.as_ref().and_then(|i| i.as_single()) {
-                    if let Some(source_id) = &inst.sidechain_source_track_id {
-                        let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
-                        sources.push(idx);
-                    }
+                if let Some(inst) = track.instrument.as_ref() {
+                    Self::collect_sidechain_sources_from_node(inst, project, false, &mut sources);
                 }
 
                 for node in &track.effects {
-                    if let Some(slot) = node.as_single() {
-                        if let Some(source_id) = &slot.sidechain_source_track_id {
-                            let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
-                            sources.push(idx);
-                        }
-                    }
+                    Self::collect_sidechain_sources_from_node(node, project, false, &mut sources);
                 }
                 sources
             })
@@ -2457,19 +2548,11 @@ impl ClipPoolState {
             .iter()
             .map(|track| {
                 let mut sources = Vec::new();
-                if let Some(inst) = track.instrument.as_ref().and_then(|i| i.as_single()) {
-                    if let Some(source_id) = &inst.sidechain_source_track_id {
-                        let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
-                        sources.push(idx);
-                    }
+                if let Some(inst) = track.instrument.as_ref() {
+                    Self::collect_sidechain_sources_from_node(inst, project, false, &mut sources);
                 }
                 for node in &track.effects {
-                    if let Some(slot) = node.as_single() {
-                        if let Some(source_id) = &slot.sidechain_source_track_id {
-                            let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
-                            sources.push(idx);
-                        }
-                    }
+                    Self::collect_sidechain_sources_from_node(node, project, false, &mut sources);
                 }
                 sources
             })
@@ -2505,74 +2588,95 @@ impl ClipPoolState {
         project: &Project,
         slot_instance_map: &HashMap<Uuid, Uuid>,
     ) {
+        fn resolve_sidechain_track_index(slot: &PluginSlot, project: &Project) -> Option<usize> {
+            slot.sidechain_source_track_id.as_ref().and_then(|source_id| {
+                project
+                    .tracks
+                    .iter()
+                    .take(MAX_TRACKS)
+                    .position(|candidate| candidate.id.to_string() == *source_id)
+            })
+        }
+
+        fn collect_effect_runtime_slots(
+            node: &DeviceNode,
+            project: &Project,
+            slot_instance_map: &HashMap<Uuid, Uuid>,
+            internal_slot_index: &mut usize,
+            parent_bypassed: bool,
+            out: &mut Vec<dream_engine::driver::ExternalFxRuntimeSlot>,
+        ) {
+            match node {
+                DeviceNode::Single(slot) => {
+                    let effective_bypassed = parent_bypassed || slot.is_bypassed;
+                    let sidechain_track_index = resolve_sidechain_track_index(slot, project);
+                    if slot.plugin_id.starts_with("internal://effect/") {
+                        let idx = *internal_slot_index;
+                        *internal_slot_index = internal_slot_index.saturating_add(1);
+                        out.push(dream_engine::driver::ExternalFxRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: Some(idx),
+                            instance_id: None,
+                            sidechain_track_index,
+                        });
+                    } else if !effective_bypassed
+                        && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
+                    {
+                        out.push(dream_engine::driver::ExternalFxRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: None,
+                            instance_id: Some(instance_id),
+                            sidechain_track_index,
+                        });
+                    }
+                }
+                DeviceNode::Rack(rack) => {
+                    let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                    if let Some(chain) = ClipPoolState::selected_runtime_chain(rack) {
+                        for child in &chain.devices {
+                            collect_effect_runtime_slots(
+                                child,
+                                project,
+                                slot_instance_map,
+                                internal_slot_index,
+                                rack_bypassed,
+                                out,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let mut external_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = project
             .tracks
             .iter()
+            .take(MAX_TRACKS)
             .map(|track| {
                 let mut internal_slot_index: usize = 0;
 
-                // ── Include the instrument plugin (if external) first ──
-                // Without this, external instrument plugins (e.g. Serum2) never
-                // appear in the external_fx_map and thus never receive process()
-                // calls in the audio callback — causing "DAW suspended processing"
-                // and no MIDI input.
-                let instrument_slot = track.instrument.as_ref()
-                    .and_then(|inst| inst.as_single())
-                    .and_then(|slot| {
-                        if slot.plugin_id.starts_with("internal://") {
-                            None  // Internal instruments handled separately
-                        } else {
-                            if slot.is_bypassed {
-                                return None;
-                            }
-                            let instance_id = slot_instance_map.get(&slot.id).copied()?;
-                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                                slot_id: Some(slot.id),
-                                internal_slot_index: None,
-                                instance_id: Some(instance_id),
-                                sidechain_track_index: None,
-                            })
-                        }
-                    });
-
-                let effects_iter = track
-                    .effects
-                    .iter()
-                    .filter_map(|node| node.as_single())
-                    .filter_map(|slot| {
-                        let sidechain_track_index =
-                            slot.sidechain_source_track_id
-                                .as_ref()
-                                .and_then(|source_id| {
-                                    project.tracks.iter().position(|candidate| {
-                                        candidate.id.to_string() == *source_id
-                                    })
-                                });
-
-                        if slot.plugin_id.starts_with("internal://effect/") {
-                            let idx = internal_slot_index;
-                            internal_slot_index = internal_slot_index.saturating_add(1);
-                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                                slot_id: Some(slot.id),
-                                internal_slot_index: Some(idx),
-                                instance_id: None,
-                                sidechain_track_index,
-                            })
-                        } else {
-                            if slot.is_bypassed {
-                                return None;
-                            }
-                            let instance_id = slot_instance_map.get(&slot.id).copied()?;
-                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                                slot_id: Some(slot.id),
-                                internal_slot_index: None,
-                                instance_id: Some(instance_id),
-                                sidechain_track_index,
-                            })
-                        }
-                    });
-
-                instrument_slot.into_iter().chain(effects_iter).collect()
+                let mut slots: Vec<dream_engine::driver::ExternalFxRuntimeSlot> = Vec::new();
+                if let Some(inst) = track.instrument.as_ref() {
+                    collect_effect_runtime_slots(
+                        inst,
+                        project,
+                        slot_instance_map,
+                        &mut internal_slot_index,
+                        false,
+                        &mut slots,
+                    );
+                }
+                for node in &track.effects {
+                    collect_effect_runtime_slots(
+                        node,
+                        project,
+                        slot_instance_map,
+                        &mut internal_slot_index,
+                        false,
+                        &mut slots,
+                    );
+                }
+                slots
             })
             .collect();
 
@@ -2582,58 +2686,33 @@ impl ClipPoolState {
         // never included in the external FX map — meaning they NEVER
         // received process() calls in the audio callback.
         // Appending master FX as the LAST entry makes them available
-        // at index `project.tracks.len()` for the post-graph master
-        // FX processing pass in driver.rs.
+        // at index `min(project.tracks.len(), MAX_TRACKS)` for the
+        // post-graph master FX processing pass in driver.rs.
         {
             let master = &project.master_track;
             let mut master_internal_idx: usize = 0;
 
-            let master_instrument = master.instrument.as_ref()
-                .and_then(|inst| inst.as_single())
-                .and_then(|slot| {
-                    if slot.plugin_id.starts_with("internal://") || slot.is_bypassed {
-                        None
-                    } else {
-                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
-                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                            slot_id: Some(slot.id),
-                            internal_slot_index: None,
-                            instance_id: Some(instance_id),
-                            sidechain_track_index: None,
-                        })
-                    }
-                });
-
-            let master_effects_iter = master.effects
-                .iter()
-                .filter_map(|node| node.as_single())
-                .filter_map(|slot| {
-                    if slot.plugin_id.starts_with("internal://effect/") {
-                        let idx = master_internal_idx;
-                        master_internal_idx = master_internal_idx.saturating_add(1);
-                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                            slot_id: Some(slot.id),
-                            internal_slot_index: Some(idx),
-                            instance_id: None,
-                            sidechain_track_index: None,
-                        })
-                    } else {
-                        if slot.is_bypassed {
-                            return None;
-                        }
-                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
-                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                            slot_id: Some(slot.id),
-                            internal_slot_index: None,
-                            instance_id: Some(instance_id),
-                            sidechain_track_index: None,
-                        })
-                    }
-                });
-
-            let master_fx_chain: Vec<_> = master_instrument.into_iter()
-                .chain(master_effects_iter)
-                .collect();
+            let mut master_fx_chain: Vec<dream_engine::driver::ExternalFxRuntimeSlot> = Vec::new();
+            if let Some(inst) = master.instrument.as_ref() {
+                collect_effect_runtime_slots(
+                    inst,
+                    project,
+                    slot_instance_map,
+                    &mut master_internal_idx,
+                    false,
+                    &mut master_fx_chain,
+                );
+            }
+            for node in &master.effects {
+                collect_effect_runtime_slots(
+                    node,
+                    project,
+                    slot_instance_map,
+                    &mut master_internal_idx,
+                    false,
+                    &mut master_fx_chain,
+                );
+            }
             external_fx.push(master_fx_chain);
         }
 
@@ -4635,6 +4714,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dream_models::project::{DeviceNode, DeviceRack, PluginSlot, RackChain, RackType, Track, TrackType};
+    use std::collections::HashMap;
+    use uuid::Uuid;
 
     #[test]
     fn project_history_keeps_recent_events_with_monotonic_seq() {
@@ -4693,5 +4775,123 @@ mod tests {
         assert!(event.detail.contains("undo snapshot"));
         // Caller file path is only included when debug logging is enabled.
         // In test mode without RUST_LOG=debug, we just verify the snapshot was recorded.
+    }
+
+    #[test]
+    fn external_fx_snapshot_includes_selected_rack_chain_and_master_chain() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let mut track = Track::with_type("Audio 1", TrackType::Audio, 0);
+
+        let muted_ext = PluginSlot::new("MutedExt", "vst3://ignored");
+        let mut muted_chain = RackChain::new("Muted");
+        muted_chain.is_mute = true;
+        muted_chain.devices.push(DeviceNode::single(muted_ext));
+
+        let ext_inst = PluginSlot::new("ExtInst", "vst3://instrument");
+        let ext_inst_slot_id = ext_inst.id;
+        let mut active_chain = RackChain::new("Active");
+        active_chain.devices.push(DeviceNode::single(ext_inst));
+
+        let mut instrument_rack = DeviceRack::new("InstRack", RackType::Instrument);
+        instrument_rack.chains.push(muted_chain);
+        instrument_rack.chains.push(active_chain);
+        track.instrument = Some(DeviceNode::rack(instrument_rack));
+
+        let internal_eq = PluginSlot::new("EQ8", "internal://effect/eq_eight");
+        let external_fx = PluginSlot::new("OTT", "vst3://ott");
+        let external_fx_slot_id = external_fx.id;
+
+        let mut fx_chain = RackChain::new("Main");
+        fx_chain.devices.push(DeviceNode::single(internal_eq));
+        fx_chain.devices.push(DeviceNode::single(external_fx));
+        let mut fx_rack = DeviceRack::new("FxRack", RackType::AudioEffect);
+        fx_rack.chains.push(fx_chain);
+        track.effects.push(DeviceNode::rack(fx_rack));
+        project.add_track(track);
+
+        let master_internal = PluginSlot::new("MasterEQ", "internal://effect/eq_eight");
+        let master_external = PluginSlot::new("MasterLim", "vst3://limiter");
+        let master_external_slot_id = master_external.id;
+        let mut master_chain = RackChain::new("MasterMain");
+        master_chain.devices.push(DeviceNode::single(master_internal));
+        master_chain.devices.push(DeviceNode::single(master_external));
+        let mut master_rack = DeviceRack::new("MasterRack", RackType::AudioEffect);
+        master_rack.chains.push(master_chain);
+        project.master_track.effects.push(DeviceNode::rack(master_rack));
+
+        let mut slot_instance_map = HashMap::<Uuid, Uuid>::new();
+        slot_instance_map.insert(ext_inst_slot_id, Uuid::new_v4());
+        slot_instance_map.insert(external_fx_slot_id, Uuid::new_v4());
+        slot_instance_map.insert(master_external_slot_id, Uuid::new_v4());
+
+        let state = ClipPoolState::new();
+        state.rebuild_external_fx_snapshot(&project, &slot_instance_map);
+        let snapshot = state.external_fx_snapshot.load();
+
+        assert_eq!(snapshot.len(), 2, "expected 1 track + master snapshot");
+
+        let track_slots = &snapshot[0];
+        assert_eq!(
+            track_slots.len(),
+            3,
+            "expected external instrument + internal effect + external effect"
+        );
+        assert!(track_slots[0].instance_id.is_some());
+        assert_eq!(track_slots[0].internal_slot_index, None);
+        assert_eq!(track_slots[1].internal_slot_index, Some(0));
+        assert!(track_slots[2].instance_id.is_some());
+
+        let master_slots = &snapshot[1];
+        assert_eq!(master_slots.len(), 2, "expected internal + external master FX");
+        assert_eq!(master_slots[0].internal_slot_index, Some(0));
+        assert!(master_slots[1].instance_id.is_some());
+    }
+
+    #[test]
+    fn sidechain_snapshot_ignores_muted_or_bypassed_rack_paths() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let source = Track::with_type("Source", TrackType::Audio, 0);
+        let source_id = source.id.to_string();
+        let source_track_index = project.tracks.len();
+        project.add_track(source);
+
+        let mut target = Track::with_type("Target", TrackType::Audio, 1);
+
+        let mut muted_slot = PluginSlot::new("MutedSC", "vst3://sc-muted");
+        muted_slot.sidechain_source_track_id = Some(source_id.clone());
+        let mut muted_chain = RackChain::new("Muted");
+        muted_chain.is_mute = true;
+        muted_chain.devices.push(DeviceNode::single(muted_slot));
+
+        let mut bypassed_slot = PluginSlot::new("BypassedSC", "vst3://sc-bypassed");
+        bypassed_slot.is_bypassed = true;
+        bypassed_slot.sidechain_source_track_id = Some(source_id.clone());
+        let mut active_chain = RackChain::new("Active");
+        active_chain.devices.push(DeviceNode::single(bypassed_slot));
+
+        let mut rack = DeviceRack::new("SidechainRack", RackType::AudioEffect);
+        rack.chains.push(muted_chain);
+        rack.chains.push(active_chain);
+        target.effects.push(DeviceNode::rack(rack));
+        let target_track_index = project.tracks.len();
+        project.add_track(target);
+
+        let state = ClipPoolState::new();
+        state.rebuild_snapshot(&project);
+        let sidechains = state.sidechain_snapshot.load();
+
+        assert_eq!(sidechains.len(), 2);
+        assert!(
+            sidechains[target_track_index].is_empty(),
+            "muted/bypassed rack branches must not contribute sidechain deps"
+        );
+        assert!(
+            sidechains[source_track_index].is_empty(),
+            "source track should have no sidechain dependencies"
+        );
     }
 }

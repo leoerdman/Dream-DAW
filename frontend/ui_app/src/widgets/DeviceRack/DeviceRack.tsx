@@ -1111,10 +1111,16 @@ export const DeviceRack = ({
                 return;
             }
 
-            const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
+            // BUG-R1 FIX: Master track is NOT in projectTracks — findIndex returns -1,
+            // causing ALL master EQ param updates to be silently dropped.
+            // Use MASTER_TRACK_INDEX (65535) sentinel matching driver.rs MASTER_TRACK_INDEX.
+            const MASTER_TRACK_INDEX = 65535;
+            const trackIdx = isMaster
+                ? MASTER_TRACK_INDEX
+                : projectTracks.findIndex((t) => t.id === selectedTrack.id);
             const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             const pushPluginParam = (paramIndex: number, paramValue: number) => {
-                if (trackIdx < 0 || effectSlotIdx < 0) return;
+                if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return;
                 void engineApi.setDeviceParam(trackIdx, effectSlotIdx, paramIndex, paramValue).catch((err) => {
                     console.error('[DeviceRack] setDeviceParam failed:', err);
                 });

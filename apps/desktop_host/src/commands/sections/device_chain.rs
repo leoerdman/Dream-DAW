@@ -1,5 +1,50 @@
 // ═══════════════════════════════════════════════════════════════════════
 
+use dream_models::project::Project;
+
+/// Converts a raw effects-array slot index to the internal-only device_chain
+/// slot index.
+///
+/// The frontend sends `slot_index` as the position in `track.effects[]` which
+/// includes BOTH internal effects (EQ, compressor) AND external VST3 plugins.
+/// But the engine's `DeviceChain` only contains internal effects, indexed 0, 1, 2...
+/// This function counts how many internal (`internal://effect/...`) effects
+/// appear before (and including) the given position to produce the correct
+/// device_chain slot index.
+///
+/// Returns `None` if the slot at `raw_index` is not an internal effect.
+fn raw_slot_to_internal_device_index(project: &Project, track_index: u16, raw_slot_index: u8) -> Option<u8> {
+    let track = project.tracks.get(track_index as usize)?;
+    let raw = raw_slot_index as usize;
+    // Verify the target slot IS an internal effect
+    let target_slot = track.effects.get(raw).and_then(|node| node.as_single())?;
+    if !target_slot.plugin_id.starts_with("internal://effect/") {
+        return None; // Not an internal effect — device_chain doesn't manage it
+    }
+    // Count internal effects that appear BEFORE this position
+    let internal_idx = track.effects[..raw]
+        .iter()
+        .filter_map(|node| node.as_single())
+        .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+        .count();
+    Some(internal_idx as u8)
+}
+
+/// Same conversion but for the master track.
+fn raw_slot_to_internal_device_index_master(project: &Project, raw_slot_index: u8) -> Option<u8> {
+    let raw = raw_slot_index as usize;
+    let target_slot = project.master_track.effects.get(raw).and_then(|node| node.as_single())?;
+    if !target_slot.plugin_id.starts_with("internal://effect/") {
+        return None;
+    }
+    let internal_idx = project.master_track.effects[..raw]
+        .iter()
+        .filter_map(|node| node.as_single())
+        .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+        .count();
+    Some(internal_idx as u8)
+}
+
 /// Adds a built-in DSP device to a track's insert chain.
 #[tauri::command]
 fn add_device_cmd(
@@ -40,10 +85,9 @@ fn remove_device_cmd(
 
 /// Bypasses or enables a device in a track's insert chain.
 ///
-/// BUG-027 FIX: Previously only sent an engine command without updating the
-/// project model's `is_bypassed` field. Bypass state was lost on save/load/undo,
-/// and `rebuild_external_fx_snapshot` still saw the slot as active.
-/// Now mirrors `set_slot_bypass_cmd` by persisting bypass to the project model.
+/// BUG-027 FIX: Persists bypass to project model.
+/// BUG-ROUTING FIX: Converts raw slot_index to internal-only device_chain index.
+/// BUG-R3 FIX: Handles master track (MASTER_TRACK_INDEX=65535) via project.master_track.
 #[tauri::command]
 fn bypass_device_cmd(
     track_index: u16,
@@ -53,40 +97,71 @@ fn bypass_device_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    // BUG-027 FIX: Update project model SSOT so bypass survives save/load/undo.
-    {
+    const MASTER_TRACK_INDEX: u16 = u16::MAX;
+
+    let engine_slot_index = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        if let Some(track) = project.tracks.get_mut(track_index as usize) {
-            let slot = if slot_index == 255 {
-                track.instrument.as_mut().and_then(|node| node.as_single_mut())
-            } else {
-                track.effects.get_mut(slot_index as usize).and_then(|node| node.as_single_mut())
-            };
-            if let Some(slot) = slot {
-                slot.is_bypassed = bypassed;
+
+        // Persist bypass to project model (SSOT)
+        let effects = if track_index == MASTER_TRACK_INDEX {
+            &mut project.master_track.effects
+        } else if let Some(track) = project.tracks.get_mut(track_index as usize) {
+            if slot_index == 255 {
+                // Instrument slot
+                if let Some(slot) = track.instrument.as_mut().and_then(|n| n.as_single_mut()) {
+                    slot.is_bypassed = bypassed;
+                }
+                let pn = project.name.clone();
+                drop(project);
+                let _ = project_state.mark_dirty(&pn, Some(&app));
+                // Instrument bypass uses sentinel 255 directly
+                return push_command(&handle, EngineCommand::BypassDevice {
+                    track_index, slot_index: 255, bypassed,
+                });
             }
+            &mut track.effects
+        } else {
+            return Err(format!("Track index out of range: {}", track_index));
+        };
+
+        if let Some(slot) = effects.get_mut(slot_index as usize).and_then(|n| n.as_single_mut()) {
+            slot.is_bypassed = bypassed;
         }
+
+        // Convert raw effects-array index to internal-only device_chain slot index
+        let internal_idx = if track_index == MASTER_TRACK_INDEX {
+            raw_slot_to_internal_device_index_master(&project, slot_index)
+        } else {
+            raw_slot_to_internal_device_index(&project, track_index, slot_index)
+        };
+
         let project_name = project.name.clone();
         drop(project);
         let _ = project_state.mark_dirty(&project_name, Some(&app));
-    }
+        internal_idx
+    };
 
-    push_command(
-        &handle,
-        EngineCommand::BypassDevice {
-            track_index,
-            slot_index,
-            bypassed,
-        },
-    )?;
-    log::debug!("[IPC] bypass_device(track={track_index}, slot={slot_index}, bypassed={bypassed})");
+    if let Some(resolved_slot) = engine_slot_index {
+        push_command(
+            &handle,
+            EngineCommand::BypassDevice {
+                track_index,
+                slot_index: resolved_slot,
+                bypassed,
+            },
+        )?;
+        log::debug!("[IPC] bypass_device(track={track_index}, raw_slot={slot_index}, engine_slot={resolved_slot}, bypassed={bypassed})");
+    } else {
+        log::debug!("[IPC] bypass_device(track={track_index}, slot={slot_index}) — skipped (not an internal effect)");
+    }
     Ok(())
 }
 
 /// Sets a parameter on a device in a track's insert chain.
 ///
-/// BUG-070 FIX: Internal DSP effect parameters are now stored at the engine
-/// runtime level AND persisted to the PluginSlot model.
+/// BUG-070 FIX: Persists params to project model.
+/// BUG-ROUTING FIX: Converts raw slot_index to internal-only device_chain index.
+/// BUG-R2 FIX: Handles master track (MASTER_TRACK_INDEX=65535) via project.master_track.
 #[tauri::command]
 fn set_device_param_cmd(
     track_index: u16,
@@ -97,50 +172,82 @@ fn set_device_param_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let project_name = {
+    const MASTER_TRACK_INDEX: u16 = u16::MAX;
+
+    let (project_name, engine_slot_index) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        
-        // Ensure track exists
-        let track = project.tracks.get_mut(track_index as usize)
-            .ok_or_else(|| format!("Track index out of range: {}", track_index))?;
-            
-        // Find the slot
-        let slot = if slot_index == 255 {
-            track.instrument.as_mut().and_then(|node| node.as_single_mut())
-        } else {
-            track.effects.get_mut(slot_index as usize).and_then(|node| node.as_single_mut())
-        };
-        
-        if let Some(slot) = slot {
-            if slot.params.is_none() {
-                slot.params = Some(vec![0.0; 32]);
-            }
-            if let Some(params) = &mut slot.params {
-                let p_idx = param_index as usize;
-                if p_idx < params.len() {
-                    params[p_idx] = value;
-                } else if p_idx < 128 { // Sanity threshold
-                    params.resize(p_idx + 1, 0.0);
-                    params[p_idx] = value;
+
+        // Resolve the effects list: master_track or regular track
+        let effects = if track_index == MASTER_TRACK_INDEX {
+            &mut project.master_track.effects
+        } else if let Some(track) = project.tracks.get_mut(track_index as usize) {
+            if slot_index == 255 {
+                // Instrument slot — persist and send directly
+                if let Some(slot) = track.instrument.as_mut().and_then(|n| n.as_single_mut()) {
+                    persist_param_to_slot(slot, param_index, value);
                 }
+                let pn = project.name.clone();
+                drop(project);
+                project_state.mark_dirty(&pn, Some(&app))?;
+                push_command(&handle, EngineCommand::SetDeviceParam {
+                    track_index, slot_index: 255, param_index, value,
+                })?;
+                log::debug!("[IPC] set_device_param(track={track_index}, instrument, param={param_index}, val={value})");
+                return Ok(());
             }
+            &mut track.effects
+        } else {
+            return Err(format!("Track index out of range: {}", track_index));
+        };
+
+        // Persist param to project model (SSOT)
+        if let Some(slot) = effects.get_mut(slot_index as usize).and_then(|n| n.as_single_mut()) {
+            persist_param_to_slot(slot, param_index, value);
         }
-        project.name.clone()
+
+        // Convert raw effects-array index to internal-only device_chain slot index
+        let internal_idx = if track_index == MASTER_TRACK_INDEX {
+            raw_slot_to_internal_device_index_master(&project, slot_index)
+        } else {
+            raw_slot_to_internal_device_index(&project, track_index, slot_index)
+        };
+
+        (project.name.clone(), internal_idx)
     };
 
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    push_command(
-        &handle,
-        EngineCommand::SetDeviceParam {
-            track_index,
-            slot_index,
-            param_index,
-            value,
-        },
-    )?;
-    log::debug!("[IPC] set_device_param(track={track_index}, slot={slot_index}, param={param_index}, val={value})");
+    if let Some(resolved_slot) = engine_slot_index {
+        push_command(
+            &handle,
+            EngineCommand::SetDeviceParam {
+                track_index,
+                slot_index: resolved_slot,
+                param_index,
+                value,
+            },
+        )?;
+        log::debug!("[IPC] set_device_param(track={track_index}, raw_slot={slot_index}, engine_slot={resolved_slot}, param={param_index}, val={value})");
+    } else {
+        log::debug!("[IPC] set_device_param(track={track_index}, slot={slot_index}) — skipped (not an internal effect)");
+    }
     Ok(())
+}
+
+/// Persists a param value into a PluginSlot's params vec, auto-resizing as needed.
+fn persist_param_to_slot(slot: &mut dream_models::project::PluginSlot, param_index: u8, value: f32) {
+    if slot.params.is_none() {
+        slot.params = Some(vec![0.0; 32]);
+    }
+    if let Some(params) = &mut slot.params {
+        let p_idx = param_index as usize;
+        if p_idx < params.len() {
+            params[p_idx] = value;
+        } else if p_idx < 128 {
+            params.resize(p_idx + 1, 0.0);
+            params[p_idx] = value;
+        }
+    }
 }
 
 /// Batch update a track's state (volume, pan, mute, solo).

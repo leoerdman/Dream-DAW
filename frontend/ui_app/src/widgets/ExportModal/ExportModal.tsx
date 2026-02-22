@@ -23,6 +23,13 @@ type SampleRate = 44100 | 48000 | 96000;
 type BitDepth = 16 | 24 | 32;
 type ExportRange = 'full' | 'loop' | 'selected';
 
+interface MarqueeSelection {
+    startBeat: number;
+    endBeat: number;
+    startTrack: number;
+    endTrack: number;
+}
+
 interface ExportModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -39,6 +46,8 @@ interface ExportModalProps {
     loopStartBeat?: number;
     /** Loop end in beats. */
     loopEndBeat?: number;
+    /** Marquee (box) selection on the timeline. */
+    marqueeSelection?: MarqueeSelection | null;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────
@@ -142,6 +151,7 @@ export const ExportModal = ({
     sampleRate: projectSampleRate = 48000,
     loopStartBeat = 0,
     loopEndBeat = 0,
+    marqueeSelection = null,
 }: ExportModalProps) => {
     // ── Settings State (restored from saved preferences) ─────────────
     // BUG-A1 FIX: Parse localStorage once instead of 5 separate times.
@@ -185,11 +195,26 @@ export const ExportModal = ({
     }, [isOpen, isSubmitting, onClose]);
 
     // ── Whether "Selected" range is available ────────────────────────
-    const hasSelection = selectedClipIds.length > 0;
+    // Marquee selection (box drag on timeline) takes priority over clip selection.
+    const hasMarquee = Boolean(
+        marqueeSelection
+        && Math.abs(marqueeSelection.endBeat - marqueeSelection.startBeat) > 1e-6
+    );
+    const hasClipSelection = selectedClipIds.length > 0;
+    const hasSelection = hasMarquee || hasClipSelection;
 
-    // ── Selected clips range (beats) ─────────────────────────────────
+    // ── Selected range (beats) — from marquee or clips ───────────────
     const selectedRange = useMemo(() => {
-        if (!hasSelection || allClips.length === 0) return null;
+        // Marquee selection takes priority
+        if (hasMarquee && marqueeSelection) {
+            return {
+                startBeat: Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat),
+                endBeat: Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat),
+            };
+        }
+
+        // Fall back to clip selection
+        if (!hasClipSelection || allClips.length === 0) return null;
         const selectedSet = new Set(selectedClipIds);
         const selected = allClips.filter(c => selectedSet.has(c.id));
         if (selected.length === 0) return null;
@@ -201,7 +226,7 @@ export const ExportModal = ({
             maxBeat = Math.max(maxBeat, c.startBeat + c.durationBeats);
         }
         return { startBeat: minBeat, endBeat: maxBeat };
-    }, [hasSelection, allClips, selectedClipIds]);
+    }, [hasMarquee, marqueeSelection, hasClipSelection, allClips, selectedClipIds]);
 
     // ── Compute full project extent (beats) ──────────────────────────
     const projectExtent = useMemo(() => {
@@ -245,12 +270,14 @@ export const ExportModal = ({
         };
     }, [exportRange, selectedRange, loopStartBeat, loopEndBeat, projectExtent, bpm]);
 
-    // ── Auto-switch away from "selected" if no selection ─────────────
+    // ── Auto-select "Selection" range when marquee is active ──────────
     useEffect(() => {
-        if (exportRange === 'selected' && !hasSelection) {
+        if (hasMarquee && exportRange !== 'selected') {
+            setExportRange('selected');
+        } else if (exportRange === 'selected' && !hasSelection) {
             setExportRange('full');
         }
-    }, [exportRange, hasSelection]);
+    }, [exportRange, hasSelection, hasMarquee]);
 
     // ── Bounce Handler ───────────────────────────────────────────────
     const handleBounce = useCallback(async () => {

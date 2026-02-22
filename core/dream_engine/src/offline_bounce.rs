@@ -31,20 +31,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::info;
 
-use dream_clip_engine::midi_scheduler::MidiScheduler;
+use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_io::mp3_writer::Mp3Writer;
 use dream_ipc::metering::MeterBank;
+use dream_models::midi::MidiClip;
 use dream_models::project::{AudioClip, Project, builtin_effect_type_from_plugin_id};
 use dream_models::time::AbsoluteTime;
-use dream_plugins::TransportContext;
 use dream_plugins::vst3_host::PluginInstanceArc;
+use dream_plugins::{MidiEvent, TransportContext};
 
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
 use crate::driver::ExternalFxRuntimeSlot;
+use crate::driver::midi_dispatcher::{clamp_midi_pitch, quantize_to_scale};
 use crate::render_callback::{RenderContext, soft_clip};
 use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine, Waveform};
 
@@ -67,6 +69,8 @@ struct FxChainProcessCtx<'a> {
     playhead_pos: i64,
     left_slots: &'a [crate::render_callback::TrackSlot],
     right_slots: &'a [crate::render_callback::TrackSlot],
+    /// MIDI events for the current track's VST instrument processing.
+    midi_events: &'a [MidiEvent],
 }
 
 struct RenderRoutingCtx<'a> {
@@ -81,6 +85,10 @@ struct RenderRoutingCtx<'a> {
     time_sig_numerator: u8,
     time_sig_denominator: u8,
     master_device_chain: &'a mut DeviceChain,
+    /// MIDI clips per track for VST instrument rendering.
+    midi_clips_per_track: &'a [Vec<MidiClip>],
+    /// Loop region for MIDI scheduling (if loop enabled).
+    loop_region: Option<ClipLoopRegion>,
 }
 
 // ── Bounce Configuration ────────────────────────────────────────────────
@@ -476,7 +484,13 @@ impl OfflineBouncer {
                                 [&slot.buf_left[..c], &slot.buf_right[..c]];
                             let mut out_slices: [&mut [f32]; 2] =
                                 [&mut out_left[..c], &mut out_right[..c]];
-                            let empty_midi: Vec<dream_plugins::MidiEvent> = Vec::new();
+                            let midi_to_send: &[MidiEvent] = ctx.midi_events;
+                            let empty_midi: Vec<MidiEvent> = Vec::new();
+                            let use_midi = if !midi_to_send.is_empty() {
+                                midi_to_send
+                            } else {
+                                &empty_midi
+                            };
                             let sc_pair =
                                 source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
                             let _ = host.process_with_sidechain(
@@ -484,7 +498,7 @@ impl OfflineBouncer {
                                 sc_pair.as_ref().map(|pair| pair.as_slice()),
                                 &mut out_slices,
                                 c,
-                                &empty_midi,
+                                use_midi,
                             );
                             slot.buf_left[..c].copy_from_slice(&out_left[..c]);
                             slot.buf_right[..c].copy_from_slice(&out_right[..c]);
@@ -568,7 +582,70 @@ impl OfflineBouncer {
 
             let is_group = ctx.post_sum_mask.get(track_idx).copied().unwrap_or(false);
 
+            // ── VST INSTRUMENT FIX ─────────────────────────────────────
+            // Check if this track has a VST instrument (external plugin in
+            // the FX map that is NOT a native internal effect). If so,
+            // schedule MIDI events and mark the track as active so VST
+            // instruments produce audio during export.
+            let has_vst_instrument = ctx
+                .external_fx_map
+                .get(track_idx)
+                .map(|slots| {
+                    slots
+                        .iter()
+                        .any(|s| s.instance_id.is_some() && s.internal_slot_index.is_none())
+                })
+                .unwrap_or(false);
+            let has_midi = ctx
+                .midi_clips_per_track
+                .get(track_idx)
+                .map(|clips| !clips.is_empty())
+                .unwrap_or(false);
+
+            // Schedule MIDI events for VST instrument tracks
+            let mut track_midi_events: Vec<MidiEvent> = Vec::new();
+            if has_vst_instrument && has_midi {
+                // Activate the slot so it's not skipped
+                slot.active = true;
+
+                let midi_clips = &ctx.midi_clips_per_track[track_idx];
+                let mut midi_schedule: Vec<ScheduledNote> = Vec::new();
+                let mut midi_tmp: Vec<ScheduledNote> = Vec::new();
+
+                MidiScheduler::fill_active_looped_with_tmp(
+                    midi_clips,
+                    playhead_pos,
+                    frame_count,
+                    ctx.loop_region.as_ref(),
+                    &mut midi_schedule,
+                    &mut midi_tmp,
+                );
+
+                for event in &midi_schedule {
+                    let offset_on = event.buffer_onset as i32;
+                    let offset_off = event.buffer_offset_end as i32;
+
+                    if event.is_note_off {
+                        let off_pitch = clamp_midi_pitch(event.pitch as i16);
+                        track_midi_events.push(MidiEvent::note_off(offset_off, 0, off_pitch, 0));
+                    }
+
+                    if event.is_note_on {
+                        let on_pitch = clamp_midi_pitch(event.pitch as i16);
+                        let vel = event.velocity;
+                        track_midi_events.push(MidiEvent::note_on(offset_on, 0, on_pitch, vel));
+                    }
+                }
+
+                track_midi_events.sort_unstable_by(|a, b| {
+                    a.sample_offset
+                        .cmp(&b.sample_offset)
+                        .then_with(|| a.data[0].cmp(&b.data[0]))
+                });
+            }
+
             // Audio leaves must have spawned audio. Groups might accumulate audio.
+            // VST instrument tracks are activated above when they have MIDI clips.
             if !slot.active && !is_group {
                 continue;
             }
@@ -584,6 +661,7 @@ impl OfflineBouncer {
                 playhead_pos,
                 left_slots,
                 right_slots: right_slots_rest,
+                midi_events: &track_midi_events,
             };
             Self::process_track_fx_chain(slot, track_idx, frame_count, &fx_ctx);
 
@@ -1216,6 +1294,15 @@ impl OfflineBouncer {
             .iter()
             .map(|track| track.clips.clone())
             .collect();
+        // ── VST INSTRUMENT FIX: Collect MIDI clips for VST instrument rendering ──
+        let midi_clips_per_track: Vec<Vec<MidiClip>> = project
+            .tracks
+            .iter()
+            .map(|track| track.midi_clips.clone())
+            .collect();
+        let bounce_loop_region = loop_region
+            .as_ref()
+            .map(|lr| ClipLoopRegion::new(lr.start, lr.end));
         let (routing, post_sum_mask) = Self::build_routing(project);
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
@@ -1266,6 +1353,8 @@ impl OfflineBouncer {
                 time_sig_numerator: project.time_signature.numerator.max(1),
                 time_sig_denominator: project.time_signature.denominator.max(1),
                 master_device_chain: &mut master_device_chain,
+                midi_clips_per_track: &midi_clips_per_track,
+                loop_region: bounce_loop_region,
             };
             Self::render_routing_aware(
                 &mut render_ctx,

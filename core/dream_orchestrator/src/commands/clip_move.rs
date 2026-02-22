@@ -19,6 +19,10 @@ pub struct MoveClipCommand {
     pub new_position_frames: i64,
 }
 
+pub struct MoveClipResult {
+    pub old_track_index: usize,
+}
+
 impl MoveClipCommand {
     pub fn from_str_id(
         clip_id: &str,
@@ -39,9 +43,9 @@ impl MoveClipCommand {
 }
 
 impl Command for MoveClipCommand {
-    type Result = ();
+    type Result = MoveClipResult;
 
-    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<MoveClipResult> {
         let mut project = ctx.lock_project()?;
 
         if self.new_track_index >= project.tracks.len() {
@@ -52,6 +56,17 @@ impl Command for MoveClipCommand {
         }
 
         let new_position = AbsoluteTime::new(self.new_position_frames);
+        let old_track_index = project
+            .tracks
+            .iter()
+            .position(|track| {
+                track.clips.iter().any(|clip| clip.id == self.clip_id)
+                    || track.midi_clips.iter().any(|clip| clip.id == self.clip_id)
+            })
+            .ok_or_else(|| OrchestratorError::NotFound {
+                entity: "Clip",
+                id: self.clip_id.to_string(),
+            })?;
 
         if let Err(audio_err) = mutators::move_clip(
             &mut project,
@@ -72,6 +87,6 @@ impl Command for MoveClipCommand {
             }
         }
 
-        Ok(())
+        Ok(MoveClipResult { old_track_index })
     }
 }

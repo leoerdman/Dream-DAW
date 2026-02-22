@@ -148,11 +148,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         }
 
         try {
-            const project = await engineApi.newProject();
-            await applyProjectDeltas(
-                [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
-                'project-manager:new',
-            );
+            const response = await engineApi.newProject();
+            await applyProjectDeltas(response.deltas, 'project-manager:new');
             await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
@@ -177,17 +174,11 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             if (path) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
-                    const project = await engineApi.importAbletonProject(path);
-                    await applyProjectDeltas(
-                        [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
-                        'project-manager:open',
-                    );
+                    const response = await engineApi.importAbletonProject(path);
+                    await applyProjectDeltas(response.deltas, 'project-manager:open');
                 } else {
-                    const project = await engineApi.openProject(path);
-                    await applyProjectDeltas(
-                        [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
-                        'project-manager:open',
-                    );
+                    const response = await engineApi.openProject(path);
+                    await applyProjectDeltas(response.deltas, 'project-manager:open');
                 }
                 await syncProjectHistory();
                 await refreshStatus();

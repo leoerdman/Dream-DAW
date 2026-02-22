@@ -20,7 +20,6 @@ interface UsePianoRollTransformsParams {
     enforceNoOverlap: (input: MidiNote[], aggressorIds: Set<string>) => MidiNote[];
     setSelectedNotes: Dispatch<SetStateAction<Set<string>>>;
     setClipTranspose: Dispatch<SetStateAction<number>>;
-    auditionNote: (pitch: number, velocity?: number, durationMs?: number) => void;
 }
 
 export function usePianoRollTransforms({
@@ -37,7 +36,6 @@ export function usePianoRollTransforms({
     enforceNoOverlap,
     setSelectedNotes,
     setClipTranspose,
-    auditionNote: _auditionNote,
 }: UsePianoRollTransformsParams) {
     const applyRatchet = useCallback(() => {
         const repeats = Math.max(2, Math.min(12, Math.round(ratchetCount)));

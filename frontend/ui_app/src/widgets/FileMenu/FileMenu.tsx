@@ -44,25 +44,18 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
-    const applyProjectSnapshot = useCallback(async (project: unknown, reason: string) => {
-        await applyProjectDeltas(
-            [{ kind: 'ProjectSnapshotReplaced', data: { project } }],
-            reason,
-        );
-    }, [applyProjectDeltas]);
-
     const handleNew = useCallback(async () => {
         setOpen(false);
         try {
-            const project = await engineApi.newProject();
-            await applyProjectSnapshot(project, 'file-menu:new');
+            const response = await engineApi.newProject();
+            await applyProjectDeltas(response.deltas, 'file-menu:new');
             await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
-    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
+    }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
     const handleOpen = useCallback(async () => {
         setOpen(false);
@@ -71,11 +64,11 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (!path) return; // Cancelled
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
-                const project = await engineApi.importAbletonProject(path);
-                await applyProjectSnapshot(project, 'file-menu:open');
+                const response = await engineApi.importAbletonProject(path);
+                await applyProjectDeltas(response.deltas, 'file-menu:open');
             } else {
-                const project = await engineApi.openProject(path);
-                await applyProjectSnapshot(project, 'file-menu:open');
+                const response = await engineApi.openProject(path);
+                await applyProjectDeltas(response.deltas, 'file-menu:open');
             }
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
@@ -87,18 +80,18 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
-    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
+    }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
         try {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
-                const project = await engineApi.importAbletonProject(path);
-                await applyProjectSnapshot(project, 'file-menu:open-recent');
+                const response = await engineApi.importAbletonProject(path);
+                await applyProjectDeltas(response.deltas, 'file-menu:open-recent');
             } else {
-                const project = await engineApi.openProject(path);
-                await applyProjectSnapshot(project, 'file-menu:open-recent');
+                const response = await engineApi.openProject(path);
+                await applyProjectDeltas(response.deltas, 'file-menu:open-recent');
             }
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
@@ -110,7 +103,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
-    }, [onProjectChange, applyProjectSnapshot, syncProjectHistory]);
+    }, [onProjectChange, applyProjectDeltas, syncProjectHistory]);
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);

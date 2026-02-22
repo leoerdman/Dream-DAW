@@ -56,8 +56,8 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 const lastProject = recent[0]
                 if (lastProject?.path) {
                     console.log('[Splash] step 2b: openProject...', lastProject.path)
-                    const project = await engineApi.openProject(lastProject.path)
-                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'splash:open-last-project')
+                    const response = await engineApi.openProject(lastProject.path)
+                    await applyProjectDeltas(response.deltas, 'splash:open-last-project')
                     console.log('[Splash] step 2b: openProject DONE')
                     if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
                     // Eagerly activate external VST3 plugins and restore their saved state

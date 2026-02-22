@@ -59,18 +59,19 @@ fn close_plugin_window_for_slot(
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 
-    // Extract slot info while holding the project lock, then release it
-    // before the main-thread dispatch to avoid holding the lock during
-    // a blocking channel wait.
-    let (plugin_id, stored_blob) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-            .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
-        if slot.plugin_id.starts_with("internal://") {
-            return Ok(());
-        }
-        (slot.plugin_id.clone(), slot.external_state_blob.clone())
-    };
+    // Resolve slot data through orchestrator query to keep transport thin.
+    let slot_state = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
+    if slot_state.plugin_id.starts_with("internal://") {
+        return Ok(());
+    }
+    let plugin_id = slot_state.plugin_id;
+    let stored_blob = slot_state.external_state_blob;
 
     // Close editor on main thread (AppKit requirement)
     let instance_id_opt = plugin_host_state.slot_instance_snapshot().get(&slot_uuid).copied();
@@ -224,15 +225,15 @@ fn set_external_plugin_param_for_slot_cmd(
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 
-    let (resolved_slot_id, resolved_plugin_id) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-            .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
-        (slot.id, slot.plugin_id.clone())
-    };
-    if resolved_plugin_id.starts_with("internal://") {
-        return Err("Internal plugin slot does not support external parameter API".to_string());
-    }
+    let resolved = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveExternalPluginParamTargetQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
+    let resolved_slot_id = resolved.slot_id;
+    let resolved_plugin_id = resolved.plugin_id;
 
     if should_commit_snapshot {
         push_undo(&project_state)?;
@@ -350,7 +351,6 @@ fn get_external_plugin_params(
         out
     }
 
-    let plugin_key = normalize_plugin_key_local(&plugin_id);
     if plugin_host_state
         .loaded_sandbox_by_key
         .lock()
@@ -367,15 +367,14 @@ fn get_external_plugin_params(
         }]);
     }
 
-    let (metadata_count, lane_name_hints) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let count = find_project_plugin_slot(&project, &plugin_id)
-            .and_then(|slot| slot.external_parameter_count)
-            .unwrap_or(0)
-            .max(0) as usize;
-        let hints = lane_param_name_hints(&project, &plugin_key);
-        (count, hints)
-    };
+    let hints = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
+            plugin_id: plugin_id.clone(),
+        },
+    )?;
+    let metadata_count = hints.metadata_count;
+    let lane_name_hints = hints.lane_name_hints;
 
     let Some(instance_id) = plugin_host_state
         .loaded_by_key
@@ -454,22 +453,35 @@ fn get_external_plugin_params_for_slot(
 
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot_state = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
 
-    if slot.plugin_id.starts_with("internal://") {
+    if slot_state.plugin_id.starts_with("internal://") {
         return Ok(Vec::new());
     }
 
-    let metadata_count = slot.external_parameter_count.unwrap_or(0).max(0) as usize;
-    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
-    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+    let metadata_count = slot_state.external_parameter_count.unwrap_or(0).max(0) as usize;
+    let instance_id =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot_state.slot_id, &slot_state.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot_state.slot_id, instance_id);
 
     // Restore saved state before reading parameters so we report the
     // actual preset values instead of plugin defaults.
-    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+    if slot_state.external_state_blob.is_some() || slot_state.external_preset_blob.is_some() {
         if let Ok(mut host) = plugin_host_state.host.lock() {
+            let mut slot =
+                dream_models::project::PluginSlot::new(slot_state.name.clone(), slot_state.plugin_id.clone());
+            slot.id = slot_state.slot_id;
+            slot.external_parameter_count = slot_state.external_parameter_count;
+            slot.external_state_blob = slot_state.external_state_blob.clone();
+            slot.external_state_blob_kind = slot_state.external_state_blob_kind.clone();
+            slot.external_preset_blob = slot_state.external_preset_blob.clone();
+            slot.external_preset_blob_kind = slot_state.external_preset_blob_kind.clone();
             let _ = apply_imported_external_state_blob(&mut host, instance_id, &slot);
         }
     }
@@ -494,6 +506,7 @@ fn get_external_plugin_params_for_slot(
     }
     drop(host);
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
     plugin_host_state.publish_registry();
     Ok(params)

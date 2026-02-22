@@ -1,3 +1,11 @@
+pub mod plugin_external_param_target;
+pub mod plugin_param_hints;
+pub mod plugin_slot_state;
 pub mod track_stem_split;
 
+pub use plugin_external_param_target::{
+    ExternalPluginParamTarget, ResolveExternalPluginParamTargetQuery,
+};
+pub use plugin_param_hints::{PluginParamHints, ResolvePluginParamHintsQuery};
+pub use plugin_slot_state::{PluginSlotState, ResolvePluginSlotStateQuery};
 pub use track_stem_split::{PrepareStemSplitQuery, StemSplitPlan};

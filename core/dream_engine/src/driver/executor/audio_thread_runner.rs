@@ -85,6 +85,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
     graph_renderer.update_plan(&graph_plan, &graph_dag);
     let mut graph_last_generation = prepared_graph.generation;
     let mut graph_last_track_count = prepared_graph.track_count;
+    // DIAG: Rate-limited logging counter for VST audio tracing
+    let mut _vst_diag_counter: u64 = 0;
 
     // ── 4. Test tone state (fallback when no clips loaded) ──────────
     let mut test_tone_phase: f64 = 0.0;
@@ -657,6 +659,18 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     );
                                                     left[..c].copy_from_slice(&external_left[..c]);
                                                     right[..c].copy_from_slice(&external_right[..c]);
+
+                                                    // DIAG: Log VST instrument output peak
+                                                    if _vst_diag_counter % 200 == 0 {
+                                                        let peak_l = left[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
+                                                        let peak_r = right[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
+                                                        if peak_l > 1e-6 || peak_r > 1e-6 {
+                                                            log::info!(
+                                                                "[DIAG-VST] Track {} VST output: peak_L={:.6} peak_R={:.6} post_sum={} midi_events={}",
+                                                                track_idx, peak_l, peak_r, post_sum_processed, vst3_midi_scratch.len()
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -718,6 +732,19 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // processed in this graph pass. Tracks beyond track_count
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
+
+                        // DIAG: Log graph output peak before master FX
+                        if _vst_diag_counter % 200 == 0 {
+                            let peak_l = graph_out_left[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
+                            let peak_r = graph_out_right[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
+                            if peak_l > 1e-6 || peak_r > 1e-6 {
+                                log::info!(
+                                    "[DIAG-MASTER] graph_out BEFORE master FX: peak_L={:.6} peak_R={:.6} track_count={}",
+                                    peak_l, peak_r, track_count
+                                );
+                            }
+                        }
+                        _vst_diag_counter = _vst_diag_counter.wrapping_add(1);
 
                         process_master_runtime_fx_and_gain(
                             external_fx_map.as_slice(),

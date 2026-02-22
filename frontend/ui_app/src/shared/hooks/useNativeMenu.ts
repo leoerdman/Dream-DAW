@@ -69,8 +69,8 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+N',
         action: async () => {
             try {
-                const project = await engineApi.newProject();
-                await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'native-menu:new');
+                const response = await engineApi.newProject();
+                await applyProjectDeltas(response.deltas, 'native-menu:new');
                 onProjectChange?.();
                 console.log('[NativeMenu] New project created');
             } catch (err) {
@@ -92,13 +92,13 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
                     console.warn('[NativeMenu:Open] importing ALS...');
-                    const project = await engineApi.importAbletonProject(path);
-                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'native-menu:open');
+                    const response = await engineApi.importAbletonProject(path);
+                    await applyProjectDeltas(response.deltas, 'native-menu:open');
                     console.warn('[NativeMenu:Open] ALS import done, snapshot applied');
                 } else {
                     console.warn('[NativeMenu:Open] opening project...');
-                    const project = await engineApi.openProject(path);
-                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'native-menu:open');
+                    const response = await engineApi.openProject(path);
+                    await applyProjectDeltas(response.deltas, 'native-menu:open');
                     console.warn('[NativeMenu:Open] open done, snapshot applied');
                 }
                 // Eagerly activate external VST3 plugins and restore their saved state
@@ -269,13 +269,13 @@ async function buildRecentSubmenu(
                                 const isAbleton = rp.path.toLowerCase().endsWith('.als');
                                 if (isAbleton) {
                                     console.warn('[NativeMenu:OpenRecent] importing ALS...');
-                                    const project = await engineApi.importAbletonProject(rp.path);
-                                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'native-menu:open-recent');
+                                    const response = await engineApi.importAbletonProject(rp.path);
+                                    await applyProjectDeltas(response.deltas, 'native-menu:open-recent');
                                     console.warn('[NativeMenu:OpenRecent] ALS import done, snapshot applied');
                                 } else {
                                     console.warn('[NativeMenu:OpenRecent] opening...');
-                                    const project = await engineApi.openProject(rp.path);
-                                    await applyProjectDeltas([{ kind: 'ProjectSnapshotReplaced', data: { project } }], 'native-menu:open-recent');
+                                    const response = await engineApi.openProject(rp.path);
+                                    await applyProjectDeltas(response.deltas, 'native-menu:open-recent');
                                     console.warn('[NativeMenu:OpenRecent] open done, snapshot applied');
                                 }
                                 // Eagerly activate external VST3 plugins and restore their saved state

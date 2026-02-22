@@ -20,7 +20,6 @@ ts frontend/ui_app/src/shared/api/engine.ts 1400
 # Config/manifests
 ts frontend/ui_app/src/shared/config/pluginManifest.ts 859
 # Shared hooks
-ts frontend/ui_app/src/shared/hooks/useKeyboardShortcuts.ts 860
 ts frontend/ui_app/src/shared/hooks/useNativeMenu.ts 319
 # Libraries
 ts frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts 1201

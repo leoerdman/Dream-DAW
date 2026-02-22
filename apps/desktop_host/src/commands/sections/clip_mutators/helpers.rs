@@ -57,25 +57,6 @@ pub(super) fn build_local_pool_for_project(
     Ok(local_pool)
 }
 
-pub(super) fn find_clip_track_index(project: &Project, clip_id: Uuid) -> Option<usize> {
-    project.tracks.iter().position(|track| {
-        track.clips.iter().any(|clip| clip.id == clip_id)
-            || track.midi_clips.iter().any(|clip| clip.id == clip_id)
-    })
-}
-
-pub(super) fn find_clip_position_frames(project: &Project, clip_id: Uuid) -> Option<i64> {
-    for track in &project.tracks {
-        if let Some(clip) = track.clips.iter().find(|clip| clip.id == clip_id) {
-            return Some(clip.position.sample_frame);
-        }
-        if let Some(clip) = track.midi_clips.iter().find(|clip| clip.id == clip_id) {
-            return Some(clip.position.sample_frame);
-        }
-    }
-    None
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AudioClipDeltaState {
     pub(super) source_offset: i64,

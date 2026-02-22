@@ -1,6 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import throttle from 'lodash.throttle';
-import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
@@ -12,7 +11,6 @@ import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentAction
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
-import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
@@ -28,23 +26,20 @@ import { usePendingMidiFlush } from './model/usePendingMidiFlush';
 import { useArrangementSelectionHandlers } from './model/useArrangementSelectionHandlers';
 import { usePlaybackStartAnchor } from './model/usePlaybackStartAnchor';
 import { usePaneResizeHandlers } from './model/usePaneResizeHandlers';
+import { useArrangementTrackViewModel } from './model/useArrangementTrackViewModel';
+import {
+    useAudioFailoverRecovery,
+    useDawShellGlobalShortcuts,
+    useInitialLayoutSync,
+    useSelectedTrackConsistency,
+    useTauriFileDropImport,
+    useTelemetryBootstrap,
+} from './model/useDawShellEffects';
+import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
     flush: () => void;
-};
-
-/** Supported audio file extensions for drag-and-drop import. */
-const AUDIO_EXTENSIONS = new Set([
-    '.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac',
-]);
-
-/** Check if a file path is a supported audio format. */
-const isAudioFile = (path: string): boolean => {
-    const dotIdx = path.lastIndexOf('.');
-    if (dotIdx < 0) return false; // BUG-7 fix: no extension → not audio
-    const ext = path.slice(dotIdx).toLowerCase();
-    return AUDIO_EXTENSIONS.has(ext);
 };
 
 const TrackInspector = lazy(async () => ({
@@ -69,31 +64,6 @@ const MissingAssetsPanel = lazy(async () => ({
     default: (await import('@/widgets/MissingAssetsPanel/MissingAssetsPanel')).MissingAssetsPanel,
 }));
 
-/**
- * DawShell — The "Hole-Punch Architecture" Layout with integrated Timeline.
- * 
- * Ported from MainWindowController.swift → ArrangementViewController layout:
- * 
- *   ┌─────────────────────────────────────────────────┐
- *   │                  TransportBar                    │  ← 32px
- *   ├──────────┬────────────────────────┬─────────────┤
- *   │          │   ┌─ Ruler ─────────┐  │             │
- *   │  Asset   │   │ 1  2  3  4 | 5  │  │   Track    │
- *   │ Browser  │   ├─────────────────┤  │  Inspector  │
- *   │          │   │ [clips][clips]  │  │             │
- *   │          │   │ [clips]  [clip] │  │             │
- *   │          │   │ ▲ playhead      │  │             │
- *   │          │   └─────────────────┘  │             │
- *   ├──────────┴────────────────────────┴─────────────┤
- *   │                  DeviceRack                      │  ← 160-200px
- *   ├─────────────────────────────────────────────────┤
- *   │                  StatusBar                       │  ← 20px
- *   └─────────────────────────────────────────────────┘
- * 
- * selectedTrackId is lifted here so TrackInspector and DeviceRack stay in sync:
- * - Clicking a track in TrackInspector updates the selected track
- * - DeviceRack shows the device chain for the currently selected track
- */
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
 
 export const DawShell = () => {
@@ -107,8 +77,6 @@ export const DawShell = () => {
     const selectedTrackIdsRef = useRef(selectedTrackIds);
     selectedTrackIdsRef.current = selectedTrackIds;
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
-    // selectedClipId is always the last element of selectedClipIds — derived synchronously
-    // via useMemo to eliminate the 1-render stale window that the old useEffect pattern had.
     const selectedClipId = useMemo(
         () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
         [selectedClipIds],
@@ -135,8 +103,6 @@ export const DawShell = () => {
     const [browserWidth, setBrowserWidth] = useState(320);
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
-    // ── Group collapse state (lifted from TrackInspector for Timeline sync) ──
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
     const midiSaveThrottlesRef = useRef<Map<string, ThrottledSender<MidiNote[]>>>(new Map());
@@ -218,118 +184,13 @@ export const DawShell = () => {
         onClipSelectionChanged: setSelectedClipIds,
     });
 
-    // ── ⌘, opens Settings ──
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.metaKey && e.key === ',') {
-                e.preventDefault();
-                setSettingsOpen(prev => !prev);
-            }
-            // Cmd/Ctrl + Shift + R: open render/export dialog
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyR') {
-                e.preventDefault();
-                setExportOpen(true);
-                return;
-            }
-            if (e.key === 'Tab' && !e.shiftKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput =
-                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
-                e.preventDefault();
-                setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
-                return;
-            }
-            // Shift+Tab: toggle bottom panel between Instrument Rack and Clip Editor.
-            if (e.key === 'Tab' && e.shiftKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput =
-                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
-                e.preventDefault();
-                setBottomPanelModeForActiveTrack((prev) => (prev === 'rack' ? 'clip' : 'rack'));
-            }
-            // A key: toggle automation visibility
-            if (e.key === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput =
-                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
-                e.preventDefault();
-                useAutomationStore.getState().toggleGlobalVisible();
-            }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [setBottomPanelModeForActiveTrack, setSettingsOpen, setExportOpen, setMainViewMode]);
-
-    // ── Tauri Drag & Drop → Import Audio ───────────────────────────
-    useEffect(() => {
-        let unlisten: (() => void) | undefined;
-        // Guard against listener leak when component unmounts before setup() resolves.
-        let cancelled = false;
-
-        const setup = async () => {
-            // Listen for drag hover (visual feedback) — only for OS file drops, not in-app drags
-            const unlistenHover = await listen('tauri://drag-over', () => {
-                if (!window.__dreamInAppDrag) {
-                    // Intentionally no-op; visual drag overlay handled by timeline DnD layer.
-                }
-            });
-
-            // Listen for drag leave
-            const unlistenLeave = await listen('tauri://drag-leave', () => {
-                // Intentionally no-op; visual drag overlay handled by timeline DnD layer.
-            });
-
-            // Listen for file drop
-            const unlistenDrop = await listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
-                if (importingRef.current) return;
-                importingRef.current = true;
-
-                try {
-                    const paths = event.payload.paths ?? [];
-                    const audioFiles = paths.filter(isAudioFile);
-
-                    if (audioFiles.length === 0) {
-                        console.warn('[DawShell] No supported audio files in drop');
-                        return;
-                    }
-
-                    // Import each file onto sequential tracks (track 0, 1, 2, ...)
-                    for (let i = 0; i < audioFiles.length; i++) {
-                        await importFile(audioFiles[i], i);
-                    }
-
-                    console.log(`[DawShell] Imported ${audioFiles.length} audio file(s)`);
-                } finally {
-                    importingRef.current = false;
-                }
-            });
-
-            const combinedUnlisten = () => {
-                unlistenHover();
-                unlistenLeave();
-                unlistenDrop();
-            };
-
-            if (cancelled) {
-                // Component unmounted before this resolved — clean up immediately.
-                combinedUnlisten();
-            } else {
-                unlisten = combinedUnlisten;
-            }
-        };
-
-        void setup();
-        return () => {
-            cancelled = true;
-            unlisten?.();
-        };
-    }, [importFile]);
+    useDawShellGlobalShortcuts({
+        setSettingsOpen,
+        setExportOpen,
+        setMainViewMode,
+        setBottomPanelModeForActiveTrack,
+    });
+    useTauriFileDropImport(importFile, importingRef);
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
@@ -341,93 +202,16 @@ export const DawShell = () => {
     }), []);
     // selectedClipId is now a useMemo derived from selectedClipIds — no useEffect needed.
 
-    // Keep selectedTrackId consistent with selectedTrackIds when multi-select changes.
-    useEffect(() => {
-        if (selectedTrackIds.length === 0) return;
-        if (!selectedTrackIds.includes(selectedTrackId)) {
-            setSelectedTrackId(selectedTrackIds[selectedTrackIds.length - 1]);
-        }
-    }, [selectedTrackIds, selectedTrackId]);
-
-    // Event-driven audio failover: when backend reports stream errors
-    // (device unplugged / backend failure), auto-switch to pinned fallback.
-    useEffect(() => {
-        let unlisten: (() => void) | null = null;
-        let cancelled = false;
-
-        const setup = async () => {
-            const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
-                const now = Date.now();
-                if (recoveringAudioRef.current) return;
-                if (now - lastAudioRecoverAtRef.current < 3000) return;
-
-                recoveringAudioRef.current = true;
-                lastAudioRecoverAtRef.current = now;
-
-                try {
-                    const settings = await engineApi.getSettings();
-                    const fallback = settings.fallbackOutputDevice || 'Default Output';
-                    const resolved = await engineApi.restartAudioEngine(fallback);
-
-                    if (settings.outputDevice !== resolved) {
-                        await engineApi.updateSettings({
-                            ...settings,
-                            outputDevice: resolved,
-                        });
-                    }
-
-                    console.warn('[DawShell] Audio stream recovered via fallback:', {
-                        streamError: event.payload?.error,
-                        requestedFallback: fallback,
-                        resolved,
-                    });
-                } catch (err) {
-                    console.error('[DawShell] Audio fallback recovery failed:', err);
-                } finally {
-                    recoveringAudioRef.current = false;
-                }
-            });
-            if (cancelled) fn(); else unlisten = fn;
-        };
-
-        void setup();
-        return () => {
-            cancelled = true;
-            if (unlisten) unlisten();
-        };
-    }, []);
+    useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
+    useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });
     const { beginBrowserResize, beginBottomPanelResize } = usePaneResizeHandlers({
         mainSplitRef,
         setBrowserWidth,
         setBottomPanelHeightPx,
     });
 
-    // Safety-net bootstrap: if splash transition missed telemetry startup,
-    // mount of workspace guarantees playhead + meters start updating.
-    // Retry every 500ms until telemetry is confirmed running — handles cases
-    // where listen() fails due to Tauri IPC not being ready yet.
-    useEffect(() => {
-        startTelemetryLoop();
-        const retryId = setInterval(() => {
-            const running = useEngineStore.getState().telemetryRunning;
-            if (!running) {
-                console.warn('[DawShell] Telemetry not running — retrying startTelemetryLoop()');
-                startTelemetryLoop();
-            } else {
-                clearInterval(retryId);
-            }
-        }, 500);
-        return () => clearInterval(retryId);
-    }, [startTelemetryLoop]);
-
-    // Force one layout sync pass right after workspace mount to avoid stale
-    // cached sizes from splash geometry on first frame.
-    useEffect(() => {
-        const id = requestAnimationFrame(() => {
-            window.dispatchEvent(new Event('resize'));
-        });
-        return () => cancelAnimationFrame(id);
-    }, []);
+    useTelemetryBootstrap(startTelemetryLoop);
+    useInitialLayoutSync();
 
     // ── Engine state for Timeline ───────────────────────────────────
     const transportBpm = useEngineStore(s => s.transport.bpm);
@@ -491,25 +275,28 @@ export const DawShell = () => {
         };
     }, [selectedTrackId]);
 
-    const panelInfo = useMemo(() => {
-        const selected = selectedTrackId === 'master'
-            ? null
-            : (projectTracks.find((t) => t.id === selectedTrackId) ?? null);
-        const name = selectedTrackId === 'master'
-            ? 'Master'
-            : (selected?.name || 'No Track');
-        const deviceCount = selected
-            ? ((selected.instrument ? 1 : 0) + (selected.effects?.length ?? 0))
-            : 0;
-        return `${name} · ${deviceCount} devices`;
-    }, [projectTracks, selectedTrackId]);
-
-    // playheadBeat removed — was: transportPositionBeats ?? 0
-    // Timeline and PianoRoll now read transport.position_beats directly
-    // from useEngineStore, avoiding 30fps re-renders of DawShell.
-
-    const trackCountRaw = Math.max(projectTracks.length, 1);
-    const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
+    const {
+        panelInfo,
+        collapsedGroups,
+        trackIds,
+        hiddenTrackIndices,
+        trackCountRaw,
+        trackCount,
+        selectedTrackIndex,
+        selectedTrackIndices,
+        selectedTimelineClip,
+        toggleGroupCollapse,
+    } = useArrangementTrackViewModel({
+        projectTracks,
+        selectedTrackId,
+        selectedTrackIds,
+        selectedClipId,
+        timelineClipsForView,
+        bottomPanelModeByTrack,
+        setSelectedTrackId,
+        setBottomPanelMode,
+        applyProjectDeltas,
+    });
     const {
         handleSelectTrack,
         handleSelectTracks,
@@ -529,92 +316,6 @@ export const DawShell = () => {
         queuedStartBeatRef,
     });
 
-    // ── Sync collapsed groups from backend is_expanded field ──
-    useEffect(() => {
-        const collapsed = new Set<string>();
-        for (const pt of projectTracks) {
-            const normalized = (pt.track_type ?? '').toLowerCase();
-            if (normalized === 'group' && pt.is_expanded === false) {
-                collapsed.add(pt.id);
-            }
-        }
-        setCollapsedGroups(collapsed);
-    }, [projectTracks]);
-
-    const toggleGroupCollapse = useCallback((groupId: string) => {
-        setCollapsedGroups(prev => {
-            const next = new Set(prev);
-            let expanded = true;
-            if (next.has(groupId)) {
-                next.delete(groupId);
-                expanded = true;
-            } else {
-                next.add(groupId);
-                expanded = false;
-            }
-            void engineApi
-                .setGroupExpandedWithDeltas(groupId, expanded)
-                .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
-                .catch((err) => {
-                    console.error('[DawShell] setGroupExpanded failed:', err);
-                });
-            return next;
-        });
-    }, [applyProjectDeltas]);
-
-    // ── Compute which track indices are hidden due to group collapse ──
-    const hiddenTrackIndices = useMemo(() => {
-        const hidden = new Set<number>();
-        if (collapsedGroups.size === 0) return hidden;
-        const trackById = new Map(projectTracks.map(t => [t.id, t]));
-        const isAncestorCollapsed = (trackId: string): boolean => {
-            let parentId = trackById.get(trackId)?.parent_track_id;
-            while (parentId) {
-                if (collapsedGroups.has(parentId)) return true;
-                parentId = trackById.get(parentId)?.parent_track_id;
-            }
-            return false;
-        };
-        for (let i = 0; i < projectTracks.length; i++) {
-            if (isAncestorCollapsed(projectTracks[i].id)) {
-                hidden.add(i);
-            }
-        }
-        return hidden;
-    }, [projectTracks, collapsedGroups]);
-    // ── trackCount must reflect VISIBLE tracks only (excluding collapsed children) ──
-    // Keeps Timeline canvas total height in sync with TrackInspector's visibleTracks.
-    const trackCount = Math.max(trackCountRaw - hiddenTrackIndices.size, 1);
-    const selectedTrackIndex = useMemo(() => {
-        if (!selectedTrackId || selectedTrackId === 'master') return -1;
-        const rawIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
-        // BUG-D FIX: If the selected track is hidden (inside a collapsed group),
-        // snap to the nearest visible track to keep highlight/edit cursor usable.
-        if (rawIndex >= 0 && hiddenTrackIndices.has(rawIndex)) {
-            // Search upward for the nearest visible track (likely the group header)
-            for (let i = rawIndex - 1; i >= 0; i--) {
-                if (!hiddenTrackIndices.has(i)) return i;
-            }
-            // Fallback: search downward
-            for (let i = rawIndex + 1; i < projectTracks.length; i++) {
-                if (!hiddenTrackIndices.has(i)) return i;
-            }
-        }
-        return rawIndex;
-    }, [projectTracks, selectedTrackId, hiddenTrackIndices]);
-    const selectedTrackIndices = useMemo(() => {
-        const byId = new Map(projectTracks.map((t, i) => [t.id, i] as const));
-        const out: number[] = [];
-        for (const id of selectedTrackIds) {
-            const idx = byId.get(id);
-            if (typeof idx === 'number' && idx >= 0) out.push(idx);
-        }
-        return out;
-    }, [projectTracks, selectedTrackIds]);
-    const selectedTimelineClip = useMemo(
-        () => timelineClipsForView.find((c) => c.id === selectedClipId) ?? null,
-        [timelineClipsForView, selectedClipId],
-    );
     // Memoize loop region beat values to avoid recomputing inline in JSX on every render
     // (which would trigger spurious downstream effects during playback position updates).
     // BUG-C3 FIX: Ensure BPM is always >= 1 to prevent division by zero in
@@ -855,26 +556,6 @@ export const DawShell = () => {
         applyProjectDeltas,
     });
 
-    const handleFitTimelineHorizontally = useCallback(() => {
-        setFitTimelineToken((v) => v + 1);
-    }, []);
-
-    // Seek callback: Timeline ruler click → seek in engine (beat-precision)
-    const handlePlayheadChange = useCallback((beat: number) => {
-        engineApi.seekToBeat(Math.max(0, beat));
-    }, []);
-
-    const handleEditCursorChange = useCallback((beat: number, trackStart: number, trackEnd: number) => {
-        const clampedBeat = Math.max(0, beat);
-        setEditCursorBeat(clampedBeat);
-        setEditCursorTrackIndex(Math.max(0, trackStart));
-        setEditCursorTrackIndexEnd(Math.max(0, trackEnd));
-        // Breaking mutual exclusivity: edit cursor and clip selection can coexist.
-        // Queue the position — playhead jumps here when transport starts.
-        queuedStartBeatRef.current = clampedBeat;
-    }, []);
-
-
     usePlaybackStartAnchor({
         transportIsPlaying,
         selectedClipIds,
@@ -896,11 +577,19 @@ export const DawShell = () => {
         applyProjectDeltas,
     });
 
-    const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
-        console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
-        void dropBrowserItemOnTimeline(item, trackIndex, beat)
-            .catch((err) => console.error('[DawShell] browser drop failed:', err));
-    }, [dropBrowserItemOnTimeline]);
+    const {
+        handleFitTimelineHorizontally,
+        handlePlayheadChange,
+        handleEditCursorChange,
+        handleBrowserDrop,
+    } = useArrangementUiHandlers({
+        setFitTimelineToken,
+        setEditCursorBeat,
+        setEditCursorTrackIndex,
+        setEditCursorTrackIndexEnd,
+        queuedStartBeatRef,
+        dropBrowserItemOnTimeline,
+    });
 
     const {
         handleDoubleClickTrack,

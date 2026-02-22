@@ -8,7 +8,7 @@ fn import_ableton_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<Project, String> {
+) -> Result<DeltaMutationResponse, String> {
     open_project(
         path,
         project_state,
@@ -29,7 +29,7 @@ fn new_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<Project, String> {
+) -> Result<DeltaMutationResponse, String> {
     let mut new = Project::default();
     refresh_offline_flags(&mut new);
     *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
@@ -56,7 +56,11 @@ fn new_project(
     }
 
     log::info!("New project created: '{}'", new.name);
-    Ok(new)
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(new),
+        }],
+    })
 }
 
 /// Saves the current project to its existing path (or fails if unsaved).
@@ -209,7 +213,7 @@ fn open_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<Project, String> {
+) -> Result<DeltaMutationResponse, String> {
     let file_path = PathBuf::from(&path);
 
     let importing_als = file_path
@@ -306,7 +310,11 @@ fn open_project(
     } else {
         log::info!("Project opened: '{}' ({} tracks)", loaded.name, loaded.track_count());
     }
-    Ok(loaded)
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(loaded),
+        }],
+    })
 }
 
 /// Returns the list of recently opened projects.

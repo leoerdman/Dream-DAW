@@ -523,7 +523,7 @@ export const expandWindow = () => invoke<void>('expand_window');
 
 export const maximizeWindow = () => invoke<void>('maximize_window');
 
-export const newProject = () => invoke<unknown>('new_project');
+export const newProject = () => invoke<DeltaMutationResponse>('new_project');
 
 export const saveProject = () => invoke<string>('save_project');
 
@@ -531,10 +531,10 @@ export const saveProjectAs = (path: string) =>
     invoke<string>('save_project_as', { path });
 
 export const openProject = (path: string) =>
-    invoke<unknown>('open_project', { path });
+    invoke<DeltaMutationResponse>('open_project', { path });
 
 export const importAbletonProject = (path: string) =>
-    invoke<unknown>('import_ableton_project', { path });
+    invoke<DeltaMutationResponse>('import_ableton_project', { path });
 
 export const eagerActivateExternalPlugins = () =>
     invoke<{ total: number; loaded: number; failed: number; skipped: number }>(

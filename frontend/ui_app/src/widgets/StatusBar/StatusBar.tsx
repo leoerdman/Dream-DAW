@@ -18,7 +18,8 @@ import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import { resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
-import { StatusGroup, StatusLabel, StatusText, StatusValue, panelModeBtnStyle } from './ui/statusBarParts';
+import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
+import { panelModeBtnStyle } from './ui/statusBarStyles';
 
 interface StatusBarProps {
     projectEnd?: string;

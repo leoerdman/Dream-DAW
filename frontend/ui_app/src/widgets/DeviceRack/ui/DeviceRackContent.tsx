@@ -5,6 +5,7 @@ import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { linearToMeterNorm } from '@/shared/lib/meterManifest';
 import { normalizePickedPath, errorMessage } from '@/widgets/DeviceRack/model/deviceRackCatalog';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
+import type { DeviceSlot as DeviceSlotModel } from '@/widgets/DeviceRack/model/types';
 
 interface DeviceRackContentProps {
     logic: DeviceRackLogicOutput;
@@ -86,7 +87,7 @@ function DeviceSlot({
     deviceIndex,
     logic,
 }: {
-    device: any;
+    device: DeviceSlotModel;
     deviceIndex: number;
     logic: DeviceRackLogicOutput;
 }) {

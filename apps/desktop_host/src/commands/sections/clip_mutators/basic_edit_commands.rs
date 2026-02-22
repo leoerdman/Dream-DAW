@@ -42,10 +42,6 @@ async fn move_clip_with_deltas_cmd(
     push_undo_coalesced(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let old_track_index = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_clip_track_index(&project, clip_uuid)
-    };
 
     let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
         &clip_id,
@@ -54,12 +50,10 @@ async fn move_clip_with_deltas_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    execute_orchestrator_command(&project_state, &cmd)?;
-
-    let Some(old_track_index) = old_track_index else { return Err(format!("Delta invariant violated: source track not found for clip {clip_uuid} in move_clip_with_deltas_cmd")); };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
     let deltas = vec![dream_models::delta::ProjectDelta::ClipMoved {
         clip_id: clip_uuid,
-        old_track_index,
+        old_track_index: result.old_track_index,
         new_track_index,
         new_position: new_position_frames,
     }];

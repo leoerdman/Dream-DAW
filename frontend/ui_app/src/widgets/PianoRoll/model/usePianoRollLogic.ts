@@ -1165,7 +1165,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
         enforceNoOverlap,
         setSelectedNotes,
         setClipTranspose,
-        auditionNote,
     });
 
     // Canvas note renderer (Extracted to micro-hook)

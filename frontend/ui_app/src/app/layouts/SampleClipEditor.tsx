@@ -9,6 +9,17 @@ import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { SampleClipEditorSidebar } from './SampleClipEditorSidebar';
 import { SampleClipWaveformPane } from './SampleClipWaveformPane';
 
+function toClipEntityState(clips: TimelineClip[]) {
+    const byId = Object.fromEntries(clips.map((c) => [c.id, c]));
+    return {
+        clipsById: byId,
+        clips: {
+            byId,
+            allIds: clips.map((c) => c.id),
+        },
+    };
+}
+
 export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const sampleRate = useEngineStore((s) => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
@@ -32,24 +43,33 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         const nextPitch = Math.max(-48, Math.min(48, val));
         const previousClips = useEngineStore.getState().timelineClips;
         useEngineStore.setState((state) => ({
-            timelineClips: state.timelineClips.map((c) => {
-                if (c.id !== clip.id) return c;
-                let nextDurationBeats = c.durationBeats;
-                let nextDurationSamples = c.durationSamples;
-                if (!c.isWarped) {
-                    const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
-                    const sourceFrames = Math.max(1, c.warpSourceDurationFrames ?? c.durationSamples ?? 1);
-                    nextDurationSamples = Math.max(1, Math.round(sourceFrames / pitchMultiplier));
-                    nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
-                }
-                return { ...c, pitchShiftSemitones: nextPitch, durationSamples: nextDurationSamples, durationBeats: nextDurationBeats };
-            }),
+            ...(() => {
+                const timelineClips = state.timelineClips.map((c) => {
+                    if (c.id !== clip.id) return c;
+                    let nextDurationBeats = c.durationBeats;
+                    let nextDurationSamples = c.durationSamples;
+                    if (!c.isWarped) {
+                        const pitchMultiplier = Math.pow(2.0, nextPitch / 12.0);
+                        const sourceFrames = Math.max(1, c.warpSourceDurationFrames ?? c.durationSamples ?? 1);
+                        nextDurationSamples = Math.max(1, Math.round(sourceFrames / pitchMultiplier));
+                        nextDurationBeats = frameToBeat(nextDurationSamples, bpm, sampleRate);
+                    }
+                    return { ...c, pitchShiftSemitones: nextPitch, durationSamples: nextDurationSamples, durationBeats: nextDurationBeats };
+                });
+                return {
+                    timelineClips,
+                    ...toClipEntityState(timelineClips),
+                };
+            })(),
         }));
         setDraftPitch(nextPitch);
         try {
             await engineApi.setClipPitch({ clipId: clip.id, pitchShiftSemitones: nextPitch });
         } catch (err) {
-            useEngineStore.setState({ timelineClips: previousClips });
+            useEngineStore.setState({
+                timelineClips: previousClips,
+                ...toClipEntityState(previousClips),
+            });
             console.error('[SampleClipEditor] setClipPitch failed:', err);
         }
     }, [clip.id, bpm, sampleRate]);
@@ -68,15 +88,21 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
 
         const previousClips = useEngineStore.getState().timelineClips;
         useEngineStore.setState((state) => ({
-            timelineClips: state.timelineClips.map((c) => c.id !== clip.id ? c : ({
-                ...c,
-                isWarped: next.enabled,
-                warpMode: next.mode > 0 ? 1 : 0,
-                warpBaseBpm: base,
-                warpSourceDurationFrames: sourceFrames,
-                durationBeats: nextDurationBeats,
-                durationSamples: nextDurationSamples,
-            })),
+            ...(() => {
+                const timelineClips = state.timelineClips.map((c) => c.id !== clip.id ? c : ({
+                    ...c,
+                    isWarped: next.enabled,
+                    warpMode: next.mode > 0 ? 1 : 0,
+                    warpBaseBpm: base,
+                    warpSourceDurationFrames: sourceFrames,
+                    durationBeats: nextDurationBeats,
+                    durationSamples: nextDurationSamples,
+                }));
+                return {
+                    timelineClips,
+                    ...toClipEntityState(timelineClips),
+                };
+            })(),
         }));
 
         setDraftWarpEnabled(next.enabled);
@@ -85,7 +111,10 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         try {
             await engineApi.setClipWarp({ clipId: clip.id, isWarped: next.enabled, warpMode: next.mode > 0 ? 1 : 0, warpBaseBpm: base });
         } catch (err) {
-            useEngineStore.setState({ timelineClips: previousClips });
+            useEngineStore.setState({
+                timelineClips: previousClips,
+                ...toClipEntityState(previousClips),
+            });
             console.error('[SampleClipEditor] setClipWarp failed:', err);
         }
     }, [clip.id]);

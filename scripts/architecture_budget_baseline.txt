@@ -44,7 +44,6 @@ ts frontend/ui_app/src/widgets/DeviceRack/DeviceRack.tsx 477
 ts frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx 406
 ts frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx 377
 ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
-ts frontend/ui_app/src/widgets/DeviceRack/model/useDeviceRackLogic.ts 1137
 ts frontend/ui_app/src/widgets/DeviceRack/ui/DeviceNode.tsx 424
 ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurface.tsx 1905
 ts frontend/ui_app/src/widgets/DeviceRack/ui/PluginGuiSurfaceStandard.tsx 1000

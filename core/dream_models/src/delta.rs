@@ -179,6 +179,12 @@ pub enum ProjectDelta {
         new_index: usize,
     },
 
+    /// Track parent/group assignment changed (`None` means top-level).
+    TrackParentChanged {
+        track_id: Uuid,
+        parent_track_id: Option<Uuid>,
+    },
+
     // ── Plugin Mutations ────────────────────────────────────────────────
     /// A plugin was added to a track.
     PluginAdded {

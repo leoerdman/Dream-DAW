@@ -317,6 +317,116 @@ async fn create_group_cmd(
     Ok(group_id.to_string())
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateGroupWithDeltasResponse {
+    group_id: String,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[tauri::command]
+async fn create_group_with_deltas_cmd(
+    track_ids: Vec<String>,
+    group_name: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<CreateGroupWithDeltasResponse, String> {
+    let (before_order, before_parent): (Vec<Uuid>, std::collections::HashMap<Uuid, Option<Uuid>>) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        (
+            project.tracks.iter().map(|t| t.id).collect(),
+            project
+                .tracks
+                .iter()
+                .map(|t| (t.id, t.parent_track_id))
+                .collect(),
+        )
+    };
+
+    let group_id = create_group_cmd(
+        track_ids,
+        group_name,
+        project_state.clone(),
+        clip_pool_state,
+        plugin_host_state,
+        handle,
+        app,
+    )
+    .await?;
+    let group_uuid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group id after create: {group_id}"))?;
+
+    let (after_order, after_parent, group_name_out): (
+        Vec<Uuid>,
+        std::collections::HashMap<Uuid, Option<Uuid>>,
+        String,
+    ) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let group_track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == group_uuid)
+            .ok_or_else(|| format!("Group track not found after create: {group_uuid}"))?;
+        (
+            project.tracks.iter().map(|t| t.id).collect(),
+            project
+                .tracks
+                .iter()
+                .map(|t| (t.id, t.parent_track_id))
+                .collect(),
+            group_track.name.clone(),
+        )
+    };
+
+    let mut deltas = Vec::new();
+
+    if let Some(group_index) = after_order.iter().position(|id| *id == group_uuid) {
+        deltas.push(dream_models::delta::ProjectDelta::TrackAdded {
+            track_index: group_index,
+            track_id: group_uuid,
+            name: group_name_out,
+            track_type: "group".to_string(),
+        });
+    }
+
+    let before_index_map: std::collections::HashMap<Uuid, usize> = before_order
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| (*id, idx))
+        .collect();
+    let after_index_map: std::collections::HashMap<Uuid, usize> = after_order
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| (*id, idx))
+        .collect();
+
+    for (track_id, old_parent) in &before_parent {
+        if let Some(new_parent) = after_parent.get(track_id)
+            && new_parent != old_parent
+        {
+            deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
+                track_id: *track_id,
+                parent_track_id: *new_parent,
+            });
+        }
+    }
+
+    for (track_id, old_index) in &before_index_map {
+        if let Some(new_index) = after_index_map.get(track_id)
+            && new_index != old_index
+        {
+            deltas.push(dream_models::delta::ProjectDelta::TrackMoved {
+                track_id: *track_id,
+                old_index: *old_index,
+                new_index: *new_index,
+            });
+        }
+    }
+
+    Ok(CreateGroupWithDeltasResponse { group_id, deltas })
+}
+
 #[tauri::command]
 async fn set_group_expanded_cmd(
     group_id: String,

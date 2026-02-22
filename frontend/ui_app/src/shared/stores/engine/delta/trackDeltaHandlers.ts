@@ -31,6 +31,24 @@ function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<Project
     state.changed = true;
 }
 
+function rebuildChildTrackIds(state: DeltaWorkingState): void {
+    const childrenByParent: Record<string, string[]> = {};
+    for (const track of state.projectTracks) {
+        const parentId = track.parent_track_id ?? null;
+        if (!parentId) continue;
+        if (!childrenByParent[parentId]) childrenByParent[parentId] = [];
+        childrenByParent[parentId].push(track.id);
+    }
+
+    const nextTracks = state.projectTracks.map((track) => ({
+        ...track,
+        child_track_ids: childrenByParent[track.id] ?? [],
+    }));
+    state.projectTracks = nextTracks;
+    state.tracksById = Object.fromEntries(nextTracks.map((track) => [track.id, track]));
+    state.changed = true;
+}
+
 export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
     if (delta.kind === 'TrackVolumeChanged') {
         patchTrack(state, delta.data.track_id, { volume: delta.data.volume });
@@ -203,6 +221,17 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
         for (const clip of state.timelineClips) nextClips[clip.id] = clip;
         state.clipsById = nextClips;
         state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'TrackParentChanged') {
+        const track = state.tracksById[delta.data.track_id];
+        if (!track) return true;
+        patchTrack(state, delta.data.track_id, {
+            parent_track_id: delta.data.parent_track_id,
+            output: delta.data.parent_track_id ?? 'master',
+        });
+        rebuildChildTrackIds(state);
         return true;
     }
 

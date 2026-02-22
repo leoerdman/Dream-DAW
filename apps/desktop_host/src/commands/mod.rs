@@ -135,6 +135,7 @@ pub(crate) fn invoke_handler()
         set_track_color_cmd,
         set_track_color_with_deltas_cmd,
         create_group_cmd,
+        create_group_with_deltas_cmd,
         set_group_expanded_cmd,
         move_track_to_index_cmd,
         move_track_to_index_with_deltas_cmd,

@@ -61,6 +61,10 @@ export const DELTA_APPLIED_TOOLS = new Set([
     'set_arrangement_grid',
     'set_key_signature',
     'duplicate_tracks',
+    'set_synth_param',
+    'add_effect',
+    'set_effect_parameter',
+    'create_track_group',
 ]);
 
 export function shouldFetchProjectAfterTool(name: string): boolean {

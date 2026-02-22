@@ -4,8 +4,8 @@
 
 // ── Clip Commands ───────────────────────────────────────────────────────
 pub mod clip_bounce;
-pub mod clip_color;
 pub mod clip_clamp_source_offset;
+pub mod clip_color;
 pub mod clip_delete;
 pub mod clip_duplicate;
 pub mod clip_fades;
@@ -34,8 +34,8 @@ pub mod track_set_automation_points;
 
 // Re-export all command structs for convenience
 pub use clip_bounce::{InsertBouncedClipCommand, InsertStemClipsCommand, StemMetaInput};
-pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_clamp_source_offset::ClampClipSourceOffsetCommand;
+pub use clip_color::PaintTrackClipsWithTrackColorCommand;
 pub use clip_delete::DeleteClipCommand;
 pub use clip_duplicate::DuplicateClipCommand;
 pub use clip_fades::SetClipFadesCommand;

@@ -16,6 +16,7 @@ import { isTrackActive } from '@/shared/utils/routing';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 import { mapProjectTrack } from '@/widgets/TrackInspector/model/trackModels';
 import { useTrackInspectorContextActions } from '@/widgets/TrackInspector/model/useTrackInspectorContextActions';
+import { useTrackInspectorTrackActions } from '@/widgets/TrackInspector/model/useTrackInspectorTrackActions';
 
 // ── BUG-P4 FIX: Debounced project refresh ──────────────────────────────
 let _inspectorFetchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -321,85 +322,20 @@ export function useTrackInspectorLogic({
         };
     }, [visibleTracks, getDepth, mixerFocusMode]);
 
-    // ── Track controls ──────────────────────────────────────────────
-    const toggleMute = useCallback((id: string) => {
-        const track = tracks.find(t => t.id === id);
-        if (track) {
-            const idx = getTrackIndex(id);
-            const newMuted = !track.isMuted;
-            if (idx >= 0) engineSetTrackMute(idx, newMuted);
-            setLocalOverrides(prev => ({ ...prev, [id]: { ...prev[id], isMuted: newMuted } }));
-        }
-    }, [tracks, getTrackIndex, engineSetTrackMute]);
-
-    const toggleSolo = useCallback((id: string) => {
-        const selected = selectedTrackIdSet.has(id)
-            ? Array.from(selectedTrackIdSet)
-            : [id];
-        const targetIds = selected.length > 0 ? selected : [id];
-        const targetSet = new Set(targetIds);
-
-        const targetTracks = tracks.filter((t) => targetSet.has(t.id));
-        if (targetTracks.length === 0) return;
-
-        const allTargetsAlreadySolo = targetTracks.every((t) => t.isSoloed);
-        const shouldSoloTargets = !allTargetsAlreadySolo;
-
-        const nextSoloById = new Map<string, boolean>();
-        for (const track of targetTracks) {
-            if (track.type === 'master') continue;
-            if (track.isSoloed !== shouldSoloTargets) {
-                nextSoloById.set(track.id, shouldSoloTargets);
-            }
-        }
-
-        if (nextSoloById.size === 0) return;
-
-        for (const [trackId, soloed] of nextSoloById) {
-            const idx = getTrackIndex(trackId);
-            if (idx >= 0) engineSetTrackSolo(idx, soloed);
-        }
-
-        setLocalOverrides((prev) => {
-            const next = { ...prev };
-            for (const [trackId, soloed] of nextSoloById) {
-                next[trackId] = { ...next[trackId], isSoloed: soloed };
-            }
-            return next;
-        });
-    }, [tracks, selectedTrackIdSet, getTrackIndex, engineSetTrackSolo]);
-
-    const toggleArm = useCallback((id: string) => {
-        const track = tracks.find(t => t.id === id);
-        if (track) {
-            const idx = getTrackIndex(id);
-            const newArmed = !track.isArmed;
-            if (idx >= 0) {
-                void engineApi.armTrack(idx, newArmed).catch((err) => {
-                    console.error('[TrackInspector] armTrack failed:', err);
-                });
-            }
-            setLocalOverrides(prev => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
-        }
-    }, [tracks, getTrackIndex]);
-
-    const setTrackOutput = useCallback(async (trackId: string, targetId: string) => {
-        try {
-            await engineApi.setTrackRouting(trackId, targetId);
-            setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], output: targetId } }));
-        } catch (err) {
-            console.error('[TrackInspector] setTrackRouting failed:', err);
-        }
-    }, []);
-
-    const setTrackInput = useCallback(async (trackId: string, inputId: string) => {
-        try {
-            await engineApi.setTrackInput(trackId, inputId);
-            setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
-        } catch (err) {
-            console.error('[TrackInspector] setTrackInput failed:', err);
-        }
-    }, []);
+    const {
+        toggleMute,
+        toggleSolo,
+        toggleArm,
+        setTrackOutput,
+        setTrackInput,
+    } = useTrackInspectorTrackActions({
+        tracks,
+        selectedTrackIdSet,
+        getTrackIndex,
+        engineSetTrackMute,
+        engineSetTrackSolo,
+        setLocalOverrides,
+    });
 
     // ── Resize ──────────────────────────────────────────────────────
     const clampRowHeight = useCallback((raw: number) => {

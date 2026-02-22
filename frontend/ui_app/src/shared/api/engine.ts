@@ -250,6 +250,15 @@ export const createGroup = (trackIds: string[], groupName?: string) =>
         trackIds,
         groupName: groupName ?? null,
     });
+export interface CreateGroupWithDeltasResponse {
+    group_id: string;
+    deltas: ProjectDelta[];
+}
+export const createGroupWithDeltas = (trackIds: string[], groupName?: string) =>
+    invoke<CreateGroupWithDeltasResponse>('create_group_with_deltas_cmd', {
+        trackIds,
+        groupName: groupName ?? null,
+    });
 
 export const setGroupExpanded = (groupId: string, expanded: boolean) =>
     invoke<void>('set_group_expanded_cmd', { groupId, expanded });

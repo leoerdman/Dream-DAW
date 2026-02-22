@@ -185,30 +185,58 @@ impl OfflineBouncer {
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
     /// that the user configured in the UI.
+    fn collect_internal_slots<'a>(
+        nodes: &'a [dream_models::project::DeviceNode],
+        parent_bypassed: bool,
+        out: &mut Vec<(&'a dream_models::project::PluginSlot, bool)>,
+    ) {
+        for node in nodes {
+            match node {
+                dream_models::project::DeviceNode::Single(slot) => {
+                    if slot.plugin_id.starts_with("internal://effect/") {
+                        out.push((slot, parent_bypassed || slot.is_bypassed));
+                    }
+                }
+                dream_models::project::DeviceNode::Rack(rack) => {
+                    let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                    if let Some(chain) = if has_solo {
+                        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                    } else {
+                        rack.chains.iter().find(|c| !c.is_mute)
+                    } {
+                        Self::collect_internal_slots(&chain.devices, rack_bypassed, out);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Populates a DeviceChain from a list of DeviceNode effects,
+    /// including param sync from PluginSlot.params.
+    /// This ensures the offline bounce uses the same native FX settings
+    /// that the user configured in the UI.
     fn populate_device_chain_from_effects(
         chain: &mut DeviceChain,
         effects: &[dream_models::project::DeviceNode],
     ) {
+        let mut slots = Vec::new();
+        Self::collect_internal_slots(effects, false, &mut slots);
+
         let mut slot_index: usize = 0;
-        for node in effects {
-            if let Some(slot) = node.as_single() {
-                if slot.plugin_id.starts_with("internal://effect/") {
-                    if let Some(effect_type) = Self::builtin_effect_type_from_plugin_id(&slot.plugin_id) {
-                        chain.add_device(slot_index, effect_type);
-                        if slot.is_bypassed {
-                            chain.set_bypass(slot_index, true);
-                        }
-                        // ── CRITICAL FIX: Sync runtime param values ──
-                        // Without this, all native FX in the export use
-                        // default values instead of the user's settings.
-                        if let Some(ref params) = slot.params {
-                            for (param_idx, &value) in params.iter().enumerate() {
-                                chain.set_param(slot_index, param_idx as u8, value);
-                            }
-                        }
-                        slot_index += 1;
+        for (slot, bypassed) in slots {
+            if let Some(effect_type) = Self::builtin_effect_type_from_plugin_id(&slot.plugin_id) {
+                chain.add_device(slot_index, effect_type);
+                if bypassed {
+                    chain.set_bypass(slot_index, true);
+                }
+                // ── CRITICAL FIX: Sync runtime param values ──
+                if let Some(ref params) = slot.params {
+                    for (param_idx, &value) in params.iter().enumerate() {
+                        chain.set_param(slot_index, param_idx as u8, value);
                     }
                 }
+                slot_index += 1;
             }
         }
     }
@@ -325,6 +353,56 @@ impl OfflineBouncer {
         (routing, mask)
     }
 
+    fn collect_sidechain_sources_from_node(
+        node: &dream_models::project::DeviceNode,
+        project: &Project,
+        parent_bypassed: bool,
+        out: &mut Vec<Option<usize>>,
+    ) {
+        match node {
+            dream_models::project::DeviceNode::Single(slot) => {
+                let bypassed = parent_bypassed || slot.is_bypassed;
+                if !bypassed {
+                    if let Some(sidechain_id) = &slot.sidechain_source_track_id {
+                        let idx = project.tracks.iter().position(|t| t.id.to_string() == *sidechain_id);
+                        out.push(idx);
+                    }
+                }
+            }
+            dream_models::project::DeviceNode::Rack(rack) => {
+                let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                let selected = if has_solo {
+                    rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                } else {
+                    rack.chains.iter().find(|c| !c.is_mute)
+                };
+                if let Some(chain) = selected {
+                    for n in &chain.devices {
+                        Self::collect_sidechain_sources_from_node(n, project, rack_bypassed, out);
+                    }
+                }
+            }
+        }
+    }
+
+    fn build_sidechains(project: &Project) -> Vec<Vec<Option<usize>>> {
+        project
+            .tracks
+            .iter()
+            .map(|track| {
+                let mut sources = Vec::new();
+                if let Some(inst) = track.instrument.as_ref() {
+                    Self::collect_sidechain_sources_from_node(inst, project, false, &mut sources);
+                }
+                for node in &track.effects {
+                    Self::collect_sidechain_sources_from_node(node, project, false, &mut sources);
+                }
+                sources
+            })
+            .collect()
+    }
+
     /// Processes the unified FX chain for a single track slot.
     ///
     /// Mirrors the RT driver's Insert processing logic:
@@ -341,6 +419,8 @@ impl OfflineBouncer {
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
         bpm: f64,
         playhead_pos: i64,
+        left_slots: &[crate::render_callback::TrackSlot],
+        right_slots: &[crate::render_callback::TrackSlot],
     ) {
         let c = frame_count
             .min(slot.buf_left.len())
@@ -349,14 +429,29 @@ impl OfflineBouncer {
         if let Some(runtime_slots) = external_fx_map.get(track_idx) {
             if !runtime_slots.is_empty() {
                 for (_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                    let source_slot = runtime_slot
+                        .sidechain_track_index
+                        .and_then(|src_idx| {
+                            if src_idx < track_idx {
+                                left_slots.get(src_idx)
+                            } else if src_idx == track_idx {
+                                None
+                            } else {
+                                right_slots.get(src_idx - track_idx - 1)
+                            }
+                        });
+                    let (sc_l, sc_r) = source_slot
+                        .map(|src| (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])))
+                        .unwrap_or((None, None));
+
                     // ── Native FX slot ──
                     if let Some(internal_idx) = runtime_slot.internal_slot_index {
                         slot.device_chain.process_slot_with_sidechain(
                             internal_idx,
                             &mut slot.buf_left[..c],
                             &mut slot.buf_right[..c],
-                            None,
-                            None,
+                            sc_l,
+                            sc_r,
                             sample_rate as f32,
                         );
                         continue;
@@ -388,9 +483,15 @@ impl OfflineBouncer {
                                 &mut out_right[..c],
                             ];
                             let empty_midi: Vec<dream_plugins::MidiEvent> = Vec::new();
+                            let sc_pair = source_slot.map(|src| {
+                                [
+                                    &src.buf_left[..c],
+                                    &src.buf_right[..c],
+                                ]
+                            });
                             let _ = host.process_with_sidechain(
                                 &main_inputs,
-                                None,
+                                sc_pair.as_ref().map(|pair| pair.as_slice()),
                                 &mut out_slices,
                                 c,
                                 &empty_midi,
@@ -436,6 +537,7 @@ impl OfflineBouncer {
         clips_per_track: &[Vec<AudioClip>],
         clip_pool: &ClipPool,
         routing: &[Option<usize>],
+        sidechains: &[Vec<Option<usize>>],
         post_sum_mask: &[bool],
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
@@ -453,21 +555,46 @@ impl OfflineBouncer {
         );
 
         // CRITICAL FIX: Advance the playhead after reading clips.
-        // Without this, every render chunk reads from the same playhead position,
-        // producing a repeating loop of the first buffer instead of sequential audio.
-        // This mirrors driver.rs:2501 which calls advance_playhead_by_frames()
-        // immediately after read_audio_clips_into_tracks().
         render_ctx.advance_playhead_by_frames(frame_count);
 
-        // Phase 1.5: Apply Track FX (Native + VST3) and Channel Strip for standard tracks (non-group)
         let playhead_pos = render_ctx.playhead.position();
         let sample_rate = render_ctx.sample_rate;
-        for (track_idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
-            if !slot.active { continue; }
-            let is_group = post_sum_mask.get(track_idx).copied().unwrap_or(false);
-            if is_group { continue; } // Processed later in Phase 3
+        let track_slots_len = render_ctx.track_slots.len();
 
-            // Unified FX chain: process native FX + VST3 in project order
+        // ── ENTERPRISE DAG TOPOLOGY ──
+        // Generate a fully topologically sorted DAG resolving routing
+        // AND sidechain dependencies accurately.
+        let snapshot = crate::driver::prepare_graph_snapshot_for_routing(
+            track_slots_len,
+            routing,
+            sidechains,
+            0,
+        );
+
+        render_ctx.master_bus.clear(frame_count);
+
+        // Phase 1.5 - 4: Unified Topological Processing Loop
+        // Correctly processes leaf and group tracks in topological dependency order.
+        for &node_idx in &snapshot.plan.processing_order {
+            let id = snapshot.dag.node(node_idx).id.0;
+            if id == 0 {
+                continue; // Master processed specifically after all nodes
+            }
+
+            let track_idx = (id - 1) as usize;
+            if track_idx >= track_slots_len { continue; }
+
+            let (left_slots, right_slots) = render_ctx.track_slots.split_at_mut(track_idx);
+            let Some((slot, right_slots_rest)) = right_slots.split_first_mut() else {
+                continue;
+            };
+
+            let is_group = post_sum_mask.get(track_idx).copied().unwrap_or(false);
+
+            // Audio leaves must have spawned audio. Groups might accumulate audio.
+            if !slot.active && !is_group { continue; }
+
+            // 1. Unified FX Chain (Native + VST3)
             Self::process_track_fx_chain(
                 slot,
                 track_idx,
@@ -477,134 +604,62 @@ impl OfflineBouncer {
                 external_fx_map,
                 bpm,
                 playhead_pos,
+                left_slots,
+                right_slots_rest,
             );
 
-            slot.strip.process_stereo(
-                &mut slot.buf_left[..frame_count],
-                &mut slot.buf_right[..frame_count],
-            );
-        }
-
-        // Phase 2: Route source tracks into their group buses
-        // For each source track that routes to a group, add its audio
-        // into the group track's buffer.
-        for (src_idx, dest) in routing.iter().enumerate() {
-            if let Some(group_idx) = dest {
-                if *group_idx >= render_ctx.track_slots.len()
-                    || src_idx >= render_ctx.track_slots.len()
-                {
-                    continue;
-                }
-
-                // Only route if the source is enabled (not muted/solo-excluded)
-                let src_enabled = render_ctx.track_slots[src_idx].strip.is_output_enabled();
-                if !src_enabled {
-                    continue;
-                }
-
-                // BUG-5 FIX: Use split-borrow instead of Vec copy to eliminate
-                // per-buffer allocations. Sound because src_idx != *group_idx.
-                let c = frame_count
-                    .min(render_ctx.track_slots[src_idx].buf_left.len())
-                    .min(render_ctx.track_slots[src_idx].buf_right.len());
-
-                // Safe split-borrow: we need &track_slots[src_idx] read and
-                // &mut track_slots[*group_idx] write simultaneously.
-                assert_ne!(src_idx, *group_idx, "Track cannot route to itself");
-                let (src_slot, group_slot) = if src_idx < *group_idx {
-                    let (left, right) = render_ctx.track_slots.split_at_mut(*group_idx);
-                    (&left[src_idx], &mut right[0])
-                } else {
-                    let (left, right) = render_ctx.track_slots.split_at_mut(src_idx);
-                    (&right[0], &mut left[*group_idx])
-                };
-
-                for i in 0..c {
-                    group_slot.buf_left[i] += src_slot.buf_left[i];
-                    group_slot.buf_right[i] += src_slot.buf_right[i];
-                }
-                group_slot.active = true;
-            }
-        }
-
-        // Phase 3: Process group/bus track FX (Native + VST3) and strips (gain, pan)
-        let playhead_pos_phase3 = render_ctx.playhead.position();
-        let sample_rate_phase3 = render_ctx.sample_rate;
-        for (idx, is_group) in post_sum_mask.iter().enumerate() {
-            if !*is_group || idx >= render_ctx.track_slots.len() {
-                continue;
-            }
-            let slot = &mut render_ctx.track_slots[idx];
-
-            // ── AE-15 FIX: Group tracks must process their FX (native + VST3) before Mixer Strip ──
-            Self::process_track_fx_chain(
-                slot,
-                idx,
-                frame_count,
-                sample_rate_phase3,
-                plugin_registry,
-                external_fx_map,
-                bpm,
-                playhead_pos_phase3,
-            );
-
-            if slot.strip.is_output_enabled() {
+            // 2. Channel Strip (Mute, Solo, Gain, Pan)
+            let enabled = slot.strip.is_output_enabled();
+            if enabled {
                 slot.strip.process_stereo(
                     &mut slot.buf_left[..frame_count],
                     &mut slot.buf_right[..frame_count],
                 );
             } else {
-                // Group is muted or solo-excluded — zero its buffer
                 slot.buf_left[..frame_count].fill(0.0);
                 slot.buf_right[..frame_count].fill(0.0);
             }
-        }
 
-        // Phase 4: Sum all terminal tracks into master bus
-        // A source track routed to a group does NOT contribute directly;
-        // its audio already went through the group in Phase 2.
-        // Group buses themselves ALWAYS sum to master (they ARE the
-        // aggregated output for their sub-tree).
-        render_ctx.master_bus.clear(frame_count);
-        for (idx, slot) in render_ctx.track_slots.iter().enumerate() {
-            if !slot.active {
-                continue;
+            // 3. Route Output to Parent Group (if any) or Master Bus
+            if enabled {
+                let is_routed_to_group = routing.get(track_idx).and_then(|r| *r).is_some();
+                if let Some(parent_idx) = routing.get(track_idx).and_then(|r| *r) {
+                    if parent_idx < track_slots_len && post_sum_mask.get(parent_idx).copied().unwrap_or(false) {
+                        let c = frame_count
+                            .min(slot.buf_left.len())
+                            .min(slot.buf_right.len());
+                        assert_ne!(track_idx, parent_idx, "Track cannot route to itself");
+
+                        let (src_slot, parent_slot) = if track_idx < parent_idx {
+                            let (left, right) = render_ctx.track_slots.split_at_mut(parent_idx);
+                            (&left[track_idx], &mut right[0])
+                        } else {
+                            let (left, right) = render_ctx.track_slots.split_at_mut(track_idx);
+                            (&right[0], &mut left[parent_idx])
+                        };
+
+                        for i in 0..c {
+                            parent_slot.buf_left[i] += src_slot.buf_left[i];
+                            parent_slot.buf_right[i] += src_slot.buf_right[i];
+                        }
+                        parent_slot.active = true;
+                    }
+                } else {
+                    render_ctx.master_bus.add_stereo(
+                        &slot.buf_left[..frame_count],
+                        &slot.buf_right[..frame_count],
+                    );
+                }
             }
-
-            let is_routed_to_group = routing
-                .get(idx)
-                .map(|r| r.is_some())
-                .unwrap_or(false);
-            let is_group = post_sum_mask
-                .get(idx)
-                .copied()
-                .unwrap_or(false);
-
-            // Skip leaf/source tracks that route to a group (already summed in Phase 2)
-            if is_routed_to_group && !is_group {
-                continue;
-            }
-
-            // Group tracks were already gain/mute-gated in Phase 3;
-            // their strip zeroed the buffer if they should be silent.
-            // Leaf tracks not routed to any group are included if enabled.
-            if !is_group && !slot.strip.is_output_enabled() {
-                continue;
-            }
-
-            render_ctx.master_bus.add_stereo(
-                &slot.buf_left[..frame_count],
-                &slot.buf_right[..frame_count],
-            );
         }
 
         // Phase 4.5: Process master internal FX (EQ, compressor, etc.) + VSTs
         // This mirrors the real-time driver's combined internal/external master FX loop.
         let master_fx_idx = render_ctx.track_slots.len();
-        let master_slots_opt = if external_fx_map.len() > master_fx_idx {
-            external_fx_map.get(master_fx_idx)
-        } else {
+        let master_slots_opt = if external_fx_map.len() > master_fx_idx + 1 {
             external_fx_map.last()
+        } else {
+            external_fx_map.get(master_fx_idx)
         };
 
         if let Some(master_slots) = master_slots_opt {
@@ -623,16 +678,15 @@ impl OfflineBouncer {
                         continue;
                     }
 
-                    if let Some(instance_id) = runtime_slot.instance_id
-                        && let Some(plugin_mtx) = plugin_registry.get(&instance_id)
-                    {
-                        let mut host = plugin_mtx.lock();
+                    if let Some(instance_id) = runtime_slot.instance_id {
+                        if let Some(plugin_mtx) = plugin_registry.get(&instance_id) {
+                            let mut host = plugin_mtx.lock();
                         let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                         let main_inputs: [&[f32]; 2] = [
                             &master_l[..frame_count],
                             &master_r[..frame_count],
                         ];
-                        let transport = dream_engine::driver::TransportContext {
+                        let transport = dream_plugins::TransportContext {
                             sample_rate: render_ctx.sample_rate,
                             position_samples: render_ctx.playhead.position(),
                             tempo: bpm,
@@ -649,7 +703,7 @@ impl OfflineBouncer {
                             &mut ext_left[..frame_count],
                             &mut ext_right[..frame_count],
                         ];
-                        let empty_midi: &[dream_engine::driver::MidiEvent] = &[];
+                        let empty_midi: &[dream_plugins::MidiEvent] = &[];
                         let _ = host.process_with_sidechain(
                             &main_inputs,
                             None,
@@ -657,22 +711,38 @@ impl OfflineBouncer {
                             frame_count,
                             empty_midi,
                         );
-                        master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
-                        master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
+                            master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
+                            master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
+                        }
                     }
                 }
+            } else if !master_device_chain.is_empty() {
+                let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+                master_device_chain.process_stereo(
+                    &mut master_l[..frame_count],
+                    &mut master_r[..frame_count],
+                    render_ctx.sample_rate as f32,
+                );
             }
+        } else if !master_device_chain.is_empty() {
+            let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+            master_device_chain.process_stereo(
+                &mut master_l[..frame_count],
+                &mut master_r[..frame_count],
+                render_ctx.sample_rate as f32,
+            );
         }
 
-        // Phase 5: Interleave master bus into output with soft clipping
+        // Phase 5: Interleave master bus into output (no clipping here).
+        // Final soft clipping is applied once at the end of bounce.
         let master_l = &render_ctx.master_bus.left()[..frame_count];
         let master_r = &render_ctx.master_bus.right()[..frame_count];
         if channels == 2 {
             for i in 0..frame_count {
                 let base = i * 2;
                 if base + 1 < output.len() {
-                    output[base] = soft_clip(master_l[i]);
-                    output[base + 1] = soft_clip(master_r[i]);
+                    output[base] = master_l[i];
+                    output[base + 1] = master_r[i];
                 }
             }
         } else if channels == 1 {
@@ -681,15 +751,15 @@ impl OfflineBouncer {
             for i in 0..frame_count {
                 let mono = (master_l[i] + master_r[i]) * std::f32::consts::FRAC_1_SQRT_2;
                 if i < output.len() {
-                    output[i] = soft_clip(mono);
+                    output[i] = mono;
                 }
             }
         } else {
             for i in 0..frame_count {
                 let base = i * channels;
                 if base + 1 < output.len() {
-                    output[base] = soft_clip(master_l[i]);
-                    output[base + 1] = soft_clip(master_r[i]);
+                    output[base] = master_l[i];
+                    output[base + 1] = master_r[i];
                     for ch in 2..channels {
                         let idx = base + ch;
                         if idx < output.len() {
@@ -1180,7 +1250,8 @@ impl OfflineBouncer {
         
         let mut frames_rendered = 0usize;
         let mut last_progress = -1.0f32;
-        
+        let sidechains = Self::build_sidechains(project);
+
         while frames_rendered < total_frames {
             if self.cancel_flag.load(Ordering::SeqCst) {
                 return Err(BounceError::RenderError("Bounce cancelled by user".to_string()));
@@ -1196,6 +1267,7 @@ impl OfflineBouncer {
                 &clips_per_track,
                 clip_pool,
                 &routing,
+                &sidechains,
                 &post_sum_mask,
                 plugin_registry,
                 external_fx_map,
@@ -1242,7 +1314,7 @@ impl OfflineBouncer {
         progress_callback(0.75);
 
         // Resample only at the very end
-        let (final_l, final_r) = if (project_sr - export_sr).abs() > 0.001 {
+        let (mut final_l, mut final_r) = if (project_sr - export_sr).abs() > 0.001 {
             info!("[Bounce] Phase 3: Resampling from {:.0}Hz to {:.0}Hz", project_sr, export_sr);
             let resampled = dream_dsp::resampler::resample_channels(
                 &[mix_l, mix_r],
@@ -1253,6 +1325,13 @@ impl OfflineBouncer {
         } else {
             (mix_l, mix_r)
         };
+
+        // Final output limiter pass: apply soft clipping once at the end of
+        // the offline pipeline (mirrors realtime final output safety stage).
+        for (l, r) in final_l.iter_mut().zip(final_r.iter_mut()) {
+            *l = soft_clip(*l);
+            *r = soft_clip(*r);
+        }
 
         progress_callback(0.85);
         info!("[Bounce] Phase 4: Writing File");

@@ -62,7 +62,8 @@ use dream_models::PlaybackState;
 use dream_models::midi::{MidiClip, MidiNote, SamplerConfig, SampleRackConfig};
 use dream_models::mutators::{self, MutatorError};
 use dream_models::project::{
-    AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType,
+    AudioClip, DeviceNode, DeviceRack, PluginSlot, Project, RackChain, TimeSignature, Track,
+    TrackColor, TrackType,
 };
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::{PluginCategory, PluginFormat};
@@ -2270,7 +2271,7 @@ fn sync_transport_from_project(
     project: &Project,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
-    let bpm = project.pulse_map.initial_bpm();
+    let bpm = project_initial_transport_bpm(project);
     let timeline_sample_rate = project.sample_rate.max(1.0);
     let loop_enabled = project.is_looping;
     let loop_start = project.loop_start_frames.unwrap_or(0);
@@ -2305,6 +2306,17 @@ fn sync_transport_from_project(
     push_command(handle, EngineCommand::SetLoopEnabled(loop_enabled))?;
     push_command(handle, EngineCommand::Seek(playhead))?;
     Ok(())
+}
+
+fn project_initial_transport_bpm(project: &Project) -> f64 {
+    let base_bpm = project.pulse_map.initial_bpm();
+    let automated_start_bpm = project
+        .tempo_automation_events
+        .iter()
+        .filter(|e| e.beat.is_finite() && e.bpm.is_finite() && e.bpm > 0.0 && e.beat <= 0.0001)
+        .min_by(|a, b| a.beat.total_cmp(&b.beat))
+        .map(|e| e.bpm);
+    automated_start_bpm.unwrap_or(base_bpm).clamp(10.0, 999.0)
 }
 
 pub(crate) fn sync_track_mix_state_from_project(
@@ -4714,7 +4726,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dream_models::project::{DeviceNode, DeviceRack, PluginSlot, RackChain, RackType, Track, TrackType};
+    use dream_models::project::{
+        DeviceNode, DeviceRack, PluginSlot, RackChain, RackType, TempoAutomationEvent, Track,
+        TrackType,
+    };
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -4893,5 +4908,75 @@ mod tests {
             sidechains[source_track_index].is_empty(),
             "source track should have no sidechain dependencies"
         );
+    }
+
+    #[test]
+    fn external_fx_snapshot_caps_tracks_to_max_tracks_and_keeps_master_at_tail() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let mut slot_instance_map = HashMap::<Uuid, Uuid>::new();
+
+        for idx in 0..(MAX_TRACKS + 5) {
+            let mut track = Track::with_type(format!("T{idx}"), TrackType::Audio, idx);
+            let ext_fx = PluginSlot::new(format!("FX{idx}"), format!("vst3://fx-{idx}"));
+            slot_instance_map.insert(ext_fx.id, Uuid::new_v4());
+            track.effects.push(DeviceNode::single(ext_fx));
+            project.add_track(track);
+        }
+
+        let master_external = PluginSlot::new("MasterLim", "vst3://master-lim");
+        let master_external_slot_id = master_external.id;
+        project.master_track.effects.push(DeviceNode::single(master_external));
+        slot_instance_map.insert(master_external_slot_id, Uuid::new_v4());
+
+        let state = ClipPoolState::new();
+        state.rebuild_external_fx_snapshot(&project, &slot_instance_map);
+        let snapshot = state.external_fx_snapshot.load();
+
+        assert_eq!(
+            snapshot.len(),
+            MAX_TRACKS + 1,
+            "snapshot must be capped to MAX_TRACKS tracks plus master tail"
+        );
+        assert!(
+            snapshot[MAX_TRACKS]
+                .iter()
+                .any(|slot| slot.instance_id.is_some()),
+            "master chain must remain at tail index MAX_TRACKS"
+        );
+    }
+
+    #[test]
+    fn project_initial_transport_bpm_prefers_tempo_automation_at_zero() {
+        let mut project = Project::new("Tempo Test", 120.0, 44100.0);
+        project.tempo_automation_events = vec![
+            TempoAutomationEvent {
+                beat: 0.0,
+                bpm: 174.0,
+                curve_type: "linear".to_string(),
+            },
+            TempoAutomationEvent {
+                beat: 16.0,
+                bpm: 170.0,
+                curve_type: "linear".to_string(),
+            },
+        ];
+
+        let bpm = project_initial_transport_bpm(&project);
+        assert!((bpm - 174.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn project_initial_transport_bpm_keeps_pulse_map_when_no_zero_beat_automation() {
+        let mut project = Project::new("Tempo Base", 128.0, 44100.0);
+        project.tempo_automation_events = vec![TempoAutomationEvent {
+            beat: 8.0,
+            bpm: 160.0,
+            curve_type: "linear".to_string(),
+        }];
+
+        let bpm = project_initial_transport_bpm(&project);
+        assert!((bpm - 128.0).abs() < 1e-9);
     }
 }

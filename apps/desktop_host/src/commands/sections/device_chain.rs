@@ -2,6 +2,28 @@
 
 use dream_models::project::Project;
 
+fn selected_runtime_chain(
+    rack: &dream_models::project::DeviceRack,
+) -> Option<&dream_models::project::RackChain> {
+    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+    if has_solo {
+        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+    } else {
+        rack.chains.iter().find(|c| !c.is_mute)
+    }
+}
+
+fn count_runtime_internal_effects(node: &dream_models::project::DeviceNode) -> usize {
+    match node {
+        dream_models::project::DeviceNode::Single(slot) => {
+            usize::from(slot.plugin_id.starts_with("internal://effect/"))
+        }
+        dream_models::project::DeviceNode::Rack(rack) => selected_runtime_chain(rack)
+            .map(|chain| chain.devices.iter().map(count_runtime_internal_effects).sum())
+            .unwrap_or(0),
+    }
+}
+
 /// Converts a raw effects-array slot index to the internal-only device_chain
 /// slot index.
 ///
@@ -16,33 +38,37 @@ use dream_models::project::Project;
 fn raw_slot_to_internal_device_index(project: &Project, track_index: u16, raw_slot_index: u8) -> Option<u8> {
     let track = project.tracks.get(track_index as usize)?;
     let raw = raw_slot_index as usize;
-    // Verify the target slot IS an internal effect
-    let target_slot = track.effects.get(raw).and_then(|node| node.as_single())?;
-    if !target_slot.plugin_id.starts_with("internal://effect/") {
-        return None; // Not an internal effect — device_chain doesn't manage it
-    }
-    // Count internal effects that appear BEFORE this position
-    let internal_idx = track.effects[..raw]
+    let target = track.effects.get(raw)?;
+    let preceding_internal = track.effects[..raw]
         .iter()
-        .filter_map(|node| node.as_single())
-        .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-        .count();
-    Some(internal_idx as u8)
+        .map(count_runtime_internal_effects)
+        .sum::<usize>();
+    match target {
+        dream_models::project::DeviceNode::Single(slot)
+            if slot.plugin_id.starts_with("internal://effect/") =>
+        {
+            Some(preceding_internal as u8)
+        }
+        _ => None,
+    }
 }
 
 /// Same conversion but for the master track.
 fn raw_slot_to_internal_device_index_master(project: &Project, raw_slot_index: u8) -> Option<u8> {
     let raw = raw_slot_index as usize;
-    let target_slot = project.master_track.effects.get(raw).and_then(|node| node.as_single())?;
-    if !target_slot.plugin_id.starts_with("internal://effect/") {
-        return None;
-    }
-    let internal_idx = project.master_track.effects[..raw]
+    let target = project.master_track.effects.get(raw)?;
+    let preceding_internal = project.master_track.effects[..raw]
         .iter()
-        .filter_map(|node| node.as_single())
-        .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-        .count();
-    Some(internal_idx as u8)
+        .map(count_runtime_internal_effects)
+        .sum::<usize>();
+    match target {
+        dream_models::project::DeviceNode::Single(slot)
+            if slot.plugin_id.starts_with("internal://effect/") =>
+        {
+            Some(preceding_internal as u8)
+        }
+        _ => None,
+    }
 }
 
 /// Adds a built-in DSP device to a track's insert chain.
@@ -314,4 +340,74 @@ fn update_track(
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::debug!("[IPC] update_track(track={})", update.track_index);
     Ok(())
+}
+
+#[cfg(test)]
+mod device_chain_tests {
+    use super::*;
+    use dream_models::project::{DeviceNode, DeviceRack, PluginSlot, RackChain, RackType, Track, TrackType};
+
+    #[test]
+    fn raw_slot_mapping_counts_internal_effects_inside_preceding_rack() {
+        let mut project = Project::default();
+        project.tracks.clear();
+
+        let mut track = Track::with_type("Audio 1", TrackType::Audio, 0);
+
+        let mut chain = RackChain::new("RackChain");
+        chain.devices.push(DeviceNode::single(PluginSlot::new(
+            "Rack EQ",
+            "internal://effect/eq_eight",
+        )));
+        chain.devices.push(DeviceNode::single(PluginSlot::new(
+            "Rack External",
+            "vst3://rack-ext",
+        )));
+        let mut rack = DeviceRack::new("Fx Rack", RackType::AudioEffect);
+        rack.chains.push(chain);
+        track.effects.push(DeviceNode::rack(rack)); // raw index 0
+
+        track.effects.push(DeviceNode::single(PluginSlot::new(
+            "Track Compressor",
+            "internal://effect/compressor",
+        ))); // raw index 1
+
+        project.add_track(track);
+
+        let mapped = raw_slot_to_internal_device_index(&project, 0, 1);
+        assert_eq!(
+            mapped,
+            Some(1),
+            "preceding rack internal effect must shift internal slot index"
+        );
+    }
+
+    #[test]
+    fn raw_slot_mapping_for_master_counts_internal_effects_inside_rack() {
+        let mut project = Project::default();
+
+        let mut chain = RackChain::new("MasterChain");
+        chain.devices.push(DeviceNode::single(PluginSlot::new(
+            "Master EQ",
+            "internal://effect/eq_eight",
+        )));
+        let mut rack = DeviceRack::new("Master Rack", RackType::AudioEffect);
+        rack.chains.push(chain);
+        project.master_track.effects.push(DeviceNode::rack(rack)); // raw index 0
+
+        project
+            .master_track
+            .effects
+            .push(DeviceNode::single(PluginSlot::new(
+                "Master Compressor",
+                "internal://effect/compressor",
+            ))); // raw index 1
+
+        let mapped = raw_slot_to_internal_device_index_master(&project, 1);
+        assert_eq!(
+            mapped,
+            Some(1),
+            "master raw slot mapping must include internal effects inside rack"
+        );
+    }
 }

@@ -2822,10 +2822,16 @@ pub fn start_audio_thread_on_device(
 
                                     // 1. Unify Working Buffer
                                     // GraphRenderer clears `left/right` before calling track_processor.
-                                    // For group tracks (post_sum_processed), GraphRenderer ALREADY summed the upstream 
-                                    // routing edges into `left/right` before calling us.
-                                    // For source tracks, we must inject their pre-rendered audio (clips/synths) into `left/right`.
-                                    if !post_sum_processed {
+                                    // For group/bus tracks (post_sum_processed), upstream routed audio
+                                    // is already present in `left/right`, so we MIX in the track's own
+                                    // source buffer (if it has local clips/instrument output).
+                                    // For source tracks, we copy their source buffer directly.
+                                    if post_sum_processed {
+                                        for i in 0..c {
+                                            left[i] += slot.buf_left[i];
+                                            right[i] += slot.buf_right[i];
+                                        }
+                                    } else {
                                         left[..c].copy_from_slice(&slot.buf_left[..c]);
                                         right[..c].copy_from_slice(&slot.buf_right[..c]);
                                     }
@@ -3148,6 +3154,12 @@ pub fn start_audio_thread_on_device(
                                         meter_l.store_peak(peak_l.max(meter_l.load_peak()));
                                         meter_r.store_peak(peak_r.max(meter_r.load_peak()));
                                     }
+
+                                    // SSOT-FIX: Publish post-insert/post-strip track output
+                                    // back into slot buffers so downstream sidechain taps
+                                    // read the processed signal, not stale pre-FX source data.
+                                    slot.buf_left[..c].copy_from_slice(&left[..c]);
+                                    slot.buf_right[..c].copy_from_slice(&right[..c]);
                                 }
                             },
                             |_node, _left, _right, _count| {},
@@ -3217,6 +3229,10 @@ pub fn start_audio_thread_on_device(
                                         // Use empty slice (zero-alloc) for RT-safety.
                                         let empty_midi: &[MidiEvent] = &[];
 
+                                        // Seed output with current master input so plugin failure
+                                        // or partial writes cannot leak stale buffer data.
+                                        external_left[..c].copy_from_slice(&graph_out_left[..c]);
+                                        external_right[..c].copy_from_slice(&graph_out_right[..c]);
                                         let mut out_slices: [&mut [f32]; 2] = [
                                             &mut external_left[..c],
                                             &mut external_right[..c],
@@ -3234,7 +3250,23 @@ pub fn start_audio_thread_on_device(
                                         graph_out_right[..c].copy_from_slice(&external_right[..c]);
                                     }
                                 }
+                            } else if !master_device_chain.is_empty() {
+                                // Safety fallback: if snapshot exists but has no runtime
+                                // entries, still run the master native chain.
+                                master_device_chain.process_stereo(
+                                    &mut graph_out_left[..n],
+                                    &mut graph_out_right[..n],
+                                    sample_rate_f64 as f32,
+                                );
                             }
+                        } else if !master_device_chain.is_empty() {
+                            // Safety fallback: stale/missing external snapshot must never
+                            // bypass master native processing.
+                            master_device_chain.process_stereo(
+                                &mut graph_out_left[..n],
+                                &mut graph_out_right[..n],
+                                sample_rate_f64 as f32,
+                            );
                         }
 
                         // ── BUG-R4/R5 FIX: Apply master gain to graph_out BEFORE metering ──

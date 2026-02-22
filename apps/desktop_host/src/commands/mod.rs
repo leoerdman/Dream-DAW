@@ -1,5 +1,9 @@
 use super::*;
 
+type DeviceNode = dream_models::project::DeviceNode;
+type DeviceRack = dream_models::project::DeviceRack;
+type RackChain = dream_models::project::RackChain;
+
 include!("sections/transport.rs");
 include!("sections/track_control.rs");
 include!("sections/device_chain.rs");
@@ -51,6 +55,7 @@ pub(crate) fn invoke_handler(
         get_transport,
         get_meters,
         get_project_history,
+        get_audio_chain_audit,
         get_pdc_debug_snapshot,
         get_rt_debug_snapshot,
         set_rt_debug_enabled,

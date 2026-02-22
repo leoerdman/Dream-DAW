@@ -12,7 +12,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use dream_models::project::{DeviceNode, DeviceRack, RackChain, RackType};
+use dream_models::project::RackType;
 use dream_models::preset::DevicePreset;
 
 // ── 1. Create Rack from Devices ────────────────────────────────────────
@@ -249,7 +249,11 @@ fn remove_device_from_rack_cmd(
 
     let mut removed = false;
     for chain in rack.chains.iter_mut() {
-        if let Some(pos) = chain.devices.iter().position(|d| d.id() == device_uuid) {
+        if let Some(pos) = chain
+            .devices
+            .iter()
+            .position(|d: &DeviceNode| d.id() == device_uuid)
+        {
             chain.devices.remove(pos);
             removed = true;
             break;

@@ -871,6 +871,15 @@ fn choose_preferred_output_target(
     }
 }
 
+fn collapse_split_stereo_pan(pan_left: Option<f64>, pan_right: Option<f64>) -> Option<f64> {
+    match (pan_left, pan_right) {
+        (Some(l), Some(r)) => Some(((l + r) * 0.5).clamp(-1.0, 1.0)),
+        (Some(l), None) => Some(l.clamp(-1.0, 1.0)),
+        (None, Some(r)) => Some(r.clamp(-1.0, 1.0)),
+        (None, None) => None,
+    }
+}
+
 enum OutputRoutingTarget {
     TrackXmlId(String),
     GroupFallback,
@@ -2191,6 +2200,22 @@ mod als_import_tests {
             Some("MidiOut/None".to_string()),
         );
         assert_eq!(out.as_deref(), Some("AudioOut/GroupTrack"));
+    }
+
+    #[test]
+    fn collapse_split_stereo_pan_averages_channels() {
+        let pan = collapse_split_stereo_pan(Some(-1.0), Some(1.0));
+        assert_eq!(pan, Some(0.0));
+
+        let pan = collapse_split_stereo_pan(Some(-0.6), Some(-0.2));
+        assert_eq!(pan, Some(-0.4));
+    }
+
+    #[test]
+    fn collapse_split_stereo_pan_handles_partial_values() {
+        assert_eq!(collapse_split_stereo_pan(Some(0.8), None), Some(0.8));
+        assert_eq!(collapse_split_stereo_pan(None, Some(-0.5)), Some(-0.5));
+        assert_eq!(collapse_split_stereo_pan(None, None), None);
     }
 
     #[test]
@@ -5864,6 +5889,9 @@ fn import_main_track_mixer_snapshot(
         .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
         .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
     {
+        let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
+        let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
+
         if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
             master_track.volume = volume.clamp(0.0, 2.0);
             static_mixer_values.push(("volume".to_string(), master_track.volume));
@@ -5871,6 +5899,10 @@ fn import_main_track_mixer_snapshot(
         if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
             master_track.pan = pan.clamp(-1.0, 1.0);
             static_mixer_values.push(("pan".to_string(), master_track.pan));
+        }
+        if let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r) {
+            master_track.pan = collapsed_pan;
+            static_mixer_values.push(("pan".to_string(), collapsed_pan));
         }
         if let Some(on) = maybe_parse_bool_manual(mixer, "On") {
             static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
@@ -5881,10 +5913,10 @@ fn import_main_track_mixer_snapshot(
         if let Some(v) = maybe_parse_f64_manual(mixer, "CrossFadeState") {
             static_mixer_values.push(("mixer.crossfade_state".to_string(), v.clamp(0.0, 2.0)));
         }
-        if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanL") {
+        if let Some(v) = split_pan_l {
             static_mixer_values.push(("mixer.pan_left".to_string(), v.clamp(-1.0, 1.0)));
         }
-        if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanR") {
+        if let Some(v) = split_pan_r {
             static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
         }
     }
@@ -6828,6 +6860,9 @@ fn import_als_project_with_target_sample_rate(
             .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
             .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
         {
+            let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
+            let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
+
             if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
                 track.volume = volume.clamp(0.0, 2.0);
                 static_mixer_values.push(("volume".to_string(), track.volume));
@@ -6835,6 +6870,10 @@ fn import_als_project_with_target_sample_rate(
             if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
                 track.pan = pan.clamp(-1.0, 1.0);
                 static_mixer_values.push(("pan".to_string(), track.pan));
+            }
+            if let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r) {
+                track.pan = collapsed_pan;
+                static_mixer_values.push(("pan".to_string(), collapsed_pan));
             }
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
@@ -6859,10 +6898,10 @@ fn import_als_project_with_target_sample_rate(
                     crossfade_state.clamp(0.0, 2.0),
                 ));
             }
-            if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanL") {
+            if let Some(v) = split_pan_l {
                 static_mixer_values.push(("mixer.pan_left".to_string(), v.clamp(-1.0, 1.0)));
             }
-            if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanR") {
+            if let Some(v) = split_pan_r {
                 static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
             }
             static_send_values = parse_track_send_manual_values(mixer);
@@ -6974,6 +7013,10 @@ fn import_als_project_with_target_sample_rate(
                 OutputRoutingTarget::None => {
                     // Preserve explicit "no output" (distinct from "to master").
                     static_mixer_values.push(("mixer.output_enabled".to_string(), 0.0));
+                    // Ensure runtime strip gate matches ALS "No Output" behavior.
+                    // The current engine model uses mute/solo output gating;
+                    // without this, tracks with AudioOut/None can still reach master.
+                    track.is_mute = true;
                 }
                 OutputRoutingTarget::Unknown => {
                     // Unknown token may still be a valid external/hardware output.

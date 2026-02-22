@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  rust:
+    name: Rust Tribunal
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo fmt (check)
+        run: cargo fmt --check
+
+      - name: Cargo clippy (policy lints)
+        run: |
+          cargo clippy -p dream_plugins -p dream_engine -p desktop_host --lib --bins -- \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -D clippy::todo \
+            -D clippy::dbg_macro
+
+      - name: Cargo test (workspace, release)
+        run: cargo test --workspace --release
+
+      - name: Audio null-test infrastructure
+        run: cargo test -p dream_engine null_math_ -- --nocapture
+
+  frontend:
+    name: Frontend Type Tribunal
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install UI deps
+        run: pnpm -C frontend/ui_app install --frozen-lockfile
+
+      - name: TypeScript noEmit
+        run: pnpm -C frontend/ui_app exec tsc --noEmit

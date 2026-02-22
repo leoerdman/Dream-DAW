@@ -92,7 +92,7 @@ export default defineConfig({
           if (id.includes('/@tauri-apps/')) return 'vendor-tauri'
           if (id.includes('/lodash.throttle/')) return 'vendor-utils'
           if (id.includes('/zustand/') || id.includes('/lucide-react/')) return 'vendor-ui'
-          return 'vendor-misc'
+          return undefined
         },
       },
     },

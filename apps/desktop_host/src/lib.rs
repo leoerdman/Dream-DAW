@@ -4576,14 +4576,19 @@ pub fn run() {
                         block.copy()
                     });
 
-                    let ns_event_class = Class::get("NSEvent").expect("NSEvent class must exist on macOS");
-                    let _: *mut Object = msg_send![
-                        ns_event_class,
-                        addLocalMonitorForEventsMatchingMask: mask
-                        handler: &*block
-                    ];
-                    // Intentionally leak the block — it must live for the app's lifetime.
-                    std::mem::forget(block);
+                    if let Some(ns_event_class) = Class::get("NSEvent") {
+                        let _: *mut Object = msg_send![
+                            ns_event_class,
+                            addLocalMonitorForEventsMatchingMask: mask
+                            handler: &*block
+                        ];
+                        // Intentionally leak the block — it must live for the app's lifetime.
+                        std::mem::forget(block);
+                    } else {
+                        log::warn!(
+                            "[NSEventMonitor] NSEvent class unavailable; skipping transport monitor install"
+                        );
+                    }
                 }
                 log::info!("[NSEventMonitor] Installed Space key local monitor for transport control");
             }

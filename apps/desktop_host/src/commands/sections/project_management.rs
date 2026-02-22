@@ -1,1048 +1,84 @@
 // ═══════════════════════════════════════════════════════════════════════
 use std::path::{Path, PathBuf};
-
-fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    let pid = plugin_id.trim().to_lowercase();
-    let pname = plugin_name.trim().to_lowercase();
-
-    // 1. Direct XML Tag Matching (Ableton Native Devices)
-    // Ableton stores its internal devices using their exact XML tag names.
-    // We match these directly to avoid false positives on user-renamed racks/VSTs.
-    let is_vst = pid == "plugindevice" || pid == "auplugindevice";
-    if !is_vst {
-        match pid.as_str() {
-            "eq8" | "eqeight" | "channeleq" | "eqthree" => return Some(("internal://effect/eq-eight", "EQ", "effect")),
-            "compressor2" | "compressor" | "gluecompressor" | "drumbuss" | "multibanddynamics" | "transientshaper" => return Some(("internal://effect/compressor", "Compressor", "effect")),
-            "delay" | "echo" | "pingpongdelay" | "filterdelay" | "beatrepeat" | "graindelay" | "spectraltime" => return Some(("internal://effect/delay", "Delay", "effect")),
-            "reverb" | "hybridreverb" | "corpus" | "resonators" | "spectralresonator" => return Some(("internal://effect/reverb", "Reverb", "effect")),
-            "chorus" | "chorus2" | "ensemble" | "vibrato" => return Some(("internal://effect/chorus", "Chorus", "effect")),
-            "utility" | "tuner" | "looper" | "frequencyshifter" | "shifter" | "autoshift" => return Some(("internal://effect/utility", "Utility", "effect")),
-            "autopan" | "autopan2" => return Some(("internal://effect/auto-pan", "Auto Pan", "effect")),
-            "saturator" | "dynamictube" => return Some(("internal://effect/saturator", "Saturator", "effect")),
-            "spectrumanalyzer" | "spectrum" => return Some(("internal://effect/spectrum", "Spectrum", "effect")),
-            "limiter" => return Some(("internal://effect/limiter", "Limiter", "effect")),
-            "gate" => return Some(("internal://effect/gate", "Gate", "effect")),
-            "redux" | "bitcrusher" => return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect")),
-            "autofilter" | "vocoder" => return Some(("internal://effect/auto-filter", "Auto Filter", "effect")),
-            "phasernew" | "phaser" | "phaserflanger" => return Some(("internal://effect/phaser", "Phaser", "effect")),
-            "flanger" => return Some(("internal://effect/flanger", "Flanger", "effect")),
-            "erosion" | "vinyldistortion" | "distortion" | "overdrive" | "amp" | "cabinet" | "pedal" | "roar" => return Some(("internal://effect/distortion", "Distortion", "effect")),
-            "noisemachine" => return Some(("internal://effect/noise-machine", "Noise Machine", "effect")),
-            
-            "midipitcher" => return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect")),
-            "mxdevicescale" | "midichord" => return Some(("internal://midi-fx/scale", "MIDI Scale", "effect")),
-            "mxdevicevelocity" | "midinotelength" | "midivelocity" => return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect")),
-            "mxdevicerandom" | "midiarpeggiator" | "midirandom" => return Some(("internal://midi-fx/random", "MIDI Random", "effect")),
-
-            "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => return Some(("internal://instrument/sampler", "Sampler", "instrument")),
-            "wavetable" | "operator" | "analog" | "collision" | "tension" | "electricpiano" | "instrumentmeld" | "drift" | "instrumentvector" | "loungelizard" | "ultraanalog" | "stringstudio" => return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument")),
-            
-            _ => {}
-        }
-    }
-
-    // 2. Strict VST/Fallback Matching
-    // Only map VSTs to internal IF their display name exactly matches known fallbacks.
-    if is_vst {
-        match pname.as_str() {
-            "span" | "youlean loudness meter" | "loudness meter" | "psyscope" => return Some(("internal://effect/spectrum", "Spectrum", "effect")),
-            "synthesizer v studio 2 plugin" => return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument")),
-            _ => return None,
-        }
-    }
-
-    None
-}
-
-fn normalize_internal_plugins_for_import(project: &mut Project) {
-    for track in &mut project.tracks {
-        if let Some(inst) = &mut track.instrument {
-            let pid = inst.plugin_id();
-            // CRITICAL: Never normalize external VST3 instrument plugins.
-            if pid.is_empty() || pid.starts_with("internal://") {
-                let pname = inst.name().to_string();
-                if let Some((canonical_id, canonical_name, slot)) =
-                    canonical_internal_plugin_for_import(&pid, &pname)
-                    && slot == "instrument"
-                {
-                    inst.set_plugin_id(canonical_id);
-                    if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
-                        inst.set_name(canonical_name);
-                    }
-                    if track.sampler.is_none() {
-                        track.sampler = Some(SamplerConfig::default());
-                    }
-                    if canonical_id == "internal://instrument/wave-synth"
-                        && let Some(cfg) = &mut track.sampler
-                        && cfg.sample_path.trim().is_empty()
-                    {
-                        cfg.sample_path = "internal://waveform/sine".to_string();
-                    }
-                }
-            }
-        }
-        for fx in &mut track.effects {
-            normalize_effect_node(fx, 0);
-        }
-    }
-}
-
-/// Recursively normalize a single `DeviceNode` and all children inside racks.
-fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
-    if depth > 16 {
-        log::warn!("[normalize_effect_node] Recursion depth limit reached, skipping nested rack");
-        return;
-    }
-    match node {
-        DeviceNode::Single(slot) => {
-            // CRITICAL: Never normalize external VST3 plugins.
-            // The keyword matcher (e.g. "shaper" → Distortion) was destroying
-            // external plugins like ShaperBox by matching their names.
-            // Only apply normalization to plugins that are already internal
-            // or have empty/placeholder IDs (from Ableton import).
-            if !slot.plugin_id.is_empty()
-                && !slot.plugin_id.starts_with("internal://")
-            {
-                // External plugin — preserve as-is, never replace.
-                return;
-            }
-            let pid = slot.plugin_id.clone();
-            let pname = slot.name.clone();
-            if let Some((canonical_id, canonical_name, _slot_kind)) =
-                canonical_internal_plugin_for_import(&pid, &pname)
-            {
-                slot.plugin_id = canonical_id.to_string();
-                if pname.trim().is_empty()
-                    || pname.to_lowercase() != canonical_name.to_lowercase()
-                {
-                    slot.name = canonical_name.to_string();
-                }
-            }
-        }
-        DeviceNode::Rack(rack) => {
-            for chain in &mut rack.chains {
-                for device in &mut chain.devices {
-                    normalize_effect_node(device, depth + 1);
-                }
-            }
-        }
-    }
-}
-
-fn parse_bool_value(raw: &str) -> Option<bool> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
-}
-
-fn parse_f64_value(raw: &str) -> Option<f64> {
-    raw.trim().parse::<f64>().ok()
-}
-
-fn parse_i64_value(raw: &str) -> Option<i64> {
-    raw.trim().parse::<i64>().ok()
-}
-
-fn beats_to_frames(beats: f64, bpm: f64, sample_rate: f64) -> i64 {
-    if !beats.is_finite() || !bpm.is_finite() || !sample_rate.is_finite() || bpm <= 0.0 || sample_rate <= 0.0 {
-        return 0;
-    }
-    // Set a sensible minimum BPM to avoid division by zero or super close to zero.
-    let safe_bpm = bpm.max(0.001);
-    let frames = ((beats * 60.0 / safe_bpm) * sample_rate).round();
-
-    // BUG-067 FIX: Clamp to prevent overflow during cast to i64.
-    if frames >= i64::MAX as f64 {
-        i64::MAX
-    } else if frames <= i64::MIN as f64 {
-        i64::MIN
-    } else {
-        frames as i64
-    }
-}
-
-fn node_child_value(node: roxmltree::Node<'_, '_>, child_tag: &str) -> Option<String> {
-    node.children()
-        .find(|c| c.is_element() && c.has_tag_name(child_tag))
-        .and_then(|n| n.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
-fn node_manual_value(node: roxmltree::Node<'_, '_>, param_tag: &str) -> Option<String> {
-    node.children()
-        .find(|c| c.is_element() && c.has_tag_name(param_tag))
-        .and_then(|param| {
-            param.children()
-                .find(|child| child.is_element() && child.has_tag_name("Manual"))
-        })
-        .and_then(|manual| manual.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
-fn maybe_parse_f64_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
-    node_manual_value(node, tag).as_deref().and_then(parse_f64_value)
-}
-
-fn maybe_parse_bool_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    node_manual_value(node, tag).as_deref().and_then(parse_bool_value)
-}
-
-fn first_child_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
-    node.children()
-        .find(|c| c.is_element() && c.has_tag_name(tag))
-        .and_then(|n| n.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
-fn first_child_f64(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
-    first_child_value(node, tag).as_deref().and_then(parse_f64_value)
-}
-
-fn first_child_i32(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> {
-    first_child_value(node, tag)
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-}
-
-fn first_child_bool(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    first_child_value(node, tag).as_deref().and_then(parse_bool_value)
-}
-
-fn descendant_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
-    node.descendants()
-        .find(|n| n.is_element() && n.has_tag_name(tag))
-        .and_then(|n| n.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
-fn parse_live_set_bool(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    first_child_value(live_set, tag)
-        .or_else(|| descendant_value(live_set, tag))
-        .as_deref()
-        .and_then(parse_bool_value)
-}
-
-fn parse_live_set_i32(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> {
-    first_child_value(live_set, tag)
-        .or_else(|| descendant_value(live_set, tag))
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-}
-
-fn parse_view_states_bool(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("ViewStates"))
-        .and_then(|view_states| first_child_bool(view_states, tag))
-}
-
-fn parse_root_midi_editor_lanes(
-    live_set: roxmltree::Node<'_, '_>,
-    root_tag: &str,
-) -> Vec<dream_models::project::MidiEditorLaneState> {
-    let Some(root) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name(root_tag))
-    else {
-        return Vec::new();
-    };
-
-    let mut out = Vec::new();
-    for lane in root
-        .children()
-        .filter(|n| n.is_element() && n.has_tag_name("MidiEditorLaneModel"))
-    {
-        let id = lane
-            .attribute("Id")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-            .unwrap_or(0);
-        let lane_type = first_child_i32(lane, "Type").unwrap_or(0);
-        let size = first_child_f64(lane, "Size").unwrap_or(0.0);
-        let is_minimized = first_child_bool(lane, "IsMinimized").unwrap_or(false);
-        out.push(dream_models::project::MidiEditorLaneState {
-            id,
-            lane_type,
-            size,
-            is_minimized,
-        });
-    }
-    out.sort_by_key(|lane| lane.id);
-    out
-}
-
-fn semitone_to_tonic(root: u8) -> &'static str {
-    match root % 12 {
-        0 => "C",
-        1 => "C#",
-        2 => "D",
-        3 => "D#",
-        4 => "E",
-        5 => "F",
-        6 => "F#",
-        7 => "G",
-        8 => "G#",
-        9 => "A",
-        10 => "A#",
-        _ => "B",
-    }
-}
-
-fn parse_clip_scale_info(clip_node: roxmltree::Node<'_, '_>) -> (bool, Option<u8>, Option<String>) {
-    let is_in_key = node_child_value(clip_node, "IsInKey")
-        .as_deref()
-        .and_then(parse_bool_value)
-        .unwrap_or(false);
-    let scale_info = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("ScaleInformation"));
-    let scale_root = scale_info
-        .and_then(|n| first_child_value(n, "Root"))
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.rem_euclid(12) as u8);
-    let scale_name = scale_info
-        .and_then(|n| first_child_value(n, "Name"))
-        .filter(|s| !s.trim().is_empty());
-    (is_in_key, scale_root, scale_name)
-}
-
-fn parse_clip_follow_action(
-    clip_node: roxmltree::Node<'_, '_>,
-) -> (bool, f64, i32, i32, f64, f64) {
-    let follow = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("FollowAction"));
-    let Some(follow) = follow else {
-        return (false, 0.0, 0, 0, 0.0, 0.0);
-    };
-    (
-        first_child_bool(follow, "FollowActionEnabled").unwrap_or(false),
-        first_child_f64(follow, "FollowTime").unwrap_or(0.0),
-        first_child_i32(follow, "FollowActionA").unwrap_or(0),
-        first_child_i32(follow, "FollowActionB").unwrap_or(0),
-        first_child_f64(follow, "FollowChanceA").unwrap_or(0.0),
-        first_child_f64(follow, "FollowChanceB").unwrap_or(0.0),
-    )
-}
-
-fn parse_clip_groove(clip_node: roxmltree::Node<'_, '_>) -> (Option<String>, f64) {
-    let groove = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("GrooveSettings"));
-    let Some(groove) = groove else {
-        return (None, 0.0);
-    };
-    let groove_id = first_child_value(groove, "GrooveId")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let groove_amount = first_child_f64(groove, "GrooveAmount")
-        .map(|v| (v / 100.0).clamp(0.0, 1.0))
-        .unwrap_or(0.0);
-    let groove_name = if groove_id.is_empty() || groove_id == "-1" {
-        None
-    } else {
-        Some(format!("Groove {groove_id}"))
-    };
-    (groove_name, groove_amount)
-}
-
-fn parse_clip_launch(clip_node: roxmltree::Node<'_, '_>) -> (i32, i32) {
-    (
-        node_child_value(clip_node, "LaunchMode")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-            .unwrap_or(0),
-        node_child_value(clip_node, "LaunchQuantisation")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-            .unwrap_or(0),
-    )
-}
-
-fn parse_clip_loop(clip_node: roxmltree::Node<'_, '_>) -> (Option<f64>, Option<f64>, bool) {
-    let loop_node = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Loop"));
-    let Some(loop_node) = loop_node else {
-        return (None, None, false);
-    };
-    (
-        first_child_f64(loop_node, "LoopStart"),
-        first_child_f64(loop_node, "LoopEnd"),
-        first_child_bool(loop_node, "LoopOn").unwrap_or(false),
-    )
-}
-
-fn parse_audio_clip_warp(
-    clip_node: roxmltree::Node<'_, '_>,
-) -> (bool, Option<i32>, Vec<dream_models::project::WarpMarkerPoint>) {
-    let is_warped = node_child_value(clip_node, "IsWarped")
-        .as_deref()
-        .and_then(parse_bool_value)
-        .unwrap_or(false);
-    let warp_mode = node_child_value(clip_node, "WarpMode")
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-    let mut markers = Vec::new();
-    if let Some(warp_markers) = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("WarpMarkers"))
-    {
-        for marker in warp_markers
-            .children()
-            .filter(|n| n.is_element() && n.has_tag_name("WarpMarker"))
-        {
-            let sec_time = marker
-                .attribute("SecTime")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
-            let beat_time = marker
-                .attribute("BeatTime")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
-            markers.push(dream_models::project::WarpMarkerPoint { sec_time, beat_time });
-        }
-    }
-    // BUG-066 FIX: Validate and sort warp markers.
-    // Ensure markers are strictly monotonically ordered by both beat and sec time.
-    if !markers.is_empty() {
-        markers.sort_by(|a, b| {
-            a.beat_time
-                .partial_cmp(&b.beat_time)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    a.sec_time
-                        .partial_cmp(&b.sec_time)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-        });
-
-        // dedup_by drops 'a' if the closure returns true.
-        // `b` is the previous element, `a` is the current element.
-        // We drop any marker that doesn't strictly increase in both time domains.
-        markers.dedup_by(|a, b| {
-            a.beat_time <= b.beat_time || a.sec_time <= b.sec_time
-        });
-    }
-
-    (is_warped, warp_mode, markers)
-}
-
-fn parse_clip_time_signature(clip_node: roxmltree::Node<'_, '_>) -> (Option<u8>, Option<u8>) {
-    let ts = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("TimeSignature"));
-    let numerator = ts
-        .and_then(|n| {
-            n.descendants()
-                .find(|d| d.is_element() && d.has_tag_name("Numerator"))
-        })
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(1, 32) as u8);
-    let denominator = ts
-        .and_then(|n| {
-            n.descendants()
-                .find(|d| d.is_element() && d.has_tag_name("Denominator"))
-        })
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(1, 32) as u8);
-    (numerator, denominator)
-}
-
-fn parse_clip_envelopes(
-    clip_node: roxmltree::Node<'_, '_>,
-    pointee_map: &std::collections::HashMap<String, String>,
-) -> Vec<dream_models::project::ClipEnvelope> {
-    let mut envelopes_out = Vec::new();
-    let envelopes_root = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
-        .and_then(|e| e.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
-    let Some(envelopes_root) = envelopes_root else {
-        return envelopes_out;
-    };
-    for envelope in envelopes_root
-        .children()
-        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
-    {
-        let pointee_id = envelope
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
-            .and_then(|n| n.attribute("Value"))
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-            .unwrap_or(0);
-        if pointee_id == 0 {
-            continue;
-        }
-        let mut points = Vec::new();
-        for event in envelope
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
-        {
-            let beat = event
-                .attribute("Time")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
-            if beat < -1_000_000.0 {
-                continue;
-            }
-            let value = event
-                .attribute("Value")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
-            points.push(dream_models::project::AutomationPoint {
-                beat,
-                value,
-                curve_type: "linear".to_string(),
-                tension: None,
-                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
-            });
-        }
-        if points.is_empty() {
-            continue;
-        }
-        points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-        let param_id = pointee_map
-            .get(&pointee_id.to_string())
-            .cloned()
-            .unwrap_or_else(|| format!("clip:{pointee_id}"));
-        envelopes_out.push(dream_models::project::ClipEnvelope {
-            pointee_id,
-            param_id,
-            points,
-        });
-    }
-    envelopes_out
-}
-
-fn parse_clip_grid(
-    clip_node: roxmltree::Node<'_, '_>,
-) -> Option<(u16, u16, u8, bool, bool)> {
-    let grid = if clip_node.has_tag_name("Grid") {
-        clip_node
-    } else {
-        clip_node
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("Grid"))?
-    };
-    let numerator = first_child_value(grid, "FixedNumerator")
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(1, u16::MAX as i64) as u16)
-        .unwrap_or(1);
-    let denominator = first_child_value(grid, "FixedDenominator")
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(1, u16::MAX as i64) as u16)
-        .unwrap_or(16);
-    let ntoles = first_child_value(grid, "Ntoles")
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(1, u8::MAX as i64) as u8)
-        .unwrap_or(2);
-    let snap = first_child_bool(grid, "SnapToGrid").unwrap_or(true);
-    let fixed = first_child_bool(grid, "Fixed").unwrap_or(false);
-    Some((numerator, denominator, ntoles, snap, fixed))
-}
+use dream_importers::ableton::plugin_mapper::{
+    canonical_internal_plugin_for_import,
+    normalize_internal_plugins_for_import,
+};
+use dream_importers::ableton::markers::{
+    parse_project_markers as parse_project_markers_from_importer,
+    parse_project_scenes as parse_project_scenes_from_importer,
+};
+use dream_importers::ableton::parser::{
+    find_live_set as find_live_set_from_importer,
+    parse_als_document as parse_als_document_from_importer,
+    parse_imported_sample_rate as parse_imported_sample_rate_from_importer,
+    parse_main_tempo as parse_main_tempo_from_importer,
+    parse_project_name as parse_project_name_from_importer,
+    read_als_xml_text as read_als_xml_text_from_importer,
+    resolve_timeline_sample_rate as resolve_timeline_sample_rate_from_importer,
+};
+use dream_importers::ableton::clip_parser::{
+    parse_audio_clip_warp,
+    parse_clip_envelopes,
+    parse_clip_follow_action,
+    parse_clip_groove,
+    parse_clip_grid,
+    parse_clip_launch,
+    parse_clip_loop,
+    parse_clip_scale_info,
+    parse_clip_time_signature,
+    semitone_to_tonic,
+};
+use dream_importers::ableton::automation::{
+    build_main_track_mixer_snapshot,
+    consolidate_automation_lanes as consolidate_automation_lanes_from_importer,
+};
+use dream_importers::ableton::color_map::{
+    ableton_color_index_to_hex,
+    ableton_color_to_track_color,
+};
+use dream_importers::ableton::routing::{
+    choose_preferred_output_target,
+    classify_output_routing_target,
+    collapse_split_stereo_pan,
+    normalize_input_routing_target,
+    parse_output_target,
+    OutputRoutingTarget,
+};
+use dream_importers::ableton::xml_helpers::{
+    beats_to_frames,
+    collect_track_devices,
+    first_child_bool,
+    first_child_f64,
+    first_child_i32,
+    find_first_devices_container,
+    first_child_value,
+    maybe_parse_bool_manual,
+    maybe_parse_f64_manual,
+    node_child_value,
+    parse_bool_value,
+    parse_f64_value,
+    parse_i64_value,
+    parse_live_set_bool,
+    parse_live_set_i32,
+    parse_root_midi_editor_lanes,
+    parse_track_bool_flag_legacy as parse_track_bool_flag,
+    parse_track_i64_value_legacy as parse_track_i64_value,
+    parse_track_key_note_target_legacy as parse_track_key_note_target,
+    parse_track_send_manual_values,
+    parse_view_states_bool,
+};
 
 fn parse_project_markers(
     live_set: roxmltree::Node<'_, '_>,
 ) -> Vec<dream_models::project::ProjectMarker> {
-    let mut out = Vec::<dream_models::project::ProjectMarker>::new();
-
-    let mut idx = 0usize;
-
-    for locator in live_set
-        .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("Locator"))
-    {
-        let position_beats = first_child_f64(locator, "Time")
-            .or_else(|| locator.attribute("Time").and_then(parse_f64_value))
-            .unwrap_or(0.0)
-            .max(0.0);
-        let name = first_child_value(locator, "Name")
-            .or_else(|| {
-                locator
-                    .descendants()
-                    .find(|n| n.is_element() && n.has_tag_name("EffectiveName"))
-                    .and_then(|n| n.attribute("Value"))
-                    .map(|s| s.to_string())
-            })
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Marker {}", idx + 1));
-        let color = first_child_value(locator, "Color")
-            .or_else(|| locator.attribute("Color").map(|s| s.to_string()))
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| ableton_color_to_track_color(v, idx));
-        out.push(dream_models::project::ProjectMarker {
-            id: Uuid::new_v4(),
-            name,
-            position_beats,
-            color,
-        });
-        idx += 1;
-    }
-
-    // Some ALS files store timeline cue points outside <Locators>.
-    for cue in live_set
-        .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("CuePoint"))
-    {
-        let position_beats = cue
-            .attribute("Time")
-            .and_then(parse_f64_value)
-            .or_else(|| first_child_f64(cue, "Time"))
-            .unwrap_or(0.0)
-            .max(0.0);
-        let name = cue
-            .attribute("Name")
-            .map(|s| s.to_string())
-            .or_else(|| first_child_value(cue, "Name"))
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Cue {}", idx + 1));
-        let color = cue
-            .attribute("Color")
-            .map(|s| s.to_string())
-            .or_else(|| first_child_value(cue, "Color"))
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| ableton_color_to_track_color(v, idx));
-        out.push(dream_models::project::ProjectMarker {
-            id: Uuid::new_v4(),
-            name,
-            position_beats,
-            color,
-        });
-        idx += 1;
-    }
-
-    // Drop duplicates by (rounded beat, normalized name).
-    out.sort_by(|a, b| a.position_beats.total_cmp(&b.position_beats));
-    out.dedup_by(|a, b| {
-        ((a.position_beats - b.position_beats).abs() < 1e-6)
-            && a.name.trim().eq_ignore_ascii_case(b.name.trim())
-    });
-
-    out
+    parse_project_markers_from_importer(live_set)
 }
 
 fn parse_project_scenes(
     live_set: roxmltree::Node<'_, '_>,
 ) -> Vec<dream_models::project::ProjectScene> {
-    let mut out = Vec::<dream_models::project::ProjectScene>::new();
-
-    let Some(scenes_root) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Scenes"))
-        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Scenes")))
-    else {
-        return out;
-    };
-
-    for (fallback_idx, scene) in scenes_root
-        .children()
-        .filter(|n| n.is_element() && n.has_tag_name("Scene"))
-        .enumerate()
-    {
-        let index = scene
-            .attribute("Id")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
-            .unwrap_or(fallback_idx as i32);
-
-        let name = first_child_value(scene, "Name")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Scene {}", index + 1));
-
-        let color = first_child_value(scene, "Color")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .and_then(|v| (v >= 0).then_some(ableton_color_to_track_color(v, fallback_idx)));
-
-        let tempo = first_child_f64(scene, "Tempo").filter(|v| v.is_finite() && *v > 0.0);
-        let tempo_enabled = first_child_bool(scene, "IsTempoEnabled").unwrap_or(false);
-        let time_signature_id = first_child_i32(scene, "TimeSignatureId");
-        let time_signature_enabled = first_child_bool(scene, "IsTimeSignatureEnabled").unwrap_or(false);
-        let time_signature_numerator = scene
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("Numerator"))
-            .and_then(|n| n.attribute("Value"))
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(1, 32) as u8);
-        let time_signature_denominator = scene
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("Denominator"))
-            .and_then(|n| n.attribute("Value"))
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(1, 32) as u8);
-        let follow_action = scene
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("FollowAction"));
-        let follow_action_enabled = follow_action
-            .and_then(|f| first_child_bool(f, "FollowActionEnabled"))
-            .unwrap_or(false);
-        let follow_time = follow_action.and_then(|f| first_child_f64(f, "FollowTime"));
-        let follow_action_a = follow_action.and_then(|f| first_child_i32(f, "FollowActionA"));
-        let follow_action_b = follow_action.and_then(|f| first_child_i32(f, "FollowActionB"));
-        let follow_chance_a = follow_action.and_then(|f| first_child_f64(f, "FollowChanceA"));
-        let follow_chance_b = follow_action.and_then(|f| first_child_f64(f, "FollowChanceB"));
-
-        out.push(dream_models::project::ProjectScene {
-            index,
-            name,
-            color,
-            tempo,
-            tempo_enabled,
-            time_signature_id,
-            time_signature_enabled,
-            time_signature_numerator,
-            time_signature_denominator,
-            follow_action_enabled,
-            follow_time,
-            follow_action_a,
-            follow_action_b,
-            follow_chance_a,
-            follow_chance_b,
-        });
-    }
-
-    out.sort_by_key(|s| s.index);
-    out
-}
-
-fn direct_manual_value(node: roxmltree::Node<'_, '_>) -> Option<String> {
-    node.children()
-        .find(|c| c.is_element() && c.has_tag_name("Manual"))
-        .and_then(|manual| manual.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
-fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize, f64)> {
-    let mut sends = Vec::new();
-    for (seq_idx, holder) in mixer
-        .descendants()
-        .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
-        .enumerate()
-    {
-        let idx = holder
-            .attribute("Id")
-            .and_then(parse_i64_value)
-            .filter(|v| *v >= 0)
-            .map(|v| v as usize)
-            .unwrap_or(seq_idx);
-
-        let Some(send_node) = holder
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("Send"))
-        else {
-            continue;
-        };
-        let value = direct_manual_value(send_node)
-            .as_deref()
-            .and_then(parse_f64_value)
-            .unwrap_or(0.0)
-            .clamp(0.0, 2.0);
-        sends.push((idx, value));
-    }
-    sends
-}
-
-fn parse_output_target(
-    track_node: roxmltree::Node<'_, '_>,
-    routing_tag: &str,
-) -> Option<String> {
-    fn clean(v: Option<&str>) -> Option<String> {
-        v.map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
-    }
-
-    let routing_node = track_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| {
-            dc.children()
-                .find(|n| n.is_element() && n.has_tag_name(routing_tag))
-                .or_else(|| {
-                    dc.descendants()
-                        .find(|n| n.is_element() && n.has_tag_name(routing_tag))
-                })
-        })
-        .or_else(|| {
-            track_node
-                .children()
-                .find(|n| n.is_element() && n.has_tag_name(routing_tag))
-                .or_else(|| {
-                    track_node
-                        .descendants()
-                        .find(|n| n.is_element() && n.has_tag_name(routing_tag))
-                })
-        });
-    let Some(routing) = routing_node else {
-        return None;
-    };
-
-    clean(
-        routing
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("Target"))
-            .and_then(|target| target.attribute("Value")),
-    )
-    .or_else(|| {
-        clean(
-            routing
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Target"))
-                .and_then(|target| target.attribute("Value")),
-        )
-    })
-    .or_else(|| clean(node_child_value(routing, "UpperDisplayString").as_deref()))
-    .or_else(|| clean(node_child_value(routing, "DisplayString").as_deref()))
-    .or_else(|| clean(node_child_value(routing, "LowerDisplayString").as_deref()))
-}
-
-fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    node_child_value(track_node, tag)
-        .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name(tag))
-                .and_then(|n| n.attribute("Value"))
-                .map(ToString::to_string)
-        })
-        .as_deref()
-        .and_then(parse_bool_value)
-}
-
-fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
-    node_child_value(track_node, "KeyNoteTarget")
-        .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("KeyNoteTarget"))
-                .and_then(|n| n.attribute("Value"))
-                .map(ToString::to_string)
-        })
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(0, 127) as u8)
-}
-
-fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
-    node_child_value(track_node, tag)
-        .or_else(|| {
-            track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name(tag))
-                .and_then(|n| n.attribute("Value"))
-                .map(ToString::to_string)
-        })
-        .as_deref()
-        .and_then(parse_i64_value)
-}
-
-fn choose_preferred_output_target(
-    track_type: TrackType,
-    audio_output: Option<String>,
-    midi_output: Option<String>,
-) -> Option<String> {
-    match track_type {
-        // For MIDI tracks in arrangement audio graph, AudioOutputRouting is
-        // the destination we can map to track/group/master. MidiOutputRouting
-        // can legitimately be `MidiOut/None` and must not disable audio output.
-        TrackType::Midi => audio_output.or(midi_output),
-        _ => audio_output.or(midi_output),
-    }
-}
-
-fn collapse_split_stereo_pan(pan_left: Option<f64>, pan_right: Option<f64>) -> Option<f64> {
-    match (pan_left, pan_right) {
-        (Some(l), Some(r)) => Some(((l + r) * 0.5).clamp(-1.0, 1.0)),
-        (Some(l), None) => Some(l.clamp(-1.0, 1.0)),
-        (None, Some(r)) => Some(r.clamp(-1.0, 1.0)),
-        (None, None) => None,
-    }
-}
-
-enum OutputRoutingTarget {
-    TrackXmlId(String),
-    GroupFallback,
-    Master,
-    None,
-    Unknown,
-}
-
-fn classify_output_routing_target(target: &str) -> OutputRoutingTarget {
-    let t = target.trim();
-    if t.is_empty() {
-        return OutputRoutingTarget::Unknown;
-    }
-    let low = t.to_ascii_lowercase();
-    if low.ends_with("/none") || low.contains("no output") || low.contains("nooutput") {
-        return OutputRoutingTarget::None;
-    }
-    if low.ends_with("/main") || low == "main" || low == "master" {
-        return OutputRoutingTarget::Master;
-    }
-    if low.ends_with("/grouptrack") {
-        return OutputRoutingTarget::GroupFallback;
-    }
-    if let Some(xml_id) = parse_target_track_xml_id(t) {
-        return OutputRoutingTarget::TrackXmlId(xml_id);
-    }
-    OutputRoutingTarget::Unknown
-}
-
-fn normalize_input_routing_target(raw: &str) -> Option<String> {
-    let v = raw.trim();
-    if v.is_empty() {
-        return None;
-    }
-    // Common Ableton "no input" sentinel variants.
-    let low = v.to_ascii_lowercase();
-    if low.contains("noinput")
-        || low.contains("no_input")
-        || low.contains("no input")
-        || low.ends_with("/none")
-    {
-        return None;
-    }
-    Some(v.to_string())
-}
-
-fn parse_target_track_xml_id(target: &str) -> Option<String> {
-    for segment in target.split('/') {
-        let segment = segment.trim();
-        let Some((kind, id)) = segment.split_once('.') else {
-            continue;
-        };
-        let kind_norm = kind.trim().to_ascii_lowercase();
-        if !["track", "audiotrack", "miditrack", "returntrack", "grouptrack"]
-            .contains(&kind_norm.as_str())
-        {
-            continue;
-        }
-        let id = id.trim();
-        if id.is_empty() || id == "-1" || !id.chars().all(|c| c.is_ascii_digit() || c == '-') {
-            continue;
-        }
-        return Some(id.to_string());
-    }
-    None
-}
-
-fn resolve_als_file_path(
-    als_path: &Path,
-    absolute_path: Option<&str>,
-    relative_path: Option<&str>,
-) -> Option<String> {
-    fn try_existing_variants(raw: &str) -> Option<String> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let candidates = [
-            trimmed.to_string(),
-            trimmed.replace(" - ", "-"),
-            trimmed.replace(" -", "-"),
-            trimmed.replace("- ", "-"),
-            trimmed.replace("160 - 200 BPM", "160-200 BPM"),
-        ];
-        for candidate in candidates {
-            if std::path::Path::new(&candidate).exists() {
-                return Some(candidate);
-            }
-        }
-        None
-    }
-
-    fn search_near_project(als_path: &Path, raw: &str) -> Option<String> {
-        let file_name = std::path::Path::new(raw)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if file_name.is_empty() {
-            return None;
-        }
-        let root = als_path.parent()?;
-        let hot_dirs = [
-            root.join("Samples").join("Imported"),
-            root.join("Samples").join("Processed"),
-            root.join("Samples").join("Recorded"),
-            root.join("Samples"),
-        ];
-        for dir in hot_dirs {
-            if !dir.exists() {
-                continue;
-            }
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file()
-                        && path
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .map(|n| n.eq_ignore_ascii_case(&file_name))
-                            .unwrap_or(false)
-                    {
-                        return Some(path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    if let Some(abs) = absolute_path
-        && !abs.trim().is_empty()
-    {
-        if let Some(found) = try_existing_variants(abs) {
-            return Some(found);
-        }
-        if let Some(found) = search_near_project(als_path, abs) {
-            return Some(found);
-        }
-        return Some(abs.trim().to_string());
-    }
-    if let Some(rel) = relative_path
-        && !rel.trim().is_empty()
-    {
-        let rel_path = PathBuf::from(rel);
-        if rel_path.is_absolute() {
-            if let Some(found) = try_existing_variants(&rel_path.to_string_lossy()) {
-                return Some(found);
-            }
-            return Some(rel_path.to_string_lossy().to_string());
-        }
-        let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
-        let joined = parent.join(rel_path).to_string_lossy().to_string();
-        if let Some(found) = try_existing_variants(&joined) {
-            return Some(found);
-        }
-        if let Some(found) = search_near_project(als_path, &joined) {
-            return Some(found);
-        }
-        return Some(joined);
-    }
-    None
+    parse_project_scenes_from_importer(live_set)
 }
 
 fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
@@ -1499,142 +535,6 @@ impl ExternalPluginIndex {
     }
 }
 
-fn collect_devices_in_container<'a, 'input>(
-    device_container: roxmltree::Node<'a, 'input>,
-    out: &mut Vec<roxmltree::Node<'a, 'input>>,
-) {
-    for device in device_container.children().filter(|n| n.is_element()) {
-        out.push(device);
-
-        // Dive into nested rack/chain device containers.
-        // Ableton nests racks as: AudioEffectGroupDevice > Branches >
-        // AudioEffectBranch > DeviceChain > AudioToAudioDeviceChain > Devices.
-        // We search descendants for any <Devices> node inside a <DeviceChain>
-        // to handle intermediary wrappers like AudioToAudioDeviceChain.
-        for nested_chain in device
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        {
-            if let Some(nested_devices) = find_first_devices_container(nested_chain) {
-                collect_devices_in_container(nested_devices, out);
-            }
-        }
-    }
-}
-
-fn find_first_devices_container<'a, 'input>(
-    node: roxmltree::Node<'a, 'input>,
-) -> Option<roxmltree::Node<'a, 'input>> {
-    for child in node.children().filter(|n| n.is_element()) {
-        if child.has_tag_name("Devices") {
-            return Some(child);
-        }
-    }
-    for child in node.children().filter(|n| n.is_element()) {
-        if let Some(found) = find_first_devices_container(child) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn collect_track_devices<'a, 'input>(
-    track_node: roxmltree::Node<'a, 'input>,
-) -> Vec<roxmltree::Node<'a, 'input>> {
-    let mut devices = Vec::new();
-    for chain in track_node
-        .children()
-        .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-    {
-        // Ableton can wrap the actual devices container in multiple nested
-        // `*DeviceChain` nodes, so we search recursively for the first
-        // reachable <Devices> container under this root chain.
-        if let Some(root_devices) = find_first_devices_container(chain) {
-            collect_devices_in_container(root_devices, &mut devices);
-        }
-    }
-    devices
-}
-
-fn parse_fade_frames_from_audio_clip(
-    clip_node: roxmltree::Node<'_, '_>,
-    bpm: f64,
-    sample_rate: f64,
-) -> (i64, i64) {
-    let fade_in_beats = node_child_value(clip_node, "FadeInLength")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .unwrap_or(0.0);
-    let fade_out_beats = node_child_value(clip_node, "FadeOutLength")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .unwrap_or(0.0);
-
-    (
-        beats_to_frames(fade_in_beats, bpm, sample_rate).max(0),
-        beats_to_frames(fade_out_beats, bpm, sample_rate).max(0),
-    )
-}
-
-fn extract_audio_clip_source_path(
-    clip_node: roxmltree::Node<'_, '_>,
-    als_path: &Path,
-) -> String {
-    if let Some(sample_ref) = clip_node
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("SampleRef"))
-    {
-        let abs = sample_ref
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("Path"))
-            .and_then(|n| n.attribute("Value"));
-        let rel = sample_ref
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
-            .and_then(|n| n.attribute("Value"));
-        if let Some(path) = resolve_als_file_path(als_path, abs, rel) {
-            return path;
-        }
-    }
-
-    if let Some(file_ref) = clip_node
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("FileRef"))
-    {
-        let abs = file_ref
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("Path"))
-            .and_then(|n| n.attribute("Value"));
-        let rel = file_ref
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
-            .and_then(|n| n.attribute("Value"));
-        if let Some(path) = resolve_als_file_path(als_path, abs, rel) {
-            return path;
-        }
-    }
-
-    String::new()
-}
-
-fn extract_simpler_sample_path(
-    device: roxmltree::Node<'_, '_>,
-    als_path: &Path,
-) -> Option<String> {
-    let sample_ref = device
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("SampleRef"))?;
-    let abs = sample_ref
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("Path"))
-        .and_then(|n| n.attribute("Value"));
-    let rel = sample_ref
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
-        .and_then(|n| n.attribute("Value"));
-    resolve_als_file_path(als_path, abs, rel)
-}
-
 #[cfg(test)]
 mod als_import_tests {
     use super::*;
@@ -1921,7 +821,7 @@ mod als_import_tests {
             .expect("audio clip");
 
         let als_path = Path::new("/tmp/project/Test.als");
-        let source = extract_audio_clip_source_path(clip, als_path);
+        let source = dream_importers::ableton::file_resolver::extract_audio_clip_source_path(clip, als_path);
         assert!(source.ends_with("Samples/Imported/kick.wav"));
     }
 
@@ -2018,23 +918,29 @@ mod als_import_tests {
     #[test]
     fn parse_target_track_xml_id_extracts_track_segment() {
         assert_eq!(
-            parse_target_track_xml_id("AudioOut/Track.243"),
+            dream_importers::ableton::routing::parse_target_track_xml_id("AudioOut/Track.243"),
             Some("243".to_string())
         );
         assert_eq!(
-            parse_target_track_xml_id("MidiOut/Track.77"),
+            dream_importers::ableton::routing::parse_target_track_xml_id("MidiOut/Track.77"),
             Some("77".to_string())
         );
         assert_eq!(
-            parse_target_track_xml_id("AudioOut/ReturnTrack.81"),
+            dream_importers::ableton::routing::parse_target_track_xml_id("AudioOut/ReturnTrack.81"),
             Some("81".to_string())
         );
         assert_eq!(
-            parse_target_track_xml_id("AudioOut/track.99"),
+            dream_importers::ableton::routing::parse_target_track_xml_id("AudioOut/track.99"),
             Some("99".to_string())
         );
-        assert_eq!(parse_target_track_xml_id("AudioOut/Main"), None);
-        assert_eq!(parse_target_track_xml_id("AudioOut/GroupTrack"), None);
+        assert_eq!(
+            dream_importers::ableton::routing::parse_target_track_xml_id("AudioOut/Main"),
+            None
+        );
+        assert_eq!(
+            dream_importers::ableton::routing::parse_target_track_xml_id("AudioOut/GroupTrack"),
+            None
+        );
     }
 
     #[test]
@@ -3688,7 +2594,7 @@ fn import_track_clips(
             .filter(|v| !v.trim().is_empty())
             .unwrap_or_else(|| "Audio Clip".to_string());
 
-        let source_path = extract_audio_clip_source_path(clip_node, als_path);
+        let source_path = dream_importers::ableton::file_resolver::extract_audio_clip_source_path(clip_node, als_path);
 
         let mut clip = AudioClip::new(
             clip_name,
@@ -3712,7 +2618,7 @@ fn import_track_clips(
         {
             clip.gain = sample_volume.clamp(0.0, 8.0);
         }
-        let (fade_in, fade_out) = parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+        let (fade_in, fade_out) = dream_importers::ableton::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
         clip.fade_in_frames = fade_in;
         clip.fade_out_frames = fade_out;
 
@@ -3798,7 +2704,7 @@ fn import_track_clips(
             AbsoluteTime::new(beats_to_frames(start_beats, bpm, sample_rate)),
             AbsoluteTime::new(beats_to_frames(duration_beats, bpm, sample_rate).max(1)),
         );
-        let (fade_in, fade_out) = parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+        let (fade_in, fade_out) = dream_importers::ableton::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
         clip.fade_in_frames = fade_in;
         clip.fade_out_frames = fade_out;
 
@@ -5368,7 +4274,7 @@ fn import_track_devices(
                     track.sampler = Some(SamplerConfig::default());
                 }
                 if tag == "OriginalSimpler"
-                    && let Some(sample_path) = extract_simpler_sample_path(device, als_path)
+                    && let Some(sample_path) = dream_importers::ableton::file_resolver::extract_simpler_sample_path(device, als_path)
                     && let Some(cfg) = &mut track.sampler
                     && cfg.sample_path.trim().is_empty()
                 {
@@ -5424,73 +4330,6 @@ fn import_track_devices(
                 track.effects.push(slot);
             }
         }
-    }
-}
-
-// ── Ableton Color Mapping ────────────────────────────────────────────────
-//
-// Ableton Live uses a 70-color palette indexed 0–69. We map each index to
-// the nearest TrackColor variant. Unmapped / out-of-range indices fall back
-// to `TrackColor::for_index(fallback)`.
-
-fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
-    match index {
-        // Reds / Coral
-        0 | 1 | 2 => TrackColor::Coral,
-        // Oranges
-        3 | 4 | 5 => TrackColor::Orange,
-        // Golds
-        6 | 7 => TrackColor::Gold,
-        // Yellows
-        8 | 9 => TrackColor::Yellow,
-        // Limes
-        10 | 11 | 12 => TrackColor::Lime,
-        // Greens
-        13 | 14 | 15 => TrackColor::Green,
-        // Teals
-        16 | 17 => TrackColor::Teal,
-        // Cyans
-        18 | 19 => TrackColor::Cyan,
-        // Sky blues
-        20 | 21 => TrackColor::Sky,
-        // Blues
-        22 | 23 | 24 => TrackColor::Blue,
-        // Indigos
-        25 | 26 => TrackColor::Indigo,
-        // Purples
-        27 | 28 | 29 => TrackColor::Purple,
-        // Magentas
-        30 | 31 => TrackColor::Magenta,
-        // Pinks
-        32 | 33 | 34 => TrackColor::Pink,
-        // Roses
-        35 | 36 | 37 => TrackColor::Rose,
-        // Grays / Slates
-        38..=69 => TrackColor::Slate,
-        _ => TrackColor::for_index(fallback),
-    }
-}
-
-/// Returns the exact Ableton Live hex color for a given color index (0-69).
-///
-/// Ableton uses a 70-color palette arranged in a 14×5 grid.
-fn ableton_color_index_to_hex(index: i64) -> Option<&'static str> {
-    const ABLETON_COLORS: [&str; 70] = [
-        "#FF94A6", "#FFA529", "#CC9927", "#F7F47C", "#BEFA40", "#20FF32", "#25FEA9",
-        "#5CFFE8", "#8DC7FA", "#5480E4", "#92A8FB", "#D170DA", "#E156A1", "#FFFFFF",
-        "#FF3636", "#F66C03", "#997551", "#FFF034", "#87FF67", "#3DC300", "#00BFA8",
-        "#19E9FD", "#10A4EE", "#007DC0", "#886CE4", "#B677C6", "#FF39D4", "#D0D0D0",
-        "#E2675A", "#FFA374", "#D3AD71", "#EDFFAE", "#D2E498", "#BAD074", "#9FC48D",
-        "#D4FDE1", "#CDF1F8", "#B9C1E3", "#CDBADB", "#AF97E4", "#E5DDE1", "#A9A9A9",
-        "#C6928B", "#B58057", "#9A8468", "#BEBA6F", "#A3B82C", "#85B054", "#90C3BB",
-        "#9EBAC1", "#8BA7BF", "#8998C8", "#A99AB5", "#BEA4BC", "#BD7396", "#7B7B7B",
-        "#AF3333", "#A85131", "#724F41", "#DFC133", "#85982C", "#529F36", "#0A9C8E",
-        "#236384", "#1A2F96", "#2F52A2", "#624BAD", "#A34BAD", "#CC2E6E", "#3E3E3E",
-    ];
-    if (0..=69).contains(&index) {
-        Some(ABLETON_COLORS[index as usize])
-    } else {
-        None
     }
 }
 
@@ -5882,123 +4721,20 @@ fn import_main_track_mixer_snapshot(
     main_track_node: roxmltree::Node<'_, '_>,
     master_track: &mut Track,
 ) {
-    let mut static_mixer_values = Vec::<(String, f64)>::new();
-
-    if let Some(mixer) = main_track_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
-    {
-        let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
-        let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
-
-        if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
-            master_track.volume = volume.clamp(0.0, 2.0);
-            static_mixer_values.push(("volume".to_string(), master_track.volume));
-        }
-        if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
-            master_track.pan = pan.clamp(-1.0, 1.0);
-            static_mixer_values.push(("pan".to_string(), master_track.pan));
-        }
-        if let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r) {
-            master_track.pan = collapsed_pan;
-            static_mixer_values.push(("pan".to_string(), collapsed_pan));
-        }
-        if let Some(on) = maybe_parse_bool_manual(mixer, "On") {
-            static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
-        }
-        if let Some(speaker) = maybe_parse_bool_manual(mixer, "Speaker") {
-            static_mixer_values.push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
-        }
-        if let Some(v) = maybe_parse_f64_manual(mixer, "CrossFadeState") {
-            static_mixer_values.push(("mixer.crossfade_state".to_string(), v.clamp(0.0, 2.0)));
-        }
-        if let Some(v) = split_pan_l {
-            static_mixer_values.push(("mixer.pan_left".to_string(), v.clamp(-1.0, 1.0)));
-        }
-        if let Some(v) = split_pan_r {
-            static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
-        }
+    let snapshot = build_main_track_mixer_snapshot(main_track_node);
+    if let Some(volume) = snapshot.volume {
+        master_track.volume = volume;
     }
-
-    let output_target = choose_preferred_output_target(
-        TrackType::Master,
-        parse_output_target(main_track_node, "AudioOutputRouting"),
-        parse_output_target(main_track_node, "MidiOutputRouting"),
-    );
-    if let Some(target) = output_target {
-        match classify_output_routing_target(&target) {
-            OutputRoutingTarget::None => {
-                static_mixer_values.push(("mixer.output_enabled".to_string(), 0.0));
-            }
-            OutputRoutingTarget::TrackXmlId(_)
-            | OutputRoutingTarget::GroupFallback
-            | OutputRoutingTarget::Master => {
-                static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
-            }
-            OutputRoutingTarget::Unknown => {
-                // Keep output enabled for valid-but-unrecognized routing
-                // tokens (e.g. external hardware targets).
-                static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
-            }
-        }
+    if let Some(pan) = snapshot.pan {
+        master_track.pan = pan;
     }
-
-    if let Some(v) = parse_track_bool_flag(main_track_node, "IsAutoSelectEnabled") {
-        static_mixer_values.push((
-            "mixer.is_auto_select_enabled".to_string(),
-            if v { 1.0 } else { 0.0 },
-        ));
-    }
-    if let Some(v) = parse_track_bool_flag(main_track_node, "KeepRecordMonitoringLatency") {
-        static_mixer_values.push((
-            "mixer.keep_record_monitoring_latency".to_string(),
-            if v { 1.0 } else { 0.0 },
-        ));
-    }
-    if let Some(monitoring_mode) = node_child_value(main_track_node, "MonitoringEnum")
-        .or_else(|| {
-            main_track_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("MonitoringEnum"))
-                .and_then(|n| n.attribute("Value"))
-                .map(ToString::to_string)
-        })
-        .as_deref()
-        .and_then(parse_i64_value)
-        .map(|v| v.clamp(0, 2) as u8)
-    {
-        static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode as f64));
-    }
-
-    for (param_id, value) in static_mixer_values {
+    for (param_id, value) in snapshot.static_mixer_values {
         upsert_static_import_lane_if_missing(master_track, &param_id, value);
     }
 }
 
 fn consolidate_automation_lanes(track: &mut Track) {
-    use std::collections::HashMap;
-
-    let mut merged: HashMap<String, Vec<dream_models::project::AutomationPoint>> = HashMap::new();
-    for lane in track.automation_lanes.drain(..) {
-        let key = lane.param_id.trim().to_string();
-        if key.is_empty() {
-            continue;
-        }
-        merged.entry(key).or_default().extend(lane.points);
-    }
-
-    let mut out = Vec::new();
-    for (param_id, mut points) in merged {
-        points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-        points.dedup_by(|a, b| (a.beat - b.beat).abs() < 1e-9);
-        if points.is_empty() {
-            continue;
-        }
-        out.push(dream_models::project::AutomationLane { param_id, points });
-    }
-    out.sort_by(|a, b| a.param_id.cmp(&b.param_id));
-    track.automation_lanes = out;
+    consolidate_automation_lanes_from_importer(track);
 }
 
 #[cfg(test)]
@@ -6010,74 +4746,15 @@ fn import_als_project_with_target_sample_rate(
     file_path: &Path,
     target_sample_rate: Option<f64>,
 ) -> Result<Project, String> {
-    use std::io::Read;
+    let xml_text = read_als_xml_text_from_importer(file_path)?;
+    let doc = parse_als_document_from_importer(&xml_text)?;
+    let live_set = find_live_set_from_importer(&doc)?;
 
-    let bytes = std::fs::read(file_path).map_err(|e| format!("Failed to read ALS file '{}': {e}", file_path.display()))?;
-    let xml_bytes = {
-        let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
-        let mut inflated = Vec::new();
-        match decoder.read_to_end(&mut inflated) {
-            Ok(_) if !inflated.is_empty() => inflated,
-            _ => bytes,
-        }
-    };
-    let xml_text = std::str::from_utf8(&xml_bytes)
-        .map_err(|e| format!("ALS is not valid UTF-8 XML: {e}"))?;
-    let doc = roxmltree::Document::parse(xml_text)
-        .map_err(|e| format!("Failed to parse ALS XML: {e}"))?;
-
-    let live_set = doc
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
-        .ok_or("ALS parse error: <LiveSet> node not found")?;
-
-    let tempo = live_set
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
-        .and_then(|main_track| {
-            main_track
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Tempo"))
-        })
-        .and_then(|tempo_node| {
-            tempo_node
-                .children()
-                .find(|n| n.is_element() && n.has_tag_name("Manual"))
-                .and_then(|manual| manual.attribute("Value"))
-                .and_then(parse_f64_value)
-        })
-        .unwrap_or(120.0);
-
-    let project_name = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("Imported Ableton Project")
-        .to_string();
-    // ── STUB-11 FIX: Dynamic sample rate detection ─────────────────────
-    // Ableton stores a preferred sample rate in <SampleRate><Manual>.  We also
-    // check <OverrideSampleRate> for projects that explicitly override it.
-    let imported_sample_rate = live_set
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("OverrideSampleRate"))
-        .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_f64_value)
-        .filter(|v| *v > 0.0)
-        .or_else(|| {
-            live_set
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("SampleRate"))
-                .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
-                .and_then(|n| n.attribute("Value"))
-                .and_then(parse_f64_value)
-                .filter(|v| *v > 0.0)
-        })
-        .unwrap_or(44100.0);
-    let sample_rate = target_sample_rate
-        .filter(|v| v.is_finite() && *v > 0.0)
-        .unwrap_or(imported_sample_rate);
+    let tempo = parse_main_tempo_from_importer(live_set);
+    let project_name = parse_project_name_from_importer(file_path);
+    let imported_sample_rate = parse_imported_sample_rate_from_importer(live_set);
+    let sample_rate =
+        resolve_timeline_sample_rate_from_importer(imported_sample_rate, target_sample_rate);
     log::info!(
         "[ALS Import] Sample rate: imported={} Hz, timeline={} Hz",
         imported_sample_rate,
@@ -7081,64 +5758,10 @@ fn import_als_project_with_target_sample_rate(
 
     normalize_internal_plugins_for_import(&mut project);
 
-    // ── Component 5: Sample Consolidation ─────────────────────────────
-    //
-    // Copy referenced audio samples into the Ableton project folder's
-    // Samples/Imported/ directory so that clip paths remain valid even
-    // if the original sample sources are moved or deleted. Non-fatal —
-    // failures are logged but do not block the import.
-    if let Some(project_dir) = file_path.parent() {
-        let imported_dir = project_dir.join("Samples").join("Imported");
-        if let Err(e) = std::fs::create_dir_all(&imported_dir) {
-            log::warn!(
-                "Could not create Samples/Imported directory for ALS import: {e}"
-            );
-        } else {
-            // Copy each clip's source file into Samples/Imported/
-            let mut rewrites = Vec::new();
-            for track in &project.tracks {
-                for clip in &track.clips {
-                    let src = Path::new(&clip.file_path);
-                    if !src.exists() || clip.file_path.trim().is_empty() {
-                        continue;
-                    }
-                    if let Some(file_name) = src.file_name() {
-                        let dest = imported_dir.join(file_name);
-                        if !dest.exists() {
-                            if let Err(e) = std::fs::copy(src, &dest) {
-                                log::warn!(
-                                    "Sample consolidation: failed to copy '{}': {e}",
-                                    src.display()
-                                );
-                                continue;
-                            }
-                        }
-                        rewrites.push((
-                            track.id,
-                            clip.file_path.clone(),
-                            dest.to_string_lossy().to_string(),
-                        ));
-                    }
-                }
-            }
-
-            // Rewrite clip paths to the consolidated location
-            for (track_id, old_path, new_path) in rewrites {
-                if let Some(track) = project.find_track_mut(track_id) {
-                    for clip in &mut track.clips {
-                        if clip.file_path == old_path {
-                            clip.file_path = new_path.clone();
-                        }
-                    }
-                }
-            }
-
-            log::info!(
-                "ALS import: samples consolidated to '{}'",
-                imported_dir.display()
-            );
-        }
-    }
+    dream_importers::ableton::file_resolver::consolidate_project_samples_for_als_import(
+        &mut project,
+        file_path,
+    );
 
     Ok(project)
 }

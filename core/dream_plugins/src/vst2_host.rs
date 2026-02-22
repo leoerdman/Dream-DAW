@@ -410,7 +410,7 @@ pub fn take_plugin_state_dirty() -> bool {
 thread_local! {
     static HOST_SAMPLE_RATE: std::cell::Cell<f64> = const { std::cell::Cell::new(44100.0) };
     static HOST_BLOCK_SIZE: std::cell::Cell<i32> = const { std::cell::Cell::new(1024) };
-    static HOST_TIME_INFO: std::cell::RefCell<VstTimeInfo> = std::cell::RefCell::new(VstTimeInfo {
+    static HOST_TIME_INFO: std::cell::RefCell<VstTimeInfo> = const { std::cell::RefCell::new(VstTimeInfo {
         sample_pos: 0.0,
         sample_rate: 44100.0,
         nano_seconds: 0.0,
@@ -425,7 +425,7 @@ thread_local! {
         smpte_frame_rate: 0,
         samples_to_next_clock: 0,
         flags: K_VST_TEMPO_VALID | K_VST_TIME_SIG_VALID | K_VST_PPQ_POS_VALID | K_VST_BARS_VALID,
-    });
+    }) };
 }
 
 // ── Host Callback (audioMasterCallback) ──
@@ -1101,7 +1101,7 @@ impl PluginInstance for Vst2Instance {
             if i < inputs.len() {
                 self.input_ptrs.push(inputs[i].as_ptr());
             } else {
-                self.input_ptrs.push(self.silence_buffer.as_ptr());
+                self.input_ptrs.push(silence_ptr);
             }
         }
 
@@ -1426,7 +1426,7 @@ mod tests {
     fn marshal_midi_creates_correct_count() {
         // We can't fully test without a real plugin, but we can verify
         // the MIDI marshalling logic works correctly with buffer sizing.
-        let events = vec![
+        let events = [
             MidiEvent::note_on(0, 0, 60, 100),
             MidiEvent::note_off(512, 0, 60, 0),
         ];

@@ -6,6 +6,12 @@ settings:
 
 importers:
 
+  .:
+    dependencies:
+      ws:
+        specifier: ^8.19.0
+        version: 8.19.0
+
   frontend/ui_app:
     dependencies:
       '@tauri-apps/api':

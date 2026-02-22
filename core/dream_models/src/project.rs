@@ -787,6 +787,7 @@ impl DeviceRack {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum DeviceNode {
     /// A single plugin (instrument or effect).
     Single(PluginSlot),

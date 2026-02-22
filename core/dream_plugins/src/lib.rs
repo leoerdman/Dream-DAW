@@ -27,7 +27,6 @@ pub mod scanner;
 pub mod shared_memory;
 pub mod vst2_host;
 #[cfg(target_os = "macos")]
-#[macro_use]
 extern crate objc;
 
 pub mod vst3_host;
@@ -41,4 +40,3 @@ pub use sandbox_host::{
 pub use scanner::PluginScanner;
 pub use vst2_host::Vst2Instance;
 pub use vst3_host::{PluginHost, Vst3Instance};
-

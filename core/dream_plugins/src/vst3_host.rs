@@ -1,3 +1,4 @@
+#![allow(clashing_extern_declarations)]
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — VST3 Host Bridge (Native Plugin Loading)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2840,6 +2841,7 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
 
 /// Registers the ObjC delegate class once and installs an instance on the window.
 #[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
     use std::os::raw::c_char;
 
@@ -2926,6 +2928,7 @@ unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) 
 
 /// Checks whether the delegate's `windowWillClose:` already performed cleanup.
 #[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
     unsafe extern "C" {
         fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
@@ -2955,6 +2958,7 @@ unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
 /// to prevent the delegate from using a dangling pointer when
 /// macOS fires windowWillClose: during window.close().
 #[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn mark_delegate_cleaned(window: id) {
     unsafe extern "C" {
         fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
@@ -3794,9 +3798,6 @@ impl Vst3Instance {
                 diag!("=== EDITOR DIAG for '{}' ===", self.descriptor.name);
                 diag!("attached() returned OK, onSize returned {}", on_size_result);
 
-                unsafe extern "C" {
-                    fn objc_msgSend();
-                }
                 type MsgSendId = unsafe extern "C" fn(id, *mut c_void) -> id;
                 type MsgSendUsize = unsafe extern "C" fn(id, *mut c_void) -> usize;
                 type MsgSendNSRect = unsafe extern "C" fn(id, *mut c_void) -> NSRect;
@@ -3861,22 +3862,14 @@ impl Vst3Instance {
             // windowWillClose: on the delegate. We perform the full VST3
             // cleanup sequence there (setFrame(null) → removed() → release())
             // to prevent dangling pointers and crashes.
-            unsafe {
-                install_plugin_window_delegate(window, plug_view);
-            }
+            install_plugin_window_delegate(window, plug_view);
 
             // Prevent NSWindow from auto-releasing on close, since our
             // delegate needs the window to remain valid during cleanup.
-            unsafe {
-                unsafe extern "C" {
-                    fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
-                    fn objc_msgSend() -> id;
-                }
-                type MsgSendSetBool = unsafe extern "C" fn(id, *mut c_void, i8);
-                let sel_set_released = sel_registerName(b"setReleasedWhenClosed:\0".as_ptr() as _);
-                let send: MsgSendSetBool = std::mem::transmute(objc_msgSend as *const ());
-                send(window, sel_set_released, 0); // NO = 0
-            }
+            type MsgSendSetBool = unsafe extern "C" fn(id, *mut c_void, i8);
+            let sel_set_released = sel_registerName(b"setReleasedWhenClosed:\0".as_ptr() as _);
+            let send: MsgSendSetBool = std::mem::transmute(objc_msgSend as *const ());
+            send(window, sel_set_released, 0); // NO = 0
 
             window.makeKeyAndOrderFront_(nil);
             app.activateIgnoringOtherApps_(true);
@@ -4631,12 +4624,12 @@ impl PluginInstance for Vst3Instance {
                 self.scratch_aux_out_right.as_mut_ptr(),
             ];
 
-            let mut out_main_bus = AudioBusBuffers {
+            let out_main_bus = AudioBusBuffers {
                 num_channels: main_channels as i32,
                 silence_flags: 0,
                 channel_buffers32: out_ptrs.as_mut_ptr(),
             };
-            let mut out_aux_bus = AudioBusBuffers {
+            let out_aux_bus = AudioBusBuffers {
                 num_channels: 2,
                 silence_flags: 0,
                 channel_buffers32: aux_out_ptrs.as_mut_ptr(),
@@ -5464,7 +5457,7 @@ impl PluginHost {
         let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
+        let instance = instance_arc.lock();
         Ok(instance.supports_editor())
     }
 
@@ -5473,7 +5466,7 @@ impl PluginHost {
         let instance_arc = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        let mut instance = instance_arc.lock();
+        let instance = instance_arc.lock();
         Ok(instance.latency_samples())
     }
 

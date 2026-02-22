@@ -1,12 +1,13 @@
 [package]
 name = "dream_importers"
-description = "Dream DAW — File Format Import/Export (Ableton .als, etc.)"
+description = "Dream DAW import pipelines (Ableton and others)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 dream_models = { path = "../dream_models" }
+dream_plugins = { path = "../dream_plugins" }
 uuid = { workspace = true }
 log = { workspace = true }
 roxmltree = "0.20"

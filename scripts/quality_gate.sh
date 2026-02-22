@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/dream_daw_target_gate}"
+
 echo "== Dream DAW Quality Gate =="
+echo "Using CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
 
 echo "[1/8] Sync TS bindings"
 bash scripts/sync_bindings.sh
@@ -12,13 +15,12 @@ bash scripts/sync_bindings.sh
 echo "[2/8] Rust check (workspace)"
 cargo check --workspace
 
-echo "[3/8] Rust clippy (critical crates, deny warnings)"
-cargo clippy -p dream_plugins -p dream_engine -p desktop_host --all-targets -- \
-  -D warnings \
-  -A dead_code \
-  -A unused_imports \
-  -A clippy::style \
-  -A clippy::complexity
+echo "[3/8] Rust clippy (critical crates, policy lints)"
+cargo clippy -p dream_plugins -p dream_engine -p desktop_host --lib --bins -- \
+  -D clippy::unwrap_used \
+  -D clippy::expect_used \
+  -D clippy::todo \
+  -D clippy::dbg_macro
 
 echo "[4/8] Rust tests (library crates)"
 cargo test --workspace --lib

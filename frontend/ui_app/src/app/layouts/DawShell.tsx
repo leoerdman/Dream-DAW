@@ -544,6 +544,7 @@ export const DawShell = () => {
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
+    const transportSampleRate = useEngineStore(s => s.transport.sample_rate);
     const projectBpm = useEngineStore(s => s.projectBpm);
     const projectSampleRateFromStore = useEngineStore(s => s.projectSampleRate);
     const timelineClips = useEngineStore(s => s.timelineClips);
@@ -857,7 +858,6 @@ export const DawShell = () => {
 
     useEffect(() => {
         const incoming: Record<string, MidiNote[]> = {};
-        let hasChanges = false;
         for (const clip of timelineClips) {
             if (clip.type !== 'midi') continue;
             if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {

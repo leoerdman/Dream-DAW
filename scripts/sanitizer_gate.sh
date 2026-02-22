@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/dream_daw_target_sanitizers}"
+
 echo "== Dream DAW Sanitizer Gate =="
+echo "Using CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
 
 if ! command -v rustup >/dev/null 2>&1; then
   echo "rustup is required for sanitizer runs"

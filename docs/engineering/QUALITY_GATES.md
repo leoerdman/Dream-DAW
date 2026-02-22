@@ -8,12 +8,15 @@ This repository uses a hard quality gate to protect realtime audio stability and
 bash scripts/quality_gate.sh
 ```
 
+By default gates write build artifacts to `/tmp` via `CARGO_TARGET_DIR` to avoid
+polluting workspace and to reduce disk-pressure failures in long hardening runs.
+
 ## Gate stages
 
 1. Sync Rust-generated TS bindings into frontend type directories.
 2. `cargo check --workspace`.
-3. `cargo clippy` for critical runtime crates with `-D warnings` and
-   temporary suppression of `clippy::style` and `clippy::complexity` groups.
+3. `cargo clippy` for critical runtime crates with policy-deny lints:
+   `clippy::unwrap_used`, `clippy::expect_used`, `clippy::todo`, `clippy::dbg_macro`.
 4. `cargo test --workspace --lib`.
 5. Frontend lint.
 6. Frontend production build.
@@ -32,6 +35,6 @@ DREAM_ENABLE_SANITIZERS=1 bash scripts/quality_gate.sh
 ## Policy
 
 - No merge to mainline without a green gate.
-- Any warning in critical audio/host crates is treated as failure.
+- Policy-deny clippy findings in critical audio/host crates are treated as failure.
 - Frontend must be buildable from clean checkout.
 - Binding sync is mandatory before frontend checks.

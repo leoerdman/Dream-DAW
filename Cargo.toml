@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "core/dream_models",
+    "core/dream_importers",
     "core/dream_ipc",
     "core/dream_graph",
     "core/dream_dsp",
@@ -12,13 +13,14 @@ members = [
     "core/dream_transport",
     "core/dream_clip_engine",
     "core/dream_automation",
+    "core/dream_importers",
     "apps/desktop_host",
     "apps/plugin_host_daemon", "rubato_test_project",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "1.0.74"
+version = "1.0.82"
 edition = "2024"
 license = "Proprietary"
 

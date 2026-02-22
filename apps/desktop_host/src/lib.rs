@@ -43,14 +43,14 @@ use arc_swap::ArcSwap;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
-    parse_external_param_target, AutomationPoint, ExternalParamAutomationLane,
-    MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot,
-    SharedClipSnapshot, SharedExternalFxSnapshot, SharedPreparedGraphSnapshot,
-    SharedRoutingSnapshot, SharedRtDebugStats, SharedSidechainSnapshot, TrackAutomationState,
+    AutomationPoint, ExternalParamAutomationLane, MidiFxRuntimeConfig, MidiTrackRuntime,
+    SharedAutomationSnapshot, SharedClipSnapshot, SharedExternalFxSnapshot,
+    SharedPreparedGraphSnapshot, SharedRoutingSnapshot, SharedRtDebugStats,
+    SharedSidechainSnapshot, TrackAutomationState, parse_external_param_target,
 };
-use dream_engine::render_callback::MAX_TRACKS;
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
+use dream_engine::render_callback::MAX_TRACKS;
 use dream_io::audio_reader::AudioReader;
 use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
@@ -59,17 +59,16 @@ use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::PlaybackState;
-use dream_models::midi::{MidiClip, MidiNote, SamplerConfig, SampleRackConfig};
+use dream_models::midi::{MidiClip, MidiNote, SampleRackConfig, SamplerConfig};
 use dream_models::mutators::{self};
 use dream_models::project::{
-    AudioClip, DeviceNode, PluginSlot, Project, Track,
-    TrackColor, TrackType,
+    AudioClip, DeviceNode, PluginSlot, Project, Track, TrackColor, TrackType,
 };
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
-    MidiEvent as PluginMidiEvent, PluginDescriptor, PluginHost, PluginSandboxConfig,
-    PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner, PluginCrashEvent,
+    MidiEvent as PluginMidiEvent, PluginCrashEvent, PluginDescriptor, PluginHost,
+    PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
@@ -198,8 +197,6 @@ use settings::*;
 mod plugin_sandbox_recovery;
 use plugin_sandbox_recovery::*;
 
-
-
 /// Thread-safe handle to the current project's state.
 /// The project is independently managed from the audio engine.
 /// Changes to the project trigger serialization and engine re-sync.
@@ -300,7 +297,11 @@ impl ProjectState {
 macro_rules! push_command_or_log {
     ($handle:expr, $cmd:expr, $context:expr) => {
         if let Err(err) = push_command($handle, $cmd) {
-            log::warn!("[Engine] BUG-063: Failed to push command ({}): {}", $context, err);
+            log::warn!(
+                "[Engine] BUG-063: Failed to push command ({}): {}",
+                $context,
+                err
+            );
         }
     };
 }
@@ -390,7 +391,8 @@ fn push_undo_coalesced(project_state: &ProjectState) -> Result<(), String> {
 /// BUG-009 FIX: Cache seen file paths to avoid redundant `Path::exists()` syscalls.
 /// With 100 clips sharing 10 unique files, this reduces I/O from 100 to 10 calls.
 fn refresh_offline_flags(project: &mut Project) {
-    let mut offline_cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut offline_cache: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
     for track in &mut project.tracks {
         for clip in &mut track.clips {
             let is_offline = *offline_cache
@@ -465,10 +467,12 @@ fn rebuild_automation_snapshot_from_project(
                         .insert(alias.to_string(), points.clone());
                 }
                 if let Some(target) = parse_external_param_target(&lane.param_id) {
-                    state.external_plugin_params.push(ExternalParamAutomationLane {
-                        target,
-                        points: points.clone(),
-                    });
+                    state
+                        .external_plugin_params
+                        .push(ExternalParamAutomationLane {
+                            target,
+                            points: points.clone(),
+                        });
                 }
                 state.plugin_params.insert(lane.param_id.clone(), points);
             }
@@ -492,7 +496,8 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
         });
 
         if clip.notes.len() > 1 {
-            let mut merged: Vec<dream_models::midi::MidiNote> = Vec::with_capacity(clip.notes.len());
+            let mut merged: Vec<dream_models::midi::MidiNote> =
+                Vec::with_capacity(clip.notes.len());
             for note in clip.notes.into_iter() {
                 if let Some(last) = merged.last_mut()
                     && last.pitch == note.pitch
@@ -597,7 +602,12 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
             };
 
             MidiTrackRuntime {
-                clips: track.midi_clips.iter().cloned().map(sanitize_runtime_clip).collect(),
+                clips: track
+                    .midi_clips
+                    .iter()
+                    .cloned()
+                    .map(sanitize_runtime_clip)
+                    .collect(),
                 fx,
             }
         })
@@ -626,8 +636,9 @@ fn rebuild_sampler_snapshot_from_project(
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
     let empty_pad_samples: [Option<Arc<ClipAudio>>; 16] = Default::default();
-    let mut rack_samples: Vec<[Option<Arc<ClipAudio>>; 16]> = vec![empty_pad_samples; project.tracks.len()];
-    
+    let mut rack_samples: Vec<[Option<Arc<ClipAudio>>; 16]> =
+        vec![empty_pad_samples; project.tracks.len()];
+
     struct RackSettings {
         track_idx: u16,
         pad_idx: u8,
@@ -766,73 +777,129 @@ fn rebuild_sampler_snapshot_from_project(
         }
         // BUG-063 FIX: Use push_command_or_log! instead of `let _ =` to ensure
         // queue-full conditions are visible in logs during sampler state restore.
-        push_command_or_log!(handle, EngineCommand::SetSamplerOsc2Waveform {
-            track_index: track_idx as u16,
-            waveform: osc2,
-        }, "sampler osc2 waveform");
-        push_command_or_log!(handle, EngineCommand::SetSamplerOscMix {
-            track_index: track_idx as u16,
-            mix,
-        }, "sampler osc mix");
-        push_command_or_log!(handle, EngineCommand::SetSamplerDetuneCents {
-            track_index: track_idx as u16,
-            cents: detune,
-        }, "sampler detune");
-        push_command_or_log!(handle, EngineCommand::SetSamplerSubLevel {
-            track_index: track_idx as u16,
-            level: sub,
-        }, "sampler sub level");
-        push_command_or_log!(handle, EngineCommand::SetSamplerFilterCutoff {
-            track_index: track_idx as u16,
-            cutoff: f_cutoff,
-        }, "sampler filter cutoff");
-        push_command_or_log!(handle, EngineCommand::SetSamplerFilterResonance {
-            track_index: track_idx as u16,
-            resonance: f_res,
-        }, "sampler filter resonance");
-        push_command_or_log!(handle, EngineCommand::SetSamplerFilterType {
-            track_index: track_idx as u16,
-            filter_type: f_type,
-        }, "sampler filter type");
-        push_command_or_log!(handle, EngineCommand::SetSamplerLfoRate {
-            track_index: track_idx as u16,
-            rate: lfo_r,
-        }, "sampler lfo rate");
-        push_command_or_log!(handle, EngineCommand::SetSamplerLfoDepth {
-            track_index: track_idx as u16,
-            depth: lfo_d,
-        }, "sampler lfo depth");
-        push_command_or_log!(handle, EngineCommand::SetSamplerLfoTarget {
-            track_index: track_idx as u16,
-            target: lfo_t,
-        }, "sampler lfo target");
-        push_command_or_log!(handle, EngineCommand::SetSamplerPulseWidth {
-            track_index: track_idx as u16,
-            width: pw,
-        }, "sampler pulse width");
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerOsc2Waveform {
+                track_index: track_idx as u16,
+                waveform: osc2,
+            },
+            "sampler osc2 waveform"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerOscMix {
+                track_index: track_idx as u16,
+                mix,
+            },
+            "sampler osc mix"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerDetuneCents {
+                track_index: track_idx as u16,
+                cents: detune,
+            },
+            "sampler detune"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerSubLevel {
+                track_index: track_idx as u16,
+                level: sub,
+            },
+            "sampler sub level"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerFilterCutoff {
+                track_index: track_idx as u16,
+                cutoff: f_cutoff,
+            },
+            "sampler filter cutoff"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerFilterResonance {
+                track_index: track_idx as u16,
+                resonance: f_res,
+            },
+            "sampler filter resonance"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerFilterType {
+                track_index: track_idx as u16,
+                filter_type: f_type,
+            },
+            "sampler filter type"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerLfoRate {
+                track_index: track_idx as u16,
+                rate: lfo_r,
+            },
+            "sampler lfo rate"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerLfoDepth {
+                track_index: track_idx as u16,
+                depth: lfo_d,
+            },
+            "sampler lfo depth"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerLfoTarget {
+                track_index: track_idx as u16,
+                target: lfo_t,
+            },
+            "sampler lfo target"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerPulseWidth {
+                track_index: track_idx as u16,
+                width: pw,
+            },
+            "sampler pulse width"
+        );
     }
 
     for rs in rack_settings {
-        push_command_or_log!(handle, EngineCommand::SetSampleRackPadVolume {
-            track_index: rs.track_idx,
-            pad_index: rs.pad_idx,
-            volume: rs.volume,
-        }, "rack pad volume");
-        
-        push_command_or_log!(handle, EngineCommand::SetSampleRackPadAdsr {
-            track_index: rs.track_idx,
-            pad_index: rs.pad_idx,
-            attack: rs.attack,
-            decay: rs.decay,
-            sustain: rs.sustain,
-            release: rs.release,
-        }, "rack pad adsr");
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSampleRackPadVolume {
+                track_index: rs.track_idx,
+                pad_index: rs.pad_idx,
+                volume: rs.volume,
+            },
+            "rack pad volume"
+        );
 
-        push_command_or_log!(handle, EngineCommand::SetSampleRackPadFilterCutoff {
-            track_index: rs.track_idx,
-            pad_index: rs.pad_idx,
-            cutoff: rs.filter_cutoff,
-        }, "rack pad cutoff");
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSampleRackPadAdsr {
+                track_index: rs.track_idx,
+                pad_index: rs.pad_idx,
+                attack: rs.attack,
+                decay: rs.decay,
+                sustain: rs.sustain,
+                release: rs.release,
+            },
+            "rack pad adsr"
+        );
+
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSampleRackPadFilterCutoff {
+                track_index: rs.track_idx,
+                pad_index: rs.pad_idx,
+                cutoff: rs.filter_cutoff,
+            },
+            "rack pad cutoff"
+        );
     }
 }
 
@@ -1526,7 +1593,10 @@ fn sync_transport_from_project(
 
     // Keep realtime transport in sync.
     push_command(handle, EngineCommand::SetPlay(false))?;
-    push_command(handle, EngineCommand::SetTimelineSampleRate(timeline_sample_rate))?;
+    push_command(
+        handle,
+        EngineCommand::SetTimelineSampleRate(timeline_sample_rate),
+    )?;
     push_command(handle, EngineCommand::SetBpm(bpm))?;
     push_command(
         handle,
@@ -1749,8 +1819,11 @@ impl ClipPoolState {
         // ── ENTERPRISE GRAPH UPDATE: ──
         // Now that we have the full sidechain map, rebuild the audio graph
         // so that the processing order is correct.
-        self.prepared_graph_snapshot
-            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref(), &sidechains);
+        self.prepared_graph_snapshot.rebuild_for_routing(
+            project.tracks.len(),
+            routing_now.as_ref(),
+            &sidechains,
+        );
 
         self.sidechain_snapshot.swap(sidechains);
 
@@ -1811,8 +1884,11 @@ impl ClipPoolState {
             })
             .collect();
 
-        self.prepared_graph_snapshot
-            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref(), &sidechains);
+        self.prepared_graph_snapshot.rebuild_for_routing(
+            project.tracks.len(),
+            routing_now.as_ref(),
+            &sidechains,
+        );
         self.sidechain_snapshot.swap(sidechains);
         // NOTE: Deliberately skips sync_pool_to_arc() — device topology changes
         // don't add/remove audio files from the pool.
@@ -1842,13 +1918,15 @@ impl ClipPoolState {
         slot_instance_map: &HashMap<Uuid, Uuid>,
     ) {
         fn resolve_sidechain_track_index(slot: &PluginSlot, project: &Project) -> Option<usize> {
-            slot.sidechain_source_track_id.as_ref().and_then(|source_id| {
-                project
-                    .tracks
-                    .iter()
-                    .take(MAX_TRACKS)
-                    .position(|candidate| candidate.id.to_string() == *source_id)
-            })
+            slot.sidechain_source_track_id
+                .as_ref()
+                .and_then(|source_id| {
+                    project
+                        .tracks
+                        .iter()
+                        .take(MAX_TRACKS)
+                        .position(|candidate| candidate.id.to_string() == *source_id)
+                })
         }
 
         fn collect_effect_runtime_slots(
@@ -2080,12 +2158,16 @@ impl ClipPoolState {
         if let Ok(project) = project_state.project.lock() {
             for track in &project.tracks {
                 for clip in &track.clips {
-                    if !clip.file_path.trim().is_empty() && !clip.file_path.starts_with("internal://") {
+                    if !clip.file_path.trim().is_empty()
+                        && !clip.file_path.starts_with("internal://")
+                    {
                         referenced_paths.insert(clip.file_path.clone());
                     }
                 }
                 if let Some(sampler) = &track.sampler {
-                    if !sampler.sample_path.trim().is_empty() && !sampler.sample_path.starts_with("internal://") {
+                    if !sampler.sample_path.trim().is_empty()
+                        && !sampler.sample_path.starts_with("internal://")
+                    {
                         referenced_paths.insert(sampler.sample_path.clone());
                     }
                 }
@@ -2098,12 +2180,16 @@ impl ClipPoolState {
                 let p = snapshot.to_project();
                 for track in &p.tracks {
                     for clip in &track.clips {
-                        if !clip.file_path.trim().is_empty() && !clip.file_path.starts_with("internal://") {
+                        if !clip.file_path.trim().is_empty()
+                            && !clip.file_path.starts_with("internal://")
+                        {
                             referenced_paths.insert(clip.file_path.clone());
                         }
                     }
                     if let Some(sampler) = &track.sampler {
-                        if !sampler.sample_path.trim().is_empty() && !sampler.sample_path.starts_with("internal://") {
+                        if !sampler.sample_path.trim().is_empty()
+                            && !sampler.sample_path.starts_with("internal://")
+                        {
                             referenced_paths.insert(sampler.sample_path.clone());
                         }
                     }
@@ -2115,7 +2201,11 @@ impl ClipPoolState {
         if let Ok(mut pool) = self.pool.lock() {
             let (evicted, freed) = pool.evict_unreferenced(&referenced_paths);
             if evicted > 0 {
-                log::info!("[ClipPool] Evicted {} unused clips ({:.1} MB freed)", evicted, freed as f64 / 1_048_576.0);
+                log::info!(
+                    "[ClipPool] Evicted {} unused clips ({:.1} MB freed)",
+                    evicted,
+                    freed as f64 / 1_048_576.0
+                );
             }
         }
         self.sync_pool_to_arc();
@@ -2254,7 +2344,10 @@ impl PluginHostState {
     /// filesystem scan on the next `resolve_descriptor` call.
     #[allow(dead_code)]
     fn clear_scan_cache(&self) -> Result<(), String> {
-        *self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))? = None;
+        *self
+            .cached_scan
+            .lock()
+            .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = None;
         Ok(())
     }
 
@@ -2394,7 +2487,10 @@ impl PluginHostState {
         Ok(())
     }
 
-    fn capture_plugin_states_into_project(&self, project: &mut dream_models::project::Project) -> Result<(), String> {
+    fn capture_plugin_states_into_project(
+        &self,
+        project: &mut dream_models::project::Project,
+    ) -> Result<(), String> {
         use base64::Engine;
 
         let slot_map = self.slot_instance_snapshot();
@@ -2404,7 +2500,10 @@ impl PluginHostState {
             slot_map.as_ref()
         );
 
-        let host = self.host.lock().map_err(|e| format!("PluginHost lock: {e}"))?;
+        let host = self
+            .host
+            .lock()
+            .map_err(|e| format!("PluginHost lock: {e}"))?;
         let instance_states = host.save_all_states();
 
         log::info!(
@@ -2462,7 +2561,10 @@ impl PluginHostState {
                                 found = true;
                                 log::info!(
                                     "[PluginState-Capture] Updated effect slot '{}' (id={}) on track '{}' ({} bytes b64)",
-                                    slot.name, slot_id, track.name, b64.len()
+                                    slot.name,
+                                    slot_id,
+                                    track.name,
+                                    b64.len()
                                 );
                             }
                         }
@@ -2477,7 +2579,10 @@ impl PluginHostState {
                                 found = true;
                                 log::info!(
                                     "[PluginState-Capture] Updated instrument slot '{}' (id={}) on track '{}' ({} bytes b64)",
-                                    slot.name, slot_id, track.name, b64.len()
+                                    slot.name,
+                                    slot_id,
+                                    track.name,
+                                    b64.len()
                                 );
                             }
                         }
@@ -2493,7 +2598,9 @@ impl PluginHostState {
                             found = true;
                             log::info!(
                                 "[PluginState-Capture] Updated master track slot '{}' (id={}) ({} bytes b64)",
-                                slot.name, slot_id, b64.len()
+                                slot.name,
+                                slot_id,
+                                b64.len()
                             );
                         }
                     }
@@ -2501,7 +2608,8 @@ impl PluginHostState {
                 if !found {
                     log::warn!(
                         "[PluginState-Capture] Slot {} mapped to instance {} but NOT found in any project track!",
-                        slot_id, instance_id
+                        slot_id,
+                        instance_id
                     );
                 }
             }
@@ -2556,8 +2664,7 @@ impl PluginHostState {
                     if !Self::allow_unsandboxed_vst3() {
                         return Err(format!(
                             "Plugin sandbox failed for '{}': {}. In-process VST3 loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
-                            descriptor.name,
-                            err
+                            descriptor.name, err
                         ));
                     }
                     log::warn!(
@@ -2649,14 +2756,20 @@ impl PluginHostState {
         }
 
         // Use cached scan results to avoid expensive filesystem traversal on every call.
-        let cached = self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))?;
+        let cached = self
+            .cached_scan
+            .lock()
+            .map_err(|e| format!("cached_scan lock poisoned: {e}"))?;
         let scan_result = if let Some(ref cached_list) = *cached {
             cached_list.clone()
         } else {
             drop(cached);
             let scanner = PluginScanner::new();
             let all = scanner.scan_all();
-            *self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
+            *self
+                .cached_scan
+                .lock()
+                .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
             all
         };
         scan_result
@@ -2780,7 +2893,8 @@ impl PluginHostState {
     }
 
     fn tick_sandbox_watchdog(&self) -> Result<PluginSandboxSnapshot, String> {
-        self.tick_sandbox_watchdog_with_events().map(|(snapshot, _)| snapshot)
+        self.tick_sandbox_watchdog_with_events()
+            .map(|(snapshot, _)| snapshot)
     }
 
     fn manual_restart_sandbox_instance(&self, instance_id: Uuid) -> Result<HashSet<Uuid>, String> {
@@ -3134,7 +3248,11 @@ fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), St
                 if attempt < 3 {
                     std::thread::yield_now();
                 } else {
-                    std::thread::sleep(Duration::from_micros(if high_priority { 250 } else { 150 }));
+                    std::thread::sleep(Duration::from_micros(if high_priority {
+                        250
+                    } else {
+                        150
+                    }));
                 }
             }
         }
@@ -3289,8 +3407,13 @@ pub fn run() {
         SpectrumState {
             inner: Mutex::new(SpectrumStateInner {
                 consumer,
-                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(stream.sample_rate_hz as f32),
-                last_magnitudes: vec![dream_dsp::spectrum_analyzer::FLOOR_DB; dream_dsp::spectrum_analyzer::OUTPUT_BINS],
+                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(
+                    stream.sample_rate_hz as f32,
+                ),
+                last_magnitudes: vec![
+                    dream_dsp::spectrum_analyzer::FLOOR_DB;
+                    dream_dsp::spectrum_analyzer::OUTPUT_BINS
+                ],
             }),
         }
     } else {
@@ -3299,8 +3422,13 @@ pub fn run() {
         SpectrumState {
             inner: Mutex::new(SpectrumStateInner {
                 consumer,
-                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(stream.sample_rate_hz as f32),
-                last_magnitudes: vec![dream_dsp::spectrum_analyzer::FLOOR_DB; dream_dsp::spectrum_analyzer::OUTPUT_BINS],
+                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(
+                    stream.sample_rate_hz as f32,
+                ),
+                last_magnitudes: vec![
+                    dream_dsp::spectrum_analyzer::FLOOR_DB;
+                    dream_dsp::spectrum_analyzer::OUTPUT_BINS
+                ],
             }),
         }
     };
@@ -3314,9 +3442,7 @@ pub fn run() {
             should_persist_resolved_output = true;
         }
     }
-    if should_persist_resolved_output
-        && let Err(e) = settings_state.save_to_user_folder()
-    {
+    if should_persist_resolved_output && let Err(e) = settings_state.save_to_user_folder() {
         log::warn!("Failed to persist resolved output device: {}", e);
     }
 
@@ -3325,7 +3451,9 @@ pub fn run() {
 
     // Ensure audio callback starts in the same timeline sample-rate domain
     // as the bootstrap project before any transport activity.
-    let _ = producer.push(EngineCommand::SetTimelineSampleRate(playback_state.sample_rate));
+    let _ = producer.push(EngineCommand::SetTimelineSampleRate(
+        playback_state.sample_rate,
+    ));
 
     let engine_handle = AudioEngineHandle {
         producer: Mutex::new(producer),
@@ -3782,11 +3910,18 @@ mod tests {
         let master_external = PluginSlot::new("MasterLim", "vst3://limiter");
         let master_external_slot_id = master_external.id;
         let mut master_chain = RackChain::new("MasterMain");
-        master_chain.devices.push(DeviceNode::single(master_internal));
-        master_chain.devices.push(DeviceNode::single(master_external));
+        master_chain
+            .devices
+            .push(DeviceNode::single(master_internal));
+        master_chain
+            .devices
+            .push(DeviceNode::single(master_external));
         let mut master_rack = DeviceRack::new("MasterRack", RackType::AudioEffect);
         master_rack.chains.push(master_chain);
-        project.master_track.effects.push(DeviceNode::rack(master_rack));
+        project
+            .master_track
+            .effects
+            .push(DeviceNode::rack(master_rack));
 
         let mut slot_instance_map = HashMap::<Uuid, Uuid>::new();
         slot_instance_map.insert(ext_inst_slot_id, Uuid::new_v4());
@@ -3811,7 +3946,11 @@ mod tests {
         assert!(track_slots[2].instance_id.is_some());
 
         let master_slots = &snapshot[1];
-        assert_eq!(master_slots.len(), 2, "expected internal + external master FX");
+        assert_eq!(
+            master_slots.len(),
+            2,
+            "expected internal + external master FX"
+        );
         assert_eq!(master_slots[0].internal_slot_index, Some(0));
         assert!(master_slots[1].instance_id.is_some());
     }
@@ -3966,7 +4105,10 @@ mod tests {
 
         let master_external = PluginSlot::new("MasterLim", "vst3://master-lim");
         let master_external_slot_id = master_external.id;
-        project.master_track.effects.push(DeviceNode::single(master_external));
+        project
+            .master_track
+            .effects
+            .push(DeviceNode::single(master_external));
         slot_instance_map.insert(master_external_slot_id, Uuid::new_v4());
 
         let state = ClipPoolState::new();

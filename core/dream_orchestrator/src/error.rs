@@ -11,13 +11,22 @@ use std::fmt;
 #[derive(Debug)]
 pub enum OrchestratorError {
     /// A UUID string could not be parsed.
-    InvalidId { field: &'static str, value: String, source: uuid::Error },
+    InvalidId {
+        field: &'static str,
+        value: String,
+        source: uuid::Error,
+    },
 
     /// The requested entity was not found (clip, track, plugin slot, etc.).
     NotFound { entity: &'static str, id: String },
 
     /// A parameter is out of its valid range.
-    OutOfRange { param: &'static str, value: f64, min: f64, max: f64 },
+    OutOfRange {
+        param: &'static str,
+        value: f64,
+        min: f64,
+        max: f64,
+    },
 
     /// Track index exceeds the project's track count.
     TrackOutOfRange { requested: usize, total: usize },
@@ -41,13 +50,22 @@ pub enum OrchestratorError {
 impl fmt::Display for OrchestratorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidId { field, value, source } => {
+            Self::InvalidId {
+                field,
+                value,
+                source,
+            } => {
                 write!(f, "Invalid {field} '{value}': {source}")
             }
             Self::NotFound { entity, id } => {
                 write!(f, "{entity} not found: {id}")
             }
-            Self::OutOfRange { param, value, min, max } => {
+            Self::OutOfRange {
+                param,
+                value,
+                min,
+                max,
+            } => {
                 write!(f, "{param} value {value} out of range [{min}, {max}]")
             }
             Self::TrackOutOfRange { requested, total } => {

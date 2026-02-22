@@ -105,10 +105,7 @@ impl EqProcessor {
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
         let sr = sample_rate as f64;
-        if sr.is_finite()
-            && sr > 1000.0
-            && (sr - self.sample_rate).abs() > 0.5
-        {
+        if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             for band in &mut self.bands {
                 band.update(sr);

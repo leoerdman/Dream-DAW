@@ -938,5 +938,4 @@ impl PluginInstance for Vst3Instance {
         );
         Ok(combined)
     }
-
 }

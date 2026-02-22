@@ -120,7 +120,9 @@ impl BuiltinEffectType {
     /// All processors are pre-allocated with maximum buffer sizes.
     pub fn create_processor(&self, sample_rate: f32) -> Box<dyn DspProcessor> {
         match self {
-            Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new(sample_rate)),
+            Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new(
+                sample_rate,
+            )),
             Self::Eq => Box::new(super::processors::eq::EqProcessor::new(sample_rate as f64)),
             Self::Compressor => Box::new(super::processors::compressor::CompressorProcessor::new(
                 sample_rate,
@@ -128,7 +130,9 @@ impl BuiltinEffectType {
             Self::Delay => Box::new(super::processors::delay::DelayProcessor::new(sample_rate)),
             Self::Reverb => Box::new(super::processors::reverb::ReverbProcessor::new(sample_rate)),
             Self::Chorus => Box::new(super::processors::chorus::ChorusProcessor::new(sample_rate)),
-            Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new(sample_rate)),
+            Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new(
+                sample_rate,
+            )),
             // Wave 1
             Self::Limiter => Box::new(super::processors::limiter::LimiterProcessor::new(
                 sample_rate,
@@ -141,8 +145,12 @@ impl BuiltinEffectType {
             Self::Flanger => Box::new(super::processors::flanger::FlangerProcessor::new(
                 sample_rate,
             )),
-            Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new(sample_rate)),
-            Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new(sample_rate)),
+            Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new(
+                sample_rate,
+            )),
+            Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new(
+                sample_rate,
+            )),
             Self::NoiseMachine => {
                 Box::new(super::processors::noise_machine::NoiseMachineProcessor::new(sample_rate))
             }

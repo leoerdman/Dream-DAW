@@ -137,8 +137,9 @@ impl DspProcessor for DistortionProcessor {
         let hp_c = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
 
         // Tone: tilt EQ (LP amount) — exact one-pole coefficient
-        let tone_c =
-            (1.0 - (-std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).exp()).clamp(0.0, 1.0);
+        let tone_c = (1.0
+            - (-std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).exp())
+        .clamp(0.0, 1.0);
 
         // Cabinet simulation LP (~4.5kHz) — exact one-pole coefficient
         let cab_c = if self.cab_sim {

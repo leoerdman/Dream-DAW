@@ -127,10 +127,8 @@ fn process_audio_block(
     let mut output_bufs: Vec<Vec<f32>> = (0..num_outputs as usize)
         .map(|_| vec![0.0; num_frames])
         .collect();
-    let mut output_slices: Vec<&mut [f32]> = output_bufs
-        .iter_mut()
-        .map(|b| b.as_mut_slice())
-        .collect();
+    let mut output_slices: Vec<&mut [f32]> =
+        output_bufs.iter_mut().map(|b| b.as_mut_slice()).collect();
 
     // Process through the plugin.
     let _ = plugin.process(&input_refs, &mut output_slices, num_frames, midi);
@@ -305,7 +303,8 @@ fn main() {
                                     {
                                         log::error!(
                                             "[plugin_host_daemon] activate failed: {} — {}",
-                                            instance_id, e
+                                            instance_id,
+                                            e
                                         );
                                     }
                                     let latency = inst.latency_samples();
@@ -323,7 +322,8 @@ fn main() {
                                 Err(e) => {
                                     log::error!(
                                         "[plugin_host_daemon] load failed: {} — {}",
-                                        instance_id, e
+                                        instance_id,
+                                        e
                                     );
                                     let evt = PluginHostEventMessage::Error {
                                         instance_id: Some(instance_id),
@@ -395,19 +395,19 @@ fn main() {
                         // exposed via the PluginInstance trait — emit an
                         // empty blob so the protocol handshake works.
                         // TODO: Wire Vst3Instance::save_preset_data()
-                        let state_blob_b64 = if let Some(_plugin) = loaded_instances.get(&instance_id) {
-                            // Placeholder: real implementation would call plugin.save_state()
-                            use std::io::Write;
-                            let mut buf = Vec::new();
-                            let _ = write!(buf, "lazarus_placeholder_state");
-                            // base64-encode for IPC transport
-                            let encoded: String = buf.iter()
-                                .map(|b| format!("{:02x}", b))
-                                .collect();
-                            encoded
-                        } else {
-                            String::new()
-                        };
+                        let state_blob_b64 =
+                            if let Some(_plugin) = loaded_instances.get(&instance_id) {
+                                // Placeholder: real implementation would call plugin.save_state()
+                                use std::io::Write;
+                                let mut buf = Vec::new();
+                                let _ = write!(buf, "lazarus_placeholder_state");
+                                // base64-encode for IPC transport
+                                let encoded: String =
+                                    buf.iter().map(|b| format!("{:02x}", b)).collect();
+                                encoded
+                            } else {
+                                String::new()
+                            };
                         let evt = PluginHostEventMessage::StateSaved {
                             instance_id,
                             state_blob_b64,

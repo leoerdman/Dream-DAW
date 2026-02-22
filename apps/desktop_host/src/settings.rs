@@ -5,9 +5,9 @@
 // Zero Tauri dependency.
 // ═══════════════════════════════════════════════════════════════════════
 
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
 
 // ── Application Settings State ────────────────────────────────────────
 
@@ -256,7 +256,11 @@ impl SettingsState {
     }
 
     /// When the user_folder_path changes, migrate settings.json to the new location.
-    pub(crate) fn migrate_to_new_folder(&self, old_path: &str, new_path: &str) -> Result<(), String> {
+    pub(crate) fn migrate_to_new_folder(
+        &self,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<(), String> {
         let old_settings_file = PathBuf::from(old_path)
             .join("User Info")
             .join("settings.json");
@@ -372,4 +376,3 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
 }
-

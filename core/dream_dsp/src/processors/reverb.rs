@@ -76,7 +76,7 @@ impl CombFilter {
     }
 
     fn reset(&mut self) {
-        self.buffer.fill(0.0);  // BUG-035 FIX: fill() is auto-vectorized
+        self.buffer.fill(0.0); // BUG-035 FIX: fill() is auto-vectorized
         self.filter_store = 0.0;
     }
 }
@@ -122,7 +122,7 @@ impl AllpassFilter {
     }
 
     fn reset(&mut self) {
-        self.buffer.fill(0.0);  // BUG-035 FIX: fill() is auto-vectorized
+        self.buffer.fill(0.0); // BUG-035 FIX: fill() is auto-vectorized
     }
 }
 
@@ -346,7 +346,7 @@ impl DspProcessor for ReverbProcessor {
             // sin(θ) ≈ 16t(1-t) / (5 - 4t(1-t))  where t ∈ [0,1] maps to [0,π].
             let phase = (self.lfo_phase as f32).fract();
             let (t, sign) = if phase < 0.5 {
-                (phase * 2.0, 1.0f32)       // positive half: [0, π)
+                (phase * 2.0, 1.0f32) // positive half: [0, π)
             } else {
                 ((phase - 0.5) * 2.0, -1.0) // negative half: [π, 2π)
             };

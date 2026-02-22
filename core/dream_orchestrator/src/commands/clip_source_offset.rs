@@ -48,9 +48,8 @@ impl Command for SetClipSourceOffsetCommand {
                     .get_clip_audio(&clip.file_path)
                     .map(|audio| (audio.num_frames as i64).saturating_sub(1).max(0))
                     .unwrap_or(i64::MAX);
-                clip.source_offset = AbsoluteTime::new(
-                    self.source_offset_frames.max(0).min(max_offset),
-                );
+                clip.source_offset =
+                    AbsoluteTime::new(self.source_offset_frames.max(0).min(max_offset));
                 updated = true;
                 break;
             }

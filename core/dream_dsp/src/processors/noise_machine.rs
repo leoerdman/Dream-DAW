@@ -241,12 +241,14 @@ impl DspProcessor for NoiseMachineProcessor {
             // Apply DC blocker for brown noise
             if self.noise_type == 2 {
                 let dc_l = raw_l;
-                self.brown_dc_l = self.brown_dc_coeff * (self.brown_dc_l + dc_l - self.brown_dc_prev_l);
+                self.brown_dc_l =
+                    self.brown_dc_coeff * (self.brown_dc_l + dc_l - self.brown_dc_prev_l);
                 self.brown_dc_prev_l = dc_l;
                 raw_l = self.brown_dc_l;
 
                 let dc_r = raw_r;
-                self.brown_dc_r = self.brown_dc_coeff * (self.brown_dc_r + dc_r - self.brown_dc_prev_r);
+                self.brown_dc_r =
+                    self.brown_dc_coeff * (self.brown_dc_r + dc_r - self.brown_dc_prev_r);
                 self.brown_dc_prev_r = dc_r;
                 raw_r = self.brown_dc_r;
             }

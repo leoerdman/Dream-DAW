@@ -24,9 +24,9 @@ use super::device_params::{
     upsert_static_import_lane, upsert_static_import_lane_if_missing,
 };
 use super::plugin_mapper::{
-    apply_external_plugin_meta, canonical_internal_plugin_for_import, infer_device_display_name,
-    make_missing_external_plugin_slot_with_metadata, make_missing_plugin_slot,
-    normalize_plugin_key, parse_external_plugin_meta, ExternalPluginIndex,
+    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
+    infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
+    make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
 };
 use super::rack_parser::parse_als_rack;
 use super::xml_helpers::*;
@@ -166,36 +166,60 @@ fn import_external_plugin_device(
 
     let plugin_key = normalize_plugin_key(&preferred_name);
     if !plugin_key.is_empty() {
-        for (lane_key, value) in collect_external_plugin_static_lanes(device, dev_idx, &plugin_key) {
+        for (lane_key, value) in collect_external_plugin_static_lanes(device, dev_idx, &plugin_key)
+        {
             upsert_static_import_lane_if_missing(track, &lane_key, value);
         }
     }
 
     let resolved_plugin_id = resolve_plugin_id(
-        &vst2_path, &vst3_path, &vst3_name, &vst2_name, external_plugins,
+        &vst2_path,
+        &vst3_path,
+        &vst3_name,
+        &vst2_name,
+        external_plugins,
     );
 
     let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
     let slot = if let Some(plugin_id) = resolved_plugin_id {
-        log::info!("[ALS Import] Instrument RESOLVED: '{}' → '{}'", preferred_name, plugin_id);
+        log::info!(
+            "[ALS Import] Instrument RESOLVED: '{}' → '{}'",
+            preferred_name,
+            plugin_id
+        );
         let mut slot = PluginSlot::new(preferred_name, plugin_id);
         apply_external_plugin_meta(&mut slot, &meta);
         DeviceNode::Single(slot)
     } else if let Some((pid, pname, slot_kind)) =
         canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
     {
-        log::info!("[ALS Import] PluginDevice CANONICAL: '{}' → internal '{}' (kind='{}')", preferred_name, pid, slot_kind);
+        log::info!(
+            "[ALS Import] PluginDevice CANONICAL: '{}' → internal '{}' (kind='{}')",
+            preferred_name,
+            pid,
+            slot_kind
+        );
         import_internal_device_static_params(track, pid, device);
         DeviceNode::Single(PluginSlot::new(pname, pid))
     } else {
         log::warn!(
             "[ALS Import] Instrument NOT FOUND: '{}' (vst3='{}', vst2='{}', vst3_path='{}', vst2_path='{}')",
-            preferred_name, vst3_name, vst2_name, vst3_path, vst2_path
+            preferred_name,
+            vst3_name,
+            vst2_name,
+            vst3_path,
+            vst2_path
         );
         make_missing_external_plugin_slot_with_metadata(
-            "external", &preferred_name, &user_name,
-            &vst2_name, &vst2_path, &vst3_name, &vst3_path,
-            is_placeholder, Some(&meta),
+            "external",
+            &preferred_name,
+            &user_name,
+            &vst2_name,
+            &vst2_path,
+            &vst3_name,
+            &vst3_path,
+            is_placeholder,
+            Some(&meta),
         )
     };
 
@@ -229,7 +253,8 @@ fn import_internal_ableton_device(
             }
             // OriginalSimpler sample path extraction.
             if tag == "OriginalSimpler"
-                && let Some(sample_path) = super::file_resolver::extract_simpler_sample_path(device, als_path)
+                && let Some(sample_path) =
+                    super::file_resolver::extract_simpler_sample_path(device, als_path)
                 && let Some(cfg) = &mut track.sampler
                 && cfg.sample_path.trim().is_empty()
             {

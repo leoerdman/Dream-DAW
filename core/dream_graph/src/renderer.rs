@@ -457,7 +457,7 @@ impl GraphRenderer {
     }
 
     #[inline]
-    fn clear_active_buffers(&mut self, plan: &ExecutionPlan, frame_count: usize) {
+    pub fn clear_active_buffers(&mut self, plan: &ExecutionPlan, frame_count: usize) {
         if !plan.processing_order.is_empty() {
             for &node_idx in &plan.processing_order {
                 let idx = node_idx.index();
@@ -477,37 +477,30 @@ impl GraphRenderer {
         }
     }
 
+    pub fn node_buffers_ptr(&mut self) -> *mut NodeBuffer {
+        self.node_buffers.as_mut_ptr()
+    }
+
+    /// Phase A: Sequential Input Summation
+    /// Sums all inputs (via Routing edges) into this node's buffer, applying edge PDC.
     #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn process_node<FTrack, FEffect>(
+    pub fn sum_node_inputs(
         &mut self,
         dag: &AudioDag,
         node_idx: petgraph::graph::NodeIndex,
         frame_count: usize,
-        output_left: &mut [f32],
-        output_right: &mut [f32],
-        track_processor: &mut FTrack,
-        effect_processor: &mut FEffect,
-    ) where
-        FTrack: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
-        FEffect: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
-    {
+    ) {
         let idx = node_idx.index();
         if idx >= self.node_buffers.len() {
             return;
         }
 
-        let node = dag.node(node_idx);
-
         // a) Sum inputs into node buffer (Routing edges ONLY).
-        //    Sidechain edges are ordering-only — their audio is read separately
-        //    by the plugin host via sidechain_track_index lookups.
         if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
             let edge_input_len = self.edge_inputs_by_dst[idx].len();
             for i in 0..edge_input_len {
                 let (src_idx, edge_runtime_idx, edge_kind) = self.edge_inputs_by_dst[idx][i];
 
-                // CRITICAL: Skip sidechain edges — do NOT mix their audio.
                 if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
                     continue;
                 }
@@ -519,7 +512,6 @@ impl GraphRenderer {
                     continue;
                 }
 
-                // Copy source into scratch so each edge has independent delay state.
                 let copy_n = {
                     let src = &self.node_buffers[src_idx];
                     let copy_n = frame_count.min(src.valid_frames);
@@ -551,7 +543,6 @@ impl GraphRenderer {
                 .graph()
                 .edges_directed(node_idx, petgraph::Direction::Incoming)
             {
-                // CRITICAL: Skip sidechain edges — do NOT mix their audio.
                 if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
                     continue;
                 }
@@ -574,9 +565,53 @@ impl GraphRenderer {
                 mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
             }
         }
+    }
+
+    /// Phase C: Master Output Copy
+    #[inline]
+    pub fn copy_master_output(
+        &self,
+        node_idx: petgraph::graph::NodeIndex,
+        output_left: &mut [f32],
+        output_right: &mut [f32],
+        frame_count: usize,
+    ) {
+        let idx = node_idx.index();
+        if idx >= self.node_buffers.len() {
+            return;
+        }
+        let buf = &self.node_buffers[idx];
+        let out_n = frame_count.min(output_left.len()).min(output_right.len());
+        output_left[..out_n].copy_from_slice(&buf.left[..out_n]);
+        output_right[..out_n].copy_from_slice(&buf.right[..out_n]);
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn process_node<FTrack, FEffect>(
+        &mut self,
+        dag: &AudioDag,
+        node_idx: petgraph::graph::NodeIndex,
+        frame_count: usize,
+        output_left: &mut [f32],
+        output_right: &mut [f32],
+        track_processor: &mut FTrack,
+        effect_processor: &mut FEffect,
+    ) where
+        FTrack: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
+        FEffect: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
+    {
+        let idx = node_idx.index();
+        if idx >= self.node_buffers.len() {
+            return;
+        }
+
+        self.sum_node_inputs(dag, node_idx, frame_count);
+
+        let node = dag.node(node_idx);
+        let buf = &mut self.node_buffers[idx];
 
         // b) Dispatch node processor.
-        let buf = &mut self.node_buffers[idx];
         match &node.kind {
             NodeKind::Track { .. } => {
                 track_processor(
@@ -598,13 +633,9 @@ impl GraphRenderer {
             NodeKind::MasterOutput => {}
         }
 
-        // GR-028 FIX: Apply Node PDC block removed. Edge PDC handles alignment automatically.
-
         // d) Master node copies to final output.
         if matches!(&node.kind, NodeKind::MasterOutput) {
-            let out_n = frame_count.min(output_left.len()).min(output_right.len());
-            output_left[..out_n].copy_from_slice(&buf.left[..out_n]);
-            output_right[..out_n].copy_from_slice(&buf.right[..out_n]);
+            self.copy_master_output(node_idx, output_left, output_right, frame_count);
         }
     }
 

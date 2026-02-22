@@ -106,7 +106,7 @@ impl DspProcessor for AutoPanProcessor {
             let phase_l_sin = (pan_l + 1.0) * 0.125; // mapped to [0, 0.25]
             let phase_r_sin = (pan_r + 1.0) * 0.125;
             let phase_l_cos = 0.25 - phase_l_sin;
-            
+
             #[inline(always)]
             fn fast_sin_q1(p: f32) -> f32 {
                 let t = p * 2.0; // p in [0, 0.25] -> t in [0, 0.5]

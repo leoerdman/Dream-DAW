@@ -9,21 +9,12 @@
 use std::collections::HashMap;
 
 use crate::ableton::routing::{
-    choose_preferred_output_target,
-    classify_output_routing_target,
-    collapse_split_stereo_pan,
-    parse_output_target,
-    OutputRoutingTarget,
+    OutputRoutingTarget, choose_preferred_output_target, classify_output_routing_target,
+    collapse_split_stereo_pan, parse_output_target,
 };
 use crate::ableton::xml_helpers::{
-    collect_track_devices,
-    node_child_value,
-    parse_bool_value,
-    parse_f64_value,
-    parse_i64_value,
-    parse_track_bool_flag_legacy,
-    maybe_parse_bool_manual,
-    maybe_parse_f64_manual,
+    collect_track_devices, maybe_parse_bool_manual, maybe_parse_f64_manual, node_child_value,
+    parse_bool_value, parse_f64_value, parse_i64_value, parse_track_bool_flag_legacy,
 };
 use dream_models::project::{AutomationLane, AutomationPoint, Track, TrackType};
 
@@ -43,7 +34,10 @@ pub fn build_main_track_mixer_snapshot(
     if let Some(mixer) = main_track_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+        .and_then(|dc| {
+            dc.children()
+                .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+        })
     {
         let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
         let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
@@ -70,7 +64,8 @@ pub fn build_main_track_mixer_snapshot(
             static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
         }
         if let Some(speaker) = maybe_parse_bool_manual(mixer, "Speaker") {
-            static_mixer_values.push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
+            static_mixer_values
+                .push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
         }
         if let Some(v) = maybe_parse_f64_manual(mixer, "CrossFadeState") {
             static_mixer_values.push(("mixer.crossfade_state".to_string(), v.clamp(0.0, 2.0)));
@@ -174,7 +169,9 @@ pub fn plugin_param_lane_key_with(
             Some(v) if v >= 0 => format!("id{v}"),
             _ => "unnamed".to_string(),
         };
-    } else if let Some(v) = maybe_numeric && v >= 0 {
+    } else if let Some(v) = maybe_numeric
+        && v >= 0
+    {
         param_key = format!("{param_key}_id{v}");
     }
     format!("plugin:{dev_idx}:{plugin_key}:{param_key}")
@@ -223,23 +220,45 @@ pub fn semantic_external_aliases_with(
         value,
     ));
 
-    if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+    if (plugin_key.contains("nectar")
+        || plugin_key.contains("prol")
+        || plugin_key.contains("compressor"))
         && param_key.contains("threshold")
     {
-        out.push(("effect.compressor.threshold".to_string(), value.clamp(-80.0, 0.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        out.push((
+            "effect.compressor.threshold".to_string(),
+            value.clamp(-80.0, 0.0),
+        ));
+    } else if (plugin_key.contains("nectar")
+        || plugin_key.contains("prol")
+        || plugin_key.contains("compressor"))
         && param_key.contains("ratio")
     {
-        out.push(("effect.compressor.ratio".to_string(), value.clamp(1.0, 20.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        out.push((
+            "effect.compressor.ratio".to_string(),
+            value.clamp(1.0, 20.0),
+        ));
+    } else if (plugin_key.contains("nectar")
+        || plugin_key.contains("prol")
+        || plugin_key.contains("compressor"))
         && param_key.contains("attack")
     {
-        out.push(("effect.compressor.attack".to_string(), value.clamp(0.01, 200.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        out.push((
+            "effect.compressor.attack".to_string(),
+            value.clamp(0.01, 200.0),
+        ));
+    } else if (plugin_key.contains("nectar")
+        || plugin_key.contains("prol")
+        || plugin_key.contains("compressor"))
         && param_key.contains("release")
     {
-        out.push(("effect.compressor.release".to_string(), value.clamp(1.0, 1000.0)));
-    } else if plugin_key.contains("reastream") && (param_key.contains("mix") || param_key.contains("wet")) {
+        out.push((
+            "effect.compressor.release".to_string(),
+            value.clamp(1.0, 1000.0),
+        ));
+    } else if plugin_key.contains("reastream")
+        && (param_key.contains("mix") || param_key.contains("wet"))
+    {
         out.push(("plugin.mono".to_string(), value.clamp(0.0, 1.0)));
     } else if plugin_key.contains("synthesizerv") && param_key.contains("detune") {
         out.push(("synth.detune".to_string(), value.clamp(-50.0, 50.0)));
@@ -266,11 +285,16 @@ pub fn build_pointee_map_with(
     let mixer = track_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")));
+        .and_then(|dc| {
+            dc.children()
+                .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+        });
 
     if let Some(mixer) = mixer {
         for (tag, param_id) in &mixer_params {
-            if let Some(param_node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(*tag))
+            if let Some(param_node) = mixer
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name(*tag))
                 && let Some(target) = param_node
                     .descendants()
                     .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
@@ -286,7 +310,9 @@ pub fn build_pointee_map_with(
             ("Solo", "mixer.solo"),
             ("Arm", "mixer.arm"),
         ] {
-            if let Some(node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(tag))
+            if let Some(node) = mixer
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name(tag))
                 && let Some(target) = node
                     .descendants()
                     .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
@@ -310,7 +336,9 @@ pub fn build_pointee_map_with(
             if idx >= 26 {
                 continue;
             }
-            if let Some(send_node) = send.children().find(|n| n.is_element() && n.has_tag_name("Send"))
+            if let Some(send_node) = send
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Send"))
                 && let Some(target) = send_node
                     .descendants()
                     .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
@@ -374,7 +402,13 @@ pub fn build_pointee_map_with(
                 }
                 let param_tag = target
                     .parent()
-                    .and_then(|p| if p.is_element() { Some(p.tag_name().name().to_string()) } else { None })
+                    .and_then(|p| {
+                        if p.is_element() {
+                            Some(p.tag_name().name().to_string())
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or_else(|| "param".to_string());
                 map.insert(id.to_string(), format!("device:{dev_idx}:{param_tag}"));
             }
@@ -460,12 +494,16 @@ pub fn import_track_automation_with(
     normalize_plugin_key: fn(&str) -> String,
     upsert_static_import_lane_if_missing: fn(&mut Track, &str, f64),
 ) {
-    let pointee_map = build_pointee_map_with(track_node, infer_device_display_name, normalize_plugin_key);
+    let pointee_map =
+        build_pointee_map_with(track_node, infer_device_display_name, normalize_plugin_key);
 
     let envelopes_container = track_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-        .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
+        .and_then(|ae| {
+            ae.children()
+                .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
+        });
 
     if let Some(envelopes) = envelopes_container {
         for envelope in envelopes
@@ -489,20 +527,44 @@ pub fn import_track_automation_with(
                 .descendants()
                 .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
             {
-                let time_beats = event.attribute("Time").and_then(parse_f64_value).unwrap_or(0.0);
+                let time_beats = event
+                    .attribute("Time")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
                 if time_beats < -1_000_000.0 {
                     continue;
                 }
-                let value = event.attribute("Value").and_then(parse_f64_value).unwrap_or(0.0);
+                let value = event
+                    .attribute("Value")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
                 let has_curve = event.attribute("CurveControl1X").is_some();
                 let curve_type = if has_curve { "bezier" } else { "linear" }.to_string();
                 let (bezier_cp1x, bezier_cp1y, bezier_cp2x, bezier_cp2y, tension) = if has_curve {
-                    let cp1x = event.attribute("CurveControl1X").and_then(parse_f64_value).unwrap_or(0.0);
-                    let cp1y = event.attribute("CurveControl1Y").and_then(parse_f64_value).unwrap_or(0.5);
-                    let cp2x = event.attribute("CurveControl2X").and_then(parse_f64_value).unwrap_or(1.0);
-                    let cp2y = event.attribute("CurveControl2Y").and_then(parse_f64_value).unwrap_or(0.5);
+                    let cp1x = event
+                        .attribute("CurveControl1X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.0);
+                    let cp1y = event
+                        .attribute("CurveControl1Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
+                    let cp2x = event
+                        .attribute("CurveControl2X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(1.0);
+                    let cp2y = event
+                        .attribute("CurveControl2Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
                     let tension = (cp2y - cp1y).clamp(-1.0, 1.0);
-                    (Some(cp1x), Some(cp1y), Some(cp2x), Some(cp2y), Some(tension))
+                    (
+                        Some(cp1x),
+                        Some(cp1y),
+                        Some(cp2x),
+                        Some(cp2y),
+                        Some(tension),
+                    )
                 } else {
                     (None, None, None, None, None)
                 };
@@ -523,7 +585,9 @@ pub fn import_track_automation_with(
                 continue;
             }
             points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-            track.automation_lanes.push(AutomationLane { param_id, points });
+            track
+                .automation_lanes
+                .push(AutomationLane { param_id, points });
         }
     }
 

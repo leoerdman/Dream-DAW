@@ -163,8 +163,12 @@ impl DspProcessor for PhaserProcessor {
             // AUD-130 FIX: Flush denormals in allpass states to prevent
             // 100× CPU slowdown on x86 during quiet passages.
             for s in 0..stages {
-                if self.ap_state_l[s].abs() < 1e-18 { self.ap_state_l[s] = 0.0; }
-                if self.ap_state_r[s].abs() < 1e-18 { self.ap_state_r[s] = 0.0; }
+                if self.ap_state_l[s].abs() < 1e-18 {
+                    self.ap_state_l[s] = 0.0;
+                }
+                if self.ap_state_r[s].abs() < 1e-18 {
+                    self.ap_state_r[s] = 0.0;
+                }
             }
 
             self.fb_l = if out_l.is_finite() {

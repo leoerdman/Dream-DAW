@@ -145,10 +145,10 @@ impl DspProcessor for ChorusProcessor {
                     let t2 = t * (1.0 - t);
                     sign * (16.0 * t2) / (5.0 - 4.0 * t2)
                 }
-                
+
                 let phase_l = (self.lfo_phase + VOICE_PHASE_OFFSETS[v]) as f32;
                 let phase_r = phase_l + 0.25 * self.spread;
-                
+
                 let lfo_l = fast_sin_frac(phase_l);
                 let lfo_r = fast_sin_frac(phase_r);
 
@@ -169,8 +169,12 @@ impl DspProcessor for ChorusProcessor {
                 // BUG-AUD-105 flushed HP state but missed fb_l/fb_r.
                 // With high feedback, denormal tails persist through the delay line,
                 // causing 100x CPU slowdown on x86 during prolonged silence.
-                if self.fb_l[v].abs() < 1.0e-20 { self.fb_l[v] = 0.0; }
-                if self.fb_r[v].abs() < 1.0e-20 { self.fb_r[v] = 0.0; }
+                if self.fb_l[v].abs() < 1.0e-20 {
+                    self.fb_l[v] = 0.0;
+                }
+                if self.fb_r[v].abs() < 1.0e-20 {
+                    self.fb_r[v] = 0.0;
+                }
 
                 // Pan voices for stereo spread
                 let pan = if nv > 1 {

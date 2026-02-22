@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use uuid::Uuid;
 
-use dream_models::midi::{MidiClip, SamplerConfig, SampleRackConfig};
+use dream_models::midi::{MidiClip, SampleRackConfig, SamplerConfig};
 use dream_models::project::{
     AudioClip, DeviceNode, Project, TimeSignature, Track, TrackColor, TrackType,
 };
@@ -20,7 +20,6 @@ use dream_models::project::{
 
 #[derive(Clone)]
 pub(crate) struct SharedTrackSnapshot {
-
     id: Uuid,
     name: String,
     track_type: TrackType,
@@ -661,7 +660,11 @@ impl ProjectHistory {
         }
     }
 
-    pub(crate) fn snapshot(&self, limit: Option<usize>, since_seq: Option<u64>) -> Vec<ProjectHistoryEvent> {
+    pub(crate) fn snapshot(
+        &self,
+        limit: Option<usize>,
+        since_seq: Option<u64>,
+    ) -> Vec<ProjectHistoryEvent> {
         // BUG-FIX: Previous implementation did double-collect (first into a Vec,
         // then skip+collect into another Vec). Refactored to single allocation.
         let iter: Box<dyn Iterator<Item = &ProjectHistoryEvent>> = if let Some(since) = since_seq {
@@ -685,4 +688,3 @@ impl ProjectHistory {
         selected
     }
 }
-

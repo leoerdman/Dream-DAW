@@ -188,7 +188,8 @@ impl DspProcessor for SaturatorProcessor {
             self.tone_r.set_cutoff(cutoff, sample_rate);
             // BUG-18 FIX: Recalculate SR-dependent coefficients
             self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sample_rate);
-            self.pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sample_rate).exp()).clamp(0.01, 0.99);
+            self.pre_coeff =
+                (1.0 - (-std::f32::consts::TAU * 2000.0 / sample_rate).exp()).clamp(0.01, 0.99);
         }
 
         let len = left.len().min(right.len());
@@ -231,12 +232,24 @@ impl DspProcessor for SaturatorProcessor {
 
             // AUD-131 FIX: Flush denormals in tone LP, DC blocker, and pre-emphasis
             // states to prevent CPU stalls on x86 during prolonged silence.
-            if self.tone_l.state.abs() < 1e-20 { self.tone_l.state = 0.0; }
-            if self.tone_r.state.abs() < 1e-20 { self.tone_r.state = 0.0; }
-            if self.dc_y_l.abs() < 1e-20 { self.dc_y_l = 0.0; }
-            if self.dc_y_r.abs() < 1e-20 { self.dc_y_r = 0.0; }
-            if self.pre_state_l.abs() < 1e-20 { self.pre_state_l = 0.0; }
-            if self.pre_state_r.abs() < 1e-20 { self.pre_state_r = 0.0; }
+            if self.tone_l.state.abs() < 1e-20 {
+                self.tone_l.state = 0.0;
+            }
+            if self.tone_r.state.abs() < 1e-20 {
+                self.tone_r.state = 0.0;
+            }
+            if self.dc_y_l.abs() < 1e-20 {
+                self.dc_y_l = 0.0;
+            }
+            if self.dc_y_r.abs() < 1e-20 {
+                self.dc_y_r = 0.0;
+            }
+            if self.pre_state_l.abs() < 1e-20 {
+                self.pre_state_l = 0.0;
+            }
+            if self.pre_state_r.abs() < 1e-20 {
+                self.pre_state_r = 0.0;
+            }
         }
     }
 

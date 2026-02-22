@@ -48,7 +48,9 @@ pub fn import_track_clips(
     if adjusted_audio > 0 || adjusted_midi > 0 {
         log::warn!(
             "[ALS Import] Resolved overlapping clips on track '{}': audio={}, midi={}",
-            track.name, adjusted_audio, adjusted_midi
+            track.name,
+            adjusted_audio,
+            adjusted_midi
         );
     }
 }
@@ -63,8 +65,12 @@ fn import_audio_clips(
     sample_rate: f64,
     pointee_map: &std::collections::HashMap<String, String>,
 ) {
-    for clip_node in track_node.descendants().filter(|n| n.is_element() && n.has_tag_name("AudioClip")) {
-        let Some(clip) = parse_audio_clip(clip_node, als_path, bpm, sample_rate, pointee_map) else {
+    for clip_node in track_node
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("AudioClip"))
+    {
+        let Some(clip) = parse_audio_clip(clip_node, als_path, bpm, sample_rate, pointee_map)
+        else {
             continue;
         };
         track.clips.push(clip);
@@ -108,7 +114,8 @@ fn parse_audio_clip(
     }
 
     // Fades
-    let (fade_in, fade_out) = super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+    let (fade_in, fade_out) =
+        super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
     clip.fade_in_frames = fade_in;
     clip.fade_out_frames = fade_out;
 
@@ -119,7 +126,8 @@ fn parse_audio_clip(
         .and_then(|n| n.attribute("Value"))
         .and_then(parse_f64_value)
     {
-        clip.source_offset = AbsoluteTime::new(beats_to_frames(start_relative_beats, bpm, sample_rate).max(0));
+        clip.source_offset =
+            AbsoluteTime::new(beats_to_frames(start_relative_beats, bpm, sample_rate).max(0));
     }
 
     // Muted
@@ -161,7 +169,10 @@ fn import_midi_clips(
     sample_rate: f64,
     pointee_map: &std::collections::HashMap<String, String>,
 ) {
-    for clip_node in track_node.descendants().filter(|n| n.is_element() && n.has_tag_name("MidiClip")) {
+    for clip_node in track_node
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("MidiClip"))
+    {
         let Some(clip) = parse_midi_clip(clip_node, bpm, sample_rate, pointee_map) else {
             continue;
         };
@@ -186,7 +197,8 @@ fn parse_midi_clip(
     );
 
     // Fades
-    let (fade_in, fade_out) = super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+    let (fade_in, fade_out) =
+        super::file_resolver::parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
     clip.fade_in_frames = fade_in;
     clip.fade_out_frames = fade_out;
 
@@ -238,7 +250,10 @@ fn import_midi_notes(
     bpm: f64,
     sample_rate: f64,
 ) {
-    for key_track in clip_node.descendants().filter(|n| n.is_element() && n.has_tag_name("KeyTrack")) {
+    for key_track in clip_node
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("KeyTrack"))
+    {
         let pitch = key_track
             .children()
             .find(|n| n.is_element() && n.has_tag_name("MidiKey"))
@@ -247,9 +262,18 @@ fn import_midi_notes(
             .map(|v| v.clamp(0, 127) as u8);
         let Some(pitch) = pitch else { continue };
 
-        for note in key_track.descendants().filter(|n| n.is_element() && n.has_tag_name("MidiNoteEvent")) {
-            let time_beats = note.attribute("Time").and_then(parse_f64_value).unwrap_or(0.0);
-            let duration_note_beats = note.attribute("Duration").and_then(parse_f64_value).unwrap_or(0.0);
+        for note in key_track
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("MidiNoteEvent"))
+        {
+            let time_beats = note
+                .attribute("Time")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            let duration_note_beats = note
+                .attribute("Duration")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
             let velocity = note
                 .attribute("Velocity")
                 .and_then(parse_i64_value)
@@ -266,7 +290,9 @@ fn import_midi_notes(
 
 fn resolve_overlapping_audio_clips(clips: &mut Vec<AudioClip>) -> usize {
     clips.sort_by(|a, b| {
-        a.position.sample_frame.cmp(&b.position.sample_frame)
+        a.position
+            .sample_frame
+            .cmp(&b.position.sample_frame)
             .then_with(|| b.duration.sample_frame.cmp(&a.duration.sample_frame))
     });
     let mut cleaned: Vec<AudioClip> = Vec::with_capacity(clips.len());
@@ -295,7 +321,9 @@ fn resolve_overlapping_audio_clips(clips: &mut Vec<AudioClip>) -> usize {
 
 fn resolve_overlapping_midi_clips(clips: &mut Vec<MidiClip>) -> usize {
     clips.sort_by(|a, b| {
-        a.position.sample_frame.cmp(&b.position.sample_frame)
+        a.position
+            .sample_frame
+            .cmp(&b.position.sample_frame)
             .then_with(|| b.duration.sample_frame.cmp(&a.duration.sample_frame))
     });
     let mut cleaned: Vec<MidiClip> = Vec::with_capacity(clips.len());
@@ -332,7 +360,9 @@ fn parse_clip_position(clip_node: roxmltree::Node<'_, '_>) -> Option<(f64, f64)>
         .and_then(parse_f64_value)
         .unwrap_or(start_beats);
     let duration_beats = (end_beats - start_beats).max(0.0);
-    if duration_beats <= 0.0 { return None; }
+    if duration_beats <= 0.0 {
+        return None;
+    }
     Some((start_beats, duration_beats))
 }
 

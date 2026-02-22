@@ -168,8 +168,7 @@ pub fn get_cached_or_build_stems(
             .get(stem)
             .ok_or_else(|| format!("Missing generated stem: {stem}"))?;
         let dst = cache_dir.join(format!("{stem}.wav"));
-        std::fs::copy(src, &dst)
-            .map_err(|e| format!("Failed to cache stem '{stem}': {e}"))?;
+        std::fs::copy(src, &dst).map_err(|e| format!("Failed to cache stem '{stem}': {e}"))?;
         out.insert(stem.to_string(), dst.to_string_lossy().to_string());
     }
     Ok(out)

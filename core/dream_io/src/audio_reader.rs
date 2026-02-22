@@ -218,7 +218,8 @@ impl AudioReader {
             // changes) would otherwise reuse a buffer with the wrong spec,
             // causing corrupted de-interleave.
             let spec_changed = sample_buf_spec != Some(spec);
-            let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration as u64, spec));
+            let buf =
+                sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration as u64, spec));
             if buf.capacity() < duration || spec_changed {
                 *buf = SampleBuffer::<f32>::new(duration as u64, spec);
                 sample_buf_spec = Some(spec);

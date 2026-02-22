@@ -168,7 +168,7 @@ pub fn resample_channels(
     let delay_frames = resampler.output_delay();
     let pad_chunk: Vec<Vec<f32>> = vec![vec![0.0f32; chunk_size]; num_channels];
     let pad_refs: Vec<&[f32]> = pad_chunk.iter().map(|v| v.as_slice()).collect();
-    
+
     let mut flushed = 0;
     while flushed < delay_frames {
         if let Ok(result) = resampler.process(&pad_refs, None) {
@@ -179,7 +179,7 @@ pub fn resample_channels(
         flushed += chunk_size;
     }
 
-    // MEGA-06 FIX: Compensate for filter latency by discarding the padding frames 
+    // MEGA-06 FIX: Compensate for filter latency by discarding the padding frames
     // at the start of the output. This strictly preserves transient phase alignment.
     for ch in &mut output_channels {
         if ch.len() > delay_frames {

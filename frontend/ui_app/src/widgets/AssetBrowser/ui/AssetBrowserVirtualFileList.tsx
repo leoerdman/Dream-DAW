@@ -2,42 +2,8 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import * as engineApi from '@/shared/api/engine';
 import type { BrowserItem, PluginGroupedRow } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
 import { useDragStore } from '@/shared/stores/useDragStore';
-import { BrowserGlyph, TypeIcon } from './AssetBrowserPrimitives';
-
-function renderHighlightedMatch(name: string, query: string): React.ReactNode {
-    if (!query.trim()) return name;
-    const q = query.trim().toLowerCase();
-    const lower = name.toLowerCase();
-    const idx = lower.indexOf(q);
-    if (idx < 0) {
-        const initials = q.split('');
-        const parts: React.ReactNode[] = [];
-        let cursor = 0;
-        for (const ch of initials) {
-            const pos = lower.indexOf(ch, cursor);
-            if (pos < 0) return name;
-            if (pos > cursor) parts.push(name.slice(cursor, pos));
-            parts.push(
-                <span key={pos} style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
-                    {name[pos]}
-                </span>,
-            );
-            cursor = pos + 1;
-        }
-        if (cursor < name.length) parts.push(name.slice(cursor));
-        return <>{parts}</>;
-    }
-    return (
-        <>
-            {name.slice(0, idx)}
-            <span style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
-                {name.slice(idx, idx + q.length)}
-            </span>
-            {name.slice(idx + q.length)}
-        </>
-    );
-}
-
+import { BrowserGlyph } from './AssetBrowserPrimitives';
+import { AssetListItemRow, PluginGroupHeaderRow, PluginGroupItemRow } from './AssetBrowserRows';
 
 // ── Component ──────────────────────────────────────────
 
@@ -273,416 +239,51 @@ export const VirtualFileList = memo(function VirtualFileList({
             {
                 selectedCategoryId !== 'plugins' ? (
                     <div style={{ height: totalHeight + 20, position: 'relative' }}>
-                        {visibleItems.map((item, vi) => {
-                            const absIdx = startIdx + vi;
-                            const isSelected = selectedItemId === item.id;
-                            const isAudio = item.type === 'audio';
-                            const isPlugin = item.type === 'plugin';
-                            const isDraggable = isAudio || isPlugin;
-                            const pluginTypeLabel = item.pluginSource === 'internal'
-                                ? 'Internal'
-                                : item.pluginSource === 'vst3' ? 'VST3'
-                                    : item.pluginSource === 'vst2' ? 'VST2'
-                                        : item.pluginSource === 'au' ? 'AU'
-                                            : (item.format || 'Plugin');
-                            const typeLabel = item.isDirectory
-                                ? 'Folder'
-                                : (item.type === 'audio'
-                                    ? (item.format || 'Audio').toUpperCase()
-                                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-                            const sizeLabel = item.sizeBytes && !item.isDirectory
-                                ? (item.sizeBytes >= 1024 * 1024
-                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
-                                : '';
-
-                            return (
-                                <div
-                                    key={item.id}
-                                    ref={(el) => {
-                                        itemRowRefs.current[item.id] = el;
-                                    }}
-                                    onClick={() => {
-                                        setContextMenu(null);
-                                        if (item.isDirectory && item.path) {
-                                            navigateInto(item.path);
-                                            return;
-                                        }
-                                        // item toggles preview playback (stop/start) instead
-                                        // of deselecting the item entirely.
-                                        if (selectedItemId === item.id) {
-                                            if (item.type === 'audio' && item.path) {
-                                                // Toggle: stop if playing, start if stopped
-                                                if (isPreviewPlayingRef.current) {
-                                                    isPreviewPlayingRef.current = false;
-                                                    engineApi.stopPreview().catch(() => { });
-                                                } else {
-                                                    isPreviewPlayingRef.current = true;
-                                                    engineApi.previewAudioFile(item.path).catch(() => { });
-                                                }
-                                            }
-                                            return;
-                                        }
-                                        setSelectedItemId(item.id);
-                                        syncPreviewForItem(item);
-                                    }}
-                                    onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        if (item.path) {
-                                            setContextMenu({ x: e.clientX, y: e.clientY, item });
-                                        }
-                                    }}
-                                    onMouseDown={(e) => {
-                                        if (!isDraggable || !item.path || e.button !== 0) return;
-
-                                        const startX = e.clientX;
-                                        const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 8;
-                                        let dragStarted = false;
-                                        let cancelled = false;
-
-                                        const restoreFileListStyles = () => {
-                                            if (fileListRef.current) {
-                                                fileListRef.current.style.pointerEvents = '';
-                                                fileListRef.current.style.overflow = '';
-                                            }
-                                        };
-
-                                        const cleanup = () => {
-                                            if (cancelled) return;
-                                            cancelled = true;
-                                            restoreFileListStyles();
-                                            window.removeEventListener('mousemove', onMove);
-                                            window.removeEventListener('mouseup', onUp);
-                                            window.removeEventListener('blur', cleanup);
-                                            document.removeEventListener('visibilitychange', cleanup);
-                                        };
-
-                                        const onMove = (me: MouseEvent) => {
-                                            if (cancelled) return;
-                                            const dx = me.clientX - startX;
-                                            const dy = me.clientY - startY;
-                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                dragStarted = true;
-                                                useDragStore.getState().startDrag({
-                                                    id: item.id,
-                                                    name: item.name,
-                                                    type: isPlugin ? 'plugin' : 'audio',
-                                                    path: item.path!,
-                                                    slotHint: item.slotHint ?? 'auto',
-                                                    durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
-                                                }, me.clientX, me.clientY);
-                                            }
-                                        };
-                                        const onUp = () => cleanup();
-                                        window.addEventListener('mousemove', onMove);
-                                        window.addEventListener('mouseup', onUp);
-                                        window.addEventListener('blur', cleanup);
-                                        document.addEventListener('visibilitychange', cleanup);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: `4px 8px 4px ${8 + (item._depth ?? 0) * 14}px`,
-                                        cursor: isDraggable ? 'grab' : (item.isDirectory ? 'pointer' : 'default'),
-                                        position: 'absolute',
-                                        top: absIdx * ROW_HEIGHT + HEADER_HEIGHT,
-                                        left: 0,
-                                        right: 0,
-                                        height: ROW_HEIGHT,
-                                        boxSizing: 'border-box',
-                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                        borderBottom: '1px solid var(--color-divider-light)',
-                                    }}
-                                >
-                                    {item.isDirectory && (
-                                        <svg width="9" height="9" viewBox="0 0 9 9" style={{ flexShrink: 0, opacity: 0.6 }}>
-                                            <polyline
-                                                points={item._expanded ? '1,2 4.5,6 8,2' : '2,1 6,4.5 2,8'}
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="1.4"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                        </svg>
-                                    )}
-                                    {item._loading && (
-                                        <span style={{ fontSize: 'var(--font-size-2xs)', opacity: 0.5 }}>⏳</span>
-                                    )}
-                                    <TypeIcon type={item.type} item={item} />
-                                    <span style={{
-                                        color: 'var(--color-text-primary)',
-                                        fontSize: 'var(--font-size-base)',
-                                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        flex: 1,
-                                        minWidth: 0,
-                                    }}>
-                                        {debouncedQuery.trim()
-                                            ? renderHighlightedMatch(item.name, debouncedQuery)
-                                            : item.name}
-                                    </span>
-                                    {isAudio && item.path && audioDurationSecRef.current[item.path] != null && (
-                                        <span style={{
-                                            minWidth: 26,
-                                            color: 'var(--color-text-tertiary)',
-                                            fontSize: 'var(--font-size-2xs)',
-                                            fontFamily: 'var(--font-mono)',
-                                            textAlign: 'right',
-                                            flexShrink: 0,
-                                        }}>
-                                            {`${Math.round(audioDurationSecRef.current[item.path])}s`}
-                                        </span>
-                                    )}
-                                    {showTypeColumn && (
-                                        <span style={{
-                                            minWidth: 52,
-                                            maxWidth: 74,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            textAlign: 'left',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            flexShrink: 0,
-                                        }}>
-                                            {typeLabel}
-                                        </span>
-                                    )}
-                                    {showSizeColumn && (
-                                        <span style={{
-                                            minWidth: 44,
-                                            maxWidth: 56,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            textAlign: 'right',
-                                            whiteSpace: 'nowrap',
-                                            flexShrink: 0,
-                                        }}>
-                                            {sizeLabel}
-                                        </span>
-                                    )}
-                                    {item.isDirectory && (
-                                        <span style={{
-                                            color: 'var(--color-text-tertiary)',
-                                            fontSize: 'var(--font-size-2xs)',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            marginLeft: 2,
-                                            flexShrink: 0,
-                                        }}>
-                                            <BrowserGlyph name="chevron-right" size={10} />
-                                        </span>
-                                    )}
-                                </div>
-                            );
-                        })}
+                        {visibleItems.map((item, vi) => (
+                            <AssetListItemRow
+                                key={item.id}
+                                item={item}
+                                absIdx={startIdx + vi}
+                                ROW_HEIGHT={ROW_HEIGHT}
+                                HEADER_HEIGHT={HEADER_HEIGHT}
+                                isSelected={selectedItemId === item.id}
+                                debouncedQuery={debouncedQuery}
+                                showTypeColumn={showTypeColumn}
+                                showSizeColumn={showSizeColumn}
+                                audioDurationSecRef={audioDurationSecRef}
+                                isPreviewPlayingRef={isPreviewPlayingRef}
+                                itemRowRefs={itemRowRefs}
+                                setSelectedItemId={setSelectedItemId}
+                                syncPreviewForItem={syncPreviewForItem}
+                                setContextMenu={setContextMenu}
+                                navigateInto={navigateInto}
+                                fileListRef={fileListRef}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <div>
                         {pluginGroupedRows.map((row) => {
                             if (row.kind === 'header') {
-                                return (
-                                    <div
-                                        key={row.id}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 8,
-                                            padding: '4px 8px',
-                                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
-                                            borderBottom: '1px solid var(--color-divider-light)',
-                                            borderTop: '1px solid var(--color-divider-light)',
-                                            position: 'sticky',
-                                            top: 24,
-                                            zIndex: 'var(--z-local)' as unknown as number,
-                                        }}
-                                    >
-                                        <span style={{
-                                            color: 'var(--color-text-primary)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.04em',
-                                        }}>
-                                            {row.title}
-                                        </span>
-                                        <span style={{
-                                            color: 'var(--color-text-tertiary)',
-                                            fontSize: 'var(--font-size-2xs)',
-                                            fontFamily: 'var(--font-mono)',
-                                        }}>
-                                            {row.count}
-                                        </span>
-                                    </div>
-                                );
+                                return <PluginGroupHeaderRow key={row.id} title={row.title} count={row.count} />;
                             }
-
-                            const item = row.item;
-                            const isSelected = selectedItemId === item.id;
-                            const isAudio = item.type === 'audio';
-                            const isPlugin = item.type === 'plugin';
-                            const isDraggable = isAudio || isPlugin;
-                            const pluginTypeLabel = item.pluginSource === 'internal'
-                                ? 'Internal'
-                                : item.pluginSource === 'vst3'
-                                    ? 'VST3'
-                                    : item.pluginSource === 'vst2'
-                                        ? 'VST2'
-                                        : item.pluginSource === 'au'
-                                            ? 'AU'
-                                            : (item.format || 'Plugin');
-                            const typeLabel = item.isDirectory
-                                ? 'Folder'
-                                : (item.type === 'audio'
-                                    ? (item.format || 'Audio').toUpperCase()
-                                    : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
-                            const sizeLabel = item.sizeBytes && !item.isDirectory
-                                ? (item.sizeBytes >= 1024 * 1024
-                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
-                                : '';
-
                             return (
-                                <div
+                                <PluginGroupItemRow
                                     key={row.id}
-                                    ref={(el) => {
-                                        itemRowRefs.current[item.id] = el;
-                                    }}
-                                    onClick={() => {
-                                        setContextMenu(null);
-                                        // BUG-5 FIX: Same toggle logic for plugin grouped list
-                                        if (selectedItemId === item.id) {
-                                            if (item.type === 'audio' && item.path) {
-                                                if (isPreviewPlayingRef.current) {
-                                                    isPreviewPlayingRef.current = false;
-                                                    engineApi.stopPreview().catch(() => { });
-                                                } else {
-                                                    isPreviewPlayingRef.current = true;
-                                                    engineApi.previewAudioFile(item.path).catch(() => { });
-                                                }
-                                            }
-                                            return;
-                                        }
-                                        setSelectedItemId(item.id);
-                                        syncPreviewForItem(item);
-                                    }}
-                                    onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        if (item.path) {
-                                            setContextMenu({ x: e.clientX, y: e.clientY, item });
-                                        }
-                                    }}
-                                    onMouseDown={(e) => {
-                                        if (!isDraggable || !item.path || e.button !== 0) return;
-
-                                        const startX = e.clientX;
-                                        const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 8;
-                                        let dragStarted = false;
-                                        let cancelled = false;
-
-                                        const restoreFileListStyles = () => {
-                                            if (fileListRef.current) {
-                                                fileListRef.current.style.pointerEvents = '';
-                                                fileListRef.current.style.overflow = '';
-                                            }
-                                        };
-
-                                        const cleanup = () => {
-                                            if (cancelled) return;
-                                            cancelled = true;
-                                            restoreFileListStyles();
-                                            window.removeEventListener('mousemove', onMove);
-                                            window.removeEventListener('mouseup', onUp);
-                                            window.removeEventListener('blur', cleanup);
-                                            document.removeEventListener('visibilitychange', cleanup);
-                                        };
-
-                                        const onMove = (me: MouseEvent) => {
-                                            if (cancelled) return;
-                                            const dx = me.clientX - startX;
-                                            const dy = me.clientY - startY;
-                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                dragStarted = true;
-                                                useDragStore.getState().startDrag({
-                                                    id: item.id,
-                                                    name: item.name,
-                                                    type: isPlugin ? 'plugin' : 'audio',
-                                                    path: item.path!,
-                                                    slotHint: item.slotHint ?? 'auto',
-                                                    durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,
-                                                }, me.clientX, me.clientY);
-                                            }
-                                        };
-                                        const onUp = () => cleanup();
-                                        window.addEventListener('mousemove', onMove);
-                                        window.addEventListener('mouseup', onUp);
-                                        window.addEventListener('blur', cleanup);
-                                        document.addEventListener('visibilitychange', cleanup);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '4px 8px',
-                                        cursor: isDraggable ? 'grab' : 'default',
-                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                        borderBottom: '1px solid var(--color-divider-light)',
-                                        height: ROW_HEIGHT,
-                                        boxSizing: 'border-box',
-                                    }}
-                                >
-                                    <TypeIcon type={item.type} item={item} />
-                                    <span style={{
-                                        color: 'var(--color-text-primary)',
-                                        fontSize: 'var(--font-size-base)',
-                                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        flex: 1,
-                                        minWidth: 0,
-                                    }}>
-                                        {/* BUG-28 FIX: Plugin items now highlight search matches */}
-                                        {debouncedQuery.trim()
-                                            ? renderHighlightedMatch(item.name, debouncedQuery)
-                                            : item.name}
-                                    </span>
-                                    {showTypeColumn && (
-                                        <span style={{
-                                            minWidth: 52,
-                                            maxWidth: 74,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            textAlign: 'left',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            flexShrink: 0,
-                                        }}>
-                                            {typeLabel}
-                                        </span>
-                                    )}
-                                    {showSizeColumn && (
-                                        <span style={{
-                                            minWidth: 44,
-                                            maxWidth: 56,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            textAlign: 'right',
-                                            whiteSpace: 'nowrap',
-                                            flexShrink: 0,
-                                        }}>
-                                            {sizeLabel}
-                                        </span>
-                                    )}
-                                </div>
+                                    item={row.item}
+                                    ROW_HEIGHT={ROW_HEIGHT}
+                                    isSelected={selectedItemId === row.item.id}
+                                    debouncedQuery={debouncedQuery}
+                                    showTypeColumn={showTypeColumn}
+                                    showSizeColumn={showSizeColumn}
+                                    audioDurationSecRef={audioDurationSecRef}
+                                    isPreviewPlayingRef={isPreviewPlayingRef}
+                                    itemRowRefs={itemRowRefs}
+                                    setSelectedItemId={setSelectedItemId}
+                                    syncPreviewForItem={syncPreviewForItem}
+                                    setContextMenu={setContextMenu}
+                                    fileListRef={fileListRef}
+                                />
                             );
                         })}
                     </div>

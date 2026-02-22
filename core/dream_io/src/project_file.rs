@@ -109,7 +109,9 @@ impl ProjectFile {
         // ── Step 3: Backup existing file (non-fatal if fails) ──────
         // Use copy (not move) so existing primary is preserved if anything fails.
         // Store the .bak in the Backup/ subdirectory to keep the project root clean.
-        if path.exists() && let Some(parent) = path.parent() {
+        if path.exists()
+            && let Some(parent) = path.parent()
+        {
             let backup_dir = parent.join("Backup");
             let _ = fs::create_dir_all(&backup_dir);
             let file_name = path.file_name().unwrap_or_default();
@@ -161,9 +163,11 @@ impl ProjectFile {
             let file_name = path.file_name().unwrap_or_default();
             let bak_name = format!(
                 "{}.bak",
-                file_name.to_str().unwrap_or("project").strip_suffix(".json").unwrap_or(
-                    file_name.to_str().unwrap_or("project")
-                )
+                file_name
+                    .to_str()
+                    .unwrap_or("project")
+                    .strip_suffix(".json")
+                    .unwrap_or(file_name.to_str().unwrap_or("project"))
             );
             let backup_dir_bak = path.parent().map(|p| p.join("Backup").join(&bak_name));
             let legacy_bak = path.with_extension("bak");

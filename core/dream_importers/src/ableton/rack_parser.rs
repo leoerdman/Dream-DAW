@@ -17,10 +17,9 @@ use dream_models::project::{
 };
 
 use super::plugin_mapper::{
-    apply_external_plugin_meta, canonical_internal_plugin_for_import,
+    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
     infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
-    ExternalPluginIndex,
 };
 use super::xml_helpers::*;
 
@@ -150,16 +149,28 @@ pub fn parse_als_zone_settings(zone_node: roxmltree::Node<'_, '_>) -> ZoneSettin
     }
 
     let (kmin, kmax) = range_min_max(zone_node, "KeyRange");
-    if let Some(v) = kmin { zs.key_range_min = v; }
-    if let Some(v) = kmax { zs.key_range_max = v; }
+    if let Some(v) = kmin {
+        zs.key_range_min = v;
+    }
+    if let Some(v) = kmax {
+        zs.key_range_max = v;
+    }
 
     let (vmin, vmax) = range_min_max(zone_node, "VelocityRange");
-    if let Some(v) = vmin { zs.velocity_range_min = v; }
-    if let Some(v) = vmax { zs.velocity_range_max = v; }
+    if let Some(v) = vmin {
+        zs.velocity_range_min = v;
+    }
+    if let Some(v) = vmax {
+        zs.velocity_range_max = v;
+    }
 
     let (cmin, cmax) = range_min_max(zone_node, "ChainSelectorRange");
-    if let Some(v) = cmin { zs.chain_selector_min = v; }
-    if let Some(v) = cmax { zs.chain_selector_max = v; }
+    if let Some(v) = cmin {
+        zs.chain_selector_min = v;
+    }
+    if let Some(v) = cmax {
+        zs.chain_selector_max = v;
+    }
 
     zs
 }
@@ -238,9 +249,10 @@ pub fn parse_als_rack(
     ensure_rack_macro_capacity(&mut rack, max_macro_index + 1);
 
     // ── Parse MacroControls (up to 16) ──────────────────────────────
-    for macro_node in group_device.children().filter(|n| {
-        n.is_element() && n.tag_name().name().starts_with("MacroControls.")
-    }) {
+    for macro_node in group_device
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroControls."))
+    {
         let tag_name = macro_node.tag_name().name();
         if let Some(idx) = parse_macro_index(tag_name, "MacroControls.") {
             if idx < rack.macro_controls.len() {
@@ -257,16 +269,19 @@ pub fn parse_als_rack(
                     .and_then(parse_f64_value)
                     .unwrap_or(0.0);
                 let mc = &mut rack.macro_controls[idx];
-                if !display_name.is_empty() { mc.name = display_name; }
+                if !display_name.is_empty() {
+                    mc.name = display_name;
+                }
                 mc.value = value;
                 mc.default_value = value;
             }
         }
     }
 
-    for name_node in group_device.children().filter(|n| {
-        n.is_element() && n.tag_name().name().starts_with("MacroDisplayNames.")
-    }) {
+    for name_node in group_device
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroDisplayNames."))
+    {
         let tag_name = name_node.tag_name().name();
         if let Some(idx) = parse_macro_index(tag_name, "MacroDisplayNames.") {
             if idx < rack.macro_controls.len() {
@@ -279,9 +294,10 @@ pub fn parse_als_rack(
         }
     }
 
-    for default_node in group_device.children().filter(|n| {
-        n.is_element() && n.tag_name().name().starts_with("MacroDefaults.")
-    }) {
+    for default_node in group_device
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroDefaults."))
+    {
         let tag_name = default_node.tag_name().name();
         if let Some(idx) = parse_macro_index(tag_name, "MacroDefaults.") {
             if idx < rack.macro_controls.len() {
@@ -294,19 +310,22 @@ pub fn parse_als_rack(
 
     // ── Parse macro → parameter mappings (PowerMacro*) ─────────────
     for mapping in pending_macro_mappings {
-        if mapping.macro_index >= rack.macro_controls.len() { continue; }
-        rack.macro_controls[mapping.macro_index]
-            .mappings
-            .push(dream_models::project::MacroMapping {
+        if mapping.macro_index >= rack.macro_controls.len() {
+            continue;
+        }
+        rack.macro_controls[mapping.macro_index].mappings.push(
+            dream_models::project::MacroMapping {
                 device_id: mapping.device_id,
                 param_id: mapping.param_id,
                 min_value: mapping.min_value,
                 max_value: mapping.max_value,
-            });
+            },
+        );
     }
     for mc in &mut rack.macro_controls {
         mc.mappings.sort_by(|a, b| {
-            a.device_id.cmp(&b.device_id)
+            a.device_id
+                .cmp(&b.device_id)
                 .then_with(|| a.param_id.cmp(&b.param_id))
                 .then_with(|| a.min_value.total_cmp(&b.min_value))
                 .then_with(|| a.max_value.total_cmp(&b.max_value))
@@ -355,11 +374,10 @@ pub fn parse_als_rack_chains(
     };
 
     for branch in branches_node.children().filter(|n| n.is_element()) {
-        let chain_name = node_child_value(branch, "Name")
-            .unwrap_or_else(|| {
-                let letter = (b'A' + chains.len().min(25) as u8) as char;
-                format!("Chain {letter}")
-            });
+        let chain_name = node_child_value(branch, "Name").unwrap_or_else(|| {
+            let letter = (b'A' + chains.len().min(25) as u8) as char;
+            format!("Chain {letter}")
+        });
 
         let mut chain = RackChain::new(chain_name);
 
@@ -427,13 +445,17 @@ pub fn parse_als_rack_chains(
                         canonical_internal_plugin_for_import(child_tag, &display)
                     {
                         let node = DeviceNode::Single(PluginSlot::new(pname, pid));
-                        pending_macro_mappings
-                            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                        pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
+                            child_device,
+                            &node,
+                        ));
                         chain.devices.push(node);
                     } else {
                         let node = make_missing_plugin_slot(child_tag, &display);
-                        pending_macro_mappings
-                            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                        pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
+                            child_device,
+                            &node,
+                        ));
                         chain.devices.push(node);
                     }
                 }
@@ -441,9 +463,10 @@ pub fn parse_als_rack_chains(
         }
 
         // Parse volume/pan from the chain's mixer if present.
-        if let Some(mixer) = branch.descendants().find(|n| {
-            n.is_element() && n.has_tag_name("Mixer")
-        }) {
+        if let Some(mixer) = branch
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+        {
             if let Some(vol) = mixer
                 .children()
                 .find(|n| n.is_element() && n.has_tag_name("Volume"))
@@ -548,25 +571,41 @@ fn resolve_external_plugin_device(
     };
 
     if let Some(plugin_id) = resolved_plugin_id {
-        log::info!("[ALS Import] Plugin RESOLVED: '{}' → '{}'", preferred_name, plugin_id);
+        log::info!(
+            "[ALS Import] Plugin RESOLVED: '{}' → '{}'",
+            preferred_name,
+            plugin_id
+        );
         let mut slot = PluginSlot::new(preferred_name, plugin_id);
         apply_external_plugin_meta(&mut slot, &meta);
         let node = DeviceNode::Single(slot);
-        pending_macro_mappings
-            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+        pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
+            child_device,
+            &node,
+        ));
         node
     } else if let Some((pid, pname, _)) =
         canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
     {
-        log::info!("[ALS Import] Plugin CANONICAL: '{}' → internal '{}'", preferred_name, pid);
+        log::info!(
+            "[ALS Import] Plugin CANONICAL: '{}' → internal '{}'",
+            preferred_name,
+            pid
+        );
         let node = DeviceNode::Single(PluginSlot::new(pname, pid));
-        pending_macro_mappings
-            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+        pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
+            child_device,
+            &node,
+        ));
         node
     } else {
         log::warn!(
             "[ALS Import] Plugin NOT FOUND: '{}' (vst3='{}', vst2='{}', vst3_path='{}', vst2_path='{}')",
-            preferred_name, vst3_name, vst2_name, vst3_path, vst2_path
+            preferred_name,
+            vst3_name,
+            vst2_name,
+            vst3_path,
+            vst2_path
         );
         let node = make_missing_external_plugin_slot_with_metadata(
             "external",
@@ -579,8 +618,10 @@ fn resolve_external_plugin_device(
             false,
             Some(&meta),
         );
-        pending_macro_mappings
-            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+        pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
+            child_device,
+            &node,
+        ));
         node
     }
 }

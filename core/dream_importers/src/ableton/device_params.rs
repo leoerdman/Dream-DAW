@@ -22,9 +22,7 @@ use super::xml_helpers::*;
 
 /// Collects all descendant nodes that have a `Manual` child with a `Value`
 /// attribute into a HashMap keyed by tag name.
-pub fn collect_device_manual_params(
-    device: roxmltree::Node<'_, '_>,
-) -> HashMap<String, f64> {
+pub fn collect_device_manual_params(device: roxmltree::Node<'_, '_>) -> HashMap<String, f64> {
     let mut out = HashMap::new();
     for node in device.descendants().filter(|n| n.is_element()) {
         let key = node.tag_name().name().to_string();
@@ -41,10 +39,7 @@ pub fn collect_device_manual_params(
 }
 
 /// Returns the first matching value from a set of alternative keys.
-pub fn first_param_value(
-    params: &HashMap<String, f64>,
-    keys: &[&str],
-) -> Option<f64> {
+pub fn first_param_value(params: &HashMap<String, f64>, keys: &[&str]) -> Option<f64> {
     keys.iter().find_map(|k| params.get(*k).copied())
 }
 
@@ -71,21 +66,29 @@ pub fn upsert_static_import_lane(track: &mut Track, param_id: &str, value: f64) 
             value,
             curve_type: "linear".to_string(),
             tension: None,
-            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
+            bezier_cp1x: None,
+            bezier_cp1y: None,
+            bezier_cp2x: None,
+            bezier_cp2y: None,
         }];
         existing.param_id = param_id.to_string();
         return;
     }
-    track.automation_lanes.push(dream_models::project::AutomationLane {
-        param_id: param_id.to_string(),
-        points: vec![dream_models::project::AutomationPoint {
-            beat: 0.0,
-            value,
-            curve_type: "linear".to_string(),
-            tension: None,
-            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
-        }],
-    });
+    track
+        .automation_lanes
+        .push(dream_models::project::AutomationLane {
+            param_id: param_id.to_string(),
+            points: vec![dream_models::project::AutomationPoint {
+                beat: 0.0,
+                value,
+                curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            }],
+        });
 }
 
 /// Like `upsert_static_import_lane`, but only inserts if the param_id
@@ -231,21 +234,41 @@ fn import_auto_filter_params(track: &mut Track, params: &HashMap<String, f64>) {
         upsert_static_import_lane(track, "effect.auto_filter.lfo.rate", v.clamp(0.01, 20.0));
     }
     if let Some(v) = first_param_value(params, &["Lfo_Amount", "LfoAmount"]) {
-        upsert_static_import_lane(track, "effect.auto_filter.lfo.depth", normalize_percent_or_unit(v));
+        upsert_static_import_lane(
+            track,
+            "effect.auto_filter.lfo.depth",
+            normalize_percent_or_unit(v),
+        );
     }
     if let Some(v) = first_param_value(params, &["Envelope_Amount", "EnvAmount"]) {
-        let env = if v.abs() > 1.0 { (v / 100.0).clamp(-1.0, 1.0) } else { v.clamp(-1.0, 1.0) };
+        let env = if v.abs() > 1.0 {
+            (v / 100.0).clamp(-1.0, 1.0)
+        } else {
+            v.clamp(-1.0, 1.0)
+        };
         upsert_static_import_lane(track, "effect.auto_filter.env.amount", env);
     }
     if let Some(v) = first_param_value(params, &["Lfo_Waveform", "LfoShape"]) {
-        upsert_static_import_lane(track, "effect.auto_filter.lfo.shape", v.round().clamp(0.0, 5.0));
+        upsert_static_import_lane(
+            track,
+            "effect.auto_filter.lfo.shape",
+            v.round().clamp(0.0, 5.0),
+        );
     }
     if let Some(v) = first_param_value(params, &["Envelope_Attack", "EnvSpeed"]) {
         let ms = if v <= 1.0 { v * 1000.0 } else { v };
-        upsert_static_import_lane(track, "effect.auto_filter.env.speed_ms", ms.clamp(1.0, 200.0));
+        upsert_static_import_lane(
+            track,
+            "effect.auto_filter.env.speed_ms",
+            ms.clamp(1.0, 200.0),
+        );
     }
     if let Some(v) = first_param_value(params, &["DryWet", "Mix"]) {
-        upsert_static_import_lane(track, "effect.auto_filter.mix", normalize_percent_or_unit(v));
+        upsert_static_import_lane(
+            track,
+            "effect.auto_filter.mix",
+            normalize_percent_or_unit(v),
+        );
     }
 }
 
@@ -312,7 +335,11 @@ fn import_eq_eight_params(
         upsert_static_import_lane(track, "effect.eq.scale", normalize_percent_or_unit(v));
     }
     if let Some(v) = first_param_value(params, &["AdaptiveQ"]) {
-        upsert_static_import_lane(track, "effect.eq.adaptive_q", if v >= 0.5 { 1.0 } else { 0.0 });
+        upsert_static_import_lane(
+            track,
+            "effect.eq.adaptive_q",
+            if v >= 0.5 { 1.0 } else { 0.0 },
+        );
     }
     for band in 0..8 {
         let band_tag = format!("Bands.{band}");
@@ -326,19 +353,39 @@ fn import_eq_eight_params(
                 .or_else(|| band_node.children().find(|n| n.is_element()));
             if let Some(pn) = param_node {
                 if let Some(v) = maybe_parse_f64_manual(pn, "Freq") {
-                    upsert_static_import_lane(track, &format!("effect.eq.band{band}.freq"), v.clamp(20.0, 20_000.0));
+                    upsert_static_import_lane(
+                        track,
+                        &format!("effect.eq.band{band}.freq"),
+                        v.clamp(20.0, 20_000.0),
+                    );
                 }
                 if let Some(v) = maybe_parse_f64_manual(pn, "Gain") {
-                    upsert_static_import_lane(track, &format!("effect.eq.band{band}.gain"), v.clamp(-24.0, 24.0));
+                    upsert_static_import_lane(
+                        track,
+                        &format!("effect.eq.band{band}.gain"),
+                        v.clamp(-24.0, 24.0),
+                    );
                 }
                 if let Some(v) = maybe_parse_f64_manual(pn, "Q") {
-                    upsert_static_import_lane(track, &format!("effect.eq.band{band}.q"), v.clamp(0.1, 18.0));
+                    upsert_static_import_lane(
+                        track,
+                        &format!("effect.eq.band{band}.q"),
+                        v.clamp(0.1, 18.0),
+                    );
                 }
                 if let Some(v) = maybe_parse_f64_manual(pn, "IsOn") {
-                    upsert_static_import_lane(track, &format!("effect.eq.band{band}.on"), if v >= 0.5 { 1.0 } else { 0.0 });
+                    upsert_static_import_lane(
+                        track,
+                        &format!("effect.eq.band{band}.on"),
+                        if v >= 0.5 { 1.0 } else { 0.0 },
+                    );
                 }
                 if let Some(v) = maybe_parse_f64_manual(pn, "Mode") {
-                    upsert_static_import_lane(track, &format!("effect.eq.band{band}.mode"), v.round().clamp(0.0, 7.0));
+                    upsert_static_import_lane(
+                        track,
+                        &format!("effect.eq.band{band}.mode"),
+                        v.round().clamp(0.0, 7.0),
+                    );
                 }
             }
         }
@@ -348,23 +395,33 @@ fn import_eq_eight_params(
 fn import_wave_synth_params(track: &mut Track, params: &HashMap<String, f64>) {
     if let Some(v) = first_param_value(params, &["Voice_Oscillator1_Pitch_Detune", "Detune"]) {
         upsert_static_import_lane(track, "synth.detune", v.clamp(-50.0, 50.0));
-        if let Some(cfg) = &mut track.sampler { cfg.detune_cents = v.clamp(-50.0, 50.0); }
+        if let Some(cfg) = &mut track.sampler {
+            cfg.detune_cents = v.clamp(-50.0, 50.0);
+        }
     }
     if let Some(v) = first_param_value(params, &["Voice_SubOscillator_Gain"]) {
         upsert_static_import_lane(track, "synth.sub", normalize_percent_or_unit(v));
-        if let Some(cfg) = &mut track.sampler { cfg.sub_level = normalize_percent_or_unit(v); }
+        if let Some(cfg) = &mut track.sampler {
+            cfg.sub_level = normalize_percent_or_unit(v);
+        }
     }
     if let Some(v) = first_param_value(params, &["Voice_Filter1_Frequency", "Filter_Frequency"]) {
         upsert_static_import_lane(track, "synth.filter.cutoff", v.clamp(20.0, 20_000.0));
-        if let Some(cfg) = &mut track.sampler { cfg.filter_cutoff = v.clamp(20.0, 20_000.0); }
+        if let Some(cfg) = &mut track.sampler {
+            cfg.filter_cutoff = v.clamp(20.0, 20_000.0);
+        }
     }
     if let Some(v) = first_param_value(params, &["Voice_Filter1_Resonance", "Filter_Resonance"]) {
         upsert_static_import_lane(track, "synth.filter.resonance", v.clamp(0.0, 0.99));
-        if let Some(cfg) = &mut track.sampler { cfg.filter_resonance = v.clamp(0.0, 0.99); }
+        if let Some(cfg) = &mut track.sampler {
+            cfg.filter_resonance = v.clamp(0.0, 0.99);
+        }
     }
     if let Some(v) = first_param_value(params, &["Voice_Filter1_Type", "Filter_Type"]) {
         upsert_static_import_lane(track, "synth.filter.type", v.round().clamp(0.0, 3.0));
-        if let Some(cfg) = &mut track.sampler { cfg.filter_type = v.round().clamp(0.0, 3.0) as u8; }
+        if let Some(cfg) = &mut track.sampler {
+            cfg.filter_type = v.round().clamp(0.0, 3.0) as u8;
+        }
     }
     if let (Some(osc1), Some(osc2)) = (
         first_param_value(params, &["Voice_Oscillator1_Gain"]),
@@ -374,19 +431,31 @@ fn import_wave_synth_params(track: &mut Track, params: &HashMap<String, f64>) {
         if total > 1e-6 {
             let mix = (osc2.abs() / total).clamp(0.0, 1.0);
             upsert_static_import_lane(track, "synth.osc.mix", mix);
-            if let Some(cfg) = &mut track.sampler { cfg.osc_mix = mix; }
+            if let Some(cfg) = &mut track.sampler {
+                cfg.osc_mix = mix;
+            }
         }
     }
-    if let Some(v) = first_param_value(params, &["Voice_Modulators_AmpEnvelope_Times_Attack", "Attack"]) {
+    if let Some(v) = first_param_value(
+        params,
+        &["Voice_Modulators_AmpEnvelope_Times_Attack", "Attack"],
+    ) {
         upsert_static_import_lane(track, "sampler.attack", v.clamp(0.001, 10.0));
     }
-    if let Some(v) = first_param_value(params, &["Voice_Modulators_AmpEnvelope_Times_Decay", "Decay"]) {
+    if let Some(v) = first_param_value(
+        params,
+        &["Voice_Modulators_AmpEnvelope_Times_Decay", "Decay"],
+    ) {
         upsert_static_import_lane(track, "sampler.decay", v.clamp(0.001, 10.0));
     }
-    if let Some(v) = first_param_value(params, &["Voice_Modulators_AmpEnvelope_Sustain", "Sustain"]) {
+    if let Some(v) = first_param_value(params, &["Voice_Modulators_AmpEnvelope_Sustain", "Sustain"])
+    {
         upsert_static_import_lane(track, "sampler.sustain", normalize_percent_or_unit(v));
     }
-    if let Some(v) = first_param_value(params, &["Voice_Modulators_AmpEnvelope_Times_Release", "Release"]) {
+    if let Some(v) = first_param_value(
+        params,
+        &["Voice_Modulators_AmpEnvelope_Times_Release", "Release"],
+    ) {
         upsert_static_import_lane(track, "sampler.release", v.clamp(0.001, 20.0));
     }
 }
@@ -408,7 +477,11 @@ fn import_sampler_params(track: &mut Track, params: &HashMap<String, f64>) {
         lane_updates.push(("sampler.decay".to_string(), cfg.decay));
     }
     if let Some(v) = first_param_value(params, &["Sustain", "EnvSustain"]) {
-        let sustain = if v > 1.0 { (v / 100.0).clamp(0.0, 1.0) } else { v.clamp(0.0, 1.0) };
+        let sustain = if v > 1.0 {
+            (v / 100.0).clamp(0.0, 1.0)
+        } else {
+            v.clamp(0.0, 1.0)
+        };
         cfg.sustain = sustain;
         lane_updates.push(("sampler.sustain".to_string(), cfg.sustain));
     }
@@ -417,7 +490,11 @@ fn import_sampler_params(track: &mut Track, params: &HashMap<String, f64>) {
         lane_updates.push(("sampler.release".to_string(), cfg.release));
     }
     if let Some(v) = first_param_value(params, &["Root", "RootKey", "Base", "Transpose"]) {
-        let root = if v.abs() <= 24.0 && v.fract().abs() < 1e-9 { (60.0 + v).round() } else { v.round() };
+        let root = if v.abs() <= 24.0 && v.fract().abs() < 1e-9 {
+            (60.0 + v).round()
+        } else {
+            v.round()
+        };
         cfg.root_note = root.clamp(0.0, 127.0) as u8;
         lane_updates.push(("sampler.root_note".to_string(), cfg.root_note as f64));
     }
@@ -439,7 +516,10 @@ fn import_sampler_params(track: &mut Track, params: &HashMap<String, f64>) {
     }
     if let Some(v) = first_param_value(params, &["Osc2Waveform", "Voice_Oscillator2_Waveform"]) {
         cfg.osc2_waveform = v.round().clamp(0.0, 3.0) as u8;
-        lane_updates.push(("sampler.osc2_waveform".to_string(), cfg.osc2_waveform as f64));
+        lane_updates.push((
+            "sampler.osc2_waveform".to_string(),
+            cfg.osc2_waveform as f64,
+        ));
     }
     if let Some(v) = first_param_value(params, &["OscMix", "Voice_Oscillator_Blend"]) {
         cfg.osc_mix = normalize_percent_or_unit(v);
@@ -482,7 +562,11 @@ fn import_chorus_params(track: &mut Track, params: &HashMap<String, f64>) {
         upsert_static_import_lane(track, "effect.chorus.delay", v.clamp(0.0, 20.0));
     }
     if let Some(v) = first_param_value(params, &["Feedback", "FeedbackAmount"]) {
-        upsert_static_import_lane(track, "effect.chorus.feedback", normalize_percent_or_unit(v));
+        upsert_static_import_lane(
+            track,
+            "effect.chorus.feedback",
+            normalize_percent_or_unit(v),
+        );
     }
     if let Some(v) = first_param_value(params, &["DryWet", "Mix"]) {
         upsert_static_import_lane(track, "effect.chorus.mix", normalize_percent_or_unit(v));
@@ -497,7 +581,11 @@ fn import_flanger_params(track: &mut Track, params: &HashMap<String, f64>) {
         upsert_static_import_lane(track, "effect.flanger.depth", normalize_percent_or_unit(v));
     }
     if let Some(v) = first_param_value(params, &["Feedback"]) {
-        upsert_static_import_lane(track, "effect.flanger.feedback", normalize_percent_or_unit(v));
+        upsert_static_import_lane(
+            track,
+            "effect.flanger.feedback",
+            normalize_percent_or_unit(v),
+        );
     }
     if let Some(v) = first_param_value(params, &["Delay", "DelayTime"]) {
         upsert_static_import_lane(track, "effect.flanger.delay", v.clamp(0.0, 20.0));
@@ -518,7 +606,11 @@ fn import_phaser_params(track: &mut Track, params: &HashMap<String, f64>) {
         upsert_static_import_lane(track, "effect.phaser.poles", v.round().clamp(1.0, 12.0));
     }
     if let Some(v) = first_param_value(params, &["Feedback"]) {
-        upsert_static_import_lane(track, "effect.phaser.feedback", normalize_percent_or_unit(v));
+        upsert_static_import_lane(
+            track,
+            "effect.phaser.feedback",
+            normalize_percent_or_unit(v),
+        );
     }
     if let Some(v) = first_param_value(params, &["DryWet", "Mix"]) {
         upsert_static_import_lane(track, "effect.phaser.mix", normalize_percent_or_unit(v));
@@ -626,7 +718,11 @@ fn import_noise_machine_params(track: &mut Track, params: &HashMap<String, f64>)
         upsert_static_import_lane(track, "effect.noise_machine.level", v.clamp(0.0, 1.0));
     }
     if let Some(v) = first_param_value(params, &["Color", "Type"]) {
-        upsert_static_import_lane(track, "effect.noise_machine.color", v.round().clamp(0.0, 4.0));
+        upsert_static_import_lane(
+            track,
+            "effect.noise_machine.color",
+            v.round().clamp(0.0, 4.0),
+        );
     }
 }
 
@@ -644,9 +740,13 @@ pub fn collect_external_plugin_static_lanes(
     for (param_idx, param_node) in device
         .descendants()
         .filter(|n| {
-            if !n.is_element() { return false; }
+            if !n.is_element() {
+                return false;
+            }
             let tag = n.tag_name().name();
-            tag == "PluginFloatParameter" || tag == "PluginIntParameter" || tag == "PluginBoolParameter"
+            tag == "PluginFloatParameter"
+                || tag == "PluginIntParameter"
+                || tag == "PluginBoolParameter"
         })
         .enumerate()
     {
@@ -688,10 +788,7 @@ pub fn collect_external_plugin_static_lanes(
             param_key = format!("{param_key}_id{v}");
         }
 
-        out.push((
-            format!("plugin:{dev_idx}:{plugin_key}:{param_key}"),
-            value,
-        ));
+        out.push((format!("plugin:{dev_idx}:{plugin_key}:{param_key}"), value));
     }
 
     out

@@ -115,8 +115,7 @@ pub fn apply_pan_smoothed(
     // for large buffers (e.g. 8192 samples with coeff 0.005 → 0.995^8192 ≈ 0.0,
     // making the update factor = 1.0 and snapping pan instantly).
     let clamped_len = left.len().min(2048) as i32;
-    *current_pan += (target_pan - *current_pan)
-        * (1.0 - (1.0 - smoothing_coeff).powi(clamped_len));
+    *current_pan += (target_pan - *current_pan) * (1.0 - (1.0 - smoothing_coeff).powi(clamped_len));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

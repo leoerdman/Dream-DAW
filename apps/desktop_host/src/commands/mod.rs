@@ -22,6 +22,8 @@ include!("sections/browser_folders.rs");
 include!("sections/project_extended.rs");
 include!("sections/audio_devices.rs");
 include!("sections/plugins_routing.rs");
+include!("sections/plugin_sandbox_commands.rs");
+include!("sections/routing_commands.rs");
 include!("sections/midi_input.rs");
 include!("sections/device_rack.rs");
 include!("sections/spectrum.rs");
@@ -109,14 +111,18 @@ pub(crate) fn invoke_handler()
         get_waveform_peaks_lod_binary,
         // Track Management
         add_track_cmd,
+        add_track_with_deltas_cmd,
         delete_track_cmd,
+        delete_track_with_deltas_cmd,
         delete_tracks_cmd,
         rename_track_cmd,
+        rename_track_with_deltas_cmd,
         set_track_height_cmd,
         set_track_color_cmd,
         create_group_cmd,
         set_group_expanded_cmd,
         move_track_to_index_cmd,
+        move_track_to_index_with_deltas_cmd,
         move_track_with_parent_cmd,
         set_track_group_cmd,
         ungroup_track_cmd,

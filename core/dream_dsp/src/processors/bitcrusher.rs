@@ -83,8 +83,10 @@ impl BitcrusherProcessor {
     fn update_filters(&mut self) {
         let sr = self.sample_rate;
         // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
-        self.pre_coeff = (1.0 - (-std::f32::consts::TAU * self.pre_freq / sr).exp()).clamp(0.0, 1.0);
-        self.post_coeff = (1.0 - (-std::f32::consts::TAU * self.post_freq / sr).exp()).clamp(0.0, 1.0);
+        self.pre_coeff =
+            (1.0 - (-std::f32::consts::TAU * self.pre_freq / sr).exp()).clamp(0.0, 1.0);
+        self.post_coeff =
+            (1.0 - (-std::f32::consts::TAU * self.post_freq / sr).exp()).clamp(0.0, 1.0);
     }
 
     #[inline]
@@ -191,10 +193,18 @@ impl DspProcessor for BitcrusherProcessor {
             right[i] = dry_r * (1.0 - self.mix) + self.post_state_r * self.mix;
 
             // AUD-132 FIX: Flush denormals in pre/post LP filter states.
-            if self.pre_state_l.abs() < 1e-20 { self.pre_state_l = 0.0; }
-            if self.pre_state_r.abs() < 1e-20 { self.pre_state_r = 0.0; }
-            if self.post_state_l.abs() < 1e-20 { self.post_state_l = 0.0; }
-            if self.post_state_r.abs() < 1e-20 { self.post_state_r = 0.0; }
+            if self.pre_state_l.abs() < 1e-20 {
+                self.pre_state_l = 0.0;
+            }
+            if self.pre_state_r.abs() < 1e-20 {
+                self.pre_state_r = 0.0;
+            }
+            if self.post_state_l.abs() < 1e-20 {
+                self.post_state_l = 0.0;
+            }
+            if self.post_state_r.abs() < 1e-20 {
+                self.post_state_r = 0.0;
+            }
         }
     }
 

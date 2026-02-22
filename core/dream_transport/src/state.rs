@@ -161,9 +161,7 @@ impl TransportController {
             TransportCommand::Record => {
                 // BUG-66 FIX: Allow recording from both Stopped AND Playing states.
                 // Professional DAWs support punch-in recording while playing.
-                if self.state == TransportState::Stopped
-                    || self.state == TransportState::Playing
-                {
+                if self.state == TransportState::Stopped || self.state == TransportState::Playing {
                     self.state = TransportState::Recording;
                     log::debug!("Transport: Recording");
                     return true;

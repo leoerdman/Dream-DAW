@@ -202,6 +202,15 @@ export const addTrack = (name?: string, inheritFromTrackId?: string | null) =>
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
 
+/** Add audio track and return ProjectDelta events. */
+export const addTrackWithDeltas = (name?: string, inheritFromTrackId?: string | null) =>
+    invoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
+        name: name ?? null,
+        trackType: 'audio',
+        insertAfterIndex: null,
+        inheritFromTrackId: inheritFromTrackId ?? null,
+    });
+
 export type TrackCreateType = 'audio' | 'midi' | 'group';
 
 /** Add a track with explicit type and insertion semantics. */
@@ -222,6 +231,10 @@ export const addTrackAdvanced = (
 export const deleteTrack = (trackIndex: number) =>
     invoke<void>('delete_track_cmd', { index: trackIndex });
 
+/** Delete a track and return ProjectDelta events. */
+export const deleteTrackWithDeltas = (trackIndex: number) =>
+    invoke<DeltaMutationResponse>('delete_track_with_deltas_cmd', { index: trackIndex });
+
 /** Delete multiple tracks by their string IDs in a single backend transaction. */
 export const deleteTracks = (trackIds: string[]) =>
     invoke<void>('delete_tracks_cmd', { trackIds });
@@ -229,6 +242,10 @@ export const deleteTracks = (trackIds: string[]) =>
 /** Rename a track by its zero-based index. */
 export const renameTrack = (index: number, name: string) =>
     invoke<void>('rename_track_cmd', { index, name });
+
+/** Rename a track and return ProjectDelta events. */
+export const renameTrackWithDeltas = (index: number, name: string) =>
+    invoke<DeltaMutationResponse>('rename_track_with_deltas_cmd', { index, name });
 
 /** Persist a track's arrangement row height (pixels). */
 export const setTrackHeight = (trackId: string, height: number) =>
@@ -252,6 +269,10 @@ export const setGroupExpanded = (groupId: string, expanded: boolean) =>
 /** Move track to target visual index (drag-reorder in track list). */
 export const moveTrackToIndex = (trackId: string, targetIndex: number) =>
     invoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
+
+/** Move track to target visual index and return ProjectDelta events. */
+export const moveTrackToIndexWithDeltas = (trackId: string, targetIndex: number) =>
+    invoke<DeltaMutationResponse>('move_track_to_index_with_deltas_cmd', { trackId, targetIndex });
 
 /** Move track to index and (optionally) re-parent under a group track. */
 export const moveTrackWithParent = (
@@ -735,6 +756,10 @@ export type ProjectDelta =
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
     | { kind: 'TrackMuteChanged'; data: { track_id: string; muted: boolean } }
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
+    | { kind: 'TrackAdded'; data: { track_index: number; track_id: string; name: string; track_type: string } }
+    | { kind: 'TrackRemoved'; data: { track_id: string; track_index: number } }
+    | { kind: 'TrackRenamed'; data: { track_id: string; new_name: string } }
+    | { kind: 'TrackMoved'; data: { track_id: string; old_index: number; new_index: number } }
     | { kind: 'FullRefreshRequired' };
 
 export interface DeltaMutationResponse {

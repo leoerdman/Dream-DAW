@@ -313,7 +313,8 @@ impl StreamingWavWriter {
         // allowing unbounded offline bounces to silently corrupt the file by wrapping
         // the u32 chunk size field. This is critical for long recording sessions.
         let bytes_per_sample = (self.bit_depth as u64) / 8;
-        let cumulative_samples = (self.frames_written as u64) * (self.channels as u64) + (samples.len() as u64);
+        let cumulative_samples =
+            (self.frames_written as u64) * (self.channels as u64) + (samples.len() as u64);
         let total_data_bytes = cumulative_samples * bytes_per_sample;
         if total_data_bytes > u32::MAX as u64 {
             return Err(WavWriterError::InvalidData(format!(
@@ -322,7 +323,9 @@ impl StreamingWavWriter {
             )));
         }
 
-        let writer = self.writer.as_mut()
+        let writer = self
+            .writer
+            .as_mut()
             .ok_or_else(|| WavWriterError::WriteError("Writer already finalized".into()))?;
 
         match self.bit_depth {
@@ -370,7 +373,9 @@ impl StreamingWavWriter {
     ///
     /// After calling this, the Drop impl will be a no-op.
     pub fn finalize(mut self) -> Result<(), WavWriterError> {
-        let writer = self.writer.take()
+        let writer = self
+            .writer
+            .take()
             .ok_or_else(|| WavWriterError::WriteError("Writer already finalized".into()))?;
         writer
             .finalize()

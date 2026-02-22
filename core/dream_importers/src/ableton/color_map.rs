@@ -7,8 +7,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-use dream_models::project::TrackColor;
 use crate::ableton::xml_helpers::{node_child_value, parse_i64_value};
+use dream_models::project::TrackColor;
 
 /// Maps an Ableton color index (0–69) to the nearest TrackColor variant.
 /// Falls back to `TrackColor::for_index(fallback)` for out-of-range indices.
@@ -85,7 +85,10 @@ mod tests {
     fn color_hex_is_derived_from_track_color_mapping() {
         assert_eq!(ableton_color_index_to_hex(17), Some(TrackColor::Teal.hex()));
         assert_eq!(ableton_color_index_to_hex(24), Some(TrackColor::Blue.hex()));
-        assert_eq!(ableton_color_index_to_hex(56), Some(TrackColor::Slate.hex()));
+        assert_eq!(
+            ableton_color_index_to_hex(56),
+            Some(TrackColor::Slate.hex())
+        );
         assert_eq!(ableton_color_index_to_hex(-1), None);
         assert_eq!(ableton_color_index_to_hex(70), None);
     }

@@ -89,14 +89,16 @@ impl Command for SetClipWarpCommand {
                     if clip.warp_markers.is_empty() {
                         let source_dur_sec = clip.warp_source_duration_frames as f64 / project_sr;
                         let source_beats = source_dur_sec * (self.warp_base_bpm / 60.0);
-                        clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
-                            sec_time: 0.0,
-                            beat_time: 0.0,
-                        });
-                        clip.warp_markers.push(dream_models::project::WarpMarkerPoint {
-                            sec_time: source_dur_sec,
-                            beat_time: source_beats,
-                        });
+                        clip.warp_markers
+                            .push(dream_models::project::WarpMarkerPoint {
+                                sec_time: 0.0,
+                                beat_time: 0.0,
+                            });
+                        clip.warp_markers
+                            .push(dream_models::project::WarpMarkerPoint {
+                                sec_time: source_dur_sec,
+                                beat_time: source_beats,
+                            });
                     }
                 } else {
                     let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);

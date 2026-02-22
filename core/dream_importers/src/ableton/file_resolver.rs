@@ -134,11 +134,9 @@ pub fn extract_audio_clip_source_path(
         let abs_path = first_child_value(file_ref, "Path");
         let rel_path = first_child_value(file_ref, "RelativePath")
             .or_else(|| first_child_value(file_ref, "RelativePathElement"));
-        if let Some(resolved) = resolve_als_file_path(
-            als_path,
-            abs_path.as_deref(),
-            rel_path.as_deref(),
-        ) {
+        if let Some(resolved) =
+            resolve_als_file_path(als_path, abs_path.as_deref(), rel_path.as_deref())
+        {
             return resolved;
         }
     }
@@ -150,18 +148,15 @@ pub fn extract_audio_clip_source_path(
     {
         let abs_path = first_child_value(file_ref, "Path");
         let rel_path = first_child_value(file_ref, "RelativePath");
-        if let Some(resolved) = resolve_als_file_path(
-            als_path,
-            abs_path.as_deref(),
-            rel_path.as_deref(),
-        ) {
+        if let Some(resolved) =
+            resolve_als_file_path(als_path, abs_path.as_deref(), rel_path.as_deref())
+        {
             return resolved;
         }
     }
 
     // Strategy 3: <Name Value="..." /> fallback
-    first_child_value(clip_node, "Name")
-        .unwrap_or_else(|| "unknown_sample".to_string())
+    first_child_value(clip_node, "Name").unwrap_or_else(|| "unknown_sample".to_string())
 }
 
 /// Extracts a sample path from a Simpler device XML node.
@@ -212,19 +207,14 @@ pub fn parse_fade_frames_from_audio_clip(
 /// project clip paths to the consolidated location.
 ///
 /// Non-fatal by design: failures are logged and skipped.
-pub fn consolidate_project_samples_for_als_import(
-    project: &mut Project,
-    als_path: &Path,
-) -> usize {
+pub fn consolidate_project_samples_for_als_import(project: &mut Project, als_path: &Path) -> usize {
     let Some(project_dir) = als_path.parent() else {
         return 0;
     };
 
     let imported_dir = project_dir.join("Samples").join("Imported");
     if let Err(e) = std::fs::create_dir_all(&imported_dir) {
-        log::warn!(
-            "Could not create Samples/Imported directory for ALS import: {e}"
-        );
+        log::warn!("Could not create Samples/Imported directory for ALS import: {e}");
         return 0;
     }
 
@@ -239,7 +229,9 @@ pub fn consolidate_project_samples_for_als_import(
                 continue;
             };
             let dest = imported_dir.join(file_name);
-            if !dest.exists() && let Err(e) = std::fs::copy(src, &dest) {
+            if !dest.exists()
+                && let Err(e) = std::fs::copy(src, &dest)
+            {
                 log::warn!(
                     "Sample consolidation: failed to copy '{}': {e}",
                     src.display()

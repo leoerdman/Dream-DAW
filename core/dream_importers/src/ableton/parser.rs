@@ -15,12 +15,12 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::ableton::clip_parser::{parse_clip_grid, parse_clip_scale_info, semitone_to_tonic};
+use crate::ableton::xml_helpers::parse_f64_value;
 use crate::ableton::xml_helpers::{
     beats_to_frames, first_child_bool, first_child_f64, first_child_i32, first_child_value,
     node_child_value, parse_i64_value, parse_live_set_bool, parse_live_set_i32,
     parse_root_midi_editor_lanes, parse_view_states_bool,
 };
-use crate::ableton::xml_helpers::parse_f64_value;
 use dream_models::project::{Project, TempoAutomationEvent, TimeSignature, TimeSignatureChange};
 
 pub fn read_als_xml_text(file_path: &Path) -> Result<String, String> {
@@ -82,7 +82,10 @@ pub fn parse_imported_sample_rate(live_set: roxmltree::Node<'_, '_>) -> f64 {
     live_set
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("OverrideSampleRate"))
-        .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
+        .and_then(|n| {
+            n.children()
+                .find(|c| c.is_element() && c.has_tag_name("Manual"))
+        })
         .and_then(|n| n.attribute("Value"))
         .and_then(parse_f64_value)
         .filter(|v| *v > 0.0)
@@ -90,7 +93,10 @@ pub fn parse_imported_sample_rate(live_set: roxmltree::Node<'_, '_>) -> f64 {
             live_set
                 .descendants()
                 .find(|n| n.is_element() && n.has_tag_name("SampleRate"))
-                .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
+                .and_then(|n| {
+                    n.children()
+                        .find(|c| c.is_element() && c.has_tag_name("Manual"))
+                })
                 .and_then(|n| n.attribute("Value"))
                 .and_then(parse_f64_value)
                 .filter(|v| *v > 0.0)
@@ -98,7 +104,10 @@ pub fn parse_imported_sample_rate(live_set: roxmltree::Node<'_, '_>) -> f64 {
         .unwrap_or(44100.0)
 }
 
-pub fn resolve_timeline_sample_rate(imported_sample_rate: f64, target_sample_rate: Option<f64>) -> f64 {
+pub fn resolve_timeline_sample_rate(
+    imported_sample_rate: f64,
+    target_sample_rate: Option<f64>,
+) -> f64 {
     target_sample_rate
         .filter(|v| v.is_finite() && *v > 0.0)
         .unwrap_or(imported_sample_rate)
@@ -119,20 +128,21 @@ pub fn apply_live_set_editor_view_metadata(
             project.session_scroll_y = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         }
     }
-    if let Some(v) = first_child_f64(live_set, "SelectedBreakpointValue").filter(|v| v.is_finite()) {
+    if let Some(v) = first_child_f64(live_set, "SelectedBreakpointValue").filter(|v| v.is_finite())
+    {
         project.selected_breakpoint_value = v;
     }
     if let Some(time_selection) = live_set
         .children()
         .find(|n| n.is_element() && n.has_tag_name("TimeSelection"))
     {
-        if let Some(v) = first_child_f64(time_selection, "AnchorTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
+        if let Some(v) =
+            first_child_f64(time_selection, "AnchorTime").filter(|v| v.is_finite() && *v >= 0.0)
         {
             project.time_selection_anchor_beats = Some(v);
         }
-        if let Some(v) = first_child_f64(time_selection, "OtherTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
+        if let Some(v) =
+            first_child_f64(time_selection, "OtherTime").filter(|v| v.is_finite() && *v >= 0.0)
         {
             project.time_selection_other_beats = Some(v);
         }
@@ -226,25 +236,34 @@ pub fn apply_live_set_timeline_and_signature_metadata(
         if let Some(v) = first_child_f64(transport, "PhaseNudgeTempo").filter(|v| v.is_finite()) {
             project.transport_phase_nudge_tempo = v;
         }
-        if let Some(current_time_beats) = first_child_f64(transport, "CurrentTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
+        if let Some(current_time_beats) =
+            first_child_f64(transport, "CurrentTime").filter(|v| v.is_finite() && *v >= 0.0)
         {
-            project.playhead_position_frames = beats_to_frames(current_time_beats, tempo, sample_rate);
+            project.playhead_position_frames =
+                beats_to_frames(current_time_beats, tempo, sample_rate);
         }
         let loop_on = first_child_bool(transport, "LoopOn").unwrap_or(false);
-        let loop_start_beats = first_child_f64(transport, "LoopStart").unwrap_or(0.0).max(0.0);
-        let loop_length_beats = first_child_f64(transport, "LoopLength").unwrap_or(0.0).max(0.0);
+        let loop_start_beats = first_child_f64(transport, "LoopStart")
+            .unwrap_or(0.0)
+            .max(0.0);
+        let loop_length_beats = first_child_f64(transport, "LoopLength")
+            .unwrap_or(0.0)
+            .max(0.0);
         project.is_looping = loop_on;
         project.loop_start_frames = Some(beats_to_frames(loop_start_beats, tempo, sample_rate));
-        project.loop_end_frames =
-            Some(beats_to_frames(loop_start_beats + loop_length_beats, tempo, sample_rate));
+        project.loop_end_frames = Some(beats_to_frames(
+            loop_start_beats + loop_length_beats,
+            tempo,
+            sample_rate,
+        ));
         if let Some(v) = first_child_bool(transport, "PunchIn") {
             project.punch_in_enabled = v;
         }
         if let Some(v) = first_child_bool(transport, "PunchOut") {
             project.punch_out_enabled = v;
         }
-        if let Some(v) = first_child_f64(transport, "MetronomeTickDuration").filter(|v| v.is_finite())
+        if let Some(v) =
+            first_child_f64(transport, "MetronomeTickDuration").filter(|v| v.is_finite())
         {
             project.metronome_tick_duration = v;
         }
@@ -364,7 +383,10 @@ pub fn apply_live_set_timeline_and_signature_metadata(
                 && let Some(env_container) = main_track
                     .children()
                     .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
+                    .and_then(|ae| {
+                        ae.children()
+                            .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
+                    })
             {
                 for envelope in env_container
                     .children()
@@ -449,7 +471,10 @@ pub fn apply_live_set_timeline_and_signature_metadata(
                 && let Some(env_container) = main_track
                     .children()
                     .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
+                    .and_then(|ae| {
+                        ae.children()
+                            .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
+                    })
             {
                 let mut num_events: Vec<(f64, u8)> = Vec::new();
                 let mut den_events: Vec<(f64, u8)> = Vec::new();
@@ -495,12 +520,10 @@ pub fn apply_live_set_timeline_and_signature_metadata(
                 }
 
                 if !num_events.is_empty() {
-                    num_events.sort_by(|a, b| {
-                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                    den_events.sort_by(|a, b| {
-                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    num_events
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    den_events
+                        .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
                     let default_den = project.time_signature.denominator;
                     let mut ts_changes = Vec::new();
@@ -603,7 +626,10 @@ pub fn apply_live_set_project_metadata(project: &mut Project, live_set: roxmltre
         .children()
         .find(|n| n.is_element() && n.has_tag_name("NoteAlgorithms"))
     {
-        let count = note_algorithms.children().filter(|n| n.is_element()).count();
+        let count = note_algorithms
+            .children()
+            .filter(|n| n.is_element())
+            .count();
         project.note_algorithm_count = count.clamp(0, i32::MAX as usize) as i32;
     }
     if let Some(video_rect) = live_set
@@ -858,7 +884,10 @@ mod tests {
 
     #[test]
     fn resolve_timeline_sample_rate_prefers_valid_target() {
-        assert_eq!(resolve_timeline_sample_rate(44100.0, Some(48000.0)), 48000.0);
+        assert_eq!(
+            resolve_timeline_sample_rate(44100.0, Some(48000.0)),
+            48000.0
+        );
         assert_eq!(resolve_timeline_sample_rate(44100.0, Some(0.0)), 44100.0);
         assert_eq!(resolve_timeline_sample_rate(44100.0, None), 44100.0);
     }

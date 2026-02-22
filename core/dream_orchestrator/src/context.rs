@@ -201,8 +201,12 @@ impl OrchestratorContext {
 /// No-op undo manager — used in tests and headless mode.
 struct NoopUndoManager;
 impl UndoManager for NoopUndoManager {
-    fn push_undo(&self, _project: &Project) -> OrchestratorResult<()> { Ok(()) }
-    fn push_undo_coalesced(&self, _project: &Project) -> OrchestratorResult<()> { Ok(()) }
+    fn push_undo(&self, _project: &Project) -> OrchestratorResult<()> {
+        Ok(())
+    }
+    fn push_undo_coalesced(&self, _project: &Project) -> OrchestratorResult<()> {
+        Ok(())
+    }
 }
 
 /// No-op snapshot rebuilder — used in tests and headless mode.
@@ -219,21 +223,31 @@ impl SnapshotRebuilder for NoopSnapshotRebuilder {
 /// No-op clip pool access — used in tests and headless mode.
 struct NoopClipPoolAccess;
 impl ClipPoolAccess for NoopClipPoolAccess {
-    fn get_clip_audio(&self, _file_path: &str) -> Option<Arc<ClipAudio>> { None }
-    fn insert_clip_audio(&self, _audio: ClipAudio) -> OrchestratorResult<()> { Ok(()) }
+    fn get_clip_audio(&self, _file_path: &str) -> Option<Arc<ClipAudio>> {
+        None
+    }
+    fn insert_clip_audio(&self, _audio: ClipAudio) -> OrchestratorResult<()> {
+        Ok(())
+    }
     fn lock_pool(&self) -> OrchestratorResult<MutexGuard<'_, ClipPool>> {
-        Err(OrchestratorError::Other("NoopClipPoolAccess has no pool".to_string()))
+        Err(OrchestratorError::Other(
+            "NoopClipPoolAccess has no pool".to_string(),
+        ))
     }
 }
 
 /// No-op dirty marker — used in tests and headless mode.
 struct NoopDirtyMarker;
 impl DirtyMarker for NoopDirtyMarker {
-    fn mark_dirty(&self, _project_name: &str) -> OrchestratorResult<()> { Ok(()) }
+    fn mark_dirty(&self, _project_name: &str) -> OrchestratorResult<()> {
+        Ok(())
+    }
 }
 
 /// No-op history recorder — used in tests and headless mode.
 struct NoopHistoryRecorder;
 impl HistoryRecorder for NoopHistoryRecorder {
-    fn record(&self, _kind: &str, _detail: &str) -> OrchestratorResult<()> { Ok(()) }
+    fn record(&self, _kind: &str, _detail: &str) -> OrchestratorResult<()> {
+        Ok(())
+    }
 }

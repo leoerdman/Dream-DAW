@@ -18,6 +18,26 @@ export interface DeltaApplyResult {
     fallbackReason: string | null;
 }
 
+const TRACK_PALETTE = [
+    '#F05C4D', '#FF8A1A', '#FFBF33', '#FFE14D',
+    '#A3D94D', '#4DC775', '#4DC7B0', '#4DC7CC',
+    '#4DA6E3', '#4D7AE3', '#6B5CE3', '#9B59D9',
+    '#D94DA6', '#E36B96', '#E66673', '#8C949E',
+] as const;
+
+function colorForTrackIndex(index: number): string {
+    const safe = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : 0;
+    return TRACK_PALETTE[safe % TRACK_PALETTE.length] ?? '#667788';
+}
+
+function normalizeTrackType(trackType: string): string {
+    const normalized = (trackType || 'audio').trim().toLowerCase();
+    if (normalized === 'midi') return 'Midi';
+    if (normalized === 'group') return 'Group';
+    if (normalized === 'master') return 'Master';
+    return 'Audio';
+}
+
 export function applyProjectDeltasToState(
     state: DeltaApplyState,
     deltas: ProjectDelta[],
@@ -252,8 +272,9 @@ export function applyProjectDeltasToState(
             timelineClips = timelineClips.filter((c) => c.id !== delta.data.clip_id);
             clipsArrayCopied = true;
             clipIdxMap = null;
-            const { [delta.data.clip_id]: _removed, ...rest } = clipsById;
-            clipsById = rest;
+            const nextClipsById = { ...clipsById };
+            delete nextClipsById[delta.data.clip_id];
+            clipsById = nextClipsById;
             changed = true;
             continue;
         }
@@ -290,6 +311,160 @@ export function applyProjectDeltasToState(
             const track = tracksById[delta.data.track_id];
             if (!track) continue;
             spliceTrack({ ...track, is_solo: delta.data.soloed });
+            continue;
+        }
+
+        if (delta.kind === 'TrackAdded') {
+            const insertIndex = Math.max(0, Math.min(delta.data.track_index, projectTracks.length));
+            const nextTrack: ProjectTrack = {
+                id: delta.data.track_id,
+                name: delta.data.name,
+                track_type: normalizeTrackType(delta.data.track_type),
+                color: colorForTrackIndex(insertIndex),
+                volume: 1.0,
+                pan: 0.0,
+                is_mute: false,
+                is_solo: false,
+                is_armed: false,
+                height: 80,
+                output: 'master',
+                input: 'none',
+                parent_track_id: null,
+                child_track_ids: [],
+                is_expanded: true,
+                effects: [],
+                instrument: null,
+                sampler: null,
+                sample_rack: null,
+                automation_lanes: [],
+            };
+
+            if (!tracksArrayCopied) {
+                projectTracks = projectTracks.slice();
+                tracksArrayCopied = true;
+            }
+            projectTracks.splice(insertIndex, 0, nextTrack);
+            trackIdxMap = null;
+            tracksById = { ...tracksById, [nextTrack.id]: nextTrack };
+
+            if (!clipsArrayCopied) {
+                timelineClips = timelineClips.slice();
+                clipsArrayCopied = true;
+            }
+            let clipsShifted = false;
+            for (let i = 0; i < timelineClips.length; i++) {
+                const clip = timelineClips[i];
+                if (clip.trackIndex >= insertIndex) {
+                    const shifted = { ...clip, trackIndex: clip.trackIndex + 1 };
+                    timelineClips[i] = shifted;
+                    if (!clipsShifted) {
+                        clipsById = { ...clipsById };
+                        clipsShifted = true;
+                    }
+                    clipsById[shifted.id] = shifted;
+                }
+            }
+            changed = true;
+            continue;
+        }
+
+        if (delta.kind === 'TrackRemoved') {
+            const removeIndex = delta.data.track_index;
+            if (removeIndex < 0 || removeIndex >= projectTracks.length) {
+                fallbackReason = `${reason}-remove-track-index-out-of-range`;
+                break;
+            }
+
+            if (!tracksArrayCopied) {
+                projectTracks = projectTracks.slice();
+                tracksArrayCopied = true;
+            }
+            projectTracks.splice(removeIndex, 1);
+            trackIdxMap = null;
+            const nextTracksById = { ...tracksById };
+            delete nextTracksById[delta.data.track_id];
+            tracksById = nextTracksById;
+
+            let clipsChanged = false;
+            const nextTimeline: TimelineClip[] = [];
+            const nextClipsById: Record<string, TimelineClip> = {};
+            for (const clip of timelineClips) {
+                if (clip.trackIndex === removeIndex) {
+                    clipsChanged = true;
+                    continue;
+                }
+                if (clip.trackIndex > removeIndex) {
+                    const shifted = { ...clip, trackIndex: clip.trackIndex - 1 };
+                    nextTimeline.push(shifted);
+                    nextClipsById[shifted.id] = shifted;
+                    clipsChanged = true;
+                } else {
+                    nextTimeline.push(clip);
+                    nextClipsById[clip.id] = clip;
+                }
+            }
+            if (clipsChanged) {
+                timelineClips = nextTimeline;
+                clipsById = nextClipsById;
+                clipsArrayCopied = true;
+                clipIdxMap = null;
+            }
+            changed = true;
+            continue;
+        }
+
+        if (delta.kind === 'TrackRenamed') {
+            const track = tracksById[delta.data.track_id];
+            if (!track) continue;
+            spliceTrack({ ...track, name: delta.data.new_name });
+            continue;
+        }
+
+        if (delta.kind === 'TrackMoved') {
+            const oldIndex = delta.data.old_index;
+            const newIndex = delta.data.new_index;
+            if (
+                oldIndex < 0
+                || newIndex < 0
+                || oldIndex >= projectTracks.length
+                || newIndex >= projectTracks.length
+            ) {
+                fallbackReason = `${reason}-move-track-index-out-of-range`;
+                break;
+            }
+            if (oldIndex === newIndex) continue;
+
+            if (!tracksArrayCopied) {
+                projectTracks = projectTracks.slice();
+                tracksArrayCopied = true;
+            }
+            const [moved] = projectTracks.splice(oldIndex, 1);
+            projectTracks.splice(newIndex, 0, moved);
+            trackIdxMap = null;
+
+            if (!clipsArrayCopied) {
+                timelineClips = timelineClips.slice();
+                clipsArrayCopied = true;
+            }
+            clipsById = { ...clipsById };
+            for (let i = 0; i < timelineClips.length; i++) {
+                const clip = timelineClips[i];
+                let nextTrackIndex = clip.trackIndex;
+                if (clip.trackIndex === oldIndex) {
+                    nextTrackIndex = newIndex;
+                } else if (oldIndex < newIndex && clip.trackIndex > oldIndex && clip.trackIndex <= newIndex) {
+                    nextTrackIndex = clip.trackIndex - 1;
+                } else if (oldIndex > newIndex && clip.trackIndex >= newIndex && clip.trackIndex < oldIndex) {
+                    nextTrackIndex = clip.trackIndex + 1;
+                }
+                if (nextTrackIndex !== clip.trackIndex) {
+                    const shifted = { ...clip, trackIndex: nextTrackIndex };
+                    timelineClips[i] = shifted;
+                    clipsById[shifted.id] = shifted;
+                }
+            }
+            changed = true;
+            continue;
         }
     }
 

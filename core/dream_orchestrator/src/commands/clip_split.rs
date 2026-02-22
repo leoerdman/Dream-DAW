@@ -46,11 +46,9 @@ impl Command for SplitClipCommand {
 
         let result = match mutators::split_clip(&mut project, self.clip_id, self.split_frame) {
             Ok(r) => r,
-            Err(_audio_err) => mutators::split_midi_clip(
-                &mut project,
-                self.clip_id,
-                self.split_frame,
-            )?,
+            Err(_audio_err) => {
+                mutators::split_midi_clip(&mut project, self.clip_id, self.split_frame)?
+            }
         };
 
         Ok(SplitClipResult {

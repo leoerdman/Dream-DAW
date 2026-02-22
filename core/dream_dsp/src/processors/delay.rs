@@ -218,8 +218,16 @@ impl DspProcessor for DelayProcessor {
             // AUD-114 FIX: Flush denormals in cross-feedback buffers.
             // When ping-pong is on, these delay tails cross over and can
             // sustain denormal values indefinitely, causing CPU spikes.
-            self.cross_fb_l = if delayed_l.abs() < 1.0e-20 { 0.0 } else { delayed_l };
-            self.cross_fb_r = if delayed_r.abs() < 1.0e-20 { 0.0 } else { delayed_r };
+            self.cross_fb_l = if delayed_l.abs() < 1.0e-20 {
+                0.0
+            } else {
+                delayed_l
+            };
+            self.cross_fb_r = if delayed_r.abs() < 1.0e-20 {
+                0.0
+            } else {
+                delayed_r
+            };
 
             // Mix
             left[i] = dry_l * dry + delayed_l * wet;

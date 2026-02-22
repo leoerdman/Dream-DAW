@@ -21,17 +21,17 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
-pub mod xml_helpers;
-pub mod color_map;
-pub mod routing;
-pub mod file_resolver;
-pub mod normalization;
-pub mod plugin_mapper;
-pub mod markers;
-pub mod clip_parser;
 pub mod automation;
-pub mod rack_parser;
-pub mod device_params;
+pub mod clip_parser;
+pub mod color_map;
 pub mod device_import;
-pub mod track_import;
+pub mod device_params;
+pub mod file_resolver;
+pub mod markers;
+pub mod normalization;
 pub mod parser;
+pub mod plugin_mapper;
+pub mod rack_parser;
+pub mod routing;
+pub mod track_import;
+pub mod xml_helpers;

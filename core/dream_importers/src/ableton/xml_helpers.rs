@@ -28,8 +28,11 @@ pub fn parse_i64_value(raw: &str) -> Option<i64> {
 // ── Beat ⟷ Frame Conversion ────────────────────────────────────────────
 
 pub fn beats_to_frames(beats: f64, bpm: f64, sample_rate: f64) -> i64 {
-    if !beats.is_finite() || !bpm.is_finite() || !sample_rate.is_finite()
-        || bpm <= 0.0 || sample_rate <= 0.0
+    if !beats.is_finite()
+        || !bpm.is_finite()
+        || !sample_rate.is_finite()
+        || bpm <= 0.0
+        || sample_rate <= 0.0
     {
         return 0;
     }
@@ -61,7 +64,8 @@ pub fn node_manual_value(node: roxmltree::Node<'_, '_>, param_tag: &str) -> Opti
     node.children()
         .find(|c| c.is_element() && c.has_tag_name(param_tag))
         .and_then(|param| {
-            param.children()
+            param
+                .children()
                 .find(|child| child.is_element() && child.has_tag_name("Manual"))
         })
         .and_then(|manual| manual.attribute("Value"))
@@ -77,11 +81,15 @@ pub fn direct_manual_value(node: roxmltree::Node<'_, '_>) -> Option<String> {
 }
 
 pub fn maybe_parse_f64_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
-    node_manual_value(node, tag).as_deref().and_then(parse_f64_value)
+    node_manual_value(node, tag)
+        .as_deref()
+        .and_then(parse_f64_value)
 }
 
 pub fn maybe_parse_bool_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    node_manual_value(node, tag).as_deref().and_then(parse_bool_value)
+    node_manual_value(node, tag)
+        .as_deref()
+        .and_then(parse_bool_value)
 }
 
 // ── First-Child Convenience Wrappers ───────────────────────────────────
@@ -94,7 +102,9 @@ pub fn first_child_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<Str
 }
 
 pub fn first_child_f64(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
-    first_child_value(node, tag).as_deref().and_then(parse_f64_value)
+    first_child_value(node, tag)
+        .as_deref()
+        .and_then(parse_f64_value)
 }
 
 pub fn first_child_i32(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> {
@@ -105,7 +115,9 @@ pub fn first_child_i32(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> 
 }
 
 pub fn first_child_bool(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
-    first_child_value(node, tag).as_deref().and_then(parse_bool_value)
+    first_child_value(node, tag)
+        .as_deref()
+        .and_then(parse_bool_value)
 }
 
 // ── Descendant Helpers ─────────────────────────────────────────────────
@@ -236,7 +248,10 @@ pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
-                .or_else(|| dc.descendants().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+                .or_else(|| {
+                    dc.descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+                })
         })
         .and_then(|mixer| maybe_parse_bool_manual(mixer, tag))
         .or_else(|| maybe_parse_bool_manual(track_node, tag))
@@ -249,7 +264,10 @@ pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Optio
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
-                .or_else(|| dc.descendants().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+                .or_else(|| {
+                    dc.descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+                })
         })
         .and_then(|mixer| maybe_parse_f64_manual(mixer, "CrossFadeState"))
         .map(|v| v.clamp(0.0, 127.0) as u8)
@@ -262,7 +280,10 @@ pub fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
-                .or_else(|| dc.descendants().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+                .or_else(|| {
+                    dc.descendants()
+                        .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+                })
         })
         .and_then(|mixer| node_manual_value(mixer, tag))
         .as_deref()
@@ -305,10 +326,7 @@ pub fn parse_track_key_note_target_legacy(track_node: roxmltree::Node<'_, '_>) -
 }
 
 /// Legacy-compatible i64 parser used by desktop_host ALS importer.
-pub fn parse_track_i64_value_legacy(
-    track_node: roxmltree::Node<'_, '_>,
-    tag: &str,
-) -> Option<i64> {
+pub fn parse_track_i64_value_legacy(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
     node_child_value(track_node, tag)
         .or_else(|| {
             track_node

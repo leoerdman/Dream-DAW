@@ -11,7 +11,7 @@
 //! The analyzer is designed for the EQ display and uses a 4096-sample FFT window
 //! for ~1Hz resolution at 44.1kHz. A Hann window is applied to reduce spectral leakage.
 
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{FftPlanner, num_complex::Complex};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// Number of FFT bins (power of 2 for optimal FFT performance)
@@ -94,7 +94,8 @@ impl SpectrumAnalyzer {
         // Precompute Hann window
         let mut hann_window = Box::new([0.0f32; FFT_SIZE]);
         for i in 0..FFT_SIZE {
-            hann_window[i] = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
+            hann_window[i] =
+                0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
         }
 
         Self {
@@ -164,7 +165,7 @@ impl SpectrumAnalyzer {
         if !self.has_new_data.swap(false, Ordering::AcqRel) {
             return None;
         }
-        
+
         self.last_compute_ns = now_ns;
 
         // BUG-001 FIX: Snapshot write_pos atomically for safe concurrent read
@@ -181,7 +182,8 @@ impl SpectrumAnalyzer {
         }
 
         // Run FFT in-place
-        self.fft_plan.process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
+        self.fft_plan
+            .process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
 
         // Convert to magnitude in dB, downsample to OUTPUT_BINS
         // Only use first half of FFT (positive frequencies)
@@ -261,15 +263,19 @@ mod tests {
 
         let data = data.unwrap();
         // Find the bin with the maximum magnitude
-        let max_bin = data.magnitudes.iter()
+        let max_bin = data
+            .magnitudes
+            .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .unwrap();
 
         // The peak should be near 1kHz
         let peak_freq = data.frequencies[max_bin.0];
-        assert!(peak_freq > 800.0 && peak_freq < 1200.0,
-            "Peak frequency {peak_freq} should be near 1000 Hz");
+        assert!(
+            peak_freq > 800.0 && peak_freq < 1200.0,
+            "Peak frequency {peak_freq} should be near 1000 Hz"
+        );
     }
 
     #[test]
@@ -281,7 +287,9 @@ mod tests {
     #[test]
     fn test_stereo_push() {
         let mut analyzer = SpectrumAnalyzer::new(44100.0);
-        let stereo: Vec<f32> = (0..FFT_SIZE * 2).map(|i| (i as f32 * 0.001).sin()).collect();
+        let stereo: Vec<f32> = (0..FFT_SIZE * 2)
+            .map(|i| (i as f32 * 0.001).sin())
+            .collect();
         analyzer.push_stereo_interleaved(&stereo);
         assert!(analyzer.compute().is_some());
     }

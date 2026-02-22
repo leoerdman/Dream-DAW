@@ -35,6 +35,11 @@ const READ_ONLY_TOOLS = new Set([
 // Mutating tools that already apply ProjectDelta locally and therefore
 // do not require a follow-up full fetchProject roundtrip.
 const DELTA_APPLIED_TOOLS = new Set([
+    'add_track',
+    'rename_track',
+    'delete_track',
+    'delete_tracks_batch',
+    'move_track',
     'move_clip',
     'resize_clip',
     'split_clip',
@@ -219,27 +224,45 @@ async function executeToolInner(
         }
 
         case 'add_track': {
-            const result = await engineApi.addTrack(args.name as string | undefined);
+            const response = await engineApi.addTrackWithDeltas(args.name as string | undefined);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-add-track');
+            const result = { deltas: response.deltas.length };
             return JSON.stringify({ added: true, result });
         }
 
-        case 'rename_track':
-            await engineApi.renameTrack(args.trackIndex as number, args.name as string);
+        case 'rename_track': {
+            const response = await engineApi.renameTrackWithDeltas(args.trackIndex as number, args.name as string);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-rename-track');
             return JSON.stringify({ trackIndex: args.trackIndex, name: args.name });
+        }
 
-        case 'delete_track':
-            await engineApi.deleteTrack(args.trackIndex as number);
+        case 'delete_track': {
+            const response = await engineApi.deleteTrackWithDeltas(args.trackIndex as number);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-track');
             return JSON.stringify({ deleted: args.trackIndex });
+        }
 
         case 'delete_tracks_batch': {
             const indices = args.trackIndices as number[];
             if (!Array.isArray(indices) || indices.length === 0) return JSON.stringify({ error: 'trackIndices array is required' });
-            const stBatch = useEngineStore.getState();
-            const idsToDelete = indices.map(idx => stBatch.projectTracks[idx]?.id).filter(Boolean);
-            if (idsToDelete.length > 0) {
-                await engineApi.deleteTracks(idsToDelete);
+            const normalized = Array.from(
+                new Set(
+                    indices
+                        .map((idx) => Number(idx))
+                        .filter((idx) => Number.isInteger(idx) && idx >= 0),
+                ),
+            ).sort((a, b) => b - a);
+            let deleted = 0;
+            for (const idx of normalized) {
+                try {
+                    const response = await engineApi.deleteTrackWithDeltas(idx);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-tracks-batch');
+                    deleted += 1;
+                } catch {
+                    // Index may become invalid as tracks shift or if already removed; skip.
+                }
             }
-            return JSON.stringify({ deletedIds: idsToDelete });
+            return JSON.stringify({ success: true, requested: normalized.length, deleted });
         }
 
         case 'delete_clip': {
@@ -1159,7 +1182,8 @@ async function executeToolInner(
         case 'move_track': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
-            await engineApi.moveTrackToIndex(trackId, args.targetIndex as number);
+            const response = await engineApi.moveTrackToIndexWithDeltas(trackId, args.targetIndex as number);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-move-track');
             return JSON.stringify({ success: true, from: args.trackIndex, to: args.targetIndex });
         }
 

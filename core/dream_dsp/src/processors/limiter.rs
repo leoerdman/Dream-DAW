@@ -164,8 +164,7 @@ impl DspProcessor for LimiterProcessor {
                 let slow = self.slow_release * self.gain + (1.0 - self.slow_release) * la_target;
                 self.gain = fast * 0.5 + slow * 0.5;
             } else {
-                self.gain =
-                    self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
+                self.gain = self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
             // BUG-030 FIX: Flush denormals in gain state. During release after
             // limiting, gain exponentially approaches 1.0 through tiny increments

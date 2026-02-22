@@ -113,7 +113,11 @@ impl VuMeter {
         // length — artificially deflating RMS when plugins emit occasional
         // NaN bursts (e.g. denormal flush, uninitialized output).
         // BUG-037 FIX: Fast-path for silence (skip sqrt on zero).
-        let mean_sq = if finite_count > 0 { sum_sq / finite_count as f32 } else { 0.0 };
+        let mean_sq = if finite_count > 0 {
+            sum_sq / finite_count as f32
+        } else {
+            0.0
+        };
         let block_rms = if mean_sq > 0.0 { mean_sq.sqrt() } else { 0.0 };
 
         // Apply ballistics to peak

@@ -116,9 +116,9 @@ impl AutoFilterProcessor {
     #[inline]
     fn lfo_value(&mut self, phase: f32) -> f32 {
         match self.lfo_shape {
-            1 => 1.0 - 4.0 * (phase - 0.5).abs(),       // Triangle
-            2 => 2.0 * phase - 1.0,                     // Saw Up
-            3 => 1.0 - 2.0 * phase,                     // Saw Down
+            1 => 1.0 - 4.0 * (phase - 0.5).abs(), // Triangle
+            2 => 2.0 * phase - 1.0,               // Saw Up
+            3 => 1.0 - 2.0 * phase,               // Saw Down
             4 => {
                 if phase < 0.5 {
                     1.0
@@ -222,8 +222,9 @@ impl DspProcessor for AutoFilterProcessor {
             // Modulated cutoff (log scale) — BUG-034 FIX: base_log_cutoff pre-computed
             let mod_offset = lfo * self.lfo_depth * max_range * 0.5
                 + self.env_follower * self.env_amount * max_range;
-            let mod_cutoff = (20.0 * 2.0_f32.powf((base_log_cutoff + mod_offset).clamp(0.0, max_range)))
-                .clamp(20.0, 20000.0);
+            let mod_cutoff = (20.0
+                * 2.0_f32.powf((base_log_cutoff + mod_offset).clamp(0.0, max_range)))
+            .clamp(20.0, 20000.0);
 
             // Drive
             let driven_l = (dry_l * self.drive_lin).tanh();

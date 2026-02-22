@@ -292,12 +292,8 @@ impl PeakCache {
         // IO-8 FIX: Staleness check — if source file is newer than sidecar,
         // the cached peaks are outdated and must be regenerated.
         if source_path.exists() && sidecar.exists() {
-            let source_mtime = fs::metadata(source_path)
-                .and_then(|m| m.modified())
-                .ok();
-            let sidecar_mtime = fs::metadata(&sidecar)
-                .and_then(|m| m.modified())
-                .ok();
+            let source_mtime = fs::metadata(source_path).and_then(|m| m.modified()).ok();
+            let sidecar_mtime = fs::metadata(&sidecar).and_then(|m| m.modified()).ok();
             if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime)
                 && src_t > cache_t
             {
@@ -338,7 +334,8 @@ impl PeakCache {
         let levels = header.level_count as usize;
         // BUG-020 FIX: Use computed constant instead of magic number.
         // PeakCacheLevelIndex = u32 (4) + u64 (8) + u64 (8) = 20 bytes
-        const PEAK_LEVEL_INDEX_BYTE_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u64>() * 2;
+        const PEAK_LEVEL_INDEX_BYTE_SIZE: usize =
+            std::mem::size_of::<u32>() + std::mem::size_of::<u64>() * 2;
         let idx_size = PEAK_LEVEL_INDEX_BYTE_SIZE;
         let idx_bytes_len = levels
             .checked_mul(idx_size)

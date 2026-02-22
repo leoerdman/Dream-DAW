@@ -2,14 +2,12 @@
 // Markers & Scenes — Project locator and scene extraction from ALS XML
 // ═══════════════════════════════════════════════════════════════════════
 
-use crate::ableton::xml_helpers::*;
 use crate::ableton::color_map::{ableton_color_to_track_color, extract_ableton_color_index};
+use crate::ableton::xml_helpers::*;
 use dream_models::project;
 use uuid::Uuid;
 
-pub fn parse_project_markers(
-    live_set: roxmltree::Node<'_, '_>,
-) -> Vec<project::ProjectMarker> {
+pub fn parse_project_markers(live_set: roxmltree::Node<'_, '_>) -> Vec<project::ProjectMarker> {
     let mut out = Vec::<project::ProjectMarker>::new();
     let mut idx = 0usize;
 
@@ -32,7 +30,8 @@ pub fn parse_project_markers(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("Marker {}", idx + 1));
-        let color = extract_ableton_color_index(locator).map(|v| ableton_color_to_track_color(v, idx));
+        let color =
+            extract_ableton_color_index(locator).map(|v| ableton_color_to_track_color(v, idx));
         out.push(project::ProjectMarker {
             id: Uuid::new_v4(),
             name,
@@ -78,15 +77,17 @@ pub fn parse_project_markers(
     out
 }
 
-pub fn parse_project_scenes(
-    live_set: roxmltree::Node<'_, '_>,
-) -> Vec<project::ProjectScene> {
+pub fn parse_project_scenes(live_set: roxmltree::Node<'_, '_>) -> Vec<project::ProjectScene> {
     let mut out = Vec::<project::ProjectScene>::new();
 
     let Some(scenes_root) = live_set
         .children()
         .find(|n| n.is_element() && n.has_tag_name("Scenes"))
-        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Scenes")))
+        .or_else(|| {
+            live_set
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Scenes"))
+        })
     else {
         return out;
     };
@@ -113,7 +114,8 @@ pub fn parse_project_scenes(
         let tempo = first_child_f64(scene, "Tempo").filter(|v| v.is_finite() && *v > 0.0);
         let tempo_enabled = first_child_bool(scene, "IsTempoEnabled").unwrap_or(false);
         let time_signature_id = first_child_i32(scene, "TimeSignatureId");
-        let time_signature_enabled = first_child_bool(scene, "IsTimeSignatureEnabled").unwrap_or(false);
+        let time_signature_enabled =
+            first_child_bool(scene, "IsTimeSignatureEnabled").unwrap_or(false);
         let time_signature_numerator = scene
             .descendants()
             .find(|n| n.is_element() && n.has_tag_name("Numerator"))

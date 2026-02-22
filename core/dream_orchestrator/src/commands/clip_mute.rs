@@ -54,10 +54,7 @@ pub struct MuteClipsBatchCommand {
 }
 
 impl MuteClipsBatchCommand {
-    pub fn from_str_ids(
-        clip_ids: &[String],
-        muted: bool,
-    ) -> OrchestratorResult<Self> {
+    pub fn from_str_ids(clip_ids: &[String], muted: bool) -> OrchestratorResult<Self> {
         let uuids: Result<Vec<Uuid>, _> = clip_ids
             .iter()
             .map(|id| {

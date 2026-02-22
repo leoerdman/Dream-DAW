@@ -45,13 +45,10 @@ impl Command for DuplicateClipCommand {
         let mut project = ctx.lock_project()?;
         let target_pos = self.new_position_frames.map(AbsoluteTime::new);
 
-        let new_id =
-            match mutators::duplicate_clip(&mut project, self.clip_id, target_pos) {
-                Ok(dup) => dup.id,
-                Err(_) => {
-                    mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?.id
-                }
-            };
+        let new_id = match mutators::duplicate_clip(&mut project, self.clip_id, target_pos) {
+            Ok(dup) => dup.id,
+            Err(_) => mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?.id,
+        };
 
         Ok(DuplicateClipResult { new_id })
     }

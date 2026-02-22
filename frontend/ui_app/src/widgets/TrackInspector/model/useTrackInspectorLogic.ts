@@ -712,7 +712,6 @@ export function useTrackInspectorLogic({
     const commitTrackReorder = useCallback((trackId: string, visibleInsertIndex: number) => {
         const fullIndex = tracks.findIndex((t) => t.id === trackId);
         if (fullIndex < 0) return;
-        const currentParentGroupId = tracks[fullIndex]?.groupId ?? null;
         const rawInsertIndex = computeRawInsertIndex(visibleInsertIndex);
         const adjustedInsert = rawInsertIndex > fullIndex ? rawInsertIndex - 1 : rawInsertIndex;
         const clamped = Math.max(0, Math.min(tracks.length - 1, adjustedInsert));
@@ -720,10 +719,10 @@ export function useTrackInspectorLogic({
         if (trackMoveInFlightRef.current) return;
         trackMoveInFlightRef.current = true;
 
-        void engineApi.moveTrackWithParent(trackId, clamped, currentParentGroupId).then(() => {
-            debouncedFetchProject('move-track');
+        void engineApi.moveTrackToIndexWithDeltas(trackId, clamped).then(async (response) => {
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-track');
         }).catch((err) => {
-            console.error('[TrackInspector] moveTrackWithParent(reorder) failed:', err);
+            console.error('[TrackInspector] moveTrackToIndexWithDeltas(reorder) failed:', err);
         }).finally(() => {
             trackMoveInFlightRef.current = false;
         });

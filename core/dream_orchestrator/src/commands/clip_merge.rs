@@ -53,8 +53,14 @@ impl Command for MergeClipsCommand {
         // Find the single track containing ALL selected clips.
         let mut selected_track_idx: Option<usize> = None;
         for (ti, track) in project.tracks.iter().enumerate() {
-            let audio_hits = ids.iter().filter(|id| track.clips.iter().any(|c| c.id == **id)).count();
-            let midi_hits = ids.iter().filter(|id| track.midi_clips.iter().any(|c| c.id == **id)).count();
+            let audio_hits = ids
+                .iter()
+                .filter(|id| track.clips.iter().any(|c| c.id == **id))
+                .count();
+            let midi_hits = ids
+                .iter()
+                .filter(|id| track.midi_clips.iter().any(|c| c.id == **id))
+                .count();
             if audio_hits == ids.len() || midi_hits == ids.len() {
                 selected_track_idx = Some(ti);
                 break;
@@ -65,8 +71,18 @@ impl Command for MergeClipsCommand {
         })?;
         let track = &mut project.tracks[ti];
 
-        let audio_selected: Vec<_> = track.clips.iter().filter(|c| ids.contains(&c.id)).cloned().collect();
-        let midi_selected: Vec<_> = track.midi_clips.iter().filter(|c| ids.contains(&c.id)).cloned().collect();
+        let audio_selected: Vec<_> = track
+            .clips
+            .iter()
+            .filter(|c| ids.contains(&c.id))
+            .cloned()
+            .collect();
+        let midi_selected: Vec<_> = track
+            .midi_clips
+            .iter()
+            .filter(|c| ids.contains(&c.id))
+            .cloned()
+            .collect();
 
         if !audio_selected.is_empty() && !midi_selected.is_empty() {
             return Err(OrchestratorError::Other(
@@ -86,8 +102,16 @@ impl Command for MergeClipsCommand {
                 .iter()
                 .min_by_key(|c| c.position.sample_frame)
                 .ok_or_else(|| OrchestratorError::Other("No audio clips selected".to_string()))?;
-            let start = audio_selected.iter().map(|c| c.position.sample_frame).min().unwrap_or(first.position.sample_frame);
-            let end = audio_selected.iter().map(|c| c.end_position().sample_frame).max().unwrap_or(first.end_position().sample_frame);
+            let start = audio_selected
+                .iter()
+                .map(|c| c.position.sample_frame)
+                .min()
+                .unwrap_or(first.position.sample_frame);
+            let end = audio_selected
+                .iter()
+                .map(|c| c.end_position().sample_frame)
+                .max()
+                .unwrap_or(first.end_position().sample_frame);
 
             track.clips.retain(|c| !ids.contains(&c.id));
             let merged = AudioClip {
@@ -122,7 +146,11 @@ impl Command for MergeClipsCommand {
                 .max()
                 .ok_or_else(|| OrchestratorError::Other("No MIDI clips selected".to_string()))?;
 
-            let mut merged = MidiClip::new("Merged Clip", AbsoluteTime::new(start), AbsoluteTime::new((end - start).max(1)));
+            let mut merged = MidiClip::new(
+                "Merged Clip",
+                AbsoluteTime::new(start),
+                AbsoluteTime::new((end - start).max(1)),
+            );
             merged.id = new_id;
             for clip in &midi_selected {
                 let clip_offset = clip.position.sample_frame - start;

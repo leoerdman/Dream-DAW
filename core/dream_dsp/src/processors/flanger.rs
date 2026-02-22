@@ -94,7 +94,9 @@ impl FlangerProcessor {
 
     fn update_damp(&mut self) {
         // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
-        self.damp_coeff = (1.0 - (-std::f32::consts::TAU * self.fb_damp_freq / self.sample_rate).exp()).clamp(0.0, 1.0);
+        self.damp_coeff = (1.0
+            - (-std::f32::consts::TAU * self.fb_damp_freq / self.sample_rate).exp())
+        .clamp(0.0, 1.0);
     }
 
     /// Advance S&H RNG and return value in [-1, 1]

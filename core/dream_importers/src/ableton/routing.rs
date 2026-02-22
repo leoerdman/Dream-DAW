@@ -51,8 +51,14 @@ pub fn parse_target_track_xml_id(target: &str) -> Option<String> {
             continue;
         };
         let kind_norm = kind.trim().to_ascii_lowercase();
-        if !["track", "audiotrack", "miditrack", "returntrack", "grouptrack"]
-            .contains(&kind_norm.as_str())
+        if ![
+            "track",
+            "audiotrack",
+            "miditrack",
+            "returntrack",
+            "grouptrack",
+        ]
+        .contains(&kind_norm.as_str())
         {
             continue;
         }

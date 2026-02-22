@@ -16,7 +16,7 @@ import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
-import { frameToBeat, beatToFrame, beatDurationToFrames, resolveSampleRate } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import { applyProjectDeltasToState } from '@/shared/stores/engine/applyProjectDeltas';
@@ -529,10 +529,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     addTrack: async (name?: string) => {
         try {
-            await engine.addTrack(name);
-            // PERF-FIX: Debounced fetchProject to coalesce rapid topology changes.
-            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
-            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('addTrack'), FETCH_PROJECT_DEBOUNCE_MS);
+            const response = await engine.addTrackWithDeltas(name);
+            // Topology change invalidates index-keyed throttle closures.
+            throttledVolumeSends.clear();
+            throttledPanSends.clear();
+            pendingVolumeValues.clear();
+            pendingPanValues.clear();
+            await get().applyProjectDeltas(response.deltas, 'addTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -541,17 +544,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     deleteTrack: async (index: number) => {
         try {
-            await engine.deleteTrack(index);
+            const response = await engine.deleteTrackWithDeltas(index);
 
             // BUG-17: Prune stale throttles to prevent memory leaks.
             throttledVolumeSends.clear();
             throttledPanSends.clear();
             pendingVolumeValues.clear();
             pendingPanValues.clear();
-
-            // PERF-FIX: Debounced fetchProject.
-            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
-            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('deleteTrack'), FETCH_PROJECT_DEBOUNCE_MS);
+            await get().applyProjectDeltas(response.deltas, 'deleteTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -560,10 +560,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     renameTrack: async (index: number, name: string) => {
         try {
-            await engine.renameTrack(index, name);
-            // PERF-FIX: Debounced fetchProject.
-            if (_fetchProjectDebounceTimer) clearTimeout(_fetchProjectDebounceTimer);
-            _fetchProjectDebounceTimer = setTimeout(() => void get().fetchProject('renameTrack'), FETCH_PROJECT_DEBOUNCE_MS);
+            const response = await engine.renameTrackWithDeltas(index, name);
+            await get().applyProjectDeltas(response.deltas, 'renameTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });

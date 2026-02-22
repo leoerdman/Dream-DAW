@@ -24,8 +24,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 // ── K-weighting filter coefficients (biquad) ────────────────────────────
 
@@ -64,7 +64,8 @@ impl BiquadState {
     #[inline]
     fn process(&mut self, x: f64) -> f64 {
         let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1 - self.a2 * self.y2;
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -210,18 +211,34 @@ impl AnalyzerMetering {
         self.peak_r.store(peak_r.to_bits(), Ordering::Relaxed);
         self.rms_l.store(rms_l.to_bits(), Ordering::Relaxed);
         self.rms_r.store(rms_r.to_bits(), Ordering::Relaxed);
-        self.lufs_momentary.store(lufs_m.to_bits(), Ordering::Relaxed);
-        self.lufs_short_term.store(lufs_st.to_bits(), Ordering::Relaxed);
+        self.lufs_momentary
+            .store(lufs_m.to_bits(), Ordering::Relaxed);
+        self.lufs_short_term
+            .store(lufs_st.to_bits(), Ordering::Relaxed);
         self.crest_factor.store(crest.to_bits(), Ordering::Relaxed);
     }
 
-    pub fn load_peak_l(&self) -> f32 { f32::from_bits(self.peak_l.load(Ordering::Relaxed)) }
-    pub fn load_peak_r(&self) -> f32 { f32::from_bits(self.peak_r.load(Ordering::Relaxed)) }
-    pub fn load_rms_l(&self) -> f32 { f32::from_bits(self.rms_l.load(Ordering::Relaxed)) }
-    pub fn load_rms_r(&self) -> f32 { f32::from_bits(self.rms_r.load(Ordering::Relaxed)) }
-    pub fn load_lufs_momentary(&self) -> f32 { f32::from_bits(self.lufs_momentary.load(Ordering::Relaxed)) }
-    pub fn load_lufs_short_term(&self) -> f32 { f32::from_bits(self.lufs_short_term.load(Ordering::Relaxed)) }
-    pub fn load_crest_factor(&self) -> f32 { f32::from_bits(self.crest_factor.load(Ordering::Relaxed)) }
+    pub fn load_peak_l(&self) -> f32 {
+        f32::from_bits(self.peak_l.load(Ordering::Relaxed))
+    }
+    pub fn load_peak_r(&self) -> f32 {
+        f32::from_bits(self.peak_r.load(Ordering::Relaxed))
+    }
+    pub fn load_rms_l(&self) -> f32 {
+        f32::from_bits(self.rms_l.load(Ordering::Relaxed))
+    }
+    pub fn load_rms_r(&self) -> f32 {
+        f32::from_bits(self.rms_r.load(Ordering::Relaxed))
+    }
+    pub fn load_lufs_momentary(&self) -> f32 {
+        f32::from_bits(self.lufs_momentary.load(Ordering::Relaxed))
+    }
+    pub fn load_lufs_short_term(&self) -> f32 {
+        f32::from_bits(self.lufs_short_term.load(Ordering::Relaxed))
+    }
+    pub fn load_crest_factor(&self) -> f32 {
+        f32::from_bits(self.crest_factor.load(Ordering::Relaxed))
+    }
 }
 
 // ── Analyzer Processor ──────────────────────────────────────────────────
@@ -327,8 +344,12 @@ impl DspProcessor for AnalyzerProcessor {
             // Peak
             let abs_l = sl.abs();
             let abs_r = sr_val.abs();
-            if abs_l > block_peak_l { block_peak_l = abs_l; }
-            if abs_r > block_peak_r { block_peak_r = abs_r; }
+            if abs_l > block_peak_l {
+                block_peak_l = abs_l;
+            }
+            if abs_r > block_peak_r {
+                block_peak_r = abs_r;
+            }
 
             // RMS
             rms_accum_l += sl * sl;
@@ -449,7 +470,10 @@ mod tests {
         let mut right = vec![0.0f32; 1024];
         proc.process_stereo(&mut left, &mut right, 44100.0);
         let peak_l = proc.metering.load_peak_l();
-        assert!(peak_l <= -90.0, "Peak should be very low for silence, got {peak_l}");
+        assert!(
+            peak_l <= -90.0,
+            "Peak should be very low for silence, got {peak_l}"
+        );
     }
 
     #[test]
@@ -494,6 +518,9 @@ mod tests {
         proc.process_stereo(&mut left, &mut right, 44100.0);
         assert!(proc.metering.load_peak_l() > -1.0);
         proc.set_param(0, 1.0); // reset
-        assert!(proc.metering.load_peak_l() <= -90.0, "Reset should clear peak");
+        assert!(
+            proc.metering.load_peak_l() <= -90.0,
+            "Reset should clear peak"
+        );
     }
 }

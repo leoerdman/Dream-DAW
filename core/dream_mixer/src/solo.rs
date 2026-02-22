@@ -69,7 +69,9 @@ impl SoloResolver {
         // Previously, a muted+soloed track set any_solo=true, which silenced
         // ALL other non-soloed tracks. But the muted+soloed track itself was
         // also silent (mute overrides solo) → TOTAL SILENCE.
-        let any_solo = tracks.iter().any(|t| t.is_solo && !t.is_master && !t.is_mute);
+        let any_solo = tracks
+            .iter()
+            .any(|t| t.is_solo && !t.is_master && !t.is_mute);
         let count = tracks.len().min(out.len());
 
         for (i, flags) in tracks.iter().enumerate().take(count) {
@@ -84,7 +86,9 @@ impl SoloResolver {
     /// Convenience wrapper — allocates. For non-RT contexts only.
     pub fn resolve(tracks: &[TrackFlags]) -> Vec<ResolvedTrack> {
         // BUG-M6 FIX: Same fix as resolve_into — exclude muted tracks from solo context.
-        let any_solo = tracks.iter().any(|t| t.is_solo && !t.is_master && !t.is_mute);
+        let any_solo = tracks
+            .iter()
+            .any(|t| t.is_solo && !t.is_master && !t.is_mute);
 
         tracks
             .iter()
@@ -188,7 +192,7 @@ mod tests {
     #[test]
     fn mute_overrides_solo() {
         let tracks = vec![
-            flags(true, true, false),   // Soloed + Muted → MUTED wins, doesn't count as solo
+            flags(true, true, false), // Soloed + Muted → MUTED wins, doesn't count as solo
             flags(false, false, false), // BUG-M6 FIX: No active solo context → plays normally
         ];
 
@@ -276,15 +280,24 @@ mod tests {
         // But the soloed track was also silenced by mute → TOTAL SILENCE.
         // Fix: muted+soloed tracks don't establish a solo context.
         let tracks = vec![
-            flags(true, true, false),   // Soloed + Muted → doesn't count for solo context
+            flags(true, true, false), // Soloed + Muted → doesn't count for solo context
             flags(false, false, false), // Normal track → should play at 1.0
             flags(false, false, false), // Normal track → should play at 1.0
         ];
 
         let resolved = SoloResolver::resolve(&tracks);
 
-        assert_eq!(resolved[0].effective_gain, 0.0, "Muted track should be silent");
-        assert_eq!(resolved[1].effective_gain, 1.0, "Normal track should play (no solo context)");
-        assert_eq!(resolved[2].effective_gain, 1.0, "Normal track should play (no solo context)");
+        assert_eq!(
+            resolved[0].effective_gain, 0.0,
+            "Muted track should be silent"
+        );
+        assert_eq!(
+            resolved[1].effective_gain, 1.0,
+            "Normal track should play (no solo context)"
+        );
+        assert_eq!(
+            resolved[2].effective_gain, 1.0,
+            "Normal track should play (no solo context)"
+        );
     }
 }

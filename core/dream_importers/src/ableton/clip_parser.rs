@@ -5,7 +5,9 @@
 use crate::ableton::xml_helpers::*;
 use dream_models::project;
 
-pub fn parse_clip_scale_info(clip_node: roxmltree::Node<'_, '_>) -> (bool, Option<u8>, Option<String>) {
+pub fn parse_clip_scale_info(
+    clip_node: roxmltree::Node<'_, '_>,
+) -> (bool, Option<u8>, Option<String>) {
     let is_in_key = node_child_value(clip_node, "IsInKey")
         .as_deref()
         .and_then(parse_bool_value)
@@ -122,7 +124,10 @@ pub fn parse_audio_clip_warp(
                 .attribute("BeatTime")
                 .and_then(parse_f64_value)
                 .unwrap_or(0.0);
-            markers.push(project::WarpMarkerPoint { sec_time, beat_time });
+            markers.push(project::WarpMarkerPoint {
+                sec_time,
+                beat_time,
+            });
         }
     }
     if !markers.is_empty() {
@@ -136,9 +141,7 @@ pub fn parse_audio_clip_warp(
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
         });
-        markers.dedup_by(|a, b| {
-            a.beat_time <= b.beat_time || a.sec_time <= b.sec_time
-        });
+        markers.dedup_by(|a, b| a.beat_time <= b.beat_time || a.sec_time <= b.sec_time);
     }
     (is_warped, warp_mode, markers)
 }
@@ -174,7 +177,10 @@ pub fn parse_clip_envelopes(
     let envelopes_root = clip_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
-        .and_then(|e| e.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
+        .and_then(|e| {
+            e.children()
+                .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
+        });
     let Some(envelopes_root) = envelopes_root else {
         return envelopes_out;
     };
@@ -213,7 +219,10 @@ pub fn parse_clip_envelopes(
                 value,
                 curve_type: "linear".to_string(),
                 tension: None,
-                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
             });
         }
         if points.is_empty() {
@@ -233,9 +242,7 @@ pub fn parse_clip_envelopes(
     envelopes_out
 }
 
-pub fn parse_clip_grid(
-    clip_node: roxmltree::Node<'_, '_>,
-) -> Option<(u16, u16, u8, bool, bool)> {
+pub fn parse_clip_grid(clip_node: roxmltree::Node<'_, '_>) -> Option<(u16, u16, u8, bool, bool)> {
     let grid = if clip_node.has_tag_name("Grid") {
         clip_node
     } else {

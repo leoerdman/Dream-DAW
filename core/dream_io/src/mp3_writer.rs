@@ -80,7 +80,9 @@ impl Drop for StreamingMp3Writer {
             let mut out: Vec<u8> = Vec::with_capacity(required);
             match encoder.flush::<FlushNoGap>(out.spare_capacity_mut()) {
                 Ok(flush_size) => {
-                    unsafe { out.set_len(flush_size); }
+                    unsafe {
+                        out.set_len(flush_size);
+                    }
                     if let Err(e) = self.writer.write_all(&out) {
                         log::error!("[StreamingMp3Writer] flush write failed on drop: {}", e);
                     }
@@ -210,15 +212,26 @@ impl StreamingMp3Writer {
             return Ok(());
         }
 
-        let encoder = self.encoder.as_mut()
+        let encoder = self
+            .encoder
+            .as_mut()
             .ok_or_else(|| Mp3WriterError::EncodeError("Encoder already finalized".into()))?;
 
         // IO-6 FIX: Sanitize NaN/Inf before passing to LAME encoder.
         // LAME has undefined behavior for non-finite float input.
-        let left_clean: Vec<f32> = left.iter().map(|&s| if s.is_finite() { s } else { 0.0 }).collect();
-        let right_clean: Vec<f32> = right.iter().map(|&s| if s.is_finite() { s } else { 0.0 }).collect();
+        let left_clean: Vec<f32> = left
+            .iter()
+            .map(|&s| if s.is_finite() { s } else { 0.0 })
+            .collect();
+        let right_clean: Vec<f32> = right
+            .iter()
+            .map(|&s| if s.is_finite() { s } else { 0.0 })
+            .collect();
 
-        let input = DualPcm { left: &left_clean, right: &right_clean };
+        let input = DualPcm {
+            left: &left_clean,
+            right: &right_clean,
+        };
         let required = mp3lame_encoder::max_required_buffer_size(left.len());
         let mut out: Vec<u8> = Vec::with_capacity(required);
         let encoded_size = encoder
@@ -238,7 +251,9 @@ impl StreamingMp3Writer {
 
     /// Flushes encoder and finalizes file.
     pub fn finalize(mut self) -> Result<(), Mp3WriterError> {
-        let mut encoder = self.encoder.take()
+        let mut encoder = self
+            .encoder
+            .take()
             .ok_or_else(|| Mp3WriterError::EncodeError("Encoder already finalized".into()))?;
         let required = mp3lame_encoder::max_required_buffer_size(0);
         let mut out: Vec<u8> = Vec::with_capacity(required);

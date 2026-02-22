@@ -211,14 +211,16 @@ impl DspProcessor for CompressorProcessor {
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                self.sc_hp_state_l = self.sc_hp_coeff * (self.sc_hp_state_l + dry_l - self.sc_hp_prev_l);
+                self.sc_hp_state_l =
+                    self.sc_hp_coeff * (self.sc_hp_state_l + dry_l - self.sc_hp_prev_l);
                 self.sc_hp_prev_l = dry_l;
                 self.sc_hp_state_l
             } else {
                 dry_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                self.sc_hp_state_r = self.sc_hp_coeff * (self.sc_hp_state_r + dry_r - self.sc_hp_prev_r);
+                self.sc_hp_state_r =
+                    self.sc_hp_coeff * (self.sc_hp_state_r + dry_r - self.sc_hp_prev_r);
                 self.sc_hp_prev_r = dry_r;
                 self.sc_hp_state_r
             } else {
@@ -293,14 +295,16 @@ impl DspProcessor for CompressorProcessor {
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                self.sc_hp_state_l = self.sc_hp_coeff * (self.sc_hp_state_l + sc_src_l - self.sc_hp_prev_l);
+                self.sc_hp_state_l =
+                    self.sc_hp_coeff * (self.sc_hp_state_l + sc_src_l - self.sc_hp_prev_l);
                 self.sc_hp_prev_l = sc_src_l;
                 self.sc_hp_state_l
             } else {
                 sc_src_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                self.sc_hp_state_r = self.sc_hp_coeff * (self.sc_hp_state_r + sc_src_r - self.sc_hp_prev_r);
+                self.sc_hp_state_r =
+                    self.sc_hp_coeff * (self.sc_hp_state_r + sc_src_r - self.sc_hp_prev_r);
                 self.sc_hp_prev_r = sc_src_r;
                 self.sc_hp_state_r
             } else {

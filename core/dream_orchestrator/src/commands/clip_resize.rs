@@ -45,20 +45,12 @@ impl Command for ResizeClipCommand {
         let new_position = AbsoluteTime::new(self.new_position_frames);
         let new_duration = AbsoluteTime::new(self.new_duration_frames);
 
-        if let Err(audio_err) = mutators::resize_clip(
-            &mut project,
-            self.clip_id,
-            new_position,
-            new_duration,
-        ) {
+        if let Err(audio_err) =
+            mutators::resize_clip(&mut project, self.clip_id, new_position, new_duration)
+        {
             // Fall back to MIDI clip resize
-            if mutators::resize_midi_clip(
-                &mut project,
-                self.clip_id,
-                new_position,
-                new_duration,
-            )
-            .is_err()
+            if mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)
+                .is_err()
             {
                 return Err(OrchestratorError::MutatorFailed(audio_err));
             }

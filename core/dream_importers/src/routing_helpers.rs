@@ -8,9 +8,9 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
+use dream_models::project::{DeviceNode, PluginSlot, Project};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use dream_models::project::{DeviceNode, PluginSlot, Project};
 use uuid::Uuid;
 
 // ── Slot Lookups by Plugin ID ───────────────────────────────────────────
@@ -90,7 +90,10 @@ pub fn find_slot_in_node_by_id(node: &DeviceNode, slot_id: Uuid) -> Option<Plugi
 
 /// Mutable version of `find_slot_in_node_by_id` — returns a mutable
 /// reference to the matching `PluginSlot`.
-pub fn find_slot_in_node_by_id_mut(node: &mut DeviceNode, slot_id: Uuid) -> Option<&mut PluginSlot> {
+pub fn find_slot_in_node_by_id_mut(
+    node: &mut DeviceNode,
+    slot_id: Uuid,
+) -> Option<&mut PluginSlot> {
     match node {
         DeviceNode::Single(slot) => {
             if slot.id == slot_id {
@@ -288,7 +291,9 @@ pub fn lane_param_name_hints(project: &Project, plugin_id: &str) -> HashMap<u32,
     ) {
         for lane in lanes {
             let key = lane.param_id.trim().to_lowercase();
-            let Some(rest) = key.strip_prefix("plugin:") else { continue };
+            let Some(rest) = key.strip_prefix("plugin:") else {
+                continue;
+            };
             let mut parts = rest.splitn(3, ':');
             let _dev_idx = parts.next();
             let lane_plugin_key = parts.next().unwrap_or_default();
@@ -328,7 +333,11 @@ pub fn lane_param_name_hints(project: &Project, plugin_id: &str) -> HashMap<u32,
     for track in &project.tracks {
         scan_lanes(&track.automation_lanes, &plugin_key, &mut out);
     }
-    scan_lanes(&project.master_track.automation_lanes, &plugin_key, &mut out);
+    scan_lanes(
+        &project.master_track.automation_lanes,
+        &plugin_key,
+        &mut out,
+    );
     out
 }
 
@@ -355,7 +364,11 @@ pub fn find_device_node_recursive(node: &DeviceNode, device_id: Uuid) -> Option<
 }
 
 /// Find a `DeviceNode` by its UUID on a track (searches instrument + effects recursively).
-pub fn find_device_node_on_track(project: &Project, track_id: Uuid, device_id: Uuid) -> Option<DeviceNode> {
+pub fn find_device_node_on_track(
+    project: &Project,
+    track_id: Uuid,
+    device_id: Uuid,
+) -> Option<DeviceNode> {
     let track = project.tracks.iter().find(|t| t.id == track_id)?;
     if let Some(inst) = &track.instrument {
         if inst.id() == device_id {
@@ -382,7 +395,10 @@ mod tests {
 
     #[test]
     fn normalize_plugin_key_local_strips_symbols() {
-        assert_eq!(normalize_plugin_key_local("FabFilter Pro-Q 3"), "fabfilterproq3");
+        assert_eq!(
+            normalize_plugin_key_local("FabFilter Pro-Q 3"),
+            "fabfilterproq3"
+        );
     }
 
     #[test]

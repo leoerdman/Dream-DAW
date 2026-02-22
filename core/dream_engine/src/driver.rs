@@ -77,10 +77,6 @@ pub use snapshots::{
     SharedSampleRackSamples, SharedSamplerSamples, SharedSidechainSnapshot, TrackAutomationState,
 };
 
-// BUG-2 FIX: soft_clip is canonically defined in render_callback.rs.
-// Import it from there to eliminate SSOT violation.
-use crate::render_callback::soft_clip;
-
 // ── Constants ───────────────────────────────────────────────────────────
 
 /// Default test tone frequency (A4 = 440 Hz).

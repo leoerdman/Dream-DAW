@@ -225,7 +225,6 @@ pub enum EngineCommand {
     // ── Engine Lifecycle ─────────────────────────────────────────────
     /// Request the engine to stop and clean up all resources.
     Shutdown,
-
     // ── Streaming Window Management ──────────────────────────────────
     // Register a new streaming window for a file path.
     // Used for large files that don't fit in the RAM pool.

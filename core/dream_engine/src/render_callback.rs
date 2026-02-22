@@ -93,6 +93,16 @@ pub struct TrackSlot {
     pub active: bool,
     /// When `true`, the internal sampler on this track is bypassed and produces silence.
     pub instrument_bypassed: bool,
+    /// Thread-local scratch buffer for external left output.
+    pub ext_left: Vec<f32>,
+    /// Thread-local scratch buffer for external right output.
+    pub ext_right: Vec<f32>,
+    /// Thread-local scratch buffer for VST3 MIDI events.
+    pub vst3_midi_scratch: Vec<dream_plugins::MidiEvent>,
+    /// Thread-local scratch buffer for scheduled MIDI notes.
+    pub midi_schedule_scratch: Vec<dream_clip_engine::midi_scheduler::ScheduledNote>,
+    /// Thread-local scratch buffer for MIDI note loop wrapping.
+    pub midi_schedule_tmp: Vec<dream_clip_engine::midi_scheduler::ScheduledNote>,
 }
 
 impl TrackSlot {
@@ -109,6 +119,11 @@ impl TrackSlot {
             device_chain: DeviceChain::new(sample_rate as f32),
             active: false,
             instrument_bypassed: false,
+            ext_left: vec![0.0; max_frames],
+            ext_right: vec![0.0; max_frames],
+            vst3_midi_scratch: Vec::with_capacity(512),
+            midi_schedule_scratch: Vec::with_capacity(512),
+            midi_schedule_tmp: Vec::with_capacity(512),
         }
     }
 

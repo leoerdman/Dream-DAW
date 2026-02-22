@@ -70,11 +70,7 @@ mod tests {
     fn apply_works_for_midi_clips() {
         let mut project = Project::new("test", 120.0, 44_100.0);
         let mut track = Track::new("M");
-        let clip = MidiClip::new(
-            "midi",
-            AbsoluteTime::new(0),
-            AbsoluteTime::new(100),
-        );
+        let clip = MidiClip::new("midi", AbsoluteTime::new(0), AbsoluteTime::new(100));
         let clip_id = clip.id;
         track.midi_clips.push(clip);
         project.tracks.push(track);

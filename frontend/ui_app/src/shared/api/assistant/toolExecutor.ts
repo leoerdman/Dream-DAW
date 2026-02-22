@@ -270,10 +270,12 @@ async function executeToolInner(
         }
         case 'undo':
             await engineApi.undo();
-            return JSON.stringify({ undone: true });
+            await useEngineStore.getState().fetchProject('agent-tool:undo');
+            return JSON.stringify({ undone: true, synced: true });
         case 'redo':
             await engineApi.redo();
-            return JSON.stringify({ redone: true });
+            await useEngineStore.getState().fetchProject('agent-tool:redo');
+            return JSON.stringify({ redone: true, synced: true });
         case 'set_master_volume':
             await engineApi.setMasterVolume(args.volume as number);
             return JSON.stringify({ masterVolume: args.volume });
@@ -418,7 +420,8 @@ async function executeToolInner(
             if (tracks[trackIndex].track_type.toLowerCase() !== 'midi') {
                 return JSON.stringify({ error: `Track ${trackIndex} is not a MIDI track (type: ${tracks[trackIndex].track_type})` });
             }
-            await engineApi.setSampleRackPadSample(trackId, padIndex, samplePath);
+            const response = await engineApi.setSampleRackPadSampleWithDeltas(trackId, padIndex, samplePath);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-add-sample-to-rack');
             return JSON.stringify({ success: true, trackIndex, padIndex, sampleLoaded: samplePath });
         }
         case 'add_audio_clip': {
@@ -710,29 +713,45 @@ async function executeToolInner(
         case 'set_pad_volume': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
-            await engineApi.setSampleRackPadVolumeCmd(trackId, args.padIndex as number, args.volume as number);
+            const response = await engineApi.setSampleRackPadVolumeWithDeltasCmd(
+                trackId,
+                args.padIndex as number,
+                args.volume as number,
+            );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-pad-volume');
             return JSON.stringify({ success: true });
         }
         case 'set_pad_mute': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
-            await engineApi.setSampleRackPadMuteCmd(trackId, args.padIndex as number, args.muted as boolean);
+            const response = await engineApi.setSampleRackPadMuteWithDeltasCmd(
+                trackId,
+                args.padIndex as number,
+                args.muted as boolean,
+            );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-pad-mute');
             return JSON.stringify({ success: true });
         }
         case 'set_pad_adsr': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
-            await engineApi.setSampleRackPadAdsrCmd(
+            const response = await engineApi.setSampleRackPadAdsrWithDeltasCmd(
                 trackId, args.padIndex as number,
                 args.attack as number, args.decay as number,
                 args.sustain as number, args.release as number
             );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-pad-adsr');
             return JSON.stringify({ success: true });
         }
         case 'set_pad_filter_cutoff': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
-            await engineApi.setSampleRackPadFilterCutoffCmd(trackId, args.padIndex as number, args.cutoff as number);
+            const response = await engineApi.setSampleRackPadFilterCutoffWithDeltasCmd(
+                trackId,
+                args.padIndex as number,
+                args.cutoff as number,
+            );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-pad-filter-cutoff');
             return JSON.stringify({ success: true });
         }
         case 'set_track_color': {
@@ -778,9 +797,14 @@ async function executeToolInner(
         case 'auto_cleanup_mix': {
             const excludes = new Set((args.excludeTrackIndices as number[]) ?? []);
             let cleaned = 0;
+            const autoFilterPlugin = {
+                pluginId: 'internal://effect/auto-filter',
+                displayName: 'Auto Filter',
+            };
             for (let i = 0; i < tracks.length; i++) {
                 if (excludes.has(i)) continue;
                 const t = tracks[i];
+                if (!t?.id) continue;
                 const name = t.name.toLowerCase();
                 if (name.includes('hat') || name.includes('hi-hat') || name.includes('hihat') ||
                     name.includes('vocal') || name.includes('vox') || name.includes('shaker') ||
@@ -788,7 +812,13 @@ async function executeToolInner(
                     name.includes('ride') || name.includes('cymbal') || name.includes('fx') ||
                     name.includes('pad') || name.includes('syn') || name.includes('lead')) {
                     try {
-                        await engineApi.addDevice(i, 0, engineApi.BuiltinEffectType.AutoFilter);
+                        const response = await engineApi.addPluginToTrackWithDeltas(
+                            t.id,
+                            autoFilterPlugin.pluginId,
+                            autoFilterPlugin.displayName,
+                            'effect',
+                        );
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-auto-cleanup-mix');
                         cleaned++;
                     } catch { /* slot may be occupied */ }
                 }
@@ -1134,7 +1164,12 @@ async function executeToolInner(
         case 'set_pad_solo': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
-            await engineApi.setSampleRackPadSoloCmd(trackId, args.padIndex as number, args.soloed as boolean);
+            const response = await engineApi.setSampleRackPadSoloWithDeltasCmd(
+                trackId,
+                args.padIndex as number,
+                args.soloed as boolean,
+            );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-pad-solo');
             return JSON.stringify({ success: true, padIndex: args.padIndex, soloed: args.soloed });
         }
         case 'set_clips_muted_batch': {
@@ -1147,7 +1182,8 @@ async function executeToolInner(
         case 'bounce_track': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${args.trackIndex} not found` });
-            await engineApi.bounceTrack(trackId);
+            const response = await engineApi.bounceTrackWithDeltas(trackId);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-bounce-track');
             return JSON.stringify({ success: true, bounced: args.trackIndex });
         }
         case 'export_mix': {

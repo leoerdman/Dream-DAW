@@ -18,10 +18,20 @@ pub struct InsertBouncedClipCommand {
     pub insert_after_index: Option<usize>,
 }
 
-impl Command for InsertBouncedClipCommand {
-    type Result = ();
+pub struct InsertBouncedClipResult {
+    pub track_index: usize,
+    pub track_id: uuid::Uuid,
+    pub track_name: String,
+    pub clip_id: uuid::Uuid,
+    pub clip_name: String,
+    pub clip_position: i64,
+    pub clip_duration: i64,
+}
 
-    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+impl Command for InsertBouncedClipCommand {
+    type Result = InsertBouncedClipResult;
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<InsertBouncedClipResult> {
         let mut project = ctx.lock_project()?;
 
         let new_track = Track::new(&self.new_track_name);
@@ -41,12 +51,28 @@ impl Command for InsertBouncedClipCommand {
             AbsoluteTime::new(self.timeline_duration_frames.max(1)),
         );
         clip.warp_source_duration_frames = self.source_duration_frames.max(1);
+        let clip_id = clip.id;
+        let clip_name = clip.name.clone();
+        let clip_position = clip.position.sample_frame;
+        let clip_duration = clip.duration.sample_frame;
 
         if let Some(track) = project.tracks.get_mut(new_track_index) {
             track.clips.push(clip);
+            return Ok(InsertBouncedClipResult {
+                track_index: new_track_index,
+                track_id: track.id,
+                track_name: track.name.clone(),
+                clip_id,
+                clip_name,
+                clip_position,
+                clip_duration,
+            });
         }
 
-        Ok(())
+        Err(crate::error::OrchestratorError::TrackOutOfRange {
+            requested: new_track_index,
+            total: project.tracks.len(),
+        })
     }
 }
 

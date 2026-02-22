@@ -13,8 +13,9 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
 
-    const { projectTracks, meters } = useEngineStore(useShallow((s) => ({
-        projectTracks: s.projectTracks,
+    const { tracksById, trackIds, meters } = useEngineStore(useShallow((s) => ({
+        tracksById: s.tracks.byId,
+        trackIds: s.tracks.allIds,
         meters: s.meters,
     })));
 
@@ -26,7 +27,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
     }, [selectedTrackId]);
 
     const isMaster = selectedTrackId === 'master';
-    const trackIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
+    const trackIndex = trackIds.indexOf(selectedTrackId);
     const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] : null);
 
     const inLevelL = isMaster
@@ -39,8 +40,11 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const outLevelR = inLevelR;
     const outLevel = Math.max(outLevelL, outLevelR);
 
-    const masterProjectTrack = useMemo(() => projectTracks.find((t) => t.track_type === 'Master') ?? null, [projectTracks]);
-    const selectedTrack = isMaster ? masterProjectTrack : (trackIndex >= 0 ? projectTracks[trackIndex] : null);
+    const masterProjectTrack = useMemo(
+        () => trackIds.map((id) => tracksById[id]).find((t) => t?.track_type === 'Master') ?? null,
+        [trackIds, tracksById],
+    );
+    const selectedTrack = isMaster ? masterProjectTrack : (tracksById[selectedTrackId] ?? null);
 
     const staticLaneValueByParamId = useMemo(() => {
         const map = new Map<string, number>();

@@ -3,7 +3,6 @@
 # Desktop host command handlers (Tauri IPC boundary, inherently verbose)
 rust apps/desktop_host/src/commands/sections/clip_mutators.rs 3217
 rust apps/desktop_host/src/commands/sections/plugins_routing.rs 3019
-rust apps/desktop_host/src/lib.rs 5049
 # Core engine (RT hot path — cannot be safely split further)
 rust core/dream_engine/src/offline_bounce.rs 1701
 rust core/dream_engine/src/sampler.rs 1340

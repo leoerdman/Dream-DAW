@@ -1054,21 +1054,39 @@ export const setSampleRackPadSample = (
     invoke<void>('set_sample_rack_pad_sample_cmd', {
         trackId, padIndex, samplePath
     });
+export const setSampleRackPadSampleWithDeltas = (
+    trackId: string,
+    padIndex: number,
+    samplePath: string,
+) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_sample_with_deltas_cmd', {
+        trackId, padIndex, samplePath
+    });
 
 export const setSampleRackPadVolumeCmd = (trackId: string, padIndex: number, volume: number) =>
     invoke<void>('set_sample_rack_pad_volume_cmd', { trackId, padIndex, volume });
+export const setSampleRackPadVolumeWithDeltasCmd = (trackId: string, padIndex: number, volume: number) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_volume_with_deltas_cmd', { trackId, padIndex, volume });
 
 export const setSampleRackPadMuteCmd = (trackId: string, padIndex: number, muted: boolean) =>
     invoke<void>('set_sample_rack_pad_mute_cmd', { trackId, padIndex, muted });
+export const setSampleRackPadMuteWithDeltasCmd = (trackId: string, padIndex: number, muted: boolean) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_mute_with_deltas_cmd', { trackId, padIndex, muted });
 
 export const setSampleRackPadSoloCmd = (trackId: string, padIndex: number, soloed: boolean) =>
     invoke<void>('set_sample_rack_pad_solo_cmd', { trackId, padIndex, soloed });
+export const setSampleRackPadSoloWithDeltasCmd = (trackId: string, padIndex: number, soloed: boolean) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_solo_with_deltas_cmd', { trackId, padIndex, soloed });
 
 export const setSampleRackPadAdsrCmd = (trackId: string, padIndex: number, attack: number, decay: number, sustain: number, release: number) =>
     invoke<void>('set_sample_rack_pad_adsr_cmd', { trackId, padIndex, attack, decay, sustain, release });
+export const setSampleRackPadAdsrWithDeltasCmd = (trackId: string, padIndex: number, attack: number, decay: number, sustain: number, release: number) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_adsr_with_deltas_cmd', { trackId, padIndex, attack, decay, sustain, release });
 
 export const setSampleRackPadFilterCutoffCmd = (trackId: string, padIndex: number, cutoff: number) =>
     invoke<void>('set_sample_rack_pad_filter_cutoff_cmd', { trackId, padIndex, cutoff });
+export const setSampleRackPadFilterCutoffWithDeltasCmd = (trackId: string, padIndex: number, cutoff: number) =>
+    invoke<DeltaMutationResponse>('set_sample_rack_pad_filter_cutoff_with_deltas_cmd', { trackId, padIndex, cutoff });
 
 export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames: number) =>
     invoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames, fadeOutFrames });
@@ -1150,6 +1168,8 @@ export const bounceSelectionToTrack = (payload: BounceSelectionToTrackPayload) =
 
 export const bounceTrack = (trackId: string) =>
     invoke<void>('bounce_track_cmd', { trackId });
+export const bounceTrackWithDeltas = (trackId: string) =>
+    invoke<DeltaMutationResponse>('bounce_track_with_deltas_cmd', { trackId });
 
 export const bounceGroup = (groupTrackId: string) =>
     invoke<void>('bounce_group_cmd', { groupTrackId });

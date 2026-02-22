@@ -49,6 +49,26 @@ function rebuildChildTrackIds(state: DeltaWorkingState): void {
     state.changed = true;
 }
 
+function patchSampleRackPad(
+    state: DeltaWorkingState,
+    trackId: string,
+    padIndex: number,
+    patch: Record<string, unknown>,
+): boolean {
+    const track = state.tracksById[trackId];
+    if (!track || !track.sample_rack || !Array.isArray(track.sample_rack.pads)) return false;
+    if (padIndex < 0 || padIndex >= track.sample_rack.pads.length) return false;
+    const nextPads = track.sample_rack.pads.slice();
+    nextPads[padIndex] = { ...nextPads[padIndex], ...patch };
+    patchTrack(state, trackId, {
+        sample_rack: {
+            ...track.sample_rack,
+            pads: nextPads,
+        },
+    });
+    return true;
+}
+
 export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
     if (delta.kind === 'TrackVolumeChanged') {
         patchTrack(state, delta.data.track_id, { volume: delta.data.volume });
@@ -93,6 +113,45 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
                 detune_cents: track.sampler?.detune_cents,
                 sub_level: track.sampler?.sub_level,
             },
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadSampleChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            sample_path: delta.data.sample_path,
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadVolumeChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            volume: delta.data.volume,
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadMuteChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            is_muted: delta.data.muted,
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadSoloChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            is_soloed: delta.data.soloed,
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadAdsrChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            attack: delta.data.attack,
+            decay: delta.data.decay,
+            sustain: delta.data.sustain,
+            release: delta.data.release,
+        });
+        return true;
+    }
+    if (delta.kind === 'SampleRackPadFilterCutoffChanged') {
+        patchSampleRackPad(state, delta.data.track_id, delta.data.pad_index, {
+            filter_cutoff: delta.data.cutoff,
         });
         return true;
     }

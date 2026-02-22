@@ -1,4 +1,9 @@
 
+#[derive(Debug, Serialize, Deserialize)]
+struct SampleRackDeltaResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
 
 /// Sets the volume of a specific pad in a track's Sample Rack.
 #[tauri::command]
@@ -46,6 +51,28 @@ fn set_sample_rack_pad_volume_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_sample_rack_pad_volume_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    volume: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    let clamped_vol = volume.clamp(0.0, 2.0);
+    set_sample_rack_pad_volume_cmd(track_id, pad_index, volume, handle, project_state, app)?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadVolumeChanged {
+            track_id: track_uuid,
+            pad_index,
+            volume: clamped_vol,
+        }],
+    })
+}
+
 /// Sets the mute state of a specific pad in a track's Sample Rack.
 #[tauri::command]
 fn set_sample_rack_pad_mute_cmd(
@@ -91,6 +118,27 @@ fn set_sample_rack_pad_mute_cmd(
 
     log::debug!("[IPC] set_sample_rack_pad_mute_cmd(track={}, pad={}, muted={})", track_id, pad_index, muted);
     Ok(())
+}
+
+#[tauri::command]
+fn set_sample_rack_pad_mute_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    muted: bool,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    set_sample_rack_pad_mute_cmd(track_id, pad_index, muted, handle, project_state, app)?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadMuteChanged {
+            track_id: track_uuid,
+            pad_index,
+            muted,
+        }],
+    })
 }
 
 /// Sets the solo state of a specific pad in a track's Sample Rack.
@@ -149,6 +197,27 @@ fn set_sample_rack_pad_solo_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_sample_rack_pad_solo_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    soloed: bool,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    set_sample_rack_pad_solo_cmd(track_id, pad_index, soloed, handle, project_state, app)?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadSoloChanged {
+            track_id: track_uuid,
+            pad_index,
+            soloed,
+        }],
+    })
+}
+
 /// Sets the ADSR envelope for a specific pad in a track's Sample Rack.
 #[tauri::command]
 fn set_sample_rack_pad_adsr_cmd(
@@ -203,6 +272,47 @@ fn set_sample_rack_pad_adsr_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_sample_rack_pad_adsr_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    attack: f32,
+    decay: f32,
+    sustain: f32,
+    release: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    let clamped_attack = attack.clamp(0.001, 10.0);
+    let clamped_decay = decay.clamp(0.001, 10.0);
+    let clamped_sustain = sustain.clamp(0.0, 1.0);
+    let clamped_release = release.clamp(0.001, 20.0);
+    set_sample_rack_pad_adsr_cmd(
+        track_id,
+        pad_index,
+        attack,
+        decay,
+        sustain,
+        release,
+        handle,
+        project_state,
+        app,
+    )?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadAdsrChanged {
+            track_id: track_uuid,
+            pad_index,
+            attack: clamped_attack,
+            decay: clamped_decay,
+            sustain: clamped_sustain,
+            release: clamped_release,
+        }],
+    })
+}
+
 /// Sets the filter cutoff for a specific pad in a track's Sample Rack.
 #[tauri::command]
 fn set_sample_rack_pad_filter_cutoff_cmd(
@@ -247,6 +357,28 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
 
     log::debug!("[IPC] set_sample_rack_pad_filter_cutoff_cmd(track={}, pad={}, cutoff={})", track_id, pad_index, clamped_cutoff);
     Ok(())
+}
+
+#[tauri::command]
+fn set_sample_rack_pad_filter_cutoff_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    cutoff: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    let clamped_cutoff = cutoff.clamp(20.0, 20000.0);
+    set_sample_rack_pad_filter_cutoff_cmd(track_id, pad_index, cutoff, handle, project_state, app)?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadFilterCutoffChanged {
+            track_id: track_uuid,
+            pad_index,
+            cutoff: clamped_cutoff,
+        }],
+    })
 }
 
 /// Assigns a sample file to a specific pad in a track's Sample Rack and streams it to the audio engine.
@@ -322,4 +454,34 @@ fn set_sample_rack_pad_sample_cmd(
         track_id, pad_index, sample_path
     );
     Ok(())
+}
+
+#[tauri::command]
+fn set_sample_rack_pad_sample_with_deltas_cmd(
+    track_id: String,
+    pad_index: u8,
+    sample_path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<SampleRackDeltaResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
+    set_sample_rack_pad_sample_cmd(
+        track_id,
+        pad_index,
+        sample_path.clone(),
+        project_state,
+        clip_pool_state,
+        handle,
+        app,
+    )?;
+    Ok(SampleRackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::SampleRackPadSampleChanged {
+            track_id: track_uuid,
+            pad_index,
+            sample_path,
+        }],
+    })
 }

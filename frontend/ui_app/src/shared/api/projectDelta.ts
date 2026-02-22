@@ -27,6 +27,12 @@ export type ProjectDelta =
     | { kind: 'TrackArmChanged'; data: { track_index: number; armed: boolean } }
     | { kind: 'TrackRoutingChanged'; data: { track_id: string; output_destination_id: string | null } }
     | { kind: 'TrackSamplerSampleChanged'; data: { track_id: string; sample_path: string } }
+    | { kind: 'SampleRackPadSampleChanged'; data: { track_id: string; pad_index: number; sample_path: string } }
+    | { kind: 'SampleRackPadVolumeChanged'; data: { track_id: string; pad_index: number; volume: number } }
+    | { kind: 'SampleRackPadMuteChanged'; data: { track_id: string; pad_index: number; muted: boolean } }
+    | { kind: 'SampleRackPadSoloChanged'; data: { track_id: string; pad_index: number; soloed: boolean } }
+    | { kind: 'SampleRackPadAdsrChanged'; data: { track_id: string; pad_index: number; attack: number; decay: number; sustain: number; release: number } }
+    | { kind: 'SampleRackPadFilterCutoffChanged'; data: { track_id: string; pad_index: number; cutoff: number } }
     | { kind: 'TrackColorChanged'; data: { track_id: string; color: string } }
     | { kind: 'TrackAdded'; data: { track_index: number; track_id: string; name: string; track_type: string } }
     | { kind: 'TrackRemoved'; data: { track_id: string; track_index: number } }

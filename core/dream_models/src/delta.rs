@@ -155,6 +155,51 @@ pub enum ProjectDelta {
     /// Track sampler sample path changed.
     TrackSamplerSampleChanged { track_id: Uuid, sample_path: String },
 
+    /// Sample Rack pad sample path changed.
+    SampleRackPadSampleChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        sample_path: String,
+    },
+
+    /// Sample Rack pad volume changed.
+    SampleRackPadVolumeChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        volume: f32,
+    },
+
+    /// Sample Rack pad mute changed.
+    SampleRackPadMuteChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        muted: bool,
+    },
+
+    /// Sample Rack pad solo changed.
+    SampleRackPadSoloChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        soloed: bool,
+    },
+
+    /// Sample Rack pad ADSR changed.
+    SampleRackPadAdsrChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    },
+
+    /// Sample Rack pad filter cutoff changed.
+    SampleRackPadFilterCutoffChanged {
+        track_id: Uuid,
+        pad_index: u8,
+        cutoff: f32,
+    },
+
     /// A track was renamed.
     TrackRenamed { track_id: Uuid, new_name: String },
 

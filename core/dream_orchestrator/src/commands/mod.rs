@@ -29,6 +29,8 @@ pub mod plugin_set_external_param_lane;
 pub mod plugin_set_internal_param;
 pub mod plugin_set_sampler_sample;
 pub mod recording_insert_clip;
+pub mod track_move_to_index;
+pub mod track_parenting;
 pub mod track_set_armed;
 pub mod track_set_automation_points;
 
@@ -61,5 +63,9 @@ pub use plugin_set_external_param_lane::SetExternalPluginParamLaneCommand;
 pub use plugin_set_internal_param::{SetInternalPluginParamCommand, SetInternalPluginParamResult};
 pub use plugin_set_sampler_sample::{SetSamplerSampleCommand, SetSamplerSampleResult};
 pub use recording_insert_clip::InsertRecordedClipCommand;
+pub use track_move_to_index::{MoveTrackToIndexCommand, MoveTrackToIndexResult};
+pub use track_parenting::{
+    MoveTrackWithParentCommand, MoveTrackWithParentResult, SetTrackGroupCommand,
+};
 pub use track_set_armed::SetTrackArmedCommand;
 pub use track_set_automation_points::SetTrackAutomationPointsCommand;

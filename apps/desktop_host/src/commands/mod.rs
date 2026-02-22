@@ -185,6 +185,7 @@ pub(crate) fn invoke_handler()
         clear_finished_background_jobs_cmd,
         bounce_selection_to_track_cmd,
         bounce_track_cmd,
+        bounce_track_with_deltas_cmd,
         bounce_group_cmd,
         split_track_to_stems_cmd,
         // Undo/Redo
@@ -262,10 +263,16 @@ pub(crate) fn invoke_handler()
         get_spectrum_data,
         // Sample Rack
         set_sample_rack_pad_volume_cmd,
+        set_sample_rack_pad_volume_with_deltas_cmd,
         set_sample_rack_pad_mute_cmd,
+        set_sample_rack_pad_mute_with_deltas_cmd,
         set_sample_rack_pad_solo_cmd,
+        set_sample_rack_pad_solo_with_deltas_cmd,
         set_sample_rack_pad_adsr_cmd,
+        set_sample_rack_pad_adsr_with_deltas_cmd,
         set_sample_rack_pad_filter_cutoff_cmd,
+        set_sample_rack_pad_filter_cutoff_with_deltas_cmd,
         set_sample_rack_pad_sample_cmd,
+        set_sample_rack_pad_sample_with_deltas_cmd,
     ]
 }

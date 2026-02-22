@@ -2482,13 +2482,12 @@ pub fn start_audio_thread_on_device(
                                 .min(graph_out_left.len())
                                 .min(graph_out_right.len());
 
-                            render_ctx.render_tracks_with_post_sum_mask(
+                            render_ctx.read_audio_clips_into_tracks(
                                 render_frames,
                                 snapshot.as_ref(),
                                 &pool_snap,
-                                Some(&post_sum_processing_mask[..track_count]),
-                                Some(&skip_device_chain_mask[..track_count]),
                             );
+                            render_ctx.advance_playhead_by_frames(render_frames);
                             playhead_advanced_in_render = true;
                         } else {
                             // AUD-017 FIX: When stopped or no clips, only clear tracks
@@ -3264,17 +3263,9 @@ pub fn start_audio_thread_on_device(
                                 test_tone_phase = test_tone_phase.fract();
                             }
                         }
+
                         if is_playing && !playhead_advanced_in_render {
-                            let transport_loop = render_ctx.loop_region.as_ref().map(|r| {
-                                dream_transport::LoopRegion {
-                                    start: r.start,
-                                    end: r.end,
-                                    enabled: true,
-                                }
-                            });
-                            render_ctx
-                                .playhead
-                                .advance(frame_count, transport_loop.as_ref());
+                            render_ctx.advance_playhead_by_frames(frame_count);
                         }
                         // ── C. Mix preview audio (browser audition) ─────
                         // Preview plays regardless of transport state.

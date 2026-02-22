@@ -2184,13 +2184,13 @@ const DeviceNode = ({
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 5,
-                    padding: '6px 3px',
-                    borderRight: '1px solid rgba(255,255,255,0.06)',
-                    background: '#2a2a2a',
+                    gap: 6,
+                    padding: '8px 0',
+                    borderRight: '1px solid var(--color-divider)',
+                    background: 'var(--surface-tab-inactive)',
                     cursor: 'grab',
-                    width: 28,
-                    minWidth: 28,
+                    width: 32,
+                    minWidth: 32,
                     flexShrink: 0,
                 }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
@@ -2201,15 +2201,17 @@ const DeviceNode = ({
                     onClick={onToggle}
                     title={device.isEnabled ? 'Disable' : 'Enable'}
                     style={{
-                        width: 13, height: 13,
+                        width: 14, height: 14,
                         borderRadius: '50%',
-                        background: device.isEnabled ? 'var(--color-accent-primary)' : '#4a4a4a',
-                        border: device.isEnabled ? '1px solid color-mix(in srgb, var(--color-accent-primary) 80%, white)' : '1px solid #666',
+                        background: device.isEnabled ? 'var(--color-accent-primary)' : 'transparent',
+                        border: device.isEnabled ? 'none' : '1px solid var(--color-overlay-light)',
                         cursor: 'pointer',
+                        padding: 0,
+                        margin: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0,
                     }}
-                >
-                </button>
+                />
                 {/* 👁 UI button — green round with eye icon */}
                 {showUiButton && (
                     <button
@@ -2219,30 +2221,23 @@ const DeviceNode = ({
                             ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
                             : 'Open Native Plugin UI'}
                         style={{
-                            width: 14, height: 14,
-                            borderRadius: '50%',
-                            background: (showSettings || nativeEditorOpen)
-                                ? 'rgba(72, 210, 130, 0.85)'
-                                : 'rgba(72, 210, 130, 0.25)',
-                            border: (showSettings || nativeEditorOpen)
-                                ? '1px solid rgba(72, 210, 130, 0.9)'
-                                : '1px solid rgba(72, 210, 130, 0.4)',
+                            width: 16, height: 16,
+                            borderRadius: 'var(--radius-sm)',
+                            background: (showSettings || nativeEditorOpen) ? '#48d282' : 'transparent',
+                            border: (showSettings || nativeEditorOpen) ? 'none' : '1px solid var(--color-overlay-light)',
                             cursor: 'pointer',
                             flexShrink: 0,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            padding: 0,
-                            boxShadow: (showSettings || nativeEditorOpen)
-                                ? '0 0 4px rgba(72, 210, 130, 0.4)'
-                                : 'none',
-                            transition: 'all 0.15s',
+                            padding: 0, margin: 0,
+                            transition: 'var(--transition-fast)',
                         }}
                     >
                         <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
                             <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
-                                stroke={(showSettings || nativeEditorOpen) ? '#fff' : '#48d282'}
-                                strokeWidth="1.5" fill="none" />
-                            <circle cx="8" cy="8" r="2"
-                                fill={(showSettings || nativeEditorOpen) ? '#fff' : '#48d282'} />
+                                stroke={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : '#48d282'}
+                                strokeWidth="2" fill="none" />
+                            <circle cx="8" cy="8" r="2.5"
+                                fill={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : '#48d282'} />
                         </svg>
                     </button>
                 )}
@@ -2268,33 +2263,28 @@ const DeviceNode = ({
                         !
                     </button>
                 )}
-                {/* 🔧 Wrench — grey round with wrench SVG */}
+                {/* 🔧 Wrench — settings SVG */}
                 {supportsSettingsToggle && (
                     <button
                         draggable={false}
                         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                         title="Plugin Settings / Automatable Params"
                         style={{
-                            width: 14, height: 14,
-                            borderRadius: '50%',
-                            background: showSettings
-                                ? 'rgba(180, 180, 200, 0.45)'
-                                : 'rgba(120, 120, 140, 0.2)',
-                            border: showSettings
-                                ? '1px solid rgba(180, 180, 200, 0.6)'
-                                : '1px solid rgba(120, 120, 140, 0.35)',
+                            width: 16, height: 16,
+                            borderRadius: 'var(--radius-sm)',
+                            background: showSettings ? 'var(--color-text-secondary)' : 'transparent',
+                            border: showSettings ? 'none' : '1px solid var(--color-overlay-light)',
                             cursor: 'pointer',
                             flexShrink: 0,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            padding: 0,
-                            boxShadow: showSettings ? '0 0 3px rgba(180, 180, 200, 0.2)' : 'none',
-                            transition: 'all 0.15s',
+                            padding: 0, margin: 0,
+                            transition: 'var(--transition-fast)',
                         }}
                     >
-                        <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                             <path d="M10.5 2a3.5 3.5 0 00-3.22 4.87L2.5 11.65a1.2 1.2 0 001.7 1.7l4.78-4.78A3.5 3.5 0 0010.5 2z"
-                                stroke={showSettings ? '#e0e0e8' : '#8888a0'}
-                                strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                                stroke={showSettings ? 'var(--color-bg-primary)' : 'var(--color-text-secondary)'}
+                                strokeWidth="1.5" fill="none" strokeLinecap="round" />
                         </svg>
                     </button>
                 )}
@@ -2482,7 +2472,6 @@ const pluginPanelCardBaseStyle: React.CSSProperties = {
     gridTemplateRows: '1fr auto',
     gap: 'var(--plugin-card-gap)',
     background: 'var(--plugin-card-bg-main)',
-    boxShadow: 'var(--plugin-card-shadow)',
 };
 
 const pluginPanelTitleStyle: React.CSSProperties = {
@@ -2897,9 +2886,8 @@ const PluginGuiSurface = ({
                 gridTemplateRows: '102px auto',
                 height: '100%',
                 gap: 4,
-                border: pluginPanelCardBaseStyle.border,
                 borderRadius: 'var(--radius-lg)',
-                background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 84%, #2f4058) 0%, color-mix(in srgb, var(--surface-2) 88%, #1c2735) 100%)',
+                background: 'var(--surface-tab-inactive)',
                 overflow: 'hidden',
             }}>
                 <div
@@ -2920,7 +2908,7 @@ const PluginGuiSurface = ({
                     <div style={{
                         position: 'absolute',
                         inset: 0,
-                        background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 90%, #0f1622) 0%, color-mix(in srgb, var(--surface-1) 90%, #0a101a) 100%)',
+                        background: 'var(--surface-tab-inactive)',
                     }} />
                     <svg
                         viewBox="0 0 1000 90"
@@ -2993,9 +2981,9 @@ const PluginGuiSurface = ({
                             position: 'absolute',
                             right: 8,
                             top: 4,
-                            border: '1px solid #4f668a',
+                            border: '1px solid var(--color-overlay-light)',
                             borderRadius: 'var(--radius-sm)',
-                            background: 'linear-gradient(180deg, #33435b 0%, #27364b 100%)',
+                            background: 'var(--surface-tab-inactive)',
                             color: '#dce9ff',
                             fontSize: 'var(--font-size-2xs)',
                             padding: '3px 7px',
@@ -3712,7 +3700,7 @@ const PluginGuiSurface = ({
                                     <div style={{
                                         width: `${(widthPct * 100).toFixed(2)}%`,
                                         height: '100%',
-                                        background: mono ? '#9b9b9b' : 'linear-gradient(90deg, #2aa6ff 0%, #7dd1ff 100%)',
+                                        background: mono ? 'var(--color-bg-muted)' : 'var(--color-accent-primary)',
                                     }} />
                                 </div>
                             </div>
@@ -3809,11 +3797,11 @@ const PluginGuiSurface = ({
                     {isTransientShaper ? (
                         <div style={{ display: 'grid', gap: 6 }}>
                             <div style={{ ...pluginPanelTitleStyle, color: '#b9d7ff' }}>Transient Shaper</div>
-                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
-                                <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #53b0ff 0%, #8ecfff 100%)' }} />
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                                <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: '#53b0ff' }} />
                             </div>
-                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
-                                <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #78d6ad 0%, #b5f0d5 100%)' }} />
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                                <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: '#78d6ad' }} />
                             </div>
                             <div style={pluginPanelMetaStyle}>
                                 <span>Attack {atkMs.toFixed(1)} ms</span>
@@ -3828,8 +3816,8 @@ const PluginGuiSurface = ({
                             <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
                         </svg>
                     )}
-                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: '#1c1f24', border: '1px solid #3d434d', padding: 3 }}>
-                        <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'linear-gradient(180deg, #66cc33 0%, #ffcc1a 60%, #ff3333 100%)', borderRadius: 2 }} />
+                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-divider)', padding: 3 }}>
+                        <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'var(--color-error)', borderRadius: 2 }} />
                     </div>
                     {!isTransientShaper && (
                         <div style={{ ...pluginPanelMetaStyle, gridColumn: '1 / -1' }}>
@@ -4079,8 +4067,8 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-limiter)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#a4d9d3' }}>Lookahead Limiter</div>
-                    <div style={{ height: 10, borderRadius: 'var(--radius-full)', background: '#222d2e', overflow: 'hidden' }}>
-                        <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #4bc4b2 0%, #89f0de 100%)' }} />
+                    <div style={{ height: 10, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                        <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'var(--color-success)' }} />
                     </div>
                     <div style={pluginPanelMetaStyle}>
                         <span>Thr {thr.toFixed(1)} dB</span>
@@ -4114,8 +4102,8 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-gate)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#b8dfad' }}>Noise Gate</div>
-                    <div style={{ height: 34, borderRadius: 'var(--radius-md)', background: '#1b2018', position: 'relative' }}>
-                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'linear-gradient(90deg, #6bc66e 0%, #d2f18b 100%)' }} />
+                    <div style={{ height: 34, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'var(--color-success)' }} />
                     </div>
                     <div style={pluginPanelMetaStyle}>
                         <span>Thr {thr.toFixed(1)} dB</span>
@@ -4389,7 +4377,7 @@ const PluginGuiSurface = ({
                                     <div style={{
                                         position: 'absolute', bottom: 0, left: 0, right: 0,
                                         height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelL) / 60) * 100))}%`,
-                                        background: device.vuLevelL > -3 ? 'linear-gradient(0deg, #ff6b35 0%, #ff3b3b 100%)' : device.vuLevelL > -12 ? 'linear-gradient(0deg, #4ca0ff 0%, #ffb347 100%)' : 'linear-gradient(0deg, #2d7adc 0%, #4ca0ff 100%)',
+                                        background: device.vuLevelL > -3 ? 'var(--color-error)' : device.vuLevelL > -12 ? 'var(--color-warning)' : 'var(--color-success)',
                                         borderRadius: 2,
                                         transition: 'height 60ms linear',
                                     }} />
@@ -4405,7 +4393,7 @@ const PluginGuiSurface = ({
                                     <div style={{
                                         position: 'absolute', bottom: 0, left: 0, right: 0,
                                         height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelR) / 60) * 100))}%`,
-                                        background: device.vuLevelR > -3 ? 'linear-gradient(0deg, #ff6b35 0%, #ff3b3b 100%)' : device.vuLevelR > -12 ? 'linear-gradient(0deg, #4ca0ff 0%, #ffb347 100%)' : 'linear-gradient(0deg, #2d7adc 0%, #4ca0ff 100%)',
+                                        background: device.vuLevelR > -3 ? 'var(--color-error)' : device.vuLevelR > -12 ? 'var(--color-warning)' : 'var(--color-success)',
                                         borderRadius: 2,
                                         transition: 'height 60ms linear',
                                     }} />
@@ -4447,15 +4435,15 @@ const PluginGuiSurface = ({
                         <div style={{ display: 'grid', gap: 6, height: 46 }}>
                             {isNoteLength ? (
                                 <>
-                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden' }}>
-                                        <div style={{ width: `${Math.max(0, Math.min(100, velGain * 50)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.max(0, Math.min(100, velGain * 50)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                                     </div>
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: '#c5d7ea', fontFamily: 'var(--font-mono)' }}>Gate {(velGain * 100).toFixed(0)}%</div>
                                 </>
                             ) : (
                                 <>
-                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden' }}>
-                                        <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                                     </div>
                                     <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden', position: 'relative' }}>
                                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
@@ -4475,8 +4463,8 @@ const PluginGuiSurface = ({
                     )}
                     {device.effectType === 'midiRandom' && (
                         <div style={{ display: 'grid', alignItems: 'center', gap: 4, height: 46 }}>
-                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1d1d2e', overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #c58bdd 0%, #ecb4ff 100%)' }} />
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                             </div>
                             <div style={{ fontSize: 'var(--font-size-xs)', color: '#cfa4e6', fontFamily: 'var(--font-mono)' }}>
                                 {isArp

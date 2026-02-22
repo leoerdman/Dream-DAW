@@ -153,7 +153,7 @@ async fn import_audio_file(
         // Snapshot for undo BEFORE mutation
         push_undo(&project_state)?;
 
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         let project_sr = target_sample_rate as f64;
         let source_sr = sample_rate.max(1) as f64;
         let timeline_frames = ((num_frames as f64) * (project_sr / source_sr)).round() as i64;

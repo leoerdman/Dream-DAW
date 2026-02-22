@@ -277,14 +277,34 @@ impl OfflineBouncer {
         let channels = render_ctx.channels.max(1);
         let frame_count = output.len() / channels;
 
-        // Phase 1: Fill source track slots (skip strip for group tracks)
-        render_ctx.render_tracks_with_post_sum_mask(
+        // Phase 1: Fill source track slots with audio clips
+        render_ctx.read_audio_clips_into_tracks(
             frame_count,
             clips_per_track,
             clip_pool,
-            Some(post_sum_mask),
-            None, // No external VSTs in offline bounce — process full device chain
         );
+
+        // Phase 1.5: Apply Track FX and Channel Strip for standard tracks (non-group)
+        for (track_idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
+            if !slot.active { continue; }
+            let is_group = post_sum_mask.get(track_idx).copied().unwrap_or(false);
+            if is_group { continue; } // Processed later in Phase 3
+
+            if !slot.device_chain.is_empty() {
+                // In offline bounce, sample_rate is taken from the render context, which is the export rate.
+                let sr = render_ctx.sample_rate as f32;
+                slot.device_chain.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                    sr,
+                );
+            }
+
+            slot.strip.process_stereo(
+                &mut slot.buf_left[..frame_count],
+                &mut slot.buf_right[..frame_count],
+            );
+        }
 
         // Phase 2: Route source tracks into their group buses
         // For each source track that routes to a group, add its audio

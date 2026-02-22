@@ -300,35 +300,30 @@ impl RenderContext {
     /// graph path.
     ///
     /// Also advances the playhead.
-    ///
-    /// # Real-Time Safety
-    /// Zero allocations. Zero locks. Zero I/O. Zero panics.
+    /// Reads all active overlapping Audio Clips into the track slots.
+    /// Phase 1: Clears the track slots.
+    /// Phase 2: Writes the audio data, applying fades.
+    /// 
+    /// NOTE: This function NO LONGER applies per-track internal FX (DeviceChain)
+    /// or volume/pan/metering (ChannelStrip). These must be applied by the caller
+    /// AFTER synthesizing any MIDI instruments into the same track buffers!
     #[inline]
-    pub fn render_tracks(
+    pub fn read_audio_clips_into_tracks_simple(
         &mut self,
         frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        self.render_tracks_with_post_sum_mask(frame_count, clips_per_track, clip_pool, None, None);
+        self.read_audio_clips_into_tracks(frame_count, clips_per_track, clip_pool);
     }
 
-    /// Renders all tracks with support for post-sum mask and device-chain skipping.
-    ///
-    /// `skip_device_chain_mask`: when `true` for a track, the per-track
-    /// `device_chain.process_stereo()` is SKIPPED here because the graph
-    /// render callback in `driver.rs` handles individual device slots in
-    /// user-defined order (interleaved with external VST plugins).
-    /// Without this, internal effects (EQ, Compressor…) would be applied
-    /// TWICE: once here (full-chain) and once in the graph loop.
+    /// Reads all tracks.
     #[inline]
-    pub fn render_tracks_with_post_sum_mask(
+    pub fn read_audio_clips_into_tracks(
         &mut self,
         frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
-        post_sum_mask: Option<&[bool]>,
-        skip_device_chain_mask: Option<&[bool]>,
     ) {
         let playhead_pos = self.playhead.position();
 
@@ -415,26 +410,33 @@ impl RenderContext {
 
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
-                    // CRITICAL-FIX: source_to_timeline_rate must use timeline_sample_rate
-                    // (project SR), NOT device sample_rate. Scheduler positions are in
-                    // timeline domain; playhead advance handles device→timeline conversion
-                    // separately. Using device SR caused wrong pitch when device_sr ≠ project_sr.
-                    let source_to_timeline_rate = (audio.sample_rate.max(1) as f64
-                        / self.timeline_sample_rate.max(1.0))
+                    // The true resampling rate for ClipReader given that it outputs to the DEVICE buffer:
+                    // rate = (source_sr / timeline_sr) * (timeline_sr / device_sr) * playback_rate
+                    //      = (source_sr / device_sr) * playback_rate
+                    let source_to_device_rate = (audio.sample_rate.max(1) as f64
+                        / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
+                    
+                    // We also need the timeline_to_device ratio to correctly map playhead positions
+                    // into the device output block.
+                    let timeline_to_device = (self.sample_rate.max(1.0) / self.timeline_sample_rate.max(1.0)).clamp(0.125, 8.0);
+
                     if is_warped {
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.
                         let clip_local_timeline_start = (ac.source_start_frame
                             - clip.source_offset.sample_frame)
                             .max(0) as f64;
+                        // Map timeline start to source start using warp rate and source_sr/timeline_sr ratio.
+                        let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
+                            + clip_local_timeline_start * playback_rate * source_to_timeline_ratio;
+                            
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
                             audio.right(),
                             source_start,
-                            playback_rate * source_to_timeline_rate,
+                            playback_rate * source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,
@@ -443,11 +445,13 @@ impl RenderContext {
                             warp_mode,
                         );
                     } else {
+                        // For unwarped clips, map the timeline position directly to the source position.
+                        let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
                         ClipReader::read_stereo_into_rate(
                             audio.left(),
                             audio.right(),
-                            (ac.source_start_frame as f64) * source_to_timeline_rate,
-                            source_to_timeline_rate,
+                            (ac.source_start_frame as f64) * source_to_timeline_ratio,
+                            source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,
@@ -458,10 +462,12 @@ impl RenderContext {
                     }
                 } else if let Some((_, window)) = self.streaming_windows.iter().find(|(p, _)| p == &clip.file_path) {
                     total_pool_hits += 1;
-                    // CRITICAL-FIX: Same as in-memory path — use timeline_sample_rate.
-                    let source_to_timeline_rate = (window.sample_rate().max(1) as f64
-                        / self.timeline_sample_rate.max(1.0))
+                    let source_to_device_rate = (window.sample_rate().max(1) as f64
+                        / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
+                        
+                    let source_to_timeline_ratio = window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
+
                     if is_warped {
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.
@@ -469,10 +475,10 @@ impl RenderContext {
                             - clip.source_offset.sample_frame)
                             .max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
-                            + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
+                            + clip_local_timeline_start * playback_rate * source_to_timeline_ratio;
                         window.read_into_rate(
                             source_start,
-                            playback_rate * source_to_timeline_rate,
+                            playback_rate * source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,
@@ -481,8 +487,8 @@ impl RenderContext {
                         );
                     } else {
                         window.read_into_rate(
-                            (ac.source_start_frame as f64) * source_to_timeline_rate,
-                            source_to_timeline_rate,
+                            (ac.source_start_frame as f64) * source_to_timeline_ratio,
+                            source_to_device_rate,
                             &mut slot.buf_left,
                             &mut slot.buf_right,
                             ac.buffer_offset,
@@ -583,79 +589,25 @@ impl RenderContext {
 
         // BUG-65 FIX: Diagnostic counters for render pass.
         // AUDIT-S1-04: Removed log::trace! — log backend Mutex is RT-unsafe.
-        // Active clip stats are available via SharedRtDebugStats if needed.
-        let _ = (total_active, total_pool_hits); // suppress unused warnings
+        let _ = (total_active, total_pool_hits);
+    }
 
-        // ── 4. Process channel strips (gain + pan) per track ────────
-        let sr = self.sample_rate as f32;
-        // AUD-003 FIX: Cache peak_decay once per render call. Previously
-        // computed inside the per-track loop — exp() is ~5ns × 256 tracks
-        // = 1.3μs wasted per buffer.
-        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
-        for (track_idx, slot) in self.track_slots.iter_mut().enumerate() {
-            if !slot.active {
-                continue;
-            }
-            let needs_post_sum_processing = post_sum_mask
-                .and_then(|mask| mask.get(track_idx))
-                .copied()
-                .unwrap_or(false);
-            if needs_post_sum_processing {
-                continue;
-            }
 
-            slot.strip.process_stereo(
-                &mut slot.buf_left[..frame_count],
-                &mut slot.buf_right[..frame_count],
-            );
-
-            // Only process the full device chain here if the graph render
-            // callback is NOT handling this track's effects. When external VSTs
-            // are present, the graph callback processes internal + external
-            // slots in user-defined order via process_slot_with_sidechain().
-            let skip_device_chain = skip_device_chain_mask
-                .and_then(|mask| mask.get(track_idx))
-                .copied()
-                .unwrap_or(false);
-            if !skip_device_chain && !slot.device_chain.is_empty() {
-                slot.device_chain.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
-                    sr,
-                );
-            }
-
-            if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
-                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
-                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
-                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
-                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
-
-                meter_l.store_rms(rms_l);
-                meter_r.store_rms(rms_r);
-                meter_l.store_peak_decay(peak_l, track_decay);
-                meter_r.store_peak_decay(peak_r, track_decay);
-            }
-        }
-
-        // ── Advance playhead ─────────────────────────────────────
-        // Convert ClipLoopRegion → transport LoopRegion so the
-        // playhead wraps at the loop boundary during advance.
+    /// Advances the playhead with exact fractional sample rate interpolation.
+    #[inline]
+    pub fn advance_playhead_by_frames(&mut self, frame_count: usize) {
         let transport_loop = self.loop_region.as_ref().map(|r| {
             dream_transport::LoopRegion {
                 start: r.start,
                 end: r.end,
-                enabled: true, // presence of Some = enabled
+                enabled: true,
             }
         });
         let ratio = (self.timeline_sample_rate / self.sample_rate.max(1.0)).clamp(0.125, 8.0);
         let advance_exact = frame_count as f64 * ratio + self.timeline_advance_accumulator;
         let advance_frames = advance_exact.floor().max(0.0) as usize;
         self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
-        // AUD-039/063 FIX: Recalibrate accumulator periodically.
-        // At 192kHz/44.1kHz ratio, f64 precision errors accumulate ~1e-12 per frame.
-        // After ~1M frames (~5 seconds), clamp to prevent unbounded drift.
-        // This is a safety net — in practice drift is negligible for hours.
+        
         if self.timeline_advance_accumulator.abs() > 1.0 {
             self.timeline_advance_accumulator = self.timeline_advance_accumulator.fract();
         }
@@ -677,8 +629,40 @@ impl RenderContext {
     ) {
         let frame_count = output.len() / self.channels.max(1);
 
-        // Phase 1: Fill track slots
-        self.render_tracks(frame_count, clips_per_track, clip_pool);
+        // Phase 1: Fill track slots with Audio Clips.
+        self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
+
+        // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
+        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
+        for track_idx in 0..self.track_slots.len() {
+            let slot = &mut self.track_slots[track_idx];
+            if !slot.active {
+                continue;
+            }
+            if !slot.device_chain.is_empty() {
+                slot.device_chain.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                    self.sample_rate as f32,
+                );
+            }
+            slot.strip.process_stereo(
+                &mut slot.buf_left[..frame_count],
+                &mut slot.buf_right[..frame_count],
+            );
+            
+            if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
+                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
+                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
+                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
+                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
+
+                meter_l.store_rms(rms_l);
+                meter_r.store_rms(rms_r);
+                meter_l.store_peak_decay(peak_l, track_decay);
+                meter_r.store_peak_decay(peak_r, track_decay);
+            }
+        }
 
         // ── 5. Sum into master bus ──────────────────────────────
         // SOLO FIX: Check BOTH active AND output_enabled. The driver sets

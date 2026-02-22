@@ -132,9 +132,9 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
     return (
         <div style={{
             display: 'flex', height: '100%', gap: 0,
-            background: 'linear-gradient(180deg, rgba(18, 22, 30, 0.95) 0%, rgba(12, 16, 22, 0.98) 100%)',
+            background: 'var(--surface-tab-inactive)',
             borderRadius: 'var(--radius-lg)',
-            border: '1px solid rgba(255, 255, 255, 0.06)',
+            border: 'none',
             overflow: 'hidden',
         }}>
             {/* ── LEFT: 4×4 Pad Grid ── */}
@@ -169,16 +169,16 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 border: isSelected
                                     ? `2px solid ${pc}`
                                     : canDrop
-                                        ? '2px dashed rgba(92, 224, 166, 0.5)'
-                                        : '1px solid rgba(255, 255, 255, 0.08)',
+                                        ? '2px dashed var(--color-success)'
+                                        : '1px solid var(--color-divider)',
                                 background: hasSample
-                                    ? `linear-gradient(180deg, ${pc}18 0%, ${pc}08 100%)`
-                                    : 'rgba(0, 0, 0, 0.25)',
+                                    ? `color-mix(in srgb, ${pc} 15%, transparent)`
+                                    : 'var(--color-bg-muted)',
                                 cursor: 'pointer',
                                 display: 'flex', flexDirection: 'column',
                                 alignItems: 'center', justifyContent: 'center',
-                                transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
-                                boxShadow: isSelected ? `0 0 8px ${pc}33, inset 0 0 12px ${pc}11` : 'none',
+                                transition: 'var(--transition-fast)',
+                                boxShadow: 'none',
                                 padding: '2px 3px',
                                 minHeight: 0,
                             }}
@@ -237,8 +237,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                         {/* Waveform View */}
                         <div style={{
                             position: 'relative', overflow: 'hidden',
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                            background: 'linear-gradient(180deg, rgba(82, 196, 154, 0.15) 0%, rgba(82, 196, 154, 0.05) 100%)',
+                            borderBottom: '1px solid var(--color-divider)',
+                            background: 'var(--surface-tab-inactive)',
                             borderRadius: '4px 4px 0 0',
                         }}>
                             <div style={{

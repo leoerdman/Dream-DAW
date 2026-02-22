@@ -167,22 +167,18 @@ export const PluginKnob = ({
         setEditValueText(String(param.value));
     }, [param.value]);
 
+    const arcRadius = 14;
+    const svgSize = compact ? 30 : 38;
+    const arcCircumference = 2 * Math.PI * arcRadius;
+    const dashLength = (270 / 360) * arcCircumference;
+    const dashOffset = dashLength * (1 - pct);
+
     return (
         <label
             style={knobLabelStyle(compact)}
             onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, param.name); } : undefined}
         >
-            <div style={{ position: 'relative', width: size, height: size }}>
-                <div
-                    style={{
-                        position: 'absolute',
-                        inset: -2,
-                        borderRadius: '50%',
-                        background: `conic-gradient(from -135deg, var(--knob-arc-gradient-end) ${Math.max(2, pct * 270)}deg, rgba(255,255,255,0.08) ${Math.max(2, pct * 270)}deg 270deg, transparent 270deg 360deg)`,
-                        opacity: 0.95,
-                        pointerEvents: 'none',
-                    }}
-                />
+            <div style={{ position: 'relative', width: svgSize, height: svgSize }}>
                 <div
                     ref={dialRef}
                     style={knobDialStyle(isDragging)}
@@ -193,13 +189,48 @@ export const PluginKnob = ({
                     onWheel={onKnobWheel}
                     onDoubleClick={onKnobDoubleClick}
                 >
-                    <div
-                        style={{
-                            ...knobMarkerStyle,
-                            height: markerHeight,
-                            transform: `translate(-50%, ${markerTopOffset}) rotate(${angle}deg)`,
-                        }}
-                    />
+                    <svg width={svgSize} height={svgSize} viewBox="0 0 40 40" style={{ pointerEvents: 'none' }}>
+                        {/* Background Arc */}
+                        <circle
+                            cx="20"
+                            cy="20"
+                            r={arcRadius}
+                            fill="none"
+                            stroke="var(--color-bg-elevated)"
+                            strokeWidth="4"
+                            strokeLinecap="round"
+                            strokeDasharray={arcCircumference}
+                            strokeDashoffset={arcCircumference - dashLength}
+                            transform="rotate(135 20 20)"
+                        />
+                        {/* Value Arc */}
+                        {pct > 0 && (
+                            <circle
+                                cx="20"
+                                cy="20"
+                                r={arcRadius}
+                                fill="none"
+                                stroke="var(--color-accent-primary)"
+                                strokeWidth="4"
+                                strokeLinecap="round"
+                                strokeDasharray={dashLength}
+                                strokeDashoffset={dashOffset}
+                                transform="rotate(135 20 20)"
+                            />
+                        )}
+                        {/* Marker Line */}
+                        <g transform={`rotate(${angle} 20 20)`}>
+                            <line
+                                x1="20"
+                                y1="20"
+                                x2="20"
+                                y2="6"
+                                stroke="var(--color-text-primary)"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                            />
+                        </g>
+                    </svg>
                 </div>
                 {isDragging && (
                     <span style={knobDragValueBadgeStyle}>
@@ -293,15 +324,13 @@ const knobParamNameStyle: CSSProperties = {
 const knobDialStyle = (dragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
-    borderRadius: '50%',
-    background: 'var(--knob-dial-gradient)',
-    border: 'var(--knob-dial-border)',
-    boxShadow: dragging
-        ? 'var(--knob-dial-shadow-active)'
-        : 'var(--knob-dial-shadow)',
     position: 'relative',
     cursor: 'ns-resize',
     touchAction: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
 });
 
 const knobMarkerStyle: CSSProperties = {
@@ -319,23 +348,25 @@ const knobValueStyle = (compact: boolean): CSSProperties => ({
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
-    opacity: 0.92,
     cursor: 'text',
     userSelect: 'none',
+    background: 'transparent',
+    padding: '0 2px',
+    borderRadius: 'var(--radius-xs)',
 });
 
 const knobValueInputStyle = (compact: boolean): CSSProperties => ({
     width: compact ? 52 : 62,
     height: compact ? 16 : 18,
-    border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-accent-primary) 55%, rgba(255,255,255,0.2))',
+    border: 'none',
     borderRadius: 'var(--radius-xs)',
-    background: 'color-mix(in srgb, var(--surface-2) 88%, black)',
+    background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     textAlign: 'center',
     padding: '0 var(--space-1)',
-    outline: 'none',
+    outline: '1px solid var(--color-accent-primary)',
 });
 
 const knobDragValueBadgeStyle: CSSProperties = {

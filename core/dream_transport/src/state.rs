@@ -172,7 +172,7 @@ impl TransportController {
             TransportCommand::SetTempo { bpm } => {
                 // BUG-54 FIX: Enforce minimum 20 BPM (was 0) to prevent division-by-zero
                 // in beat-to-sample conversions.
-                if bpm >= 20.0 && bpm <= 999.0 {
+                if (20.0..=999.0).contains(&bpm) {
                     self.bpm = bpm;
                     log::debug!("Transport: Tempo → {bpm} BPM");
                     return true;

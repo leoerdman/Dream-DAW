@@ -1,0 +1,10 @@
+[package]
+name = "dream_mutators"
+description = "Dream DAW — core project mutation helpers extracted from host layer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dream_models = { path = "../dream_models" }
+uuid = { workspace = true }

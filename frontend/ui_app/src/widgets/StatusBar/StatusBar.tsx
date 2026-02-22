@@ -12,12 +12,12 @@
  *   ─── Error line (when active) ───
  */
 
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import { resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
+import { useStatusEngineSlice } from './model/useStatusEngineSlice';
 
 interface StatusBarProps {
     projectEnd?: string;
@@ -36,20 +36,17 @@ export const StatusBar = ({
     panelInfo,
 }: StatusBarProps) => {
     // Live engine data
-    const isPlaying = useEngineStore((s) => s.transport.is_playing);
-    const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
-    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
-    const connected = useEngineStore((s) => s.connected);
-    const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
-    const projectTracks = useEngineStore((s) => s.projectTracks);
-    // BUG-P5 FIX: Stable selectors to avoid re-render on every history merge.
-    // Previous code subscribed to the full array → new reference every 0.5s → re-render storm.
-    const latestHistory = useEngineStore((s) => {
-        const h = s.projectHistory;
-        return h.length > 0 ? h[h.length - 1] : undefined;
-    });
-    const projectHistory = useEngineStore((s) => s.projectHistory);
-    const pluginSandbox = useEngineStore((s) => s.pluginSandbox);
+    const {
+        isPlaying,
+        positionSeconds,
+        bpm,
+        connected,
+        projectSampleRate,
+        projectTracks,
+        latestHistory,
+        projectHistory,
+        pluginSandbox,
+    } = useStatusEngineSlice();
 
     // Status bar messages
     const statusMessage = useStatusStore((s) => s.message);

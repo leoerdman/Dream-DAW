@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { beatToFrame, resolveSampleRate } from '../../shared/lib/audioMath';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
+import { useTransportEngineSlice } from './model/useTransportEngineSlice';
 import {
     Play,
     Square,
@@ -26,12 +26,7 @@ const DEFAULT_PDC_PANEL_POS = { right: 10, top: 44 };
 
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
-const TIME_SIGNATURES: ReadonlyArray<[number, number]> = [
-    [4, 4],
-    [3, 4],
-    [6, 8],
-    [5, 4],
-];
+const TIME_SIGNATURES: ReadonlyArray<[number, number]> = [[4, 4], [3, 4], [6, 8], [5, 4]];
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -60,24 +55,29 @@ export const TransportBar = ({
     assistantOpen = false,
     onAssistantToggle,
 }: TransportBarProps) => {
-    const isPlaying = useEngineStore((s) => s.transport.is_playing);
-    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
-    const isLooping = useEngineStore((s) => s.transport.loop_enabled);
-    const loopStartFrames = useEngineStore((s) => s.transport.loop_start);
-    const loopEndFrames = useEngineStore((s) => s.transport.loop_end);
-    const sampleRate = useEngineStore((s) => s.transport.sample_rate);
-    const posBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const togglePlay = useEngineStore((s) => s.togglePlay);
-    const engineStop = useEngineStore((s) => s.stop);
-    const engineSetBpm = useEngineStore((s) => s.setBpm);
-    const engineSetLoop = useEngineStore((s) => s.setLoop);
-    const projectTracks = useEngineStore((s) => s.projectTracks);
+    const {
+        isPlaying,
+        bpm,
+        isLooping,
+        loopStartFrames,
+        loopEndFrames,
+        sampleRate,
+        posBeats,
+        togglePlay,
+        engineStop,
+        engineSetBpm,
+        engineSetLoop,
+        projectTracks,
+        telemetryRunning,
+        engineConnected,
+        engineLastError,
+        sandboxSnapshot,
+        storeKeySigEnabled,
+        storeKeySigTonic,
+        storeKeySigMode,
+    } = useTransportEngineSlice();
     const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
     const togglePianoPencilMode = useGridStore((s) => s.togglePianoPencilMode);
-    const telemetryRunning = useEngineStore((s) => s.telemetryRunning);
-    const engineConnected = useEngineStore((s) => s.connected);
-    const engineLastError = useEngineStore((s) => s.lastError);
-    const sandboxSnapshot = useEngineStore((s) => s.pluginSandbox);
 
     const [isRecording, setIsRecording] = useState(false);
     const [bpmEditing, setBpmEditing] = useState(false);
@@ -86,9 +86,6 @@ export const TransportBar = ({
 
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
-    const storeKeySigEnabled = useEngineStore((s) => s.keySigEnabled);
-    const storeKeySigTonic = useEngineStore((s) => s.keySigTonic);
-    const storeKeySigMode = useEngineStore((s) => s.keySigMode);
 
     const [keyEnabled, setKeyEnabled] = useState(storeKeySigEnabled);
     const [keyTonic, setKeyTonic] = useState(() => {

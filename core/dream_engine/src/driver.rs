@@ -296,6 +296,23 @@ impl Default for SharedExternalFxSnapshot {
     }
 }
 
+/// Resolves the runtime FX slot list for the master bus from an external-FX
+/// snapshot.
+///
+/// Expected shape is `track_count + 1` entries, where the last entry is master.
+/// During topology transitions a stale snapshot can be longer; in that case we
+/// conservatively take the tail entry to preserve master processing.
+pub fn resolve_master_runtime_slots(
+    external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+    track_count: usize,
+) -> Option<&[ExternalFxRuntimeSlot]> {
+    if external_fx_map.len() > track_count + 1 {
+        external_fx_map.last().map(Vec::as_slice)
+    } else {
+        external_fx_map.get(track_count).map(Vec::as_slice)
+    }
+}
+
 // ── Shared Plugin Registry (LOCK-FREE) ─────────────────────────────────
 
 pub use dream_plugins::vst3_host::PluginInstanceArc;
@@ -3173,11 +3190,8 @@ pub fn start_audio_thread_on_device(
                         // capped topology, but if the snapshot was built with an
                         // older/uncapped shape (len > track_count + 1), fallback
                         // to the last entry where master FX are appended.
-                        let master_slots_opt = if external_fx_map.len() > track_count + 1 {
-                            external_fx_map.last()
-                        } else {
-                            external_fx_map.get(track_count)
-                        };
+                        let master_slots_opt =
+                            resolve_master_runtime_slots(external_fx_map.as_slice(), track_count);
                         if let Some(master_slots) = master_slots_opt {
                             if !master_slots.is_empty() {
                                 for runtime_slot in master_slots.iter() {
@@ -3818,5 +3832,37 @@ mod tests {
         assert!(left[0] > right[0]);
         assert!(right[5] > left[5]);
         assert!(left[5] > left[0] || right[5] > right[0]);
+    }
+
+    #[test]
+    fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
+        let map = vec![
+            vec![ExternalFxRuntimeSlot {
+                slot_id: None,
+                internal_slot_index: Some(0),
+                instance_id: None,
+                sidechain_track_index: None,
+            }],
+            vec![ExternalFxRuntimeSlot {
+                slot_id: None,
+                internal_slot_index: Some(1),
+                instance_id: None,
+                sidechain_track_index: None,
+            }],
+            vec![ExternalFxRuntimeSlot {
+                slot_id: None,
+                internal_slot_index: Some(2),
+                instance_id: None,
+                sidechain_track_index: None,
+            }],
+        ];
+
+        // Fresh snapshot shape (track_count + 1): picks index == track_count.
+        let fresh = resolve_master_runtime_slots(&map[..2], 1).expect("fresh master slots");
+        assert_eq!(fresh[0].internal_slot_index, Some(1));
+
+        // Stale/oversized snapshot: picks tail entry for safety.
+        let stale = resolve_master_runtime_slots(&map, 1).expect("stale master slots");
+        assert_eq!(stale[0].internal_slot_index, Some(2));
     }
 }

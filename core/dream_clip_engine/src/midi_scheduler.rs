@@ -551,7 +551,7 @@ mod tests {
         let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
         let lr = LoopRegion::new(0, 44100);
 
-        let standard = MidiScheduler::find_active(&[clip.clone()], 0, 1024);
+        let standard = MidiScheduler::find_active(std::slice::from_ref(&clip), 0, 1024);
         let looped = looped_events(&[clip], 0, 1024, Some(&lr));
 
         assert_eq!(standard.len(), looped.len());
@@ -705,7 +705,7 @@ mod tests {
 
         for i in 0..200usize {
             let fc = frame_sizes[i % frame_sizes.len()];
-            let events = looped_events(&[clip.clone()], pos, fc, Some(&lr));
+            let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some(&lr));
 
             let on_count = events
                 .iter()
@@ -770,7 +770,7 @@ mod tests {
             for i in 0..260usize {
                 let fc = frame_sizes
                     [(i + (rng.next_u32() as usize % frame_sizes.len())) % frame_sizes.len()];
-                let events = looped_events(&[clip.clone()], pos, fc, Some(&lr));
+                let events = looped_events(std::slice::from_ref(&clip), pos, fc, Some(&lr));
 
                 let mut sigs = std::collections::HashSet::<(usize, usize, u8, u64)>::new();
                 for e in &events {

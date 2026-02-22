@@ -224,46 +224,21 @@ fn mutator_err_to_string(e: MutatorError) -> String {
     e.to_string()
 }
 
+/// Delegate: moves a MIDI clip to a new track/position.
+/// Uses canonical implementation from `dream_models::mutators::move_midi_clip`.
 fn move_midi_clip_in_project(
     project: &mut Project,
     clip_id: Uuid,
     new_track_index: usize,
     new_position: AbsoluteTime,
 ) -> bool {
-    let mut extracted = None;
-    for track in &mut project.tracks {
-        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            let mut clip = track.midi_clips.remove(idx);
-            clip.position = new_position;
-            extracted = Some(clip);
-            break;
-        }
-    }
-
-    let Some(clip) = extracted else {
-        return false;
-    };
-    let target = &mut project.tracks[new_track_index];
-    
-    // Handle overlaps for MIDI clips
-    dream_models::mutators::handle_midi_overlaps(target, &clip);
-
-    let insert_pos = target
-        .midi_clips
-        .binary_search_by(|c| c.position.cmp(&clip.position))
-        .unwrap_or_else(|i| i);
-    target.midi_clips.insert(insert_pos, clip);
-    true
+    mutators::move_midi_clip(project, clip_id, new_track_index, new_position).is_ok()
 }
 
+/// Delegate: deletes a MIDI clip from the project.
+/// Uses canonical implementation from `dream_models::mutators::delete_midi_clip`.
 fn delete_midi_clip_in_project(project: &mut Project, clip_id: Uuid) -> bool {
-    for track in &mut project.tracks {
-        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            track.midi_clips.remove(idx);
-            return true;
-        }
-    }
-    false
+    mutators::delete_midi_clip(project, clip_id).is_ok()
 }
 
 fn build_local_pool_for_project(
@@ -652,46 +627,15 @@ async fn move_clip_cmd(
     Ok(())
 }
 
+/// Delegate: resizes a MIDI clip to new position and duration.
+/// Uses canonical implementation from `dream_models::mutators::resize_midi_clip`.
 fn resize_midi_clip_in_project(
     project: &mut Project,
     clip_id: Uuid,
     new_position: AbsoluteTime,
     new_duration: AbsoluteTime,
 ) -> bool {
-    let mut extracted = None;
-    let mut source_track_idx = None;
-
-    for (track_idx, track) in project.tracks.iter_mut().enumerate() {
-        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            let mut clip = track.midi_clips.remove(idx);
-            clip.position = new_position;
-            clip.duration = new_duration;
-            extracted = Some(clip);
-            source_track_idx = Some(track_idx);
-            break;
-        }
-    }
-
-    let Some(clip) = extracted else {
-        return false;
-    };
-    
-    // Safety check: re-insert into the same track if found
-    if let Some(ti) = source_track_idx {
-        let target = &mut project.tracks[ti];
-        
-        // Handle overlaps for MIDI clips
-        dream_models::mutators::handle_midi_overlaps(target, &clip);
-
-        let insert_pos = target
-            .midi_clips
-            .binary_search_by(|c| c.position.cmp(&clip.position))
-            .unwrap_or_else(|i| i);
-        target.midi_clips.insert(insert_pos, clip);
-        true
-    } else {
-        false
-    }
+    mutators::resize_midi_clip(project, clip_id, new_position, new_duration).is_ok()
 }
 
 /// Resizes a clip to a new position and duration.
@@ -1259,44 +1203,6 @@ async fn set_clip_fades_cmd(
 ///
 /// Muted clips remain on the timeline but are skipped during playback.
 /// The visual renderer draws them with a dark overlay.
-fn apply_clip_mute(project: &mut Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
-            let changed = clip.is_muted != muted;
-            if changed {
-                clip.is_muted = muted;
-            }
-            return (true, changed);
-        }
-    }
-
-    for track in &mut project.tracks {
-        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == clip_id) {
-            let changed = clip.is_muted != muted;
-            if changed {
-                clip.is_muted = muted;
-            }
-            return (true, changed);
-        }
-    }
-
-    (false, false)
-}
-
-fn clip_mute_status(project: &Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
-    for track in &project.tracks {
-        if let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) {
-            return (true, clip.is_muted != muted);
-        }
-    }
-    for track in &project.tracks {
-        if let Some(clip) = track.midi_clips.iter().find(|c| c.id == clip_id) {
-            return (true, clip.is_muted != muted);
-        }
-    }
-    (false, false)
-}
-
 #[tauri::command]
 async fn set_clip_muted_cmd(
     clip_id: String,
@@ -1310,7 +1216,7 @@ async fn set_clip_muted_cmd(
 
     let (found, changed) = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        clip_mute_status(&project, uuid, muted)
+        dream_mutators::clip::clip_mute_status(&project, uuid, muted)
     };
 
     if !found {
@@ -1324,7 +1230,7 @@ async fn set_clip_muted_cmd(
     push_undo(&project_state)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let (_, changed_again) = apply_clip_mute(&mut project, uuid, muted);
+    let (_, changed_again) = dream_mutators::clip::apply_clip_mute(&mut project, uuid, muted);
     if !changed_again {
         return Ok(());
     }
@@ -1365,7 +1271,8 @@ async fn set_clips_muted_cmd(
         let mut found = 0usize;
         let mut changed = 0usize;
         for uuid in &uuids {
-            let (is_found, is_changed) = clip_mute_status(&project, *uuid, muted);
+            let (is_found, is_changed) =
+                dream_mutators::clip::clip_mute_status(&project, *uuid, muted);
             if is_found {
                 found += 1;
             }
@@ -1388,7 +1295,7 @@ async fn set_clips_muted_cmd(
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut applied = 0usize;
     for uuid in &uuids {
-        let (_, changed) = apply_clip_mute(&mut project, *uuid, muted);
+        let (_, changed) = dream_mutators::clip::apply_clip_mute(&mut project, *uuid, muted);
         if changed {
             applied += 1;
         }

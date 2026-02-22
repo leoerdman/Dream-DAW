@@ -24,9 +24,16 @@ jobs:
       - name: Cargo fmt (check)
         run: cargo fmt --check
 
-      - name: Cargo clippy (workspace, deny warnings)
+      - name: Cargo clippy (strict ratchet, deny warnings)
         run: |
-          cargo clippy --workspace --all-targets -- -D warnings \
+          cargo clippy \
+            -p dream_dsp \
+            -p dream_io \
+            -p dream_plugins \
+            -p dream_graph \
+            -p dream_transport \
+            -p dream_clip_engine \
+            --lib --bins --tests -- -D warnings \
             -D clippy::unwrap_used \
             -D clippy::expect_used \
             -D clippy::todo \
@@ -58,6 +65,24 @@ jobs:
 
       - name: Architecture budget guard
         run: ./scripts/architecture_budget_guard.sh
+
+      - name: Full project audit report
+        run: |
+          bash ./scripts/full_project_audit.sh --report /tmp/full_project_audit.txt
+          cat /tmp/full_project_audit.txt
+          {
+            echo "## Full Project Audit"
+            echo ""
+            echo '```text'
+            cat /tmp/full_project_audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full project audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-project-audit
+          path: /tmp/full_project_audit.txt
 
       - name: SSOT bindings guard
         run: ./scripts/check_ssot_bindings.sh

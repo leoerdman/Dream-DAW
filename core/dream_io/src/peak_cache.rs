@@ -298,13 +298,13 @@ impl PeakCache {
             let sidecar_mtime = fs::metadata(&sidecar)
                 .and_then(|m| m.modified())
                 .ok();
-            if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime) {
-                if src_t > cache_t {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "peak cache is stale (source modified after cache)",
-                    ));
-                }
+            if let (Some(src_t), Some(cache_t)) = (source_mtime, sidecar_mtime)
+                && src_t > cache_t
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "peak cache is stale (source modified after cache)",
+                ));
             }
         }
 

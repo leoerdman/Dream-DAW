@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 RUST_LIMIT=${RUST_LIMIT:-1000}
 TS_LIMIT=${TS_LIMIT:-300}
 BASELINE_FILE=${BASELINE_FILE:-scripts/architecture_budget_baseline.txt}
+CHECK_STALE=${CHECK_STALE:-1}
 
 err() { printf "[ARCH BUDGET GUARD] %s\n" "$*" >&2; }
 
@@ -37,6 +38,7 @@ baseline_max_for() {
 }
 
 failures=0
+stale=0
 
 while read -r lines path; do
   [[ -z "${lines:-}" || -z "${path:-}" ]] && continue
@@ -68,8 +70,37 @@ while read -r lines path; do
   fi
 done < <(find frontend/ui_app/src -type f \( -name '*.ts' -o -name '*.tsx' \) -print0 | xargs -0 wc -l | awk '$2!="total" {print $1, $2}')
 
+if [[ "$CHECK_STALE" == "1" ]]; then
+  while read -r kind path max_lines; do
+    [[ -z "${kind:-}" || -z "${path:-}" || -z "${max_lines:-}" ]] && continue
+    [[ "${kind:0:1}" == "#" ]] && continue
+    if [[ ! -f "$path" ]]; then
+      err "stale baseline entry (file missing): $path"
+      stale=1
+      continue
+    fi
+    current_lines="$(wc -l < "$path" | tr -d '[:space:]')"
+    if [[ "$kind" == "rust" ]]; then
+      if (( current_lines <= RUST_LIMIT )); then
+        err "stale baseline entry (no longer oversized): $path now=$current_lines"
+        stale=1
+      fi
+    elif [[ "$kind" == "ts" ]]; then
+      if (( current_lines <= TS_LIMIT )); then
+        err "stale baseline entry (no longer oversized): $path now=$current_lines"
+        stale=1
+      fi
+    fi
+  done < "$BASELINE_FILE"
+fi
+
 if (( failures != 0 )); then
   err "FAILED"
+  exit 1
+fi
+
+if (( stale != 0 )); then
+  err "FAILED (stale baseline entries detected; refresh scripts/architecture_budget_baseline.txt)"
   exit 1
 fi
 

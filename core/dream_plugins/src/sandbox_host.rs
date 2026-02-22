@@ -100,12 +100,9 @@ impl PluginSandboxConfig {
             PathBuf::from("/tmp/dreamdaw-target/debug/plugin_host_daemon"),
             PathBuf::from("/tmp/dream-daw-target/debug/plugin_host_daemon"),
         ];
-        for candidate in tmp_candidates {
-            if candidate.exists() {
-                return Some(candidate);
-            }
-        }
-        None
+        tmp_candidates
+            .into_iter()
+            .find(|candidate| candidate.exists())
     }
 }
 
@@ -125,6 +122,16 @@ struct PluginSandboxInstance {
     heartbeat_seq: u64,
     heartbeat_seen: bool,
     spawned_at: SystemTime,
+}
+
+struct DaemonSpawnSpec<'a> {
+    instance_id: Uuid,
+    plugin_path: &'a std::path::Path,
+    heartbeat_file: &'a std::path::Path,
+    shared_region_file: &'a std::path::Path,
+    num_inputs: u16,
+    num_outputs: u16,
+    max_frames: u32,
 }
 
 /// Out-of-process plugin sandbox supervisor.
@@ -155,10 +162,10 @@ impl PluginSandboxSupervisor {
                 if trimmed.is_empty() {
                     continue;
                 }
-                if let Ok(event) = serde_json::from_str::<PluginHostEventMessage>(trimmed) {
-                    if tx.send(event).is_err() {
-                        break;
-                    }
+                if let Ok(event) = serde_json::from_str::<PluginHostEventMessage>(trimmed)
+                    && tx.send(event).is_err()
+                {
+                    break;
                 }
             }
         });
@@ -214,30 +221,24 @@ impl PluginSandboxSupervisor {
 
     fn spawn_daemon_process(
         config: &PluginSandboxConfig,
-        instance_id: Uuid,
-        plugin_path: &std::path::Path,
-        heartbeat_file: &std::path::Path,
-        shared_region_file: &std::path::Path,
-        num_inputs: u16,
-        num_outputs: u16,
-        max_frames: u32,
+        spec: &DaemonSpawnSpec<'_>,
     ) -> Result<Child, PluginError> {
         let mut cmd = Command::new(&config.host_binary);
         cmd.arg("--daemon")
             .arg("--instance-id")
-            .arg(instance_id.to_string())
+            .arg(spec.instance_id.to_string())
             .arg("--plugin-path")
-            .arg(plugin_path.to_string_lossy().to_string())
+            .arg(spec.plugin_path.to_string_lossy().to_string())
             .arg("--heartbeat-file")
-            .arg(heartbeat_file.to_string_lossy().to_string())
+            .arg(spec.heartbeat_file.to_string_lossy().to_string())
             .arg("--shared-region-file")
-            .arg(shared_region_file.to_string_lossy().to_string())
+            .arg(spec.shared_region_file.to_string_lossy().to_string())
             .arg("--num-inputs")
-            .arg(num_inputs.to_string())
+            .arg(spec.num_inputs.to_string())
             .arg("--num-outputs")
-            .arg(num_outputs.to_string())
+            .arg(spec.num_outputs.to_string())
             .arg("--max-frames")
-            .arg(max_frames.to_string())
+            .arg(spec.max_frames.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -316,16 +317,16 @@ impl PluginSandboxSupervisor {
             max_frames: layout.max_frames,
             total_bytes: layout.total_bytes(),
         };
-        let child = Self::spawn_daemon_process(
-            config,
+        let spawn_spec = DaemonSpawnSpec {
             instance_id,
-            &descriptor.path,
-            &heartbeat_file,
-            shared_region_owner.path_ref(),
-            layout.num_inputs,
-            layout.num_outputs,
-            layout.max_frames,
-        )?;
+            plugin_path: &descriptor.path,
+            heartbeat_file: &heartbeat_file,
+            shared_region_file: shared_region_owner.path_ref(),
+            num_inputs: layout.num_inputs,
+            num_outputs: layout.num_outputs,
+            max_frames: layout.max_frames,
+        };
+        let child = Self::spawn_daemon_process(config, &spawn_spec)?;
         let mut child = child;
         let control_stdin = child.stdin.take();
         let event_rx =
@@ -443,16 +444,18 @@ impl PluginSandboxSupervisor {
                             && let Some(cfg) = self.config.as_ref()
                         {
                             let _ = fs::write(&instance.heartbeat_file, b"0");
-                            match Self::spawn_daemon_process(
-                                cfg,
-                                *id,
-                                &instance.descriptor.path,
-                                &instance.heartbeat_file,
-                                std::path::Path::new(&instance.shared_region.map_name),
-                                instance.shared_region.num_inputs,
-                                instance.shared_region.num_outputs,
-                                instance.shared_region.max_frames,
-                            ) {
+                            let spawn_spec = DaemonSpawnSpec {
+                                instance_id: *id,
+                                plugin_path: &instance.descriptor.path,
+                                heartbeat_file: &instance.heartbeat_file,
+                                shared_region_file: std::path::Path::new(
+                                    &instance.shared_region.map_name,
+                                ),
+                                num_inputs: instance.shared_region.num_inputs,
+                                num_outputs: instance.shared_region.num_outputs,
+                                max_frames: instance.shared_region.max_frames,
+                            };
+                            match Self::spawn_daemon_process(cfg, &spawn_spec) {
                                 Ok(mut new_child) => {
                                     instance.control_stdin = new_child.stdin.take();
                                     instance.event_rx = if let (Some(stdout), Some(stderr)) =
@@ -502,10 +505,10 @@ impl PluginSandboxSupervisor {
                             now.duration_since(instance.spawned_at).ok()
                         };
 
-                        if let Some(age) = heartbeat_age {
-                            if age <= timeout {
-                                continue;
-                            }
+                        if let Some(age) = heartbeat_age
+                            && age <= timeout
+                        {
+                            continue;
                         }
 
                         if instance.restart_count < max_auto_restarts
@@ -514,16 +517,18 @@ impl PluginSandboxSupervisor {
                             let _ = child.kill();
                             let _ = child.wait();
                             let _ = fs::write(&instance.heartbeat_file, b"0");
-                            match Self::spawn_daemon_process(
-                                cfg,
-                                *id,
-                                &instance.descriptor.path,
-                                &instance.heartbeat_file,
-                                std::path::Path::new(&instance.shared_region.map_name),
-                                instance.shared_region.num_inputs,
-                                instance.shared_region.num_outputs,
-                                instance.shared_region.max_frames,
-                            ) {
+                            let spawn_spec = DaemonSpawnSpec {
+                                instance_id: *id,
+                                plugin_path: &instance.descriptor.path,
+                                heartbeat_file: &instance.heartbeat_file,
+                                shared_region_file: std::path::Path::new(
+                                    &instance.shared_region.map_name,
+                                ),
+                                num_inputs: instance.shared_region.num_inputs,
+                                num_outputs: instance.shared_region.num_outputs,
+                                max_frames: instance.shared_region.max_frames,
+                            };
+                            match Self::spawn_daemon_process(cfg, &spawn_spec) {
                                 Ok(mut new_child) => {
                                     instance.control_stdin = new_child.stdin.take();
                                     instance.event_rx = if let (Some(stdout), Some(stderr)) =
@@ -695,7 +700,7 @@ impl PluginSandboxSupervisor {
     }
 
     pub fn is_instance_healthy(&self, instance_id: Uuid) -> bool {
-        self.instances.get(&instance_id).map_or(false, |inst| {
+        self.instances.get(&instance_id).is_some_and(|inst| {
             !inst.bypass_requested
                 && matches!(
                     inst.status,

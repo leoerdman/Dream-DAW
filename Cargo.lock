@@ -827,6 +827,7 @@ dependencies = [
  "dream_io",
  "dream_ipc",
  "dream_models",
+ "dream_mutators",
  "dream_plugins",
  "env_logger",
  "flate2",
@@ -1080,6 +1081,14 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "dream_mutators"
+version = "1.0.108"
+dependencies = [
+ "dream_models",
  "uuid",
 ]
 

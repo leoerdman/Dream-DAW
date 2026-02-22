@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SSOT_DIR="$ROOT_DIR/frontend/shared_bindings"
+LEGACY_MODEL_BINDINGS="$ROOT_DIR/core/dream_models/bindings"
+LEGACY_UI_TYPES="$ROOT_DIR/frontend/ui_app/src/shared/types"
+
+# Enforce SSOT before generation: legacy folders must not survive.
+rm -rf "$LEGACY_MODEL_BINDINGS" "$LEGACY_UI_TYPES"
+
 mkdir -p "$SSOT_DIR"
 # Remove stale generated files before a fresh export.
 find "$SSOT_DIR" -maxdepth 1 -type f -name '*.ts' -delete 2>/dev/null || true

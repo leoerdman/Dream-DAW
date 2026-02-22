@@ -235,24 +235,24 @@ impl ReverbProcessor {
         for (idx, c) in self.combs_l.iter_mut().enumerate() {
             let new_size = scale(COMB_SIZES_L[idx]).min(c.buffer.len());
             c.buf_size = new_size;
-            c.index = c.index % new_size;
+            c.index %= new_size;
             c.filter_store = 0.0;
         }
         for (idx, c) in self.combs_r.iter_mut().enumerate() {
             let new_size = scale(COMB_SIZES_L[idx] + COMB_SPREAD).min(c.buffer.len());
             c.buf_size = new_size;
-            c.index = c.index % new_size;
+            c.index %= new_size;
             c.filter_store = 0.0;
         }
         for (idx, a) in self.allpasses_l.iter_mut().enumerate() {
             let new_size = scale(AP_SIZES[idx]).min(a.buffer.len());
             a.buf_size = new_size;
-            a.index = a.index % new_size;
+            a.index %= new_size;
         }
         for (idx, a) in self.allpasses_r.iter_mut().enumerate() {
             let new_size = scale(AP_SIZES[idx] + COMB_SPREAD).min(a.buffer.len());
             a.buf_size = new_size;
-            a.index = a.index % new_size;
+            a.index %= new_size;
         }
     }
 

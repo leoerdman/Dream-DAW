@@ -394,9 +394,8 @@ export const Timeline = (props: TimelineProps) => {
     }, []);
 
     // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
-    // Stable string key prevents new array reference on every store tick.
-    const _trackActiveKey = useEngineStore(s => s.projectTracks.map((_t, i, arr) => isTrackActive(i, arr) ? '1' : '0').join(''));
-    const trackActiveStates = useMemo(() => _trackActiveKey.split('').map(c => c === '1'), [_trackActiveKey]);
+    const projectTracks = useEngineStore((s) => s.projectTracks);
+    const trackActiveStates = useMemo(() => projectTracks.map((_t, i, arr) => isTrackActive(i, arr)), [projectTracks]);
 
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {

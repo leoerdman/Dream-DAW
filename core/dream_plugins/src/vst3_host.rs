@@ -1631,7 +1631,7 @@ impl Vst3Event {
         ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
         ev.flags = 1; // kIsLive
         ev.event_data[0] = midi.data[1]; // CC number
-        ev.event_data[1] = (midi.channel & 0x0F) as u8; // channel as i8
+        ev.event_data[1] = midi.channel & 0x0F; // channel as i8
         ev.event_data[2] = midi.data[2]; // value
         ev.event_data[3] = 0; // value2
         ev
@@ -1648,7 +1648,7 @@ impl Vst3Event {
         ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
         ev.flags = 1;
         ev.event_data[0] = 128; // kPitchBend
-        ev.event_data[1] = (midi.channel & 0x0F) as u8;
+        ev.event_data[1] = midi.channel & 0x0F;
         ev.event_data[2] = midi.data[1]; // LSB
         ev.event_data[3] = midi.data[2]; // MSB
         ev
@@ -1665,7 +1665,7 @@ impl Vst3Event {
         ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
         ev.flags = 1;
         ev.event_data[0] = 129; // kAfterTouch
-        ev.event_data[1] = (midi.channel & 0x0F) as u8;
+        ev.event_data[1] = midi.channel & 0x0F;
         ev.event_data[2] = midi.data[1]; // pressure
         ev.event_data[3] = 0;
         ev
@@ -1690,7 +1690,7 @@ impl Vst3Event {
                 ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
                 ev.flags = 1;
                 ev.event_data[0] = 130; // kPolyPressure
-                ev.event_data[1] = (midi.channel & 0x0F) as u8;
+                ev.event_data[1] = midi.channel & 0x0F;
                 ev.event_data[2] = midi.data[1]; // note
                 ev.event_data[3] = midi.data[2]; // pressure
                 Some(ev)
@@ -1702,7 +1702,7 @@ impl Vst3Event {
                 ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
                 ev.flags = 1;
                 ev.event_data[0] = 131; // kCtrlProgramChange
-                ev.event_data[1] = (midi.channel & 0x0F) as u8;
+                ev.event_data[1] = midi.channel & 0x0F;
                 ev.event_data[2] = midi.data[1]; // program
                 ev.event_data[3] = 0;
                 Some(ev)
@@ -2794,14 +2794,14 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
         let mut plug_view_raw: *mut c_void = std::ptr::null_mut();
         object_getInstanceVariable(
             this,
-            b"_plugView\0".as_ptr() as _,
+            c"_plugView".as_ptr() as _,
             &mut plug_view_raw,
         );
 
         let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
         object_getInstanceVariable(
             this,
-            b"_cleaned\0".as_ptr() as _,
+            c"_cleaned".as_ptr() as _,
             &mut cleaned_raw,
         );
         let already_cleaned = cleaned_raw as usize != 0;
@@ -2817,8 +2817,8 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
             info!("[VST3-Delegate] windowWillClose: plug_view vtbl is null, skipping cleanup");
             object_setInstanceVariable(
                 this,
-                b"_cleaned\0".as_ptr() as _,
-                1usize as *mut c_void,
+                c"_cleaned".as_ptr() as _,
+                std::ptr::dangling_mut::<c_void>(),
             );
             return;
         }
@@ -2833,8 +2833,8 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
         // Mark as cleaned so close_editor_macos doesn't double-free
         object_setInstanceVariable(
             this,
-            b"_cleaned\0".as_ptr() as _,
-            1usize as *mut c_void,
+            c"_cleaned".as_ptr() as _,
+            std::ptr::dangling_mut::<c_void>(),
         );
     }
 }
@@ -2845,39 +2845,39 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
 unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
     use std::os::raw::c_char;
 
-    let class_name = b"DreamDAWPluginWindowDelegate\0".as_ptr() as *const c_char;
+    let class_name = c"DreamDAWPluginWindowDelegate".as_ptr() as *const c_char;
 
     DELEGATE_CLASS_INIT.call_once(|| {
-        let ns_object_class = objc_getClass(b"NSObject\0".as_ptr() as _);
+        let ns_object_class = objc_getClass(c"NSObject".as_ptr() as _);
         let new_class = objc_allocateClassPair(ns_object_class, class_name, 0);
         assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
 
         // Add ivars: _plugView (pointer) and _cleaned (usize used as bool)
         class_addIvar(
             new_class,
-            b"_plugView\0".as_ptr() as _,
+            c"_plugView".as_ptr() as _,
             std::mem::size_of::<*mut c_void>(),
             std::mem::align_of::<*mut c_void>() as u8,
-            b"^v\0".as_ptr() as _,
+            c"^v".as_ptr() as _,
         );
         class_addIvar(
             new_class,
-            b"_cleaned\0".as_ptr() as _,
+            c"_cleaned".as_ptr() as _,
             std::mem::size_of::<usize>(),
             std::mem::align_of::<usize>() as u8,
-            b"Q\0".as_ptr() as _,
+            c"Q".as_ptr() as _,
         );
 
         // Register windowWillClose:
         unsafe extern "C" {
             fn sel_registerName(name: *const c_char) -> *mut c_void;
         }
-        let sel = sel_registerName(b"windowWillClose:\0".as_ptr() as _);
+        let sel = sel_registerName(c"windowWillClose:".as_ptr() as _);
         class_addMethod(
             new_class,
             sel,
             plugin_window_will_close as *const c_void,
-            b"v@:@\0".as_ptr() as _,  // void, self, SEL, NSNotification*
+            c"v@:@".as_ptr() as _,  // void, self, SEL, NSNotification*
         );
 
         objc_registerClassPair(new_class);
@@ -2894,9 +2894,9 @@ unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) 
     type MsgSendSetDelegate = unsafe extern "C" fn(id, *mut c_void, id);
 
     let delegate_class = objc_getClass(class_name);
-    let sel_alloc = sel_registerName(b"alloc\0".as_ptr() as _);
-    let sel_init = sel_registerName(b"init\0".as_ptr() as _);
-    let sel_set_delegate = sel_registerName(b"setDelegate:\0".as_ptr() as _);
+    let sel_alloc = sel_registerName(c"alloc".as_ptr() as _);
+    let sel_init = sel_registerName(c"init".as_ptr() as _);
+    let sel_set_delegate = sel_registerName(c"setDelegate:".as_ptr() as _);
 
     let send_alloc: MsgSendAlloc = std::mem::transmute(objc_msgSend as *const ());
     let send_init: MsgSendInit = std::mem::transmute(objc_msgSend as *const ());
@@ -2908,13 +2908,13 @@ unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) 
     // Store the plug_view pointer and cleaned flag
     object_setInstanceVariable(
         delegate,
-        b"_plugView\0".as_ptr() as _,
+        c"_plugView".as_ptr() as _,
         plug_view as *mut c_void,
     );
     object_setInstanceVariable(
         delegate,
-        b"_cleaned\0".as_ptr() as _,
-        0usize as *mut c_void,
+        c"_cleaned".as_ptr() as _,
+        std::ptr::null_mut::<c_void>(),
     );
 
     // Set as the window's delegate
@@ -2936,7 +2936,7 @@ unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
     }
     type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
 
-    let sel_delegate = sel_registerName(b"delegate\0".as_ptr() as _);
+    let sel_delegate = sel_registerName(c"delegate".as_ptr() as _);
     let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
     let delegate = send_delegate(window, sel_delegate);
 
@@ -2947,7 +2947,7 @@ unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
     let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
     object_getInstanceVariable(
         delegate,
-        b"_cleaned\0".as_ptr() as _,
+        c"_cleaned".as_ptr() as _,
         &mut cleaned_raw,
     );
     cleaned_raw as usize != 0
@@ -2966,7 +2966,7 @@ unsafe fn mark_delegate_cleaned(window: id) {
     }
     type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
 
-    let sel_delegate = sel_registerName(b"delegate\0".as_ptr() as _);
+    let sel_delegate = sel_registerName(c"delegate".as_ptr() as _);
     let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
     let delegate = send_delegate(window, sel_delegate);
 
@@ -2977,13 +2977,13 @@ unsafe fn mark_delegate_cleaned(window: id) {
     // Set _cleaned = 1 so windowWillClose: becomes a no-op
     object_setInstanceVariable(
         delegate,
-        b"_cleaned\0".as_ptr() as _,
-        1usize as *mut c_void,
+        c"_cleaned".as_ptr() as _,
+        std::ptr::dangling_mut::<c_void>(),
     );
     // Null out the plug_view pointer for extra safety
     object_setInstanceVariable(
         delegate,
-        b"_plugView\0".as_ptr() as _,
+        c"_plugView".as_ptr() as _,
         std::ptr::null_mut(),
     );
 }
@@ -3117,8 +3117,9 @@ impl Vst3Instance {
     /// 6. Obtain `IEditController`:
     ///    a. `IComponent::getControllerClassId()` → `IPluginFactory::createInstance(cid, IID_IEDIT_CONTROLLER)`.
     ///    b. If that fails, QI the component itself for `IEditController` (single-component design).
-    /// Returns (factory_ptr, component_ptr, processor_ptr, controller_ptr,
-    ///          processor_from_component_qi, controller_from_component_qi).
+    ///
+    /// Tuple result order: factory_ptr, component_ptr, processor_ptr, controller_ptr,
+    /// processor_from_component_qi, controller_from_component_qi.
     fn init_vst3_com(
         library: &libloading::Library,
     ) -> Result<(usize, usize, usize, usize, bool, bool), PluginError> {
@@ -3448,7 +3449,7 @@ impl Vst3Instance {
         eprintln!("[CRASH-DIAG] >>> createView about to call vtbl at {:p}", controller);
         info!("[VST3-EDITOR] Step 1: Calling createView('editor')...");
         let view_raw = unsafe {
-            ((*(*controller).vtbl).create_view)(controller, b"editor\0".as_ptr() as *const c_char)
+            ((*(*controller).vtbl).create_view)(controller, c"editor".as_ptr() as *const c_char)
         };
         eprintln!("[CRASH-DIAG] <<< createView returned {:p}", view_raw);
         diag_step!("[open_editor:{}] Step 1: createView returned {:p}", self.descriptor.name, view_raw);
@@ -3465,7 +3466,7 @@ impl Vst3Instance {
         let nsview_supported = unsafe {
             ((*(*plug_view).vtbl).is_platform_type_supported)(
                 plug_view,
-                b"NSView\0".as_ptr() as *const c_char,
+                c"NSView".as_ptr() as *const c_char,
             )
         } == K_RESULT_OK;
         eprintln!("[CRASH-DIAG] <<< isPlatformTypeSupported returned {}", nsview_supported);
@@ -3568,7 +3569,7 @@ impl Vst3Instance {
                 fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
             }
             let sel_set_wants_layer = sel_registerName(
-                b"setWantsLayer:\0".as_ptr() as *const std::os::raw::c_char,
+                c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char,
             );
             // Cast objc_msgSend to the exact signature we need (non-variadic).
             // On ARM64, variadic vs non-variadic ABI differs — this typed cast
@@ -3619,17 +3620,17 @@ impl Vst3Instance {
             // incompatible autoresizing behavior, conflicting subviews (from the
             // window chrome), or a frame that doesn't match the plugin's expected
             // dimensions — causing VSTGUI's internal init to fail → NULL dereference.
-            let sel_alloc = sel_registerName(b"alloc\0".as_ptr() as *const std::os::raw::c_char);
-            let sel_init_with_frame = sel_registerName(b"initWithFrame:\0".as_ptr() as *const std::os::raw::c_char);
-            let sel_add_subview = sel_registerName(b"addSubview:\0".as_ptr() as *const std::os::raw::c_char);
-            let sel_set_autoresizing = sel_registerName(b"setAutoresizingMask:\0".as_ptr() as *const std::os::raw::c_char);
+            let sel_alloc = sel_registerName(c"alloc".as_ptr() as *const std::os::raw::c_char);
+            let sel_init_with_frame = sel_registerName(c"initWithFrame:".as_ptr() as *const std::os::raw::c_char);
+            let sel_add_subview = sel_registerName(c"addSubview:".as_ptr() as *const std::os::raw::c_char);
+            let sel_set_autoresizing = sel_registerName(c"setAutoresizingMask:".as_ptr() as *const std::os::raw::c_char);
 
             unsafe extern "C" {
                 fn objc_getClass(name: *const std::os::raw::c_char) -> id;
                 fn objc_msgSend();
             }
 
-            let nsview_class = objc_getClass(b"NSView\0".as_ptr() as *const std::os::raw::c_char);
+            let nsview_class = objc_getClass(c"NSView".as_ptr() as *const std::os::raw::c_char);
 
             // Allocate a new NSView
             type MsgSendId = unsafe extern "C" fn(id, *mut c_void) -> id;
@@ -3657,7 +3658,7 @@ impl Vst3Instance {
 
             // Enable layer-backing on the plugin host view
             let sel_set_wants_layer2 = sel_registerName(
-                b"setWantsLayer:\0".as_ptr() as *const std::os::raw::c_char,
+                c"setWantsLayer:".as_ptr() as *const std::os::raw::c_char,
             );
             // MsgSendBool already defined above
             let send_bool2: MsgSendBool = std::mem::transmute(objc_msgSend as *const ());
@@ -3687,7 +3688,7 @@ impl Vst3Instance {
             let attached = ((*(*plug_view).vtbl).attached)(
                 plug_view,
                 plugin_host_view as *mut c_void,
-                b"NSView\0".as_ptr() as *const c_char,
+                c"NSView".as_ptr() as *const c_char,
             );
             EDITOR_IN_ATTACHED.with(|c| c.set(false));
             diag_step!("[open_editor:{}] Step 7: attached returned {}", self.descriptor.name, attached);
@@ -3760,7 +3761,7 @@ impl Vst3Instance {
 
                     // Update pluginHostView frame to match
                     type MsgSendSetFrame = unsafe extern "C" fn(id, *mut c_void, NSRect);
-                    let sel_set_frame_fn = sel_registerName(b"setFrame:\0".as_ptr() as _);
+                    let sel_set_frame_fn = sel_registerName(c"setFrame:".as_ptr() as _);
                     let send_set_frame: MsgSendSetFrame =
                         std::mem::transmute(objc_msgSend as *const ());
                     send_set_frame(plugin_host_view, sel_set_frame_fn, new_content_rect);
@@ -3807,14 +3808,14 @@ impl Vst3Instance {
                 let send_bool: MsgSendBoolRet = std::mem::transmute(objc_msgSend as *const ());
                 let send_rect: MsgSendNSRect = std::mem::transmute(objc_msgSend as *const ());
 
-                let sel_subviews = sel_registerName(b"subviews\0".as_ptr() as _);
-                let sel_count = sel_registerName(b"count\0".as_ptr() as _);
-                let sel_object_at = sel_registerName(b"objectAtIndex:\0".as_ptr() as _);
-                let sel_frame = sel_registerName(b"frame\0".as_ptr() as _);
-                let sel_wants_layer = sel_registerName(b"wantsLayer\0".as_ptr() as _);
-                let sel_is_hidden = sel_registerName(b"isHidden\0".as_ptr() as _);
-                let sel_class_name = sel_registerName(b"className\0".as_ptr() as _);
-                let sel_utf8 = sel_registerName(b"UTF8String\0".as_ptr() as _);
+                let sel_subviews = sel_registerName(c"subviews".as_ptr() as _);
+                let sel_count = sel_registerName(c"count".as_ptr() as _);
+                let sel_object_at = sel_registerName(c"objectAtIndex:".as_ptr() as _);
+                let sel_frame = sel_registerName(c"frame".as_ptr() as _);
+                let sel_wants_layer = sel_registerName(c"wantsLayer".as_ptr() as _);
+                let sel_is_hidden = sel_registerName(c"isHidden".as_ptr() as _);
+                let sel_class_name = sel_registerName(c"className".as_ptr() as _);
+                let sel_utf8 = sel_registerName(c"UTF8String".as_ptr() as _);
 
                 let cv_frame = send_rect(content_view, sel_frame);
                 let cv_wants_layer = send_bool(content_view, sel_wants_layer);
@@ -3867,7 +3868,7 @@ impl Vst3Instance {
             // Prevent NSWindow from auto-releasing on close, since our
             // delegate needs the window to remain valid during cleanup.
             type MsgSendSetBool = unsafe extern "C" fn(id, *mut c_void, i8);
-            let sel_set_released = sel_registerName(b"setReleasedWhenClosed:\0".as_ptr() as _);
+            let sel_set_released = sel_registerName(c"setReleasedWhenClosed:".as_ptr() as _);
             let send: MsgSendSetBool = std::mem::transmute(objc_msgSend as *const ());
             send(window, sel_set_released, 0); // NO = 0
 
@@ -4926,7 +4927,7 @@ impl PluginInstance for Vst3Instance {
     fn supports_editor(&self) -> bool {
         #[cfg(target_os = "macos")]
         {
-            return self.controller_ptr != 0 || self.open_editor_fn.is_some();
+            self.controller_ptr != 0 || self.open_editor_fn.is_some()
         }
         #[cfg(not(target_os = "macos"))]
         {

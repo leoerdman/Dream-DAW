@@ -32,6 +32,7 @@ arc-swap = { workspace = true }
 # Dream DAW core crates
 dream_models = { path = "../../core/dream_models" }
 dream_importers = { path = "../../core/dream_importers" }
+dream_mutators = { path = "../../core/dream_mutators" }
 dream_ipc = { path = "../../core/dream_ipc" }
 dream_engine = { path = "../../core/dream_engine" }
 dream_dsp = { path = "../../core/dream_dsp" }

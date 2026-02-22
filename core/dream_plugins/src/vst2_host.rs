@@ -785,13 +785,13 @@ impl Vst2Instance {
 
         // Fallback: try to find any executable in Contents/MacOS/
         let macos_dir = bundle_path.join("Contents").join("MacOS");
-        if macos_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&macos_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        return Ok(path);
-                    }
+        if macos_dir.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&macos_dir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    return Ok(path);
                 }
             }
         }
@@ -1067,16 +1067,16 @@ impl PluginInstance for Vst2Instance {
         HOST_BLOCK_SIZE.with(|bs| bs.set(num_frames as i32));
 
         // Send MIDI events if any
-        if !midi_events.is_empty() {
-            if let Some(events_ptr) = self.marshal_midi_events(midi_events) {
-                self.dispatch(
-                    EFF_PROCESS_EVENTS,
-                    0,
-                    0,
-                    events_ptr as *mut c_void,
-                    0.0,
-                );
-            }
+        if !midi_events.is_empty()
+            && let Some(events_ptr) = self.marshal_midi_events(midi_events)
+        {
+            self.dispatch(
+                EFF_PROCESS_EVENTS,
+                0,
+                0,
+                events_ptr as *mut c_void,
+                0.0,
+            );
         }
 
         // Prepare input channel pointers (no allocations — reuse pre-allocated vecs)
@@ -1200,11 +1200,8 @@ impl PluginInstance for Vst2Instance {
         if index >= self.parameter_count() {
             return None;
         }
-        if let Some(get_fn) = unsafe { (*self.effect).get_parameter } {
-            Some(unsafe { get_fn(self.effect, index as i32) } as f64)
-        } else {
-            None
-        }
+        unsafe { (*self.effect).get_parameter }
+            .map(|get_fn| unsafe { get_fn(self.effect, index as i32) } as f64)
     }
 
     fn set_parameter(&mut self, index: u32, value: f64) -> Result<(), PluginError> {

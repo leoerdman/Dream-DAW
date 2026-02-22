@@ -204,7 +204,8 @@ impl AnalyzerMetering {
         }
     }
 
-    fn store(&self, peak_l: f32, peak_r: f32, rms_l: f32, rms_r: f32, lufs_m: f32, lufs_st: f32, crest: f32) {
+    fn store(&self, metrics: (f32, f32, f32, f32, f32, f32, f32)) {
+        let (peak_l, peak_r, rms_l, rms_r, lufs_m, lufs_st, crest) = metrics;
         self.peak_l.store(peak_l.to_bits(), Ordering::Relaxed);
         self.peak_r.store(peak_r.to_bits(), Ordering::Relaxed);
         self.rms_l.store(rms_l.to_bits(), Ordering::Relaxed);
@@ -382,7 +383,7 @@ impl DspProcessor for AnalyzerProcessor {
         let crest = (20.0 * (peak_avg / rms_avg).log10()) as f32;
 
         // ── Store all values atomically ──
-        self.metering.store(
+        self.metering.store((
             to_dbfs(self.peak_hold_l),
             to_dbfs(self.peak_hold_r),
             to_dbfs(self.rms_smoothed_l),
@@ -390,20 +391,17 @@ impl DspProcessor for AnalyzerProcessor {
             lufs_m,
             lufs_st,
             crest.clamp(0.0, 40.0),
-        );
+        ));
 
         // Audio passes through unchanged (analyzer is transparent)
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
-        match index {
-            0 => {
-                // Reset trigger
-                if value > 0.5 {
-                    self.reset();
-                }
+        if index == 0 {
+            // Reset trigger
+            if value > 0.5 {
+                self.reset();
             }
-            _ => {}
         }
     }
 
@@ -418,7 +416,8 @@ impl DspProcessor for AnalyzerProcessor {
         self.peak_hold_l = 0.0;
         self.peak_hold_r = 0.0;
         let floor = FLOOR_DB;
-        self.metering.store(floor, floor, floor, floor, floor, floor, 0.0);
+        self.metering
+            .store((floor, floor, floor, floor, floor, floor, 0.0));
     }
 }
 

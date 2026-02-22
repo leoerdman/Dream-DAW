@@ -95,10 +95,14 @@ pub struct StreamingWavWriter {
 /// BUG-069 FIX: Finalize WAV header on drop to prevent corrupted files.
 impl Drop for StreamingWavWriter {
     fn drop(&mut self) {
-        if let Some(writer) = self.writer.take() {
-            if let Err(e) = writer.finalize() {
-                log::error!("[StreamingWavWriter] failed to finalize {}: {}", self.path.display(), e);
-            }
+        if let Some(writer) = self.writer.take()
+            && let Err(e) = writer.finalize()
+        {
+            log::error!(
+                "[StreamingWavWriter] failed to finalize {}: {}",
+                self.path.display(),
+                e
+            );
         }
     }
 }
@@ -296,7 +300,7 @@ impl WavWriter {
 impl StreamingWavWriter {
     /// Writes one interleaved chunk (`[L, R, L, R, ...]`).
     pub fn write_interleaved_chunk(&mut self, samples: &[f32]) -> Result<(), WavWriterError> {
-        if samples.len() % self.channels as usize != 0 {
+        if !samples.len().is_multiple_of(self.channels as usize) {
             return Err(WavWriterError::InvalidData(format!(
                 "Chunk length {} is not divisible by channels {}",
                 samples.len(),

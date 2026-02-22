@@ -58,7 +58,7 @@ impl AutoPanProcessor {
                     -1.0
                 }
             } // square
-            0 | _ => {
+            _ => {
                 let (t, sign) = if p < 0.5 {
                     (p * 2.0, 1.0f32)
                 } else {

@@ -512,6 +512,158 @@ pub fn duplicate_midi_clip(
     Ok(dup)
 }
 
+// ── Move MIDI Clip ───────────────────────────────────────────────────────
+
+/// Moves a MIDI clip to a new track and/or position on the timeline.
+///
+/// Overlap handling is applied on the target track. The clip is re-inserted
+/// in sorted order by position.
+pub fn move_midi_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_track_index: usize,
+    new_position: AbsoluteTime,
+) -> Result<(), MutatorError> {
+    if new_track_index >= project.tracks.len() {
+        return Err(MutatorError::TrackOutOfRange {
+            requested: new_track_index,
+            available: project.tracks.len(),
+        });
+    }
+
+    // Find and remove the MIDI clip from its current track
+    let mut extracted = None;
+    for track in &mut project.tracks {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            let mut clip = track.midi_clips.remove(idx);
+            clip.position = new_position;
+            extracted = Some(clip);
+            break;
+        }
+    }
+
+    let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    let target = &mut project.tracks[new_track_index];
+
+    // Handle overlaps before insertion
+    handle_midi_overlaps(target, &clip);
+
+    let insert_pos = target
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    target.midi_clips.insert(insert_pos, clip);
+    Ok(())
+}
+
+// ── Delete MIDI Clip ─────────────────────────────────────────────────────
+
+/// Removes a MIDI clip from the project by UUID.
+///
+/// Returns the removed clip for potential undo operations.
+pub fn delete_midi_clip(project: &mut Project, clip_id: Uuid) -> Result<MidiClip, MutatorError> {
+    for track in &mut project.tracks {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            return Ok(track.midi_clips.remove(idx));
+        }
+    }
+    Err(MutatorError::ClipNotFound(clip_id))
+}
+
+// ── Resize MIDI Clip ─────────────────────────────────────────────────────
+
+/// Resizes a MIDI clip by updating its position and duration on the timeline.
+///
+/// The clip is removed, its bounds updated, overlaps handled, and then
+/// re-inserted in sorted order.
+pub fn resize_midi_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: AbsoluteTime,
+    new_duration: AbsoluteTime,
+) -> Result<(), MutatorError> {
+    if new_duration.sample_frame < MIN_CLIP_FRAMES {
+        return Err(MutatorError::ClipTooShort {
+            clip_duration: new_duration.sample_frame,
+            min_duration: MIN_CLIP_FRAMES,
+        });
+    }
+
+    // Find and remove the MIDI clip
+    let mut extracted = None;
+    let mut source_track_idx = None;
+    for (track_idx, track) in project.tracks.iter_mut().enumerate() {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            let mut clip = track.midi_clips.remove(idx);
+            clip.position = new_position;
+            clip.duration = new_duration;
+            extracted = Some(clip);
+            source_track_idx = Some(track_idx);
+            break;
+        }
+    }
+
+    let clip = extracted.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    let track_idx = source_track_idx.ok_or(MutatorError::ClipNotFound(clip_id))?;
+    let target = &mut project.tracks[track_idx];
+
+    // Handle overlaps before re-insertion
+    handle_midi_overlaps(target, &clip);
+
+    let insert_pos = target
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    target.midi_clips.insert(insert_pos, clip);
+    Ok(())
+}
+// ── Automation Lane Upsert ────────────────────────────────────────────────
+
+/// Upserts a static (single-point) automation lane on a track.
+///
+/// If a lane with the given `param_id` already exists, its points are replaced
+/// with the supplied `value`. Otherwise a new lane is created.
+pub fn upsert_static_automation_lane(
+    track: &mut crate::project::Track,
+    param_id: &str,
+    value: f64,
+) {
+    if let Some(existing) = track
+        .automation_lanes
+        .iter_mut()
+        .find(|lane| lane.param_id.eq_ignore_ascii_case(param_id))
+    {
+        existing.points = vec![crate::project::AutomationPoint {
+            beat: 0.0,
+            value,
+            curve_type: "linear".to_string(),
+            tension: None,
+            bezier_cp1x: None,
+            bezier_cp1y: None,
+            bezier_cp2x: None,
+            bezier_cp2y: None,
+        }];
+        existing.param_id = param_id.to_string();
+        return;
+    }
+
+    track
+        .automation_lanes
+        .push(crate::project::AutomationLane {
+            param_id: param_id.to_string(),
+            points: vec![crate::project::AutomationPoint {
+                beat: 0.0,
+                value,
+                curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            }],
+        });
+}
+
 // ── Internal Helpers ──────────────────────────────────────────────────────
 
 fn find_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {

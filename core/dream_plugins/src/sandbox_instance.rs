@@ -117,18 +117,18 @@ impl SandboxedPluginInstance {
         self.shared_region.write_midi_events(&inline_buf[..inline_count]);
 
         // ── Overflow fallback: send via IPC channel (rare, >4 events/block) ───
-        if midi_events.len() > MAX_INLINE_MIDI_EVENTS {
-            if let Some(ref sender) = self.ipc_sender {
-                let overflow: Vec<(i32, u8, [u8; 3])> = midi_events[MAX_INLINE_MIDI_EVENTS..]
-                    .iter()
-                    .map(|e| (e.sample_offset, e.channel, e.data))
-                    .collect();
-                let msg = PluginHostControlMessage::SendMidiEvents {
-                    instance_id: self.id,
-                    events: overflow,
-                };
-                let _ = sender.send(msg);
-            }
+        if midi_events.len() > MAX_INLINE_MIDI_EVENTS
+            && let Some(ref sender) = self.ipc_sender
+        {
+            let overflow: Vec<(i32, u8, [u8; 3])> = midi_events[MAX_INLINE_MIDI_EVENTS..]
+                .iter()
+                .map(|e| (e.sample_offset, e.channel, e.data))
+                .collect();
+            let msg = PluginHostControlMessage::SendMidiEvents {
+                instance_id: self.id,
+                events: overflow,
+            };
+            let _ = sender.send(msg);
         }
     }
 

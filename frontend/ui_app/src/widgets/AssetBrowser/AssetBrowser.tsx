@@ -9,6 +9,13 @@ import {
     INTERNAL_EFFECT_PLUGINS,
     INTERNAL_INSTRUMENT_PLUGINS,
 } from '@/shared/lib/internalPlugins';
+import {
+    BrowserGlyph,
+    type BrowserGlyphName,
+    FilterPill,
+    PreviewWaveform,
+    TypeIcon,
+} from './ui/AssetBrowserPrimitives';
 
 /**
  * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
@@ -35,38 +42,10 @@ import {
 
 // ── Types ──────────────────────────────────────────────────
 
-type BrowserIconName =
-    | 'star'
-    | 'search'
-    | 'folder-tree'
-    | 'grid'
-    | 'wave'
-    | 'wave-bars'
-    | 'music'
-    | 'drum'
-    | 'piano'
-    | 'plug'
-    | 'sliders'
-    | 'clapper'
-    | 'sine'
-    | 'hard-drive'
-    | 'package'
-    | 'user'
-    | 'file'
-    | 'folder'
-    | 'folder-plus'
-    | 'chevron-right'
-    | 'chevron-down'
-    | 'arrow-left'
-    | 'hourglass'
-    | 'triangle-alert'
-    | 'headphones'
-    | 'settings';
-
 interface BrowserCategory {
     id: string;
     title: string;
-    icon: BrowserIconName;
+    icon: BrowserGlyphName;
     kind: 'section' | 'leaf';
     markerColor?: string;
     /** For user-added folders — the absolute path */
@@ -1153,7 +1132,7 @@ export const AssetBrowser = () => {
         engineApi.getBrowserFolders()
             .then(folders => setUserFolders(folders))
             .catch(err => console.warn('[Browser] Failed to load folders:', err));
-    }, [columnMenuPos]);
+    }, []);
 
     // Build dynamic categories (static + user folders)
     const categories = useMemo<BrowserCategory[]>(() => {
@@ -1198,7 +1177,7 @@ export const AssetBrowser = () => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [columnMenuPos]);
+    }, []);
 
     useEffect(() => {
         const focusBrowserSearch = (evt: Event) => {

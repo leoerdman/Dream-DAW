@@ -109,21 +109,19 @@ impl ProjectFile {
         // ── Step 3: Backup existing file (non-fatal if fails) ──────
         // Use copy (not move) so existing primary is preserved if anything fails.
         // Store the .bak in the Backup/ subdirectory to keep the project root clean.
-        if path.exists() {
-            if let Some(parent) = path.parent() {
-                let backup_dir = parent.join("Backup");
-                let _ = fs::create_dir_all(&backup_dir);
-                let file_name = path.file_name().unwrap_or_default();
-                // IO-9 FIX: trim_end_matches strips ALL trailing chars matching
-                // any char in the pattern. Use strip_suffix for exact suffix removal.
-                let base = file_name.to_str().unwrap_or("project");
-                let base = base.strip_suffix(".json").unwrap_or(base);
-                let bak_name = format!("{}.bak", base);
-                let bak_path = backup_dir.join(bak_name);
-                if let Err(e) = fs::copy(path, &bak_path) {
-                    log::warn!("Could not create backup {}: {}", bak_path.display(), e);
-                    // Fall through — still try to save
-                }
+        if path.exists() && let Some(parent) = path.parent() {
+            let backup_dir = parent.join("Backup");
+            let _ = fs::create_dir_all(&backup_dir);
+            let file_name = path.file_name().unwrap_or_default();
+            // IO-9 FIX: trim_end_matches strips ALL trailing chars matching
+            // any char in the pattern. Use strip_suffix for exact suffix removal.
+            let base = file_name.to_str().unwrap_or("project");
+            let base = base.strip_suffix(".json").unwrap_or(base);
+            let bak_name = format!("{}.bak", base);
+            let bak_path = backup_dir.join(bak_name);
+            if let Err(e) = fs::copy(path, &bak_path) {
+                log::warn!("Could not create backup {}: {}", bak_path.display(), e);
+                // Fall through — still try to save
             }
         }
 
@@ -668,10 +666,10 @@ mod tests {
                         }
                     }
                 }
-                if let Some(inst) = track.get_mut("instrument") {
-                    if let Some(obj) = inst.as_object_mut() {
-                        obj.remove("type");
-                    }
+                if let Some(inst) = track.get_mut("instrument")
+                    && let Some(obj) = inst.as_object_mut()
+                {
+                    obj.remove("type");
                 }
             }
         }

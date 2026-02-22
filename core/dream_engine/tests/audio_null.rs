@@ -1,11 +1,17 @@
 use std::path::Path;
 
-use dream_clip_engine::pool::ClipPool;
+use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
-use dream_models::project::{AudioClip, Project, Track, TrackType};
+use dream_models::project::{AudioClip, DeviceNode, PluginSlot, Project, Track, TrackType};
 use dream_models::time::AbsoluteTime;
 
-fn read_wav_as_f32(path: &Path) -> Result<Vec<f32>, String> {
+struct WavData {
+    sample_rate: u32,
+    channels: u16,
+    samples: Vec<f32>,
+}
+
+fn read_wav_as_f32(path: &Path) -> Result<WavData, String> {
     let mut reader = hound::WavReader::open(path)
         .map_err(|e| format!("open wav '{}': {e}", path.display()))?;
     let spec = reader.spec();
@@ -50,7 +56,11 @@ fn read_wav_as_f32(path: &Path) -> Result<Vec<f32>, String> {
         }
     }
 
-    Ok(out)
+    Ok(WavData {
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
+        samples: out,
+    })
 }
 
 fn make_silent_project() -> Project {
@@ -66,6 +76,30 @@ fn make_silent_project() -> Project {
     ));
     project.tracks.push(track);
     project
+}
+
+fn make_constant_stereo(frames: usize, amp: f32) -> Vec<Vec<f32>> {
+    vec![vec![amp; frames], vec![amp; frames]]
+}
+
+fn avg_abs_stereo(samples: &[f32], channels: u16) -> f32 {
+    if channels == 0 {
+        return 0.0;
+    }
+    let ch = channels as usize;
+    let mut sum = 0.0_f32;
+    let mut count = 0usize;
+    for frame in samples.chunks_exact(ch) {
+        let l = frame[0].abs();
+        let r = frame.get(1).copied().unwrap_or(frame[0]).abs();
+        sum += (l + r) * 0.5;
+        count += 1;
+    }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f32
+    }
 }
 
 fn null_residual_rms_dbfs(candidate: &[f32], golden: &[f32]) -> Result<f32, String> {
@@ -130,12 +164,22 @@ fn audio_null_against_golden_reference() {
     let golden_samples = read_wav_as_f32(Path::new(&golden))
         .expect("golden wav should be readable");
 
-    let residual_db = null_residual_rms_dbfs(&candidate_samples, &golden_samples)
+    assert_eq!(
+        candidate_samples.sample_rate, golden_samples.sample_rate,
+        "candidate/golden sample_rate mismatch"
+    );
+    assert_eq!(
+        candidate_samples.channels, golden_samples.channels,
+        "candidate/golden channel count mismatch"
+    );
+
+    let residual_db = null_residual_rms_dbfs(&candidate_samples.samples, &golden_samples.samples)
         .expect("residual should compute");
 
-    // Practical threshold for deterministic offline bounce pipelines.
-    // Tighten to -120 dBFS when render path is fully bit-stable across platforms.
-    let threshold_db = -90.0_f32;
+    let threshold_db = std::env::var("DREAM_NULL_THRESHOLD_DB")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(-90.0_f32);
     assert!(
         residual_db <= threshold_db,
         "null-test failed: residual={residual_db:.2} dBFS, threshold={threshold_db:.2} dBFS"
@@ -192,7 +236,10 @@ fn offline_bounce_is_deterministic_for_silent_project() {
 
     let a = read_wav_as_f32(&out_a).expect("bounce A should be readable");
     let b = read_wav_as_f32(&out_b).expect("bounce B should be readable");
-    let residual_db = null_residual_rms_dbfs(&a, &b).expect("residual should compute");
+    assert_eq!(a.sample_rate, b.sample_rate, "bounce sample_rate mismatch");
+    assert_eq!(a.channels, b.channels, "bounce channel count mismatch");
+
+    let residual_db = null_residual_rms_dbfs(&a.samples, &b.samples).expect("residual should compute");
 
     assert!(
         residual_db <= -110.0,
@@ -201,4 +248,132 @@ fn offline_bounce_is_deterministic_for_silent_project() {
 
     let _ = std::fs::remove_file(out_a);
     let _ = std::fs::remove_file(out_b);
+}
+
+#[test]
+fn grouped_plus_direct_path_hits_master_fx_and_is_deterministic() {
+    const SR: f64 = 44_100.0;
+    const BPM: f64 = 174.0;
+    const FRAMES: i64 = 8192;
+
+    let mut project_base = Project::new("Group Master Null", BPM, SR);
+    project_base.tracks.clear();
+
+    let group = Track::with_type("Group", TrackType::Group, 0);
+    let group_id = group.id;
+    project_base.tracks.push(group);
+
+    let mut grouped_src = Track::with_type("GroupedSrc", TrackType::Audio, 1);
+    grouped_src.output_destination_id = Some(group_id);
+    grouped_src.clips.push(AudioClip::new(
+        "GroupedClip",
+        "__null_group__/grouped.wav",
+        AbsoluteTime::ZERO,
+        AbsoluteTime::new(FRAMES),
+    ));
+    project_base.tracks.push(grouped_src);
+
+    let mut direct_src = Track::with_type("DirectSrc", TrackType::Audio, 2);
+    direct_src.clips.push(AudioClip::new(
+        "DirectClip",
+        "__null_group__/direct.wav",
+        AbsoluteTime::ZERO,
+        AbsoluteTime::new(FRAMES),
+    ));
+    project_base.tracks.push(direct_src);
+
+    let mut project_with_master_fx = project_base.clone();
+    let mut master_utility = PluginSlot::new("Utility", "internal://effect/utility");
+    master_utility.params = Some(vec![-60.0]);
+    project_with_master_fx
+        .master_track
+        .effects
+        .push(DeviceNode::single(master_utility));
+
+    let mut pool = ClipPool::new();
+    pool.insert(ClipAudio::new(
+        "__null_group__/grouped.wav",
+        make_constant_stereo(FRAMES as usize, 0.5),
+        SR as u32,
+    ))
+    .expect("insert grouped source");
+    pool.insert(ClipAudio::new(
+        "__null_group__/direct.wav",
+        make_constant_stereo(FRAMES as usize, 0.5),
+        SR as u32,
+    ))
+    .expect("insert direct source");
+
+    let temp = std::env::temp_dir();
+    let out_dry = temp.join("dream_null_group_master_dry.wav");
+    let out_wet_a = temp.join("dream_null_group_master_wet_a.wav");
+    let out_wet_b = temp.join("dream_null_group_master_wet_b.wav");
+
+    let mk_cfg = |path: &Path| BounceConfig {
+        output_path: path.to_string_lossy().to_string(),
+        sample_rate: SR as u32,
+        bit_depth: 32,
+        start_frame: 0,
+        end_frame: FRAMES,
+        normalize: false,
+        tail_frames: 0,
+        format: "wav".to_string(),
+        project_sample_rate: SR,
+        bpm: BPM,
+    };
+
+    OfflineBouncer::new(mk_cfg(&out_dry))
+        .bounce(
+            &mut project_base,
+            &mut pool,
+            None,
+            &std::collections::HashMap::new(),
+            &[],
+            |_| {},
+        )
+        .expect("dry bounce should succeed");
+
+    OfflineBouncer::new(mk_cfg(&out_wet_a))
+        .bounce(
+            &mut project_with_master_fx.clone(),
+            &mut pool,
+            None,
+            &std::collections::HashMap::new(),
+            &[],
+            |_| {},
+        )
+        .expect("wet bounce A should succeed");
+
+    OfflineBouncer::new(mk_cfg(&out_wet_b))
+        .bounce(
+            &mut project_with_master_fx,
+            &mut pool,
+            None,
+            &std::collections::HashMap::new(),
+            &[],
+            |_| {},
+        )
+        .expect("wet bounce B should succeed");
+
+    let dry = read_wav_as_f32(&out_dry).expect("dry wav should be readable");
+    let wet_a = read_wav_as_f32(&out_wet_a).expect("wet A wav should be readable");
+    let wet_b = read_wav_as_f32(&out_wet_b).expect("wet B wav should be readable");
+
+    let dry_avg = avg_abs_stereo(&dry.samples, dry.channels);
+    let wet_avg = avg_abs_stereo(&wet_a.samples, wet_a.channels);
+    assert!(
+        wet_avg < dry_avg * 0.35,
+        "master FX attenuation should affect group+direct sum: dry={dry_avg}, wet={wet_avg}"
+    );
+
+    let residual_db = null_residual_rms_dbfs(&wet_a.samples, &wet_b.samples)
+        .expect("wet residual should compute");
+    assert!(
+        residual_db <= -110.0,
+        "wet deterministic null-test failed, residual={residual_db:.2} dBFS"
+    );
+
+    let _ = std::fs::remove_file(out_dry);
+    let _ = std::fs::remove_file(out_wet_a);
+    let _ = std::fs::remove_file(out_wet_b);
 }

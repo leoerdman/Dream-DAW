@@ -465,7 +465,7 @@ impl AudioDag {
         let max_stage_width = stages.iter().map(Vec::len).max().unwrap_or(0);
         let avg_stage_width = total_nodes as f32 / stage_count as f32;
         // GR-007 FIX: Cap at 16 to prevent absurd thread counts for wide graphs.
-        let recommended_workers = max_stage_width.max(1).min(16);
+        let recommended_workers = max_stage_width.clamp(1, 16);
 
         ParallelismMetrics {
             stage_count,

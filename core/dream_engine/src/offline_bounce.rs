@@ -35,7 +35,6 @@ use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_io::mp3_writer::Mp3Writer;
-use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project, builtin_effect_type_from_plugin_id};
 use dream_models::time::AbsoluteTime;
@@ -319,7 +318,7 @@ impl OfflineBouncer {
             .collect();
 
         let mut mask = vec![false; project.tracks.len()];
-        for (src_idx, dest) in routing.iter().enumerate() {
+        for dest in &routing {
             if let Some(dest_idx) = dest {
                 if *dest_idx < mask.len() {
                     mask[*dest_idx] = true;
@@ -605,7 +604,6 @@ impl OfflineBouncer {
 
             // 3. Route Output to Parent Group (if any) or Master Bus
             if enabled {
-                let is_routed_to_group = routing.get(track_idx).and_then(|r| *r).is_some();
                 if let Some(parent_idx) = routing.get(track_idx).and_then(|r| *r) {
                     if parent_idx < track_slots_len && post_sum_mask.get(parent_idx).copied().unwrap_or(false) {
                         let c = frame_count

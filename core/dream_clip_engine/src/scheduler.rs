@@ -248,7 +248,15 @@ impl ClipScheduler {
         loop_region: Option<&LoopRegion>,
     ) -> Vec<ActiveClip<'a>> {
         let mut scratch = Vec::new();
-        Self::fill_active_looped(clips, playhead_pos, buffer_size, loop_region, &mut scratch);
+        let mut tmp = Vec::new();
+        Self::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            buffer_size,
+            loop_region,
+            &mut scratch,
+            &mut tmp,
+        );
         scratch
             .into_iter()
             .map(|info| ActiveClip {
@@ -325,10 +333,55 @@ mod tests {
         )
     }
 
+    fn active_for<'a>(clips: &'a [AudioClip], playhead_pos: i64, buffer_size: usize) -> Vec<ActiveClip<'a>> {
+        let mut scratch = Vec::new();
+        ClipScheduler::fill_active(clips, playhead_pos, buffer_size, &mut scratch);
+        scratch
+            .into_iter()
+            .map(|info| ActiveClip {
+                clip: &clips[info.clip_index],
+                source_start_frame: info.source_start_frame,
+                buffer_offset: info.buffer_offset,
+                frames_to_read: info.frames_to_read,
+                is_clip_head: info.is_clip_head,
+                is_clip_tail: info.is_clip_tail,
+            })
+            .collect()
+    }
+
+    fn active_for_looped<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+        loop_region: Option<&LoopRegion>,
+    ) -> Vec<ActiveClip<'a>> {
+        let mut scratch = Vec::new();
+        let mut tmp = Vec::new();
+        ClipScheduler::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            buffer_size,
+            loop_region,
+            &mut scratch,
+            &mut tmp,
+        );
+        scratch
+            .into_iter()
+            .map(|info| ActiveClip {
+                clip: &clips[info.clip_index],
+                source_start_frame: info.source_start_frame,
+                buffer_offset: info.buffer_offset,
+                frames_to_read: info.frames_to_read,
+                is_clip_head: info.is_clip_head,
+                is_clip_tail: info.is_clip_tail,
+            })
+            .collect()
+    }
+
     #[test]
     fn clip_fully_inside_buffer() {
         let clips = vec![make_clip("A", 100, 200)]; // 100..300
-        let active = ClipScheduler::find_active(&clips, 0, 512);
+        let active = active_for(&clips, 0, 512);
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].buffer_offset, 100);
@@ -338,7 +391,7 @@ mod tests {
     #[test]
     fn clip_starts_before_buffer() {
         let clips = vec![make_clip("A", 0, 1000)]; // 0..1000
-        let active = ClipScheduler::find_active(&clips, 500, 256);
+        let active = active_for(&clips, 500, 256);
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].buffer_offset, 0);
@@ -349,7 +402,7 @@ mod tests {
     #[test]
     fn clip_ends_during_buffer() {
         let clips = vec![make_clip("A", 0, 600)]; // 0..600
-        let active = ClipScheduler::find_active(&clips, 500, 256);
+        let active = active_for(&clips, 500, 256);
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].frames_to_read, 100); // Only 100 frames remain
@@ -358,7 +411,7 @@ mod tests {
     #[test]
     fn clip_before_buffer() {
         let clips = vec![make_clip("A", 0, 100)]; // 0..100
-        let active = ClipScheduler::find_active(&clips, 200, 256);
+        let active = active_for(&clips, 200, 256);
 
         assert!(active.is_empty());
     }
@@ -366,7 +419,7 @@ mod tests {
     #[test]
     fn clip_after_buffer() {
         let clips = vec![make_clip("A", 1000, 100)]; // 1000..1100
-        let active = ClipScheduler::find_active(&clips, 0, 256);
+        let active = active_for(&clips, 0, 256);
 
         assert!(active.is_empty());
     }
@@ -378,7 +431,7 @@ mod tests {
             make_clip("B", 200, 500),  // 200..700
             make_clip("C", 1000, 100), // 1000..1100 (not in range)
         ];
-        let active = ClipScheduler::find_active(&clips, 100, 256);
+        let active = active_for(&clips, 100, 256);
 
         assert_eq!(active.len(), 2);
         assert_eq!(active[0].clip.name, "A");
@@ -391,7 +444,7 @@ mod tests {
         clip.source_offset = AbsoluteTime::new(1000); // Trimmed: source starts at frame 1000
 
         let clips = vec![clip];
-        let active = ClipScheduler::find_active(&clips, 100, 256);
+        let active = active_for(&clips, 100, 256);
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].source_start_frame, 1100); // 1000 + 100
@@ -399,7 +452,7 @@ mod tests {
 
     #[test]
     fn empty_clips_returns_empty() {
-        let active = ClipScheduler::find_active(&[], 0, 256);
+        let active = active_for(&[], 0, 256);
         assert!(active.is_empty());
     }
 
@@ -407,7 +460,7 @@ mod tests {
     fn clip_exactly_at_buffer_boundary() {
         // Clip ends exactly where buffer starts
         let clips = vec![make_clip("A", 0, 256)]; // 0..256
-        let active = ClipScheduler::find_active(&clips, 256, 256);
+        let active = active_for(&clips, 256, 256);
         assert!(active.is_empty()); // End is exclusive
     }
 
@@ -418,8 +471,8 @@ mod tests {
         let clips = vec![make_clip("A", 0, 1000)];
         let loop_region = LoopRegion::new(0, 2000);
 
-        let standard = ClipScheduler::find_active(&clips, 100, 256);
-        let looped = ClipScheduler::find_active_looped(&clips, 100, 256, Some(&loop_region));
+        let standard = active_for(&clips, 100, 256);
+        let looped = active_for_looped(&clips, 100, 256, Some(&loop_region));
 
         assert_eq!(standard.len(), looped.len());
         assert_eq!(standard[0].frames_to_read, looped[0].frames_to_read);
@@ -434,7 +487,7 @@ mod tests {
         let clips = vec![make_clip("A", 0, 1000)];
         let loop_region = LoopRegion::new(0, 500);
 
-        let active = ClipScheduler::find_active_looped(&clips, 400, 256, Some(&loop_region));
+        let active = active_for_looped(&clips, 400, 256, Some(&loop_region));
 
         assert_eq!(
             active.len(),
@@ -454,7 +507,7 @@ mod tests {
     #[test]
     fn loop_without_region_falls_back() {
         let clips = vec![make_clip("A", 0, 1000)];
-        let active = ClipScheduler::find_active_looped(&clips, 100, 256, None);
+        let active = active_for_looped(&clips, 100, 256, None);
         assert_eq!(active.len(), 1);
     }
 

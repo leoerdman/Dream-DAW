@@ -38,6 +38,12 @@ jobs:
       - name: Audio null-test infrastructure
         run: cargo test -p dream_engine null_math_ -- --nocapture
 
+      - name: SSOT bindings guard
+        run: ./scripts/check_ssot_bindings.sh
+
+      - name: SSOT bindings guard
+        run: ./scripts/ssot_guard.sh
+
   frontend:
     name: Frontend Type Tribunal
     runs-on: ubuntu-latest
@@ -59,6 +65,12 @@ jobs:
 
       - name: Install UI deps
         run: pnpm -C frontend/ui_app install --frozen-lockfile
+
+      - name: Regenerate Rust -> TS bindings (SSOT)
+        run: pnpm -C frontend/ui_app run sync:bindings
+
+      - name: SSOT bindings guard
+        run: ./scripts/check_ssot_bindings.sh
 
       - name: TypeScript noEmit
         run: pnpm -C frontend/ui_app exec tsc --noEmit

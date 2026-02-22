@@ -19,7 +19,6 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
@@ -29,7 +28,7 @@ use dream_graph::{
     AudioDag, AudioEdgeKind, AudioNode, ExecutionPlan, GraphBuilder, GraphRenderer, LiveGraph,
     NodeId, NodeKind,
 };
-use dream_plugins::{MidiEvent, PluginHost, TransportContext};
+use dream_plugins::{MidiEvent, TransportContext};
 use log::{error, info, warn};
 use uuid::Uuid;
 
@@ -869,9 +868,9 @@ fn apply_external_plugin_param_automation_block(
     runtime_slot_index: usize,
     playhead_pos: i64,
 ) {
-    let Some(instance_id) = runtime_slot.instance_id else {
+    if runtime_slot.instance_id.is_none() {
         return;
-    };
+    }
     let Some(lane) = lane else {
         return;
     };
@@ -2167,10 +2166,10 @@ pub fn start_audio_thread_on_device(
                                         }
                                     }
                                 }
-                                EngineCommand::SetSampleRackPadMute { track_index, pad_index, muted } => {
+                                EngineCommand::SetSampleRackPadMute { track_index: _, pad_index: _, muted: _ } => {
                                     // handled via composite volume in host, no-op in engine layer
                                 }
-                                EngineCommand::SetSampleRackPadSolo { track_index, pad_index, soloed } => {
+                                EngineCommand::SetSampleRackPadSolo { track_index: _, pad_index: _, soloed: _ } => {
                                     // handled via composite volume in host, no-op in engine layer
                                 }
                                 EngineCommand::SetSampleRackPadAdsr { track_index, pad_index, attack, decay, sustain, release } => {
@@ -2410,9 +2409,6 @@ pub fn start_audio_thread_on_device(
                         let automation = automation_snapshot.load();
                         let _sidechain_map = sidechain_snapshot.load();
                         let external_fx_map = external_fx_snapshot.load();
-                        let needs_plugin_host = external_fx_map
-                            .iter()
-                            .any(|track_slots| track_slots.iter().any(|slot| slot.instance_id.is_some()));
                         // PERF-FIX: Lock-free plugin processing!
                         // The UI thread now periodically publishes an `Arc<HashMap>` of
                         // all active plugins into an `ArcSwap`. The audio thread loads this

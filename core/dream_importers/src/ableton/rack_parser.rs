@@ -17,10 +17,10 @@ use dream_models::project::{
 };
 
 use super::plugin_mapper::{
-    apply_external_plugin_meta, canonical_internal_plugin_for_import, encode_missing_meta,
+    apply_external_plugin_meta, canonical_internal_plugin_for_import,
     infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
-    ExternalPluginIndex, ExternalPluginMeta,
+    ExternalPluginIndex,
 };
 use super::xml_helpers::*;
 

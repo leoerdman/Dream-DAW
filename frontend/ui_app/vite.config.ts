@@ -88,10 +88,11 @@ export default defineConfig({
             || id.includes('/use-sync-external-store/')
             || id.includes('/loose-envify/')
             || id.includes('/object-assign/')
-          ) return 'vendor-react'
+            || id.includes('/zustand/')
+            || id.includes('/lucide-react/')
+          ) return 'vendor-framework'
           if (id.includes('/@tauri-apps/')) return 'vendor-tauri'
           if (id.includes('/lodash.throttle/')) return 'vendor-utils'
-          if (id.includes('/zustand/') || id.includes('/lucide-react/')) return 'vendor-ui'
           return undefined
         },
       },

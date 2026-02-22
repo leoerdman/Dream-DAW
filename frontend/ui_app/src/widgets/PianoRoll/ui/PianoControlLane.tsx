@@ -6,6 +6,7 @@ import {
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 interface PianoControlLaneProps {
+    topOffset: number;
     canvasWidth: number;
     canvasHeight: number;
     notes: MidiNote[];
@@ -18,6 +19,7 @@ interface PianoControlLaneProps {
 }
 
 export const PianoControlLane = memo(function PianoControlLane({
+    topOffset,
     canvasWidth,
     canvasHeight,
     notes,
@@ -35,7 +37,7 @@ export const PianoControlLane = memo(function PianoControlLane({
         <div
             style={{
                 position: 'absolute',
-                top: canvasHeight,
+                top: topOffset + canvasHeight,
                 left: 0,
                 width: canvasWidth,
                 height: VELOCITY_LANE_HEIGHT,

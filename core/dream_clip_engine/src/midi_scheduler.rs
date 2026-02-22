@@ -347,7 +347,15 @@ impl MidiScheduler {
         loop_region: Option<&LoopRegion>,
     ) -> Vec<ScheduledNote> {
         let mut events = Vec::new();
-        Self::fill_active_looped(clips, playhead_pos, frame_count, loop_region, &mut events);
+        let mut tmp = Vec::new();
+        Self::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            frame_count,
+            loop_region,
+            &mut events,
+            &mut tmp,
+        );
         events
     }
 }
@@ -396,6 +404,25 @@ mod tests {
         let mut clip = MidiClip::new("Test", AbsoluteTime::new(pos), AbsoluteTime::new(dur));
         clip.notes = notes;
         clip
+    }
+
+    fn looped_events(
+        clips: &[MidiClip],
+        playhead_pos: i64,
+        frame_count: usize,
+        loop_region: Option<&LoopRegion>,
+    ) -> Vec<ScheduledNote> {
+        let mut out = Vec::new();
+        let mut tmp = Vec::new();
+        MidiScheduler::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            frame_count,
+            loop_region,
+            &mut out,
+            &mut tmp,
+        );
+        out
     }
 
     #[test]
@@ -525,7 +552,7 @@ mod tests {
         let lr = LoopRegion::new(0, 44100);
 
         let standard = MidiScheduler::find_active(&[clip.clone()], 0, 1024);
-        let looped = MidiScheduler::find_active_looped(&[clip], 0, 1024, Some(&lr));
+        let looped = looped_events(&[clip], 0, 1024, Some(&lr));
 
         assert_eq!(standard.len(), looped.len());
         assert_eq!(standard[0].pitch, looped[0].pitch);
@@ -550,7 +577,7 @@ mod tests {
         );
         let lr = LoopRegion::new(0, 4000);
 
-        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+        let events = looped_events(&[clip], 3800, 512, Some(&lr));
 
         // Should find the note in the post-wrap segment
         assert_eq!(events.len(), 1, "Kick at loop start must be scheduled");
@@ -574,7 +601,7 @@ mod tests {
         let lr = LoopRegion::new(0, 4000);
 
         // Playhead at 3800, buffer 512: pre-wrap 200 frames, post-wrap 312 frames
-        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+        let events = looped_events(&[clip], 3800, 512, Some(&lr));
 
         assert_eq!(events.len(), 2, "Should schedule notes from both segments");
         // First should be the hi-hat near loop end (onset = 3900 - 3800 = 100)
@@ -588,7 +615,7 @@ mod tests {
     #[test]
     fn looped_no_region_falls_back() {
         let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
-        let events = MidiScheduler::find_active_looped(&[clip], 0, 1024, None);
+        let events = looped_events(&[clip], 0, 1024, None);
         assert_eq!(events.len(), 1);
     }
 
@@ -609,7 +636,7 @@ mod tests {
         // Playhead at 13800, buffer 512 → crosses 14000
         // Pre-wrap: 200 frames (13800..14000)
         // Post-wrap: 312 frames (10000..10312)
-        let events = MidiScheduler::find_active_looped(&[clip], 13800, 512, Some(&lr));
+        let events = looped_events(&[clip], 13800, 512, Some(&lr));
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].pitch, 60);
@@ -649,7 +676,7 @@ mod tests {
             vec![MidiNote::new(42, 100, 3900, 300)], // spans 3900..4200 across loop end
         );
         let lr = LoopRegion::new(0, 4000);
-        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+        let events = looped_events(&[clip], 3800, 512, Some(&lr));
 
         let offs: Vec<_> = events
             .iter()
@@ -678,7 +705,7 @@ mod tests {
 
         for i in 0..200usize {
             let fc = frame_sizes[i % frame_sizes.len()];
-            let events = MidiScheduler::find_active_looped(&[clip.clone()], pos, fc, Some(&lr));
+            let events = looped_events(&[clip.clone()], pos, fc, Some(&lr));
 
             let on_count = events
                 .iter()
@@ -743,7 +770,7 @@ mod tests {
             for i in 0..260usize {
                 let fc = frame_sizes
                     [(i + (rng.next_u32() as usize % frame_sizes.len())) % frame_sizes.len()];
-                let events = MidiScheduler::find_active_looped(&[clip.clone()], pos, fc, Some(&lr));
+                let events = looped_events(&[clip.clone()], pos, fc, Some(&lr));
 
                 let mut sigs = std::collections::HashSet::<(usize, usize, u8, u64)>::new();
                 for e in &events {
@@ -788,7 +815,7 @@ mod tests {
             let fc = rng.range_i64(32, 1024) as usize;
             let pos = rng.range_i64(0, loop_len);
 
-            let events = MidiScheduler::find_active_looped(&[clip], pos, fc, Some(&lr));
+            let events = looped_events(&[clip], pos, fc, Some(&lr));
             for w in events.windows(2) {
                 let a = w[0];
                 let b = w[1];

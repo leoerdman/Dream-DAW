@@ -62,7 +62,7 @@ use dream_models::PlaybackState;
 use dream_models::midi::{MidiClip, MidiNote, SamplerConfig, SampleRackConfig};
 use dream_models::mutators::{self, MutatorError};
 use dream_models::project::{
-    AudioClip, DeviceNode, DeviceRack, PluginSlot, Project, RackChain, TimeSignature, Track,
+    AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track,
     TrackColor, TrackType,
 };
 use dream_models::time::AbsoluteTime;
@@ -125,7 +125,7 @@ struct AudioEngineHandle {
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
     sample_rack_samples: Arc<dream_engine::driver::SharedSampleRackSamples>,
-    plugin_host: Arc<Mutex<PluginHost>>,
+    _plugin_host: Arc<Mutex<PluginHost>>,
     plugin_registry: Arc<dream_engine::driver::SharedPluginRegistry>,
     rt_debug_stats: Arc<SharedRtDebugStats>,
 
@@ -4187,7 +4187,6 @@ pub fn run() {
     let automation_snapshot_for_handle = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_handle = Arc::clone(&sampler_samples);
     let sample_rack_samples_for_handle = Arc::clone(&sample_rack_samples);
-    let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
     let plugin_registry = Arc::new(dream_engine::driver::SharedPluginRegistry::new());
     plugin_host_state.set_plugin_registry(Arc::clone(&plugin_registry));
@@ -4330,7 +4329,7 @@ pub fn run() {
         automation_snapshot: automation_snapshot_for_handle,
         sampler_samples: sampler_samples_for_handle,
         sample_rack_samples: sample_rack_samples_for_handle,
-        plugin_host: plugin_host_for_handle,
+        _plugin_host: plugin_host_for_handle,
         plugin_registry: plugin_registry_for_handle,
         rt_debug_stats: rt_debug_stats_for_handle,
         output_latency_frames,

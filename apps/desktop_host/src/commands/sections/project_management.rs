@@ -1191,6 +1191,54 @@ mod als_import_tests {
     }
 
     #[test]
+    fn import_als_prefers_pan_over_split_stereo_pan() {
+        let xml = r#"
+        <Ableton>
+          <LiveSet>
+            <MainTrack>
+              <Tempo><Manual Value="120"/></Tempo>
+              <TimeSignature><Numerator Value="4"/><Denominator Value="4"/></TimeSignature>
+              <DeviceChain><Mixer/></DeviceChain>
+            </MainTrack>
+            <Tracks>
+              <AudioTrack Id="1">
+                <Name><EffectiveName Value="PanTest"/></Name>
+                <DeviceChain>
+                  <Mixer>
+                    <Pan><Manual Value="0.25"/></Pan>
+                    <SplitStereoPanL><Manual Value="-1.0"/></SplitStereoPanL>
+                    <SplitStereoPanR><Manual Value="1.0"/></SplitStereoPanR>
+                  </Mixer>
+                  <AudioToAudioDeviceChain>
+                    <Devices/>
+                  </AudioToAudioDeviceChain>
+                </DeviceChain>
+              </AudioTrack>
+            </Tracks>
+          </LiveSet>
+        </Ableton>
+        "#;
+
+        let mut path = std::env::temp_dir();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        path.push(format!("dream_daw_pan_precedence_{nanos}.als"));
+        std::fs::write(&path, xml.as_bytes()).expect("write als");
+
+        let project = import_als_project(&path).expect("import");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(project.tracks.len(), 1);
+        let pan = project.tracks[0].pan;
+        assert!(
+            (pan - 0.25).abs() < 1e-9,
+            "expected Pan=0.25 to win over split pan, got {pan}"
+        );
+    }
+
+    #[test]
     fn make_missing_external_slot_keeps_external_meta() {
         let meta = ExternalPluginMeta {
             format: Some("vst3".to_string()),
@@ -2187,6 +2235,9 @@ mod als_import_tests {
         let mut xml_multi_device_tracks = 0usize;
         let mut imported_multi_device_tracks = 0usize;
         let mut severe_collapses: Vec<(usize, usize, usize, String)> = Vec::new();
+        let mut hard_left_tracks = 0usize;
+        let mut hard_right_tracks = 0usize;
+        let mut near_center_tracks = 0usize;
 
         for (idx, (track_node, imported_track)) in xml_track_nodes.iter().zip(project.tracks.iter()).enumerate() {
             let xml_nodes = collect_track_devices(*track_node).len();
@@ -2211,15 +2262,27 @@ mod als_import_tests {
             if xml_nodes >= 2 && imported_nodes <= 1 {
                 severe_collapses.push((idx, xml_nodes, imported_nodes, imported_track.name.clone()));
             }
+
+            let pan = imported_track.pan;
+            if pan <= -0.99 {
+                hard_left_tracks += 1;
+            } else if pan >= 0.99 {
+                hard_right_tracks += 1;
+            } else if pan.abs() <= 0.10 {
+                near_center_tracks += 1;
+            }
         }
 
         eprintln!(
-            "[ALS Device Audit] file='{}' tracks={} xml_multi={} imported_multi={} severe_collapses={}",
+            "[ALS Device Audit] file='{}' tracks={} xml_multi={} imported_multi={} severe_collapses={} pan_hard_left={} pan_hard_right={} pan_near_center={}",
             als_path.display(),
             project.tracks.len(),
             xml_multi_device_tracks,
             imported_multi_device_tracks,
-            severe_collapses.len()
+            severe_collapses.len(),
+            hard_left_tracks,
+            hard_right_tracks,
+            near_center_tracks,
         );
 
         for (idx, xml_nodes, imported_nodes, name) in severe_collapses.iter().take(20) {
@@ -4687,11 +4750,16 @@ fn import_als_project_with_target_sample_rate(
                 track.volume = volume.clamp(0.0, 2.0);
                 static_mixer_values.push(("volume".to_string(), track.volume));
             }
-            if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
+            let pan_manual = maybe_parse_f64_manual(mixer, "Pan");
+            if let Some(pan) = pan_manual {
                 track.pan = pan.clamp(-1.0, 1.0);
                 static_mixer_values.push(("pan".to_string(), track.pan));
             }
-            if let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r) {
+            // Prefer Live's main Pan value when present.
+            // SplitStereoPanL/R is only a fallback for sessions that omit Pan.
+            if pan_manual.is_none()
+                && let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r)
+            {
                 track.pan = collapsed_pan;
                 static_mixer_values.push(("pan".to_string(), collapsed_pan));
             }

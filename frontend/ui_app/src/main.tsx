@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import './global.css'
 import { Workspace } from '@/pages/Workspace'
 import { SplashScreen } from '@/widgets/SplashScreen'
+import * as engineApi from '@/shared/api/engine'
 
 const img = new Image()
 img.src = '/appicon.png'
@@ -52,9 +53,7 @@ function App() {
   const [splashDone, setSplashDone] = useState(false)
 
   useEffect(() => {
-    import('@/shared/api/engine').then(async (engineApi) => {
-      await engineApi.expandWindow()
-    }).catch((err) => {
+    engineApi.expandWindow().catch((err) => {
       console.warn('[App] expandWindow failed, continuing:', err)
     })
   }, [])
@@ -62,12 +61,8 @@ function App() {
   const handleSplashComplete = () => {
     setSplashDone(true)
     setTimeout(() => {
-      import('@/shared/api/engine').then(engineApi => {
-        engineApi.maximizeWindow().catch((err) => {
-          console.warn('[App] maximizeWindow failed:', err)
-        })
-      }).catch((err) => {
-        console.warn('[App] engine import failed for maximizeWindow:', err)
+      engineApi.maximizeWindow().catch((err) => {
+        console.warn('[App] maximizeWindow failed:', err)
       })
     }, 400)
   }

@@ -53,12 +53,16 @@ pub fn build_main_track_mixer_snapshot(
             volume = Some(normalized);
             static_mixer_values.push(("volume".to_string(), normalized));
         }
-        if let Some(v) = maybe_parse_f64_manual(mixer, "Pan") {
+        let pan_manual = maybe_parse_f64_manual(mixer, "Pan");
+        if let Some(v) = pan_manual {
             let normalized = v.clamp(-1.0, 1.0);
             pan = Some(normalized);
             static_mixer_values.push(("pan".to_string(), normalized));
         }
-        if let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r) {
+        // Prefer main Pan when present; use split-pan only as fallback.
+        if pan_manual.is_none()
+            && let Some(collapsed_pan) = collapse_split_stereo_pan(split_pan_l, split_pan_r)
+        {
             pan = Some(collapsed_pan);
             static_mixer_values.push(("pan".to_string(), collapsed_pan));
         }
@@ -378,6 +382,30 @@ pub fn build_pointee_map_with(
     }
 
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_track_pan_prefers_primary_pan_over_split_stereo() {
+        let xml = r#"
+        <MainTrack>
+          <DeviceChain>
+            <Mixer>
+              <Pan><Manual Value="0.4"/></Pan>
+              <SplitStereoPanL><Manual Value="-1.0"/></SplitStereoPanL>
+              <SplitStereoPanR><Manual Value="1.0"/></SplitStereoPanR>
+            </Mixer>
+          </DeviceChain>
+        </MainTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("xml");
+        let main_track = doc.root_element();
+        let snap = build_main_track_mixer_snapshot(main_track);
+        assert_eq!(snap.pan, Some(0.4));
+    }
 }
 
 pub fn import_plugin_device_static_automation_fallback_with(

@@ -53,6 +53,7 @@ import {
 import { PianoRollToolbar } from '@/widgets/PianoRoll/ui/PianoRollToolbar';
 import { PianoRollSidebarPanel } from '@/widgets/PianoRoll/ui/PianoRollSidebar';
 import { PianoKeyboard } from '@/widgets/PianoRoll/ui/PianoKeyboard';
+import { PianoControlLane } from '@/widgets/PianoRoll/ui/PianoControlLane';
 export type { MidiNote, PianoRollTool } from '@/widgets/PianoRoll/model/pianoRollConfig';
 
 interface PianoRollProps {
@@ -2012,79 +2013,18 @@ export const PianoRoll = memo(function PianoRoll({
                             }} />
                         )}
 
-                        {/* ── Velocity Lane ── */}
-                        <div style={{
-                            position: 'absolute',
-                            top: RULER_HEIGHT + canvasHeight,
-                            left: 0,
-                            width: canvasWidth,
-                            height: VELOCITY_LANE_HEIGHT,
-                            background: 'var(--color-bg-base)',
-                            borderTop: '1px solid var(--color-divider)',
-                        }}>
-                            {/* Velocity guide lines (25%, 50%, 75%) */}
-                            {[0.25, 0.5, 0.75].map((pct) => (
-                                <div
-                                    key={`vg-${pct}`}
-                                    style={{
-                                        position: 'absolute',
-                                        left: 0,
-                                        bottom: pct * (VELOCITY_LANE_HEIGHT - 4),
-                                        width: canvasWidth,
-                                        height: 1,
-                                        background: 'var(--color-border-subtle)',
-                                        pointerEvents: 'none',
-                                    }}
-                                />
-                            ))}
-
-                            {notes.map((note) => {
-                                const x = note.startBeat * pixelsPerBeat;
-                                const w = Math.max(3, note.durationBeats * pixelsPerBeat * 0.4);
-                                const laneValue = readLaneValue(note, activeLane);
-                                const barHeight = (laneValue / 127) * (VELOCITY_LANE_HEIGHT - 4);
-                                const isSelected = selectedNotes.has(note.id);
-                                const laneColor =
-                                    activeLane === 'velocity'
-                                        ? color
-                                        : activeLane === 'modWheel'
-                                            ? '#b48cff'
-                                            : '#7fd7ff';
-
-                                return (
-                                    <div
-                                        key={`vel-${note.id}`}
-                                        onMouseDown={(e) => handleVelocityMouseDown(note.id, e)}
-                                        style={{
-                                            position: 'absolute',
-                                            left: x,
-                                            bottom: 0,
-                                            width: w,
-                                            height: barHeight,
-                                            background: isSelected ? 'var(--color-text-bright)' : laneColor,
-                                            opacity: isSelected ? 0.9 : 0.6,
-                                            borderRadius: '1px 1px 0 0',
-                                            cursor: 'ns-resize',
-                                            transition: `opacity var(--transition-micro)`,
-                                        }}
-                                    />
-                                );
-                            })}
-
-                            <span style={{
-                                position: 'absolute',
-                                top: 4,
-                                left: 4,
-                                fontSize: 'var(--font-size-micro)',
-                                color: 'var(--color-text-tertiary)',
-                                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                                textTransform: 'uppercase',
-                                letterSpacing: 'var(--letter-spacing-wide)',
-                                fontFamily: 'var(--font-family)',
-                            }}>
-                                {activeLane === 'velocity' ? 'Velocity' : activeLane === 'modWheel' ? 'CC1 Mod Wheel' : 'CC11 Expression'}
-                            </span>
-                        </div>
+                        <PianoControlLane
+                            topOffset={RULER_HEIGHT}
+                            canvasWidth={canvasWidth}
+                            canvasHeight={canvasHeight}
+                            notes={notes}
+                            pixelsPerBeat={pixelsPerBeat}
+                            activeLane={activeLane}
+                            selectedNotes={selectedNotes}
+                            color={color}
+                            readLaneValue={readLaneValue}
+                            onLaneMouseDown={handleVelocityMouseDown}
+                        />
                     </div>
                 </div>
             </div>

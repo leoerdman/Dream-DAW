@@ -418,7 +418,6 @@ impl RenderContext {
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
                     
-                    let timeline_to_device_ratio = (self.sample_rate.max(1.0) / self.timeline_sample_rate.max(1.0)).clamp(0.125, 8.0);
                     let source_to_timeline_ratio = audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
                     if is_warped {

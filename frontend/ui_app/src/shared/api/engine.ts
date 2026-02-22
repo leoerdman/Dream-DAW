@@ -945,6 +945,13 @@ export interface PluginSandboxSnapshot {
     instances: PluginSandboxRuntimeInfo[];
 }
 
+export interface ReloadSandboxInstancesResponse {
+    snapshot: PluginSandboxSnapshot;
+    restarted_instances: number;
+    changed_slots: number;
+    errors: string[];
+}
+
 /** Read runtime snapshot of plugin sandbox processes and watchdog statuses. */
 export const getPluginSandboxRuntime = () =>
     invoke<PluginSandboxSnapshot>('get_plugin_sandbox_runtime');
@@ -960,6 +967,10 @@ export const tickPluginSandboxWatchdog = () =>
 /** Manually restart a crashed/timed-out sandboxed plugin instance. */
 export const reloadPluginSandboxInstance = (instanceId: string) =>
     invoke<PluginSandboxSnapshot>('reload_plugin_sandbox_instance', { instanceId });
+
+/** Restart all unhealthy sandbox instances in one backend transaction. */
+export const reloadUnhealthyPluginSandboxes = () =>
+    invoke<ReloadSandboxInstancesResponse>('reload_unhealthy_plugin_sandboxes');
 
 /** Send a frontend crash/error payload to backend unified logs. */
 export const logFrontendError = (module: string, error: string, stack?: string) =>

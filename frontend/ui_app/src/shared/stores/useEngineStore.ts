@@ -1137,29 +1137,21 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         const snapshot = get().pluginSandbox;
         if (!snapshot || !snapshot.enabled) return;
 
-        const restartTargets = snapshot.instances.filter(
+        const hasUnhealthy = snapshot.instances.some(
             (inst) => inst.status === 'crashed' || inst.status === 'timed_out' || inst.bypass_requested,
         );
-        if (restartTargets.length === 0) return;
+        if (!hasUnhealthy) return;
 
-        let latestSnapshot: PluginSandboxSnapshot | null = null;
-        const failures: string[] = [];
-
-        for (const inst of restartTargets) {
-            try {
-                latestSnapshot = await engine.reloadPluginSandboxInstance(inst.plugin_instance_id);
-            } catch (e) {
-                failures.push(`${inst.plugin_name}: ${String(e)}`);
-            }
-        }
-
-        if (latestSnapshot) {
-            set({ pluginSandbox: latestSnapshot });
-        }
-        if (failures.length > 0) {
-            set({ lastError: `Sandbox reload failed: ${failures.join('; ')}` });
-        } else {
-            set({ lastError: null });
+        try {
+            const response = await engine.reloadUnhealthyPluginSandboxes();
+            set({
+                pluginSandbox: response.snapshot,
+                lastError: response.errors.length > 0
+                    ? `Sandbox reload failed: ${response.errors.join('; ')}`
+                    : null,
+            });
+        } catch (e) {
+            set({ lastError: `Sandbox reload failed: ${String(e)}` });
         }
     },
 
@@ -1184,6 +1176,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     openEditorsByTrack: { ...s.openEditorsByTrack, [trackId]: nextSet },
                 }));
             }
+            set({ lastError: null });
         } catch (e) {
             console.error('[EngineStore] togglePluginEditor failed:', e);
             set({ lastError: String(e) });

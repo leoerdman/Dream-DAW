@@ -18,6 +18,7 @@ use plugins_routing_helpers::{
     apply_imported_external_state_blob,
     bind_runtime_instance_for_plugin_slots,
 };
+use dream_plugins::PluginSandboxStatus;
 
 #[tauri::command]
 fn open_plugin_window(
@@ -1312,6 +1313,14 @@ fn tick_plugin_sandbox_watchdog(
     plugin_host_state.tick_sandbox_watchdog()
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ReloadSandboxInstancesResponse {
+    snapshot: PluginSandboxSnapshot,
+    restarted_instances: usize,
+    changed_slots: usize,
+    errors: Vec<String>,
+}
+
 /// Manually restart a sandboxed plugin host process and clear forced bypass.
 #[tauri::command]
 fn reload_plugin_sandbox_instance(
@@ -1345,6 +1354,89 @@ fn reload_plugin_sandbox_instance(
     }
 
     plugin_host_state.sandbox_snapshot()
+}
+
+/// Restart all unhealthy sandbox instances in one backend transaction.
+#[tauri::command]
+fn reload_unhealthy_plugin_sandboxes(
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<ReloadSandboxInstancesResponse, String> {
+    let snapshot = plugin_host_state.sandbox_snapshot()?;
+    if !snapshot.enabled {
+        return Ok(ReloadSandboxInstancesResponse {
+            snapshot,
+            restarted_instances: 0,
+            changed_slots: 0,
+            errors: Vec::new(),
+        });
+    }
+
+    let targets: Vec<_> = snapshot
+        .instances
+        .iter()
+        .filter(|inst| {
+            matches!(
+                inst.status,
+                PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut
+            ) || inst.bypass_requested
+        })
+        .map(|inst| inst.plugin_instance_id)
+        .collect();
+
+    if targets.is_empty() {
+        return Ok(ReloadSandboxInstancesResponse {
+            snapshot,
+            restarted_instances: 0,
+            changed_slots: 0,
+            errors: Vec::new(),
+        });
+    }
+
+    let mut restarted_instances = 0usize;
+    let mut recovered_slot_ids = std::collections::HashSet::<Uuid>::new();
+    let mut errors = Vec::new();
+
+    for instance_id in targets {
+        match plugin_host_state.manual_restart_sandbox_instance(instance_id) {
+            Ok(slot_ids) => {
+                restarted_instances = restarted_instances.saturating_add(1);
+                recovered_slot_ids.extend(slot_ids);
+            }
+            Err(err) => errors.push(format!("{instance_id}: {err}")),
+        }
+    }
+
+    let mut changed_slots = 0usize;
+    if !recovered_slot_ids.is_empty() {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        changed_slots = set_plugin_slots_bypass_in_project(&mut project, &recovered_slot_ids, false);
+        if changed_slots > 0 {
+            clip_pool_state.rebuild_routing_only(&project);
+            let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+            let _ = project_state.mark_dirty(&project.name, Some(&app));
+        }
+        let _ = app.emit(
+            "plugin_sandbox_reloaded",
+            serde_json::json!({
+                "instanceIds": recovered_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                "changedSlots": changed_slots,
+                "restartedInstances": restarted_instances,
+                "errors": errors,
+            }),
+        );
+    }
+
+    let snapshot = plugin_host_state.sandbox_snapshot()?;
+    Ok(ReloadSandboxInstancesResponse {
+        snapshot,
+        restarted_instances,
+        changed_slots,
+        errors,
+    })
 }
 
 /// Unified frontend error logger (ErrorBoundary -> backend log).

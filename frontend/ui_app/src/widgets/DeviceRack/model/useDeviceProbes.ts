@@ -1,6 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { DeviceSlot, PluginParam } from '../model/types';
+
+/**
+ * Stable key for a device chain — changes only when the actual VST slot IDs change.
+ * This prevents reference-instability from triggering effects every render.
+ */
+function useVstSlotKey(chain: DeviceSlot[]): string {
+    return useMemo(
+        () => chain.filter((d) => d.isVst).map((d) => d.id).join(','),
+        [chain],
+    );
+}
 
 export function useDeviceProbes(
     chain: DeviceSlot[],
@@ -11,19 +22,29 @@ export function useDeviceProbes(
     const [pluginRuntimeBySlot, setPluginRuntimeBySlot] = useState<Record<string, engineApi.PluginSlotRuntimeStatus>>({});
     const [externalParamsBySlotId, setExternalParamsBySlotId] = useState<Record<string, PluginParam[]>>({});
 
+    // Refs to read current state inside effects WITHOUT adding them to dep arrays.
+    // This breaks the circular dependency: effect → setState → dep change → effect.
+    const capabilityRef = useRef(pluginCapability);
+    capabilityRef.current = pluginCapability;
+    const externalParamsRef = useRef(externalParamsBySlotId);
+    externalParamsRef.current = externalParamsBySlotId;
+
+    const vstSlotKey = useVstSlotKey(chain);
+    const selectedTrackId = selectedTrack?.id;
+
     // ── VST capability probes ──
     useEffect(() => {
         let cancelled = false;
+        if (!selectedTrackId) return;
         const vstDevices = chain.filter((d) => d.isVst);
-        if (!selectedTrack) return;
-        const missing = vstDevices.filter((d) => pluginCapability[d.id] == null);
+        const missing = vstDevices.filter((d) => capabilityRef.current[d.id] == null);
         if (missing.length === 0) return;
 
         (async () => {
             const results = await Promise.all(
                 missing.map(async (device) => {
                     try {
-                        const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrack.id, device.id);
+                        const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrackId, device.id);
                         return [device.id, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
                     } catch (err) {
                         console.error('[DeviceRack] Capability probe failed:', err);
@@ -39,12 +60,13 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-    }, [chain, pluginCapability, selectedTrack]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vstSlotKey, selectedTrackId]);
 
     // ── VST runtime status probes ──
     useEffect(() => {
         let cancelled = false;
-        if (!selectedTrack) return;
+        if (!selectedTrackId) return;
         const targets = chain.filter((d) => d.isVst);
         if (targets.length === 0) return;
 
@@ -52,7 +74,7 @@ export function useDeviceProbes(
             const entries = await Promise.all(
                 targets.map(async (device) => {
                     try {
-                        const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
+                        const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrackId, device.id);
                         return [device.id, status] as const;
                     } catch (err) {
                         console.error('[DeviceRack] getPluginSlotRuntimeStatus failed:', err);
@@ -71,21 +93,22 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-    }, [chain, selectedTrack]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vstSlotKey, selectedTrackId]);
 
     // ── External param fetch ──
     useEffect(() => {
         let cancelled = false;
-        if (!selectedTrack) return;
+        if (!selectedTrackId) return;
         const vstDevices = chain.filter((d) => d.isVst);
-        const missing = vstDevices.filter((d) => !externalParamsBySlotId[d.id]);
+        const missing = vstDevices.filter((d) => !externalParamsRef.current[d.id]);
         if (missing.length === 0) return;
 
         (async () => {
             const results = await Promise.all(
                 missing.map(async (device) => {
                     try {
-                        const params = await engineApi.getExternalPluginParamsForSlot(selectedTrack.id, device.id);
+                        const params = await engineApi.getExternalPluginParamsForSlot(selectedTrackId, device.id);
                         const mapped: PluginParam[] = params.map((p) => ({
                             name: p.name, min: p.min, max: p.max, step: p.step,
                             suffix: '', value: p.value, defaultValue: (p.min + p.max) * 0.5,
@@ -105,9 +128,10 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-    }, [chain, selectedTrack, externalParamsBySlotId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vstSlotKey, selectedTrackId]);
 
-    // ── Cleanup stale external params ──
+    // ── Cleanup stale external params when chain changes ──
     useEffect(() => {
         const aliveVstSlotIds = new Set(chain.filter((d) => d.isVst).map((d) => d.id));
         setExternalParamsBySlotId((prev) => {
@@ -119,7 +143,8 @@ export function useDeviceProbes(
             }
             return changed ? next : prev;
         });
-    }, [chain]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vstSlotKey]);
 
     return {
         pluginCapability,

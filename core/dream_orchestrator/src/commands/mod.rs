@@ -67,7 +67,7 @@ pub use plugin_paste_device::{
     PasteDeviceToTrackCommand, PasteDeviceToTrackResult, RuntimeAddDevice,
 };
 pub use plugin_remove::{RemovePluginFromTrackCommand, RemovePluginFromTrackResult};
-pub use plugin_replace_missing::ReplaceMissingPluginSlotCommand;
+pub use plugin_replace_missing::{ReplaceMissingPluginSlotCommand, ReplaceMissingPluginSlotResult};
 pub use plugin_set_bypass::{SetPluginSlotBypassCommand, SetPluginSlotBypassResult};
 pub use plugin_set_external_param_lane::SetExternalPluginParamLaneCommand;
 pub use plugin_set_internal_param::{SetInternalPluginParamCommand, SetInternalPluginParamResult};

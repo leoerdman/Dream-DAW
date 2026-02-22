@@ -1,14 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — useNativeMenu
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Creates the native macOS menu bar (File, Edit) via Tauri v2 JS API.
-// Must be called once from the root layout (DawShell) on mount.
-// On macOS, the first submenu automatically becomes the application menu
-// (shown under "Dream DAW" in the menu bar). We place an About + Quit there.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { useEffect, useRef } from 'react';
 import { Menu, Submenu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
 import * as engineApi from '@/shared/api/engine';
@@ -40,13 +29,9 @@ export function useNativeMenu(onProjectChange?: () => void) {
     }, []);
 }
 
-// ── Menu Construction ────────────────────────────────────────────────────
-
 async function buildNativeMenu(onProjectChange?: () => void) {
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
-
-    // ── 1. App Submenu (becomes "Dream DAW" on macOS) ────────────────
     const appSubmenu = await Submenu.new({
         text: 'Dream DAW',
         items: [
@@ -62,7 +47,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         ],
     });
 
-    // ── 2. File Submenu ──────────────────────────────────────────────
     const newProjectItem = await MenuItem.new({
         id: 'file_new',
         text: 'New Project',
@@ -113,7 +97,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         },
     });
 
-    // Build Open Recent submenu dynamically
     const recentSubmenu = await buildRecentSubmenu(applyProjectDeltas, onProjectChange);
 
     const saveItem = await MenuItem.new({
@@ -161,7 +144,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         ],
     });
 
-    // ── 3. Edit Submenu ──────────────────────────────────────────────
     const undoItem = await MenuItem.new({
         id: 'edit_undo',
         text: 'Undo',
@@ -209,7 +191,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         ],
     });
 
-    // ── 4. Window Submenu ────────────────────────────────────────────
     const windowSubmenu = await Submenu.new({
         text: 'Window',
         items: [
@@ -220,7 +201,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         ],
     });
 
-    // ── Assemble & Set ───────────────────────────────────────────────
     const menu = await Menu.new({
         items: [appSubmenu, fileSubmenu, editSubmenu, windowSubmenu],
     });
@@ -228,8 +208,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
     await menu.setAsAppMenu();
     console.log('[NativeMenu] macOS menu bar initialized');
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────
 
 async function handleSaveAs() {
     try {

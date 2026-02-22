@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
@@ -25,24 +25,47 @@ export function useDeviceRackLifecycle({
     setSelectedDeviceIds,
     setInlineSettingsOpen,
 }: UseDeviceRackLifecycleArgs): void {
-    useEffect(() => {
-        setSelectedDeviceIds((prev) => prev.filter((id) => chain.some((d) => d.id === id)));
-        setInlineSettingsOpen((prev) => {
-            const next: Record<string, boolean> = {};
-            const ids = new Set(chain.map((d) => d.id));
-            for (const [id, isOpen] of Object.entries(prev)) {
-                if (ids.has(id) && isOpen) next[id] = true;
-            }
-            return next;
-        });
-    }, [chain, setSelectedDeviceIds, setInlineSettingsOpen]);
+    // Stable key derived from chain IDs — prevents re-triggering when array ref changes
+    const chainKey = useMemo(() => chain.map((d) => d.id).join(','), [chain]);
 
+    // Ref to read chain inside effects without adding unstable array to deps
+    const chainRef = useRef(chain);
+    chainRef.current = chain;
+
+    // Ref to read openEditorsByTrack without circular deps
+    const openEditorsRef = useRef(openEditorsByTrack);
+    openEditorsRef.current = openEditorsByTrack;
+
+    // ── Prune stale device selections & inline settings when chain changes ──
+    useEffect(() => {
+        const currentChain = chainRef.current;
+        setSelectedDeviceIds((prev) => {
+            const filtered = prev.filter((id) => currentChain.some((d) => d.id === id));
+            return filtered.length === prev.length ? prev : filtered;
+        });
+        setInlineSettingsOpen((prev) => {
+            const ids = new Set(currentChain.map((d) => d.id));
+            const next: Record<string, boolean> = {};
+            let changed = false;
+            for (const [id, isOpen] of Object.entries(prev)) {
+                if (ids.has(id) && isOpen) {
+                    next[id] = true;
+                } else if (isOpen) {
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chainKey, setSelectedDeviceIds, setInlineSettingsOpen]);
+
+    // ── Close editors when switching tracks ──
     useEffect(() => {
         const prevId = prevTrackIdRef.current;
         prevTrackIdRef.current = selectedTrackId;
         if (prevId === selectedTrackId) return;
 
-        const prevSlots = openEditorsByTrack[prevId];
+        const prevSlots = openEditorsRef.current[prevId];
         if (prevSlots && prevSlots.size > 0 && prevId) {
             for (const slotId of prevSlots) {
                 engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
@@ -53,7 +76,8 @@ export function useDeviceRackLifecycle({
                 openEditorsByTrack: { ...s.openEditorsByTrack, [prevId]: new Set<string>() },
             }));
         }
-    }, [selectedTrackId, openEditorsByTrack, prevTrackIdRef]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTrackId]);
 
     useEffect(() => {
         cleanupGestures();

@@ -230,6 +230,11 @@ fn master_fx_processes_both_group_and_direct_paths() {
 
     let clips_per_track: Vec<Vec<AudioClip>> =
         project.tracks.iter().map(|t| t.clips.clone()).collect();
+    let midi_clips_per_track: Vec<Vec<dream_models::midi::MidiClip>> = project
+        .tracks
+        .iter()
+        .map(|t| t.midi_clips.clone())
+        .collect();
     let (routing, post_sum_mask) = OfflineBouncer::build_routing(&project);
     let sidechains: Vec<Vec<Option<usize>>> = vec![Vec::new(); project.tracks.len()];
     let mut render_ctx = bouncer.create_render_ctx(&project, None, SR);
@@ -251,6 +256,8 @@ fn master_fx_processes_both_group_and_direct_paths() {
         time_sig_numerator: 4,
         time_sig_denominator: 4,
         master_device_chain: &mut master_chain_none,
+        midi_clips_per_track: &midi_clips_per_track,
+        loop_region: None,
     };
     OfflineBouncer::render_routing_aware(
         &mut render_ctx,
@@ -281,6 +288,8 @@ fn master_fx_processes_both_group_and_direct_paths() {
         time_sig_numerator: 4,
         time_sig_denominator: 4,
         master_device_chain: &mut master_chain_utility,
+        midi_clips_per_track: &midi_clips_per_track,
+        loop_region: None,
     };
     OfflineBouncer::render_routing_aware(
         &mut render_ctx_with_master,

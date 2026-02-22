@@ -1,3 +1,4 @@
+use dream_models::project::DeviceNode;
 use uuid::Uuid;
 
 use crate::context::{Command, OrchestratorContext};
@@ -15,10 +16,21 @@ pub struct ReplaceMissingPluginSlotCommand {
     pub external_plugin_version: Option<String>,
 }
 
-impl Command for ReplaceMissingPluginSlotCommand {
-    type Result = ();
+pub struct ReplaceMissingPluginSlotResult {
+    pub slot_id: Uuid,
+    pub slot_index: usize,
+    pub is_instrument: bool,
+    pub plugin_name: String,
+    pub plugin_uid: String,
+}
 
-    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+impl Command for ReplaceMissingPluginSlotCommand {
+    type Result = ReplaceMissingPluginSlotResult;
+
+    fn execute(
+        &self,
+        ctx: &OrchestratorContext,
+    ) -> OrchestratorResult<ReplaceMissingPluginSlotResult> {
         let mut project = ctx.lock_project()?;
         let track = project
             .tracks
@@ -28,6 +40,22 @@ impl Command for ReplaceMissingPluginSlotCommand {
                 entity: "Track",
                 id: self.track_id.to_string(),
             })?;
+        let (is_instrument, slot_index) =
+            if track.instrument.as_ref().map(DeviceNode::id) == Some(self.slot_id) {
+                (true, 0usize)
+            } else {
+                (
+                    false,
+                    track
+                        .effects
+                        .iter()
+                        .position(|fx| fx.id() == self.slot_id)
+                        .ok_or_else(|| OrchestratorError::NotFound {
+                            entity: "PluginSlot",
+                            id: self.slot_id.to_string(),
+                        })?,
+                )
+            };
 
         let mut found = false;
         if let Some(slot) = track
@@ -67,6 +95,12 @@ impl Command for ReplaceMissingPluginSlotCommand {
             });
         }
 
-        Ok(())
+        Ok(ReplaceMissingPluginSlotResult {
+            slot_id: self.slot_id,
+            slot_index,
+            is_instrument,
+            plugin_name: self.replacement_plugin_name.clone(),
+            plugin_uid: self.replacement_plugin_id.clone(),
+        })
     }
 }

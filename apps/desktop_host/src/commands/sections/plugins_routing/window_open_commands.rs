@@ -1,3 +1,29 @@
+fn resolve_plugin_slot_states_by_plugin_id(
+    project_state: &tauri::State<'_, ProjectState>,
+    plugin_id: &str,
+) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String> {
+    execute_orchestrator_query(
+        project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotsByPluginIdQuery {
+            plugin_id: plugin_id.to_string(),
+        },
+    )
+}
+
+fn bind_instance_to_slot_states(
+    slot_states: &[dream_orchestrator::queries::PluginSlotState],
+    instance_id: Uuid,
+    plugin_host_state: &tauri::State<'_, PluginHostState>,
+) {
+    let bound = plugin_host_state.slot_instance_snapshot();
+    for slot in slot_states {
+        if bound.contains_key(&slot.slot_id) {
+            continue;
+        }
+        plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
+    }
+}
+
 #[tauri::command]
 fn open_plugin_window(
     plugin_id: String,
@@ -6,6 +32,8 @@ fn open_plugin_window(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     plugin_host_state.try_enable_sandbox_if_available();
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+
     if plugin_host_state.open_sandbox_editor(&plugin_id)? {
         log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
         return Ok(());
@@ -18,9 +46,7 @@ fn open_plugin_window(
         .get(&plugin_id)
         .copied()
     {
-        if let Ok(project) = project_state.project.lock() {
-            bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
-        }
+        bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
@@ -83,17 +109,7 @@ fn open_plugin_window(
     {
         existing
     } else {
-        // MEGA-07 FIX: Do not hold the `host` lock while attempting to acquire the `project` lock.
-        // Doing so causes a deadly embrace deadlock with commands that hold `project` while
-        // acquiring `host` (like `replace_missing_plugin_slot_cmd`), entirely freezing the DAW.
-        // Fetch the plugin slot clone first under a brief isolated project lock.
-        let slot_clone = {
-            if let Ok(project) = project_state.project.lock() {
-                find_project_plugin_slot(&project, &plugin_id)
-            } else {
-                None
-            }
-        };
+        let slot_clone = slot_states.first().cloned();
 
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
         let loaded = host
@@ -101,10 +117,19 @@ fn open_plugin_window(
             .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
         
         if let Some(slot) = slot_clone {
-            if let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot) {
+            let mut slot_restore =
+                dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
+            slot_restore.id = slot.slot_id;
+            slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
+            slot_restore.external_parameter_count = slot.external_parameter_count;
+            slot_restore.external_state_blob = slot.external_state_blob.clone();
+            slot_restore.external_state_blob_kind = slot.external_state_blob_kind.clone();
+            slot_restore.external_preset_blob = slot.external_preset_blob.clone();
+            slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
+            if let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot_restore) {
                 log::warn!(
                     "[PluginState] Could not restore imported state for '{}': {}",
-                    slot.name,
+                    slot_restore.name,
                     err
                 );
             }
@@ -120,9 +145,7 @@ fn open_plugin_window(
             .lock()
             .map_err(|e| e.to_string())?
             .insert(plugin_id.clone(), loaded);
-        if let Ok(project) = project_state.project.lock() {
-            bind_runtime_instance_for_plugin_slots(&project, &plugin_id, loaded, &plugin_host_state);
-        }
+        bind_instance_to_slot_states(&slot_states, loaded, &plugin_host_state);
 
         loaded
     };
@@ -182,9 +205,13 @@ fn open_plugin_window_for_slot(
         slot_id
     );
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
 
     log::info!(
         "[IPC] open_plugin_window_for_slot plugin_id='{}' source='{}'",
@@ -213,13 +240,25 @@ fn open_plugin_window_for_slot(
         return Ok(());
     }
 
-    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
-    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+    let instance_id =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
 
     // Restore per-slot saved state (preset, knob positions, etc.)
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
         if let Ok(mut host) = plugin_host_state.host.lock() {
-            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+            let mut slot_restore =
+                dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
+            slot_restore.id = slot.slot_id;
+            slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
+            slot_restore.external_parameter_count = slot.external_parameter_count;
+            slot_restore.external_state_blob = slot.external_state_blob.clone();
+            slot_restore.external_state_blob_kind = slot.external_state_blob_kind.clone();
+            slot_restore.external_preset_blob = slot.external_preset_blob.clone();
+            slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
+            if let Err(err) =
+                apply_imported_external_state_blob(&mut host, instance_id, &slot_restore)
+            {
                 log::warn!(
                     "[IPC] open_plugin_window_for_slot: state restore failed for '{}': {}",
                     slot.name, err
@@ -227,7 +266,7 @@ fn open_plugin_window_for_slot(
             } else {
                 log::info!(
                     "[IPC] open_plugin_window_for_slot: restored state for '{}' (slot {})",
-                    slot.name, slot.id
+                    slot.name, slot.slot_id
                 );
             }
         }
@@ -271,15 +310,15 @@ fn open_plugin_window_for_slot(
         if editor_bridge_missing && plugin_host_state.sandbox_enabled().unwrap_or(false) {
             match plugin_host_state.resolve_descriptor(&slot.plugin_id) {
                 Ok(descriptor) => {
-                    match plugin_host_state.open_in_sandbox(&slot.plugin_id, descriptor) {
-                        Ok(sandbox_instance_id) => {
-                            plugin_host_state.bind_slot_instance(slot.id, sandbox_instance_id);
-                            clip_pool_state.rebuild_external_fx_snapshot(
-                                &project,
-                                plugin_host_state.slot_instance_snapshot().as_ref(),
-                            );
-                            plugin_host_state.publish_registry();
-                            log::info!(
+                            match plugin_host_state.open_in_sandbox(&slot.plugin_id, descriptor) {
+                                Ok(sandbox_instance_id) => {
+                                    plugin_host_state.bind_slot_instance(slot.slot_id, sandbox_instance_id);
+                                    sync_external_fx_snapshot_from_state(
+                                        &project_state,
+                                        &clip_pool_state,
+                                        &plugin_host_state,
+                                    )?;
+                                    log::info!(
                                 "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox fallback instance {}",
                                 track_id,
                                 slot_id,
@@ -315,7 +354,7 @@ fn open_plugin_window_for_slot(
             let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
             let _ = host.remove(instance_id);
         }
-        plugin_host_state.unbind_slot_instance(slot.id);
+        plugin_host_state.unbind_slot_instance(slot.slot_id);
 
         // Load the plugin in-process — this runs init_vst3_com which
         // acquires the real COM pointers (IComponent, IAudioProcessor,
@@ -326,7 +365,7 @@ fn open_plugin_window_for_slot(
             host.load_vst3(descriptor)
                 .map_err(|e| format!("In-process reload failed for '{}': {e}", slot.plugin_id))?
         };
-        plugin_host_state.bind_slot_instance(slot.id, recovered_instance);
+        plugin_host_state.bind_slot_instance(slot.slot_id, recovered_instance);
         plugin_host_state
             .loaded_by_key
             .lock()
@@ -357,14 +396,11 @@ fn open_plugin_window_for_slot(
         }
     }
 
-    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
-    plugin_host_state.publish_registry();
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
 
     // Mark project dirty — plugin editor opening implies parameters may be
     // changed via the native GUI (which doesn't notify our project model).
-    if let Ok(project) = project_state.project.lock() {
-        let _ = project_state.mark_dirty(&project.name, Some(&app));
-    }
+    let _ = project_state.mark_dirty_current(Some(&app));
 
     log::info!(
         "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> instance {}",
@@ -448,9 +484,13 @@ fn can_open_plugin_editor_for_slot(
 ) -> Result<PluginEditorCapability, String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
 
     if slot.plugin_id.starts_with("internal://") {
         return Ok(PluginEditorCapability {
@@ -459,7 +499,7 @@ fn can_open_plugin_editor_for_slot(
         });
     }
 
-    let instance_id = match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
+    let instance_id = match plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id) {
         Ok(id) => id,
         Err(err) => {
             return Ok(PluginEditorCapability {

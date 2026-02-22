@@ -1,20 +1,16 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { useEffect, useMemo, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import {
+    MissingAudioSection,
+    MissingPluginsSection,
+    type MissingClipItem,
+    type MissingPluginSlot,
+} from './MissingAssetsSections';
 
 interface MissingAssetsPanelProps {
     isOpen: boolean;
     onClose: () => void;
-}
-
-interface MissingPluginSlot {
-    trackId: string;
-    trackName: string;
-    slotId: string;
-    displayName: string;
-    pluginId: string;
-    wantedName: string;
 }
 
 const readSlotStringField = (slot: unknown, key: string): string => {
@@ -48,7 +44,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     const [scanBusy, setScanBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
-    const missingClips = useMemo(() => {
+    const missingClips = useMemo<MissingClipItem[]>(() => {
         return timelineClips
             .filter((c) => c.type === 'audio' && c.isOffline)
             .map((c) => ({
@@ -161,169 +157,37 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             </div>
 
             <div style={{ overflowY: 'auto', padding: 'var(--space-2-5)', display: 'grid', gap: 'var(--space-3)' }}>
-                <section style={{ display: 'grid', gap: 'var(--space-2)' }}>
-                    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>Missing Audio Files</div>
-                    {missingClips.length === 0 ? (
-                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>No offline audio clips.</div>
-                    ) : missingClips.map((item) => (
-                        <div key={item.clipId} style={{
-                            border: 'var(--border-width-1) solid var(--color-divider)',
-                            borderRadius: 'var(--radius-xl)',
-                            background: 'var(--color-bg-header)',
-                            padding: 'var(--space-2)',
-                            display: 'grid',
-                            gap: 'var(--space-1-5)',
-                        }}>
-                            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{item.clipName}</div>
-                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
-                            <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
-                                <button
-                                    onClick={async () => {
-                                        const picked = await open({
-                                            multiple: false,
-                                            title: `Replace missing file: ${item.clipName}`,
-                                            filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                                        });
-                                        const path = typeof picked === 'string' ? picked : null;
-                                        if (!path) return;
-                                        try {
-                                            const response = await engineApi.resolveMissingFileWithDeltas(item.clipId, path);
-                                            await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
-                                            setMessage(`Resolved file for '${item.clipName}'`);
-                                        } catch (err) {
-                                            console.error('[MissingAssets] resolveMissingFile failed:', err);
-                                            setMessage(`Failed to resolve '${item.clipName}'`);
-                                        }
-                                    }}
-                                    style={actionBtnStyle}
-                                >
-                                    Replace File...
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
-                                            detail: { query: item.clipName, categoryId: 'samples' },
-                                        }));
-                                    }}
-                                    style={actionBtnStyle}
-                                >
-                                    Find in Browser
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </section>
-
-                <section style={{ display: 'grid', gap: 'var(--space-2)' }}>
-                    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>Missing Plugins</div>
-                    {missingPlugins.length === 0 ? (
-                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>No missing plugin placeholders.</div>
-                    ) : missingPlugins.map((item) => {
-                        const query = item.wantedName.toLowerCase();
-                        const matches = pluginEntries
-                            .filter((p) => p.name.toLowerCase().includes(query))
-                            .slice(0, 4);
-                        return (
-                            <div key={item.slotId} style={{
-                                border: 'var(--border-width-1) solid var(--color-divider)',
-                                borderRadius: 'var(--radius-xl)',
-                                background: 'var(--color-bg-header)',
-                                padding: 'var(--space-2)',
-                                display: 'grid',
-                                gap: 'var(--space-1-5)',
-                            }}>
-                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{item.displayName}</div>
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Wanted: {item.wantedName}</div>
-
-                                <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
-                                    {matches.length > 0 ? matches.map((p) => (
-                                        <button
-                                            key={`${item.slotId}:${p.path}`}
-                                            onClick={async () => {
-                                                try {
-                                                    const response = await engineApi.replaceMissingPluginSlotWithDeltas(
-                                                        item.trackId,
-                                                        item.slotId,
-                                                        p.path,
-                                                        p.name,
-                                                    );
-                                                    await applyProjectDeltas(response.deltas, 'missing-assets:replace-plugin');
-                                                    setMessage(`Replaced '${item.wantedName}' with '${p.name}'`);
-                                                } catch (err) {
-                                                    console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
-                                                    setMessage(`Failed to replace '${item.wantedName}'`);
-                                                }
-                                            }}
-                                            style={{ ...actionBtnStyle, justifyContent: 'space-between', width: '100%', display: 'flex' }}
-                                        >
-                                            <span>{p.name}</span>
-                                            <span style={{ opacity: 0.7 }}>Use</span>
-                                        </button>
-                                    )) : (
-                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                                            {scanBusy ? 'Scanning plugins...' : 'No close VST3 match found'}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
-                                    <button
-                                        onClick={async () => {
-                                            const picked = await open({
-                                                multiple: false,
-                                                title: `Replace missing plugin: ${item.wantedName}`,
-                                                filters: [{ name: 'Plugins', extensions: ['vst3'] }],
-                                            });
-                                            const path = typeof picked === 'string' ? picked : null;
-                                            if (!path) return;
-                                            try {
-                                                const response = await engineApi.replaceMissingPluginSlotWithDeltas(
-                                                    item.trackId,
-                                                    item.slotId,
-                                                    path,
-                                                );
-                                                await applyProjectDeltas(response.deltas, 'missing-assets:replace-plugin-manual');
-                                                setMessage(`Replaced '${item.wantedName}'`);
-                                            } catch (err) {
-                                                console.error('[MissingAssets] manual plugin replace failed:', err);
-                                                setMessage(`Failed to replace '${item.wantedName}'`);
-                                            }
-                                        }}
-                                        style={actionBtnStyle}
-                                    >
-                                        Pick VST3...
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
-                                                detail: { query: item.wantedName, categoryId: 'plugins' },
-                                            }));
-                                        }}
-                                        style={actionBtnStyle}
-                                    >
-                                        Find in Browser
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </section>
+                <MissingAudioSection
+                    missingClips={missingClips}
+                    onResolveFile={async (clipId, path, clipName) => {
+                        try {
+                            const response = await engineApi.resolveMissingFileWithDeltas(clipId, path);
+                            await applyProjectDeltas(response.deltas, 'missing-assets:resolve-file');
+                            setMessage(`Resolved file for '${clipName}'`);
+                        } catch (err) {
+                            console.error('[MissingAssets] resolveMissingFile failed:', err);
+                            setMessage(`Failed to resolve '${clipName}'`);
+                        }
+                    }}
+                />
+                <MissingPluginsSection
+                    missingPlugins={missingPlugins}
+                    pluginEntries={pluginEntries}
+                    scanBusy={scanBusy}
+                    onReplacePlugin={async (trackId, slotId, path, name, wantedName) => {
+                        try {
+                            const response = await engineApi.replaceMissingPluginSlotWithDeltas(trackId, slotId, path, name || undefined);
+                            await applyProjectDeltas(response.deltas, name ? 'missing-assets:replace-plugin' : 'missing-assets:replace-plugin-manual');
+                            setMessage(name ? `Replaced '${wantedName}' with '${name}'` : `Replaced '${wantedName}'`);
+                        } catch (err) {
+                            console.error('[MissingAssets] replaceMissingPluginSlot failed:', err);
+                            setMessage(`Failed to replace '${wantedName}'`);
+                        }
+                    }}
+                />
 
                 {message && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{message}</div>}
             </div>
         </div>
     );
-};
-
-const actionBtnStyle: CSSProperties = {
-    border: 'var(--border-width-1) solid var(--color-divider)',
-    borderRadius: 'var(--radius-lg)',
-    background: 'var(--color-bg-panel)',
-    color: 'var(--color-text-secondary)',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-    padding: 'var(--space-1) var(--space-2)',
-    cursor: 'pointer',
-    transition: `background var(--transition-fast)`,
 };

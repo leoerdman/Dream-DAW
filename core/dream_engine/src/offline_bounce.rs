@@ -46,7 +46,7 @@ use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
 use crate::driver::ExternalFxRuntimeSlot;
-use crate::driver::midi_dispatcher::{clamp_midi_pitch, quantize_to_scale};
+use crate::driver::midi_dispatcher::clamp_midi_pitch;
 use crate::render_callback::{RenderContext, soft_clip};
 use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine, Waveform};
 

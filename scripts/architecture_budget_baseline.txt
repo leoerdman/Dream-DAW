@@ -19,8 +19,6 @@ ts frontend/ui_app/src/shared/api/assistant/tools.ts 1222
 ts frontend/ui_app/src/shared/api/engine.ts 1400
 # Config/manifests
 ts frontend/ui_app/src/shared/config/pluginManifest.ts 859
-# Shared hooks
-ts frontend/ui_app/src/shared/hooks/useNativeMenu.ts 319
 # Libraries
 ts frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts 1201
 ts frontend/ui_app/src/shared/lib/TimelineEngine.ts 1947
@@ -28,8 +26,7 @@ ts frontend/ui_app/src/shared/lib/ViewportMachine.ts 348
 ts frontend/ui_app/src/shared/lib/ViewportMatrix.ts 409
 ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
 # Widgets — AssetBrowser
-ts frontend/ui_app/src/widgets/AssetBrowser/AssetBrowser.tsx 3129
-ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 1000
+ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 690
 # Widgets — AssistantChat
 ts frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx 502
 ts frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx 736
@@ -41,8 +38,6 @@ ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
 ts frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx 667
 # Widgets — FileMenu
 ts frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx 364
-# Widgets — MissingAssetsPanel
-ts frontend/ui_app/src/widgets/MissingAssetsPanel/MissingAssetsPanel.tsx 329
 # Widgets — PianoRoll
 ts frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx 2035
 ts frontend/ui_app/src/widgets/PianoRoll/model/usePianoRollLogic.ts 1400
@@ -60,7 +55,5 @@ ts frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx 419
 ts frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx 346
 ts frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx 356
 ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
-# Widgets — TrackInspector
-ts frontend/ui_app/src/widgets/TrackInspector/ui/MixerWidgets.tsx 324
 # Widgets — TransportBar
-ts frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx 891
+ts frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx 572

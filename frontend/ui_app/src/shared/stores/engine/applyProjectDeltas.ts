@@ -1,6 +1,7 @@
 import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
+import type { Project } from '@bindings/Project';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
@@ -28,22 +29,6 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-type SnapshotProjectShape = {
-    pulse_map?: { tempo_events?: Array<{ bpm: number }> };
-    sample_rate?: number;
-    key_sig_enabled?: boolean;
-    key_sig_tonic?: string;
-    key_sig_mode?: string;
-    is_looping?: boolean;
-    loop_start_frames?: number | null;
-    loop_end_frames?: number | null;
-    arrangement_grid_numerator?: number;
-    arrangement_grid_denominator?: number;
-    arrangement_grid_ntoles?: number;
-    arrangement_snap_to_grid?: boolean;
-    arrangement_grid_fixed?: boolean;
-};
-
 export function extractSnapshotProjectMeta(
     deltas: ProjectDelta[],
     transport: DeltaApplyState['transport'],
@@ -52,8 +37,8 @@ export function extractSnapshotProjectMeta(
     if (!snapshotDelta || !snapshotDelta.data || typeof snapshotDelta.data !== 'object') {
         return null;
     }
-    const project = (snapshotDelta.data as { project?: unknown }).project as SnapshotProjectShape | null;
-    if (!project || typeof project !== 'object') {
+    const project = (snapshotDelta.data as { project?: Project }).project;
+    if (!project) {
         return null;
     }
 
@@ -86,59 +71,7 @@ export function applyProjectDeltasToState(
 ): DeltaApplyResult {
     const snapshotDelta = deltas.find((delta) => delta.kind === 'ProjectSnapshotReplaced');
     if (snapshotDelta && snapshotDelta.data && typeof snapshotDelta.data === 'object') {
-        const project = (snapshotDelta.data as { project?: unknown }).project as {
-            tracks?: Array<{
-                track_type?: string;
-                clips?: Array<{
-                    id: string;
-                    name: string;
-                    position: { sample_frame: number };
-                    duration: { sample_frame: number };
-                    file_path?: string;
-                    source_offset?: { sample_frame: number };
-                    fade_in_frames?: number;
-                    fade_out_frames?: number;
-                    is_warped?: boolean;
-                    warp_mode?: number | null;
-                    warp_base_bpm?: number;
-                    warp_source_duration_frames?: number;
-                    color_override?: unknown;
-                    color_hex?: string | null;
-                    is_offline?: boolean;
-                    is_muted?: boolean;
-                }>;
-                midi_clips?: Array<{
-                    id: string;
-                    name: string;
-                    position: { sample_frame: number };
-                    duration: { sample_frame: number };
-                    notes?: Array<{
-                        pitch: number;
-                        velocity: number;
-                        start_frame: number;
-                        duration_frames: number;
-                    }>;
-                    color_override?: unknown;
-                    color_hex?: string | null;
-                    is_muted?: boolean;
-                    fade_in_frames?: number;
-                    fade_out_frames?: number;
-                }>;
-            }>;
-            pulse_map?: { tempo_events?: Array<{ bpm: number }> };
-            sample_rate?: number;
-            key_sig_enabled?: boolean;
-            key_sig_tonic?: string;
-            key_sig_mode?: string;
-            is_looping?: boolean;
-            loop_start_frames?: number | null;
-            loop_end_frames?: number | null;
-            arrangement_grid_numerator?: number;
-            arrangement_grid_denominator?: number;
-            arrangement_grid_ntoles?: number;
-            arrangement_snap_to_grid?: boolean;
-            arrangement_grid_fixed?: boolean;
-        } | null;
+        const project = (snapshotDelta.data as { project?: Project }).project;
 
         if (project && Array.isArray(project.tracks)) {
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || state.transport.bpm || 120;
@@ -200,8 +133,8 @@ export function applyProjectDeltasToState(
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
                             pitch: note.pitch,
-                            startBeat: frameToBeat(note.start_frame, bpm, sampleRate),
-                            durationBeats: frameToBeat(note.duration_frames, bpm, sampleRate),
+                            startBeat: frameToBeat(toFiniteNumber(note.start_frame, 0), bpm, sampleRate),
+                            durationBeats: frameToBeat(toFiniteNumber(note.duration_frames, 1), bpm, sampleRate),
                             velocity: note.velocity,
                         })),
                         midiEnvelopes: [],

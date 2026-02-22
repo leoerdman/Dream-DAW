@@ -147,6 +147,16 @@ pub fn sync_external_fx_snapshot(
     plugin_host_state.publish_registry();
 }
 
+pub fn sync_external_fx_snapshot_from_state(
+    project_state: &State<'_, ProjectState>,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    sync_external_fx_snapshot(&project, clip_pool_state, plugin_host_state);
+    Ok(())
+}
+
 pub fn load_external_slots_best_effort(
     slots: &[PluginSlot],
     plugin_host_state: &State<'_, PluginHostState>,

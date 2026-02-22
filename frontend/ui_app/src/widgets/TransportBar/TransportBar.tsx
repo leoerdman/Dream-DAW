@@ -7,15 +7,14 @@ import * as engineApi from '@/shared/api/engine';
 import { useTransportEngineSlice } from './model/useTransportEngineSlice';
 import {
     computeTransportPosition,
-    DEFAULT_PDC_PANEL_POS,
     KEY_MODES,
     KEY_TONICS,
-    PDC_PANEL_POS_KEY,
     resolveKeyModeIndex,
     resolveKeyTonicIndex,
     TIME_SIGNATURES,
 } from './model/transportBarDomain';
 import { DebugPanel } from './ui/DebugPanel';
+import { useTransportDebugPanel } from './model/useTransportDebugPanel';
 import {
     Play,
     Square,
@@ -90,42 +89,35 @@ export const TransportBar = ({
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
 
-    const [keyEnabled, setKeyEnabled] = useState(storeKeySigEnabled);
-    const [keyTonic, setKeyTonic] = useState(() => resolveKeyTonicIndex(storeKeySigTonic));
-    const [keyMode, setKeyMode] = useState(() => resolveKeyModeIndex(storeKeySigMode));
-
-    // Sync local key sig state when project changes (e.g. project load).
-    useEffect(() => {
-        setKeyEnabled(storeKeySigEnabled);
-        setKeyTonic(resolveKeyTonicIndex(storeKeySigTonic));
-        setKeyMode(resolveKeyModeIndex(storeKeySigMode));
-    }, [storeKeySigEnabled, storeKeySigTonic, storeKeySigMode]);
+    const keyEnabled = storeKeySigEnabled;
+    const keyTonic = resolveKeyTonicIndex(storeKeySigTonic);
+    const keyMode = resolveKeyModeIndex(storeKeySigMode);
 
     const position = computeTransportPosition(posBeats, timeSigNum);
 
     const tapTimestamps = useRef<number[]>([]);
     const midiLedRef = useRef<HTMLSpanElement>(null);
     const midiLedTimerRef = useRef<number | null>(null);
-    const [pdcOpen, setPdcOpen] = useState(false);
-    const [debugTab, setDebugTab] = useState<'overview' | 'pdc' | 'sandbox'>('overview');
-    const [pdcLoading, setPdcLoading] = useState(false);
-    const [pdcError, setPdcError] = useState<string | null>(null);
-    const [pdcSnapshot, setPdcSnapshot] = useState<engineApi.PdcDebugSnapshot | null>(null);
-    const [rtSnapshot, setRtSnapshot] = useState<engineApi.RtDebugSnapshot | null>(null);
-    const [rtLoading, setRtLoading] = useState(false);
-    const [rtError, setRtError] = useState<string | null>(null);
-    const [sandboxLoading, setSandboxLoading] = useState(false);
-    const [sandboxError, setSandboxError] = useState<string | null>(null);
-    const [sandboxRuntime, setSandboxRuntime] = useState<engineApi.PluginSandboxSnapshot | null>(null);
-    const pdcPanelRef = useRef<HTMLDivElement | null>(null);
-    const [pdcPanelPos, setPdcPanelPos] = useState(DEFAULT_PDC_PANEL_POS);
-    const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseRight: number; baseTop: number }>({
-        dragging: false,
-        startX: 0,
-        startY: 0,
-        baseRight: DEFAULT_PDC_PANEL_POS.right,
-        baseTop: DEFAULT_PDC_PANEL_POS.top,
-    });
+    const {
+        pdcOpen,
+        setPdcOpen,
+        debugTab,
+        setDebugTab,
+        pdcLoading,
+        pdcError,
+        pdcSnapshot,
+        rtSnapshot,
+        rtLoading,
+        rtError,
+        sandboxLoading,
+        sandboxError,
+        sandboxRuntime,
+        pdcPanelRef,
+        pdcPanelPos,
+        handlePdcDragStart,
+        refreshSnapshots,
+        tickWatchdog,
+    } = useTransportDebugPanel();
 
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
@@ -146,48 +138,6 @@ export const TransportBar = ({
         }
     }, [engineSetBpm]);
 
-    const loadPdcSnapshot = useCallback(async () => {
-        setPdcLoading(true);
-        try {
-            const snapshot = await engineApi.getPdcDebugSnapshot();
-            setPdcSnapshot(snapshot);
-            setPdcError(null);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            setPdcError(msg);
-        } finally {
-            setPdcLoading(false);
-        }
-    }, []);
-
-    const loadRtSnapshot = useCallback(async () => {
-        setRtLoading(true);
-        try {
-            const snapshot = await engineApi.getRtDebugSnapshot();
-            setRtSnapshot(snapshot);
-            setRtError(null);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            setRtError(msg);
-        } finally {
-            setRtLoading(false);
-        }
-    }, []);
-
-    const loadSandboxSnapshot = useCallback(async () => {
-        setSandboxLoading(true);
-        try {
-            const snapshot = await engineApi.getPluginSandboxRuntime();
-            setSandboxRuntime(snapshot);
-            setSandboxError(null);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            setSandboxError(msg);
-        } finally {
-            setSandboxLoading(false);
-        }
-    }, []);
-
     const commitBpm = () => {
         const val = parseFloat(bpmText);
         if (!isNaN(val) && val >= 20 && val <= 999) {
@@ -202,14 +152,12 @@ export const TransportBar = ({
 
     const cycleKeyTonic = () => {
         const next = (keyTonic + 1) % KEY_TONICS.length;
-        setKeyTonic(next);
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'));
     };
     const cycleKeyMode = () => {
         const next = (keyMode + 1) % KEY_MODES.length;
-        setKeyMode(next);
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'));
@@ -277,100 +225,6 @@ export const TransportBar = ({
         };
     }, []);
 
-    useEffect(() => {
-        try {
-            const raw = window.localStorage.getItem(PDC_PANEL_POS_KEY);
-            if (!raw) return;
-            const parsed = JSON.parse(raw) as { right?: number; top?: number };
-            if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
-                setPdcPanelPos({
-                    right: Math.max(8, Math.min(parsed.right, window.innerWidth - 220)),
-                    top: Math.max(40, Math.min(parsed.top, window.innerHeight - 220)),
-                });
-            }
-        } catch {
-            // Ignore corrupted localStorage payload.
-        }
-    }, []);
-
-    useEffect(() => {
-        try {
-            window.localStorage.setItem(PDC_PANEL_POS_KEY, JSON.stringify(pdcPanelPos));
-        } catch {
-            // Ignore storage write failures (private mode/full storage).
-        }
-    }, [pdcPanelPos]);
-
-    useEffect(() => {
-        if (!pdcOpen) return;
-        void loadPdcSnapshot();
-        void loadRtSnapshot();
-        void loadSandboxSnapshot();
-        const id = window.setInterval(() => {
-            void loadPdcSnapshot();
-            void loadRtSnapshot();
-            void loadSandboxSnapshot();
-        }, 1500);
-        return () => window.clearInterval(id);
-    }, [pdcOpen, loadPdcSnapshot, loadRtSnapshot, loadSandboxSnapshot]);
-
-    useEffect(() => {
-        void engineApi.setRtDebugEnabled(pdcOpen).catch((err) => {
-            console.warn('[TransportBar] setRtDebugEnabled failed:', err);
-        });
-    }, [pdcOpen]);
-
-    useEffect(() => {
-        if (!pdcOpen) return;
-        const onDown = (e: MouseEvent) => {
-            const target = e.target as Node;
-            if (pdcPanelRef.current && !pdcPanelRef.current.contains(target)) {
-                setPdcOpen(false);
-            }
-        };
-        const onEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setPdcOpen(false);
-        };
-        document.addEventListener('mousedown', onDown);
-        document.addEventListener('keydown', onEsc);
-        return () => {
-            document.removeEventListener('mousedown', onDown);
-            document.removeEventListener('keydown', onEsc);
-        };
-    }, [pdcOpen]);
-
-    const handlePdcDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-        dragRef.current = {
-            dragging: true,
-            startX: e.clientX,
-            startY: e.clientY,
-            baseRight: pdcPanelPos.right,
-            baseTop: pdcPanelPos.top,
-        };
-        e.preventDefault();
-    };
-
-    useEffect(() => {
-        if (!pdcOpen) return;
-        const onMove = (e: MouseEvent) => {
-            if (!dragRef.current.dragging) return;
-            const dx = e.clientX - dragRef.current.startX;
-            const dy = e.clientY - dragRef.current.startY;
-            const nextRight = Math.max(8, Math.min(dragRef.current.baseRight - dx, window.innerWidth - 220));
-            const nextTop = Math.max(40, Math.min(dragRef.current.baseTop + dy, window.innerHeight - 220));
-            setPdcPanelPos({ right: nextRight, top: nextTop });
-        };
-        const onUp = () => {
-            dragRef.current.dragging = false;
-        };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-        return () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-        };
-    }, [pdcOpen]);
-
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
@@ -421,7 +275,6 @@ export const TransportBar = ({
                             activeColor="var(--color-accent-primary)"
                             onClick={() => {
                                 const next = !keyEnabled;
-                                setKeyEnabled(next);
                                 void engineApi
                                     .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
                                     .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
@@ -607,19 +460,11 @@ export const TransportBar = ({
                         panelRef={pdcPanelRef}
                         panelPos={pdcPanelPos}
                         onDragStart={handlePdcDragStart}
-                        onRefresh={() => {
-                            void loadPdcSnapshot();
-                            void loadRtSnapshot();
-                            void loadSandboxSnapshot();
-                        }}
+                        onRefresh={refreshSnapshots}
                         onClose={() => setPdcOpen(false)}
                         debugTab={debugTab}
                         setDebugTab={setDebugTab}
-                        onTickWatchdog={() => {
-                            void engineApi.tickPluginSandboxWatchdog().then(setSandboxRuntime).catch((err) => {
-                                setSandboxError(err instanceof Error ? err.message : String(err));
-                            });
-                        }}
+                        onTickWatchdog={tickWatchdog}
                         pdcSnapshot={pdcSnapshot}
                         rtSnapshot={rtSnapshot}
                         sandboxSnapshot={sandboxSnapshot}

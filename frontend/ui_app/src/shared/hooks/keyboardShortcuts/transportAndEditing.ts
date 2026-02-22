@@ -127,7 +127,11 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
             const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
             const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
             const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0 ? editCursorBeat : frameToBeat(playheadFrames, bpm, sampleRate);
-            const hasThinMultiCursor = Boolean(marqueeSelection) && Math.abs((marqueeSelection?.endBeat ?? 0) - (marqueeSelection?.startBeat ?? 0)) <= 1e-6 && marqueeSelection.startTrack !== marqueeSelection.endTrack;
+            const hasThinMultiCursor = Boolean(
+                marqueeSelection
+                && Math.abs(marqueeSelection.endBeat - marqueeSelection.startBeat) <= 1e-6
+                && marqueeSelection.startTrack !== marqueeSelection.endTrack,
+            );
             const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
             const EPS = 1e-6;
             const containsSplit = (clip: (typeof timelineClips)[number]) => splitBeat > clip.startBeat + EPS && splitBeat < clip.startBeat + clip.durationBeats - EPS;
@@ -181,4 +185,3 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
 
     return false;
 }
-

@@ -14,11 +14,28 @@ pub struct PluginSlotState {
     pub slot_id: Uuid,
     pub name: String,
     pub plugin_id: String,
+    pub supports_sidechain_input: Option<bool>,
     pub external_parameter_count: Option<i32>,
     pub external_state_blob: Option<String>,
     pub external_state_blob_kind: Option<String>,
     pub external_preset_blob: Option<String>,
     pub external_preset_blob_kind: Option<String>,
+}
+
+impl PluginSlotState {
+    pub fn from_project_slot(slot: dream_models::project::PluginSlot) -> Self {
+        Self {
+            slot_id: slot.id,
+            name: slot.name,
+            plugin_id: slot.plugin_id,
+            supports_sidechain_input: slot.supports_sidechain_input,
+            external_parameter_count: slot.external_parameter_count,
+            external_state_blob: slot.external_state_blob,
+            external_state_blob_kind: slot.external_state_blob_kind,
+            external_preset_blob: slot.external_preset_blob,
+            external_preset_blob_kind: slot.external_preset_blob_kind,
+        }
+    }
 }
 
 impl Query for ResolvePluginSlotStateQuery {
@@ -36,15 +53,6 @@ impl Query for ResolvePluginSlotStateQuery {
             id: self.slot_id.to_string(),
         })?;
 
-        Ok(PluginSlotState {
-            slot_id: slot.id,
-            name: slot.name,
-            plugin_id: slot.plugin_id,
-            external_parameter_count: slot.external_parameter_count,
-            external_state_blob: slot.external_state_blob,
-            external_state_blob_kind: slot.external_state_blob_kind,
-            external_preset_blob: slot.external_preset_blob,
-            external_preset_blob_kind: slot.external_preset_blob_kind,
-        })
+        Ok(PluginSlotState::from_project_slot(slot))
     }
 }

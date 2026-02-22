@@ -66,6 +66,11 @@ impl ProjectState {
         Ok(())
     }
 
+    pub(crate) fn mark_dirty_current(&self, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+        let project_name = self.project.lock().map_err(|e| e.to_string())?.name.clone();
+        self.mark_dirty(&project_name, app)
+    }
+
     /// Clears the dirty flag and updates the window title (removes `*`).
     #[allow(dead_code)]
     pub(crate) fn clear_dirty(

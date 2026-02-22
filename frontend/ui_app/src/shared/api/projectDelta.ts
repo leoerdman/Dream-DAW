@@ -1,3 +1,5 @@
+import type { Project } from '@bindings/Project';
+
 export interface MidiClipDeltaNote {
     pitch: number;
     velocity: number;
@@ -58,7 +60,7 @@ export type ProjectDelta =
     | { kind: 'ProjectRenamed'; data: { new_name: string } }
     | { kind: 'LoopRegionChanged'; data: { start: number; end: number; enabled: boolean } }
     | { kind: 'ClipPitchChanged'; data: { clip_id: string; pitch_shift_semitones: number } }
-    | { kind: 'ProjectSnapshotReplaced'; data: { project: unknown } };
+    | { kind: 'ProjectSnapshotReplaced'; data: { project: Project } };
 
 export interface DeltaMutationResponse {
     deltas: ProjectDelta[];

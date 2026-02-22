@@ -3,23 +3,19 @@
 // core/dream_importers/src/routing_helpers.rs
 // ═══════════════════════════════════════════════════════════════════════
 use dream_importers::routing_helpers::{
-    find_project_plugin_slot,
     find_project_plugin_slot_by_slot_id,
-    find_slot_on_track,
     diagnose_external_plugin_reference,
-    normalize_plugin_key_local,
-    lane_param_name_hints,
     find_device_node_on_track,
 };
 use dream_models::project::builtin_effect_type_from_plugin_id;
 mod plugins_routing_helpers;
 use plugins_routing_helpers::{
     apply_imported_external_state_blob,
-    bind_runtime_instance_for_plugin_slots,
     collect_external_slot_refs,
     load_external_slot_best_effort,
     load_external_slots_best_effort,
     sync_external_fx_snapshot,
+    sync_external_fx_snapshot_from_state,
     sync_plugin_runtime_and_mark_dirty,
 };
 
@@ -32,16 +28,23 @@ fn get_plugin_slot_runtime_status_cmd(
 ) -> Result<PluginSlotRuntimeStatus, String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
 
     if slot.plugin_id.starts_with("internal://") {
         return Ok(PluginSlotRuntimeStatus {
             loaded: true,
             editor_supported: false,
             runtime: "internal".to_string(),
-            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false) || slot.plugin_id.contains("compressor") || slot.plugin_id.contains("gate") || slot.plugin_id.contains("shaper"),
+            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false)
+                || slot.plugin_id.contains("compressor")
+                || slot.plugin_id.contains("gate")
+                || slot.plugin_id.contains("shaper"),
             latency_frames: Some(0),
             message: None,
         });
@@ -79,7 +82,7 @@ fn get_plugin_slot_runtime_status_cmd(
     }
 
     let slot_map = plugin_host_state.slot_instance_snapshot();
-    let runtime_instance = slot_map.get(&slot.id).copied();
+    let runtime_instance = slot_map.get(&slot.slot_id).copied();
     let sandbox_loaded = plugin_host_state
         .loaded_sandbox_by_key
         .lock()
@@ -144,9 +147,13 @@ fn ensure_plugin_slot_active_cmd(
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
     if slot.plugin_id.starts_with("internal://") {
         return Ok(());
     }
@@ -165,15 +172,27 @@ fn ensure_plugin_slot_active_cmd(
         ));
     }
 
-    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
-    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+    let instance_id =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
 
     // Restore per-slot saved state (preset, knob positions, EQ, etc.)
     // Without this, plugins activated for audio processing after project
     // reload would lose their saved settings (e.g., ShaperBox3 EQ points).
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
         if let Ok(mut host) = plugin_host_state.host.lock() {
-            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+            let mut slot_restore =
+                dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
+            slot_restore.id = slot.slot_id;
+            slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
+            slot_restore.external_parameter_count = slot.external_parameter_count;
+            slot_restore.external_state_blob = slot.external_state_blob.clone();
+            slot_restore.external_state_blob_kind = slot.external_state_blob_kind.clone();
+            slot_restore.external_preset_blob = slot.external_preset_blob.clone();
+            slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
+            if let Err(err) =
+                apply_imported_external_state_blob(&mut host, instance_id, &slot_restore)
+            {
                 log::warn!(
                     "[IPC] ensure_plugin_slot_active_cmd: state restore failed for '{}': {}",
                     slot.name, err
@@ -181,14 +200,13 @@ fn ensure_plugin_slot_active_cmd(
             } else {
                 log::info!(
                     "[IPC] ensure_plugin_slot_active_cmd: restored state for '{}' (slot {})",
-                    slot.name, slot.id
+                    slot.name, slot.slot_id
                 );
             }
         }
     }
 
-    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
-    plugin_host_state.publish_registry();
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
     log::info!(
         "[IPC] ensure_plugin_slot_active_cmd(track={}, slot={}) -> instance {}",
         track_id,
@@ -209,17 +227,20 @@ fn unload_plugin_slot_cmd(
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    let slot = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
 
     if slot.plugin_id.starts_with("internal://") {
         return Ok(());
     }
 
-    plugin_host_state.unload_slot_instance(slot.id)?;
-    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
-    plugin_host_state.publish_registry();
+    plugin_host_state.unload_slot_instance(slot.slot_id)?;
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
     log::info!(
         "[IPC] unload_plugin_slot_cmd(track={}, slot={})",
         track_id,
@@ -237,15 +258,13 @@ struct ReplaceMissingPluginPayload {
     replacement_plugin_name: Option<String>,
 }
 
-/// Replace a missing external plugin placeholder with a real plugin on the same slot.
-#[tauri::command]
-fn replace_missing_plugin_slot_cmd(
+fn replace_missing_plugin_slot_impl(
     payload: ReplaceMissingPluginPayload,
-    plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+    plugin_host_state: &tauri::State<'_, PluginHostState>,
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    app: &tauri::AppHandle,
+) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -267,7 +286,7 @@ fn replace_missing_plugin_slot_cmd(
         ));
     }
 
-    push_undo(&project_state)?;
+    push_undo(project_state)?;
     let replacement_name = payload
         .replacement_plugin_name
         .as_ref()
@@ -292,26 +311,47 @@ fn replace_missing_plugin_slot_cmd(
         external_plugin_version: descriptor.version.clone(),
     };
 
-    execute_orchestrator_command(&project_state, &cmd)?;
+    let cmd_result = execute_orchestrator_command(project_state, &cmd)?;
 
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
-    if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
+    if let Err(err) =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id)
+    {
         log::warn!(
-            "[IPC] replace_missing_plugin_slot_cmd runtime init failed (slot={}, plugin={}): {}",
+            "[IPC] replace_missing_plugin_slot runtime init failed (slot={}, plugin={}): {}",
             slot_uuid,
             replacement_plugin_id,
             err
         );
     }
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    sync_plugin_runtime_and_mark_dirty(
+        project_state,
+        clip_pool_state,
+        plugin_host_state,
+        app,
+        true,
+    )?;
+
+    Ok(cmd_result)
+}
+
+/// Replace a missing external plugin placeholder with a real plugin on the same slot.
+#[tauri::command]
+fn replace_missing_plugin_slot_cmd(
+    payload: ReplaceMissingPluginPayload,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let _ = replace_missing_plugin_slot_impl(
+        payload,
+        &plugin_host_state,
+        &project_state,
+        &clip_pool_state,
+        &app,
+    )?;
     Ok(())
 }
 
@@ -326,112 +366,28 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let slot_uuid = Uuid::parse_str(&payload.slot_id)
-        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+    let cmd_result = replace_missing_plugin_slot_impl(
+        payload,
+        &plugin_host_state,
+        &project_state,
+        &clip_pool_state,
+        &app,
+    )?;
 
-    let replacement_plugin_id = payload.replacement_plugin_id.trim().to_string();
-    if replacement_plugin_id.is_empty() {
-        return Err("Replacement plugin path cannot be empty".to_string());
-    }
-    if replacement_plugin_id.starts_with("internal://") {
-        return Err("Missing external plugin replacement expects an external plugin bundle path".to_string());
-    }
-
-    let descriptor = plugin_host_state.resolve_descriptor(&replacement_plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
-        return Err(format!(
-            "Replacement plugin format '{}' is not supported in runtime. Use VST2 or VST3.",
-            descriptor.format
-        ));
-    }
-
-    let (old_is_instrument, old_slot_index) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-        if track.instrument.as_ref().map(DeviceNode::id) == Some(slot_uuid) {
-            (true, 0usize)
-        } else {
-            (
-                false,
-                track
-                    .effects
-                    .iter()
-                    .position(|fx| fx.id() == slot_uuid)
-                    .unwrap_or(0),
-            )
-        }
-    };
-
-    push_undo(&project_state)?;
-    let replacement_name = payload
-        .replacement_plugin_name
-        .as_ref()
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| descriptor.name.clone());
-
-    let cmd = dream_orchestrator::commands::ReplaceMissingPluginSlotCommand {
-        track_id: track_uuid,
-        slot_id: slot_uuid,
-        replacement_plugin_id: replacement_plugin_id.clone(),
-        replacement_plugin_name: replacement_name,
-        external_audio_inputs: Some(descriptor.audio_inputs),
-        supports_sidechain_input: if descriptor.format != PluginFormat::VST3 {
-            Some(descriptor.audio_inputs > 2)
-        } else {
-            None
-        },
-        external_format: Some(descriptor.format.to_string().to_lowercase()),
-        external_uid: descriptor.unique_id.clone(),
-        external_plugin_version: descriptor.version.clone(),
-    };
-
-    execute_orchestrator_command(&project_state, &cmd)?;
-
-    let _ = plugin_host_state.unload_slot_instance(slot_uuid);
-    if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
-        log::warn!(
-            "[IPC] replace_missing_plugin_slot_with_deltas_cmd runtime init failed (slot={}, plugin={}): {}",
-            slot_uuid,
-            replacement_plugin_id,
-            err
-        );
-    }
-
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
-    project_state.mark_dirty(&project_name, Some(&app))?;
-
-    let new_slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| {
-            format!(
-                "Delta invariant violated: replaced slot not found on track {} (slot {})",
-                track_uuid, slot_uuid
-            )
-        })?;
     // Replace is represented as remove+add to keep reducer semantics simple and
     // avoid full project snapshot refreshes for a single-slot mutation.
     let deltas = vec![
         dream_models::delta::ProjectDelta::PluginRemoved {
             track_id: track_uuid,
-            slot_id: slot_uuid,
+            slot_id: cmd_result.slot_id,
         },
         dream_models::delta::ProjectDelta::PluginAdded {
             track_id: track_uuid,
-            slot_id: slot_uuid,
-            slot_index: old_slot_index,
-            is_instrument: old_is_instrument,
-            plugin_name: new_slot.name,
-            plugin_uid: new_slot.plugin_id,
+            slot_id: cmd_result.slot_id,
+            slot_index: cmd_result.slot_index,
+            is_instrument: cmd_result.is_instrument,
+            plugin_name: cmd_result.plugin_name,
+            plugin_uid: cmd_result.plugin_uid,
         },
     ];
 

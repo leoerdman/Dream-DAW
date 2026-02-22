@@ -544,9 +544,7 @@ export const DawShell = () => {
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
-    const transportSampleRate = useEngineStore(s => s.transport.sample_rate);
     const projectBpm = useEngineStore(s => s.projectBpm);
-    const projectSampleRateFromStore = useEngineStore(s => s.projectSampleRate);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
     const timelineClipsForView = useMemo(
@@ -1247,7 +1245,7 @@ export const DawShell = () => {
         projectTracks,
         projectBpm,
         transportBpm: transportBpm || 120,
-        projectSampleRate: resolveSampleRate(projectSampleRateFromStore, transportSampleRate),
+        projectSampleRate,
         importFile,
         fetchProject,
     });

@@ -1,0 +1,18 @@
+export const TRACK_PALETTE = [
+    { name: 'Coral', hex: '#f05c4d' },
+    { name: 'Orange', hex: '#ff8a1a' },
+    { name: 'Gold', hex: '#f5ba30' },
+    { name: 'Yellow', hex: '#f2e640' },
+    { name: 'Lime', hex: '#8cd93b' },
+    { name: 'Green', hex: '#38c759' },
+    { name: 'Teal', hex: '#29b8a1' },
+    { name: 'Cyan', hex: '#1fbfd9' },
+    { name: 'Sky', hex: '#3399eb' },
+    { name: 'Blue', hex: '#406be0' },
+    { name: 'Indigo', hex: '#6b52d9' },
+    { name: 'Purple', hex: '#9e4dd9' },
+    { name: 'Magenta', hex: '#d140b8' },
+    { name: 'Pink', hex: '#eb598c' },
+    { name: 'Rose', hex: '#e66673' },
+    { name: 'Slate', hex: '#8c949e' },
+] as const;

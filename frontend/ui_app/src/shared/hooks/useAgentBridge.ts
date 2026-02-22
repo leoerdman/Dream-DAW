@@ -47,7 +47,9 @@ export function sendBridgeResponse(data: Record<string, unknown>): void {
  */
 export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOptions): void {
     const isStreamingRef = useRef(isStreaming);
-    isStreamingRef.current = isStreaming;
+    useEffect(() => {
+        isStreamingRef.current = isStreaming;
+    }, [isStreaming]);
 
     // Reset the processing lock when streaming ends
     useEffect(() => {
@@ -57,7 +59,9 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
     }, [isStreaming]);
 
     const onMessageRef = useRef(onRemoteMessage);
-    onMessageRef.current = onRemoteMessage;
+    useEffect(() => {
+        onMessageRef.current = onRemoteMessage;
+    }, [onRemoteMessage]);
 
     useEffect(() => {
         if (!import.meta.hot) return;

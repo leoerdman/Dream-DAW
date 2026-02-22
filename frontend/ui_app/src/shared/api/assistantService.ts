@@ -38,6 +38,22 @@ interface ToolCall {
     function: { name: string; arguments: string };
 }
 
+type GlobalWithPreviewTimer = typeof globalThis & {
+    __dreamPreviewTimer?: ReturnType<typeof setTimeout> | null;
+};
+
+interface MidiNoteLike {
+    pitch: number;
+    startBeat: number;
+    durationBeats: number;
+    velocity: number;
+}
+
+const getOptionalStringField = (value: object, key: string): string | undefined => {
+    const raw = (value as Record<string, unknown>)[key];
+    return typeof raw === 'string' ? raw : undefined;
+};
+
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
 const TOOLS = [
@@ -1972,10 +1988,11 @@ async function executeToolInner(
             const tIdx = args.trackIndex as number;
             await engineApi.previewSamplerNoteOn(tIdx, pitch, vel);
             // BUG-6 FIX: Cancel previous preview timer to prevent leaked note-offs
-            if ((globalThis as any).__dreamPreviewTimer) clearTimeout((globalThis as any).__dreamPreviewTimer);
-            (globalThis as any).__dreamPreviewTimer = setTimeout(() => {
+            const globals = globalThis as GlobalWithPreviewTimer;
+            if (globals.__dreamPreviewTimer) clearTimeout(globals.__dreamPreviewTimer);
+            globals.__dreamPreviewTimer = setTimeout(() => {
                 engineApi.previewSamplerNoteOff(tIdx, pitch).catch(() => { });
-                (globalThis as any).__dreamPreviewTimer = null;
+                globals.__dreamPreviewTimer = null;
             }, 500);
             return JSON.stringify({ success: true, pitch, velocity: vel });
         }
@@ -2256,12 +2273,12 @@ async function executeToolInner(
             const clip = freshClips.find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: `Clip ${clipId} not found` });
             if (clip.type !== 'midi') return JSON.stringify({ error: `Clip ${clipId} is not a MIDI clip (type: ${clip.type})` });
-            const notes = (clip as any).midiNotes ?? [];
+            const notes = (clip as { midiNotes?: MidiNoteLike[] }).midiNotes ?? [];
             return JSON.stringify({
                 clipId,
                 clipName: clip.name,
                 noteCount: notes.length,
-                notes: notes.map((n: any) => ({
+                notes: notes.map((n) => ({
                     pitch: n.pitch,
                     noteName: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][n.pitch % 12] + (Math.floor(n.pitch / 12) - 1),
                     startBeat: n.startBeat,
@@ -2404,16 +2421,16 @@ async function executeToolInner(
         }
 
         case 'export_mix': {
-            const settings: Record<string, unknown> = {
+            const settings: engineApi.ExportSettings = {
                 outputPath: args.outputPath as string,
-                format: (args.format as string) || 'wav',
-                sampleRate: resolveSampleRate((args.sampleRate as number)),
-                bitDepth: (args.bitDepth as number) || 24,
-                range: (args.range as string) || 'full',
+                format: ((args.format as string) || 'wav') as 'wav' | 'mp3',
+                sampleRate: resolveSampleRate((args.sampleRate as number)) as 44100 | 48000 | 96000,
+                bitDepth: ((args.bitDepth as number) || 24) as 16 | 24 | 32,
+                range: ((args.range as string) || 'full') as 'full' | 'loop' | 'selected',
                 normalize: (args.normalize as boolean) ?? false,
                 tailMs: 500,
             };
-            await engineApi.exportMix(settings as any);
+            await engineApi.exportMix(settings);
             return JSON.stringify({ success: true, outputPath: settings.outputPath, format: settings.format });
         }
 
@@ -2481,7 +2498,13 @@ function buildSystemPrompt(): string {
             const trackClips = clips.filter(c => c.trackIndex === i);
             const fx = (t.effects ?? []).map(e => e.name).join(', ');
             const inst = t.instrument ? ` instrument="${t.instrument.name}"` : '';
-            const routing = (t as any).output && (t as any).output !== 'master' ? ` → ${(t as any).output}` : (t as any).output_destination_id && (t as any).output_destination_id !== 'master' ? ` → ${(t as any).output_destination_id}` : '';
+            const output = getOptionalStringField(t, 'output');
+            const outputDestinationId = getOptionalStringField(t, 'output_destination_id');
+            const routing = output && output !== 'master'
+                ? ` → ${output}`
+                : outputDestinationId && outputDestinationId !== 'master'
+                    ? ` → ${outputDestinationId}`
+                    : '';
             const flags = [
                 t.is_mute ? '🔇MUTED' : '',
                 t.is_solo ? '🔆SOLO' : '',
@@ -2624,7 +2647,7 @@ export async function streamChat(
 ): Promise<ChatMessage[]> {
     const MAX_TOOL_DEPTH = 25; // BUG-14 FIX: Raised from 15 for complex multi-track sessions
     let depth = 0;
-    let conversation = [...messages];
+    const conversation = [...messages];
     let globalToolIndex = 0;
 
     while (depth < MAX_TOOL_DEPTH) {

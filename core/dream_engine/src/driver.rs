@@ -2888,7 +2888,7 @@ pub fn start_audio_thread_on_device(
                                                     runtime_slot.instance_id
                                                     && let Some(plugin_mtx) =
                                                         plugin_registry_ref.get(&instance_id) // LOCK-FREE ArcSwap GET
-                                                    && let Ok(mut host) = plugin_mtx.try_lock()
+                                                    && let Some(mut host) = plugin_mtx.try_lock()
                                                 {
                                                     apply_external_plugin_param_automation_block(
                                                         &mut *host,
@@ -3212,7 +3212,7 @@ pub fn start_audio_thread_on_device(
 
                                     if let Some(instance_id) = runtime_slot.instance_id
                                         && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
-                                        && let Ok(mut host) = plugin_mtx.try_lock()
+                                        && let Some(mut host) = plugin_mtx.try_lock()
                                     {
                                         let c = n;
                                         let main_inputs: [&[f32]; 2] = [

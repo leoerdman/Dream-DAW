@@ -9,6 +9,8 @@ use dream_importers::ableton::markers::{
     parse_project_scenes as parse_project_scenes_from_importer,
 };
 use dream_importers::ableton::parser::{
+    apply_live_set_project_metadata as apply_live_set_project_metadata_from_importer,
+    apply_live_set_timeline_and_signature_metadata as apply_live_set_timeline_and_signature_metadata_from_importer,
     find_live_set as find_live_set_from_importer,
     parse_als_document as parse_als_document_from_importer,
     parse_imported_sample_rate as parse_imported_sample_rate_from_importer,
@@ -22,16 +24,16 @@ use dream_importers::ableton::clip_parser::{
     parse_clip_envelopes,
     parse_clip_follow_action,
     parse_clip_groove,
-    parse_clip_grid,
     parse_clip_launch,
     parse_clip_loop,
     parse_clip_scale_info,
     parse_clip_time_signature,
-    semitone_to_tonic,
 };
 use dream_importers::ableton::automation::{
+    build_pointee_map_with as build_pointee_map_with_importer,
     build_main_track_mixer_snapshot,
     consolidate_automation_lanes as consolidate_automation_lanes_from_importer,
+    import_track_automation_with as import_track_automation_with_importer,
 };
 use dream_importers::ableton::color_map::{
     ableton_color_index_to_hex,
@@ -48,8 +50,6 @@ use dream_importers::ableton::routing::{
 use dream_importers::ableton::xml_helpers::{
     beats_to_frames,
     collect_track_devices,
-    first_child_bool,
-    first_child_f64,
     first_child_i32,
     find_first_devices_container,
     first_child_value,
@@ -61,13 +61,19 @@ use dream_importers::ableton::xml_helpers::{
     parse_i64_value,
     parse_live_set_bool,
     parse_live_set_i32,
-    parse_root_midi_editor_lanes,
     parse_track_bool_flag_legacy as parse_track_bool_flag,
     parse_track_i64_value_legacy as parse_track_i64_value,
     parse_track_key_note_target_legacy as parse_track_key_note_target,
     parse_track_send_manual_values,
     parse_view_states_bool,
 };
+
+#[cfg(test)]
+use dream_importers::ableton::clip_parser::parse_clip_grid;
+#[cfg(test)]
+use dream_importers::ableton::automation::plugin_param_lane_key_with as plugin_param_lane_key_with_importer;
+#[cfg(test)]
+use dream_importers::ableton::xml_helpers::{first_child_bool, first_child_f64, parse_root_midi_editor_lanes};
 
 fn parse_project_markers(
     live_set: roxmltree::Node<'_, '_>,
@@ -117,6 +123,15 @@ fn encode_missing_meta(raw: &str) -> String {
             }
         })
         .collect::<String>()
+}
+
+fn extract_ableton_color_index(node: roxmltree::Node<'_, '_>) -> Option<i64> {
+    node_child_value(node, "Color")
+        .or_else(|| node_child_value(node, "ColorIndex"))
+        .or_else(|| node.attribute("Color").map(|s| s.to_string()))
+        .or_else(|| node.attribute("ColorIndex").map(|s| s.to_string()))
+        .as_deref()
+        .and_then(parse_i64_value)
 }
 
 fn make_missing_external_plugin_slot_with_metadata(
@@ -894,6 +909,25 @@ mod als_import_tests {
         assert_eq!(ableton_color_index_to_hex(56), Some("#AF3333"));
         assert_eq!(ableton_color_index_to_hex(-1), None);
         assert_eq!(ableton_color_index_to_hex(70), None);
+    }
+
+    #[test]
+    fn extract_ableton_color_index_supports_all_known_forms() {
+        let xml = r#"
+        <Root>
+          <A><Color Value="12"/></A>
+          <B><ColorIndex Value="24"/></B>
+          <C Color="33" />
+          <D ColorIndex="48" />
+        </Root>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let root = doc.root_element();
+        let nodes: Vec<_> = root.children().filter(|n| n.is_element()).collect();
+        assert_eq!(extract_ableton_color_index(nodes[0]), Some(12));
+        assert_eq!(extract_ableton_color_index(nodes[1]), Some(24));
+        assert_eq!(extract_ableton_color_index(nodes[2]), Some(33));
+        assert_eq!(extract_ableton_color_index(nodes[3]), Some(48));
     }
 
     #[test]
@@ -2604,10 +2638,7 @@ fn import_track_clips(
         );
 
         // Import clip color from Ableton's per-clip Color index
-        if let Some(color_idx) = node_child_value(clip_node, "Color")
-            .as_deref()
-            .and_then(parse_i64_value)
-        {
+        if let Some(color_idx) = extract_ableton_color_index(clip_node) {
             clip.color_override = Some(ableton_color_to_track_color(color_idx, 0));
             clip.color_hex = ableton_color_index_to_hex(color_idx).map(|s| s.to_string());
         }
@@ -2761,10 +2792,7 @@ fn import_track_clips(
             .as_deref()
             .and_then(parse_i64_value)
             .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-        if let Some(color_idx) = node_child_value(clip_node, "Color")
-            .as_deref()
-            .and_then(parse_i64_value)
-        {
+        if let Some(color_idx) = extract_ableton_color_index(clip_node) {
             clip.color_override = Some(ableton_color_to_track_color(color_idx, 0));
             clip.color_hex = ableton_color_index_to_hex(color_idx).map(|s| s.to_string());
         }
@@ -4343,378 +4371,36 @@ fn import_track_devices(
 // We build a PointeeId → param_id map, then parse FloatEvent envelopes.
 
 fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-
-    // Named mixer parameters → well-known param IDs
-    let mixer_params = [
-        ("Volume", "volume"),
-        ("Pan", "pan"),
-        ("SplitStereoPanL", "pan_left"),
-        ("SplitStereoPanR", "pan_right"),
-        ("CrossFadeState", "mixer.crossfade_state"),
-    ];
-
-    // Locate the Mixer node
-    let mixer = track_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")));
-
-    if let Some(mixer) = mixer {
-        for (tag, param_id) in &mixer_params {
-            if let Some(param_node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(*tag)) {
-                if let Some(target) = param_node
-                    .descendants()
-                    .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
-                {
-                    if let Some(id) = target.attribute("Id") {
-                        map.insert(id.to_string(), param_id.to_string());
-                    }
-                }
-            }
-        }
-
-        // Mixer boolean controls
-        for (tag, lane) in [
-            ("On", "mixer.on"),
-            ("Speaker", "mixer.speaker"),
-            ("Solo", "mixer.solo"),
-            ("Arm", "mixer.arm"),
-        ] {
-            if let Some(node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(tag)) {
-                if let Some(target) = node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
-                    if let Some(id) = target.attribute("Id") {
-                        map.insert(id.to_string(), lane.to_string());
-                    }
-                }
-            }
-        }
-
-        // Send levels (SendA, SendB, etc.)
-        for (seq_idx, send) in mixer
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
-            .enumerate()
-        {
-            let idx = send
-                .attribute("Id")
-                .and_then(parse_i64_value)
-                .filter(|v| *v >= 0)
-                .map(|v| v as usize)
-                .unwrap_or(seq_idx);
-            if idx >= 26 {
-                continue;
-            }
-            if let Some(send_node) = send.children().find(|n| n.is_element() && n.has_tag_name("Send")) {
-                if let Some(target) = send_node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
-                    if let Some(id) = target.attribute("Id") {
-                        let send_letter = (b'A' + idx as u8) as char;
-                        map.insert(id.to_string(), format!("send.{send_letter}"));
-                    }
-                }
-            }
-        }
-    }
-
-    // Device parameters: prefer explicit plugin parameter names/ids for PluginDevice.
-    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
-        if !device.is_element() || !device.has_tag_name("PluginDevice") {
-            continue;
-        }
-
-        let plugin_name_raw = infer_device_display_name(*device, "plugin");
-
-        for float_param in device
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("PluginFloatParameter"))
-        {
-            let target_id = float_param
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
-                .and_then(|n| n.attribute("Id"))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if target_id.is_empty() || map.contains_key(&target_id) {
-                continue;
-            }
-
-            let param_name = node_child_value(float_param, "ParameterName")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let param_id = node_child_value(float_param, "ParameterId")
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-
-            let lane_key = plugin_param_lane_key(dev_idx, &plugin_name_raw, &param_name, &param_id);
-            map.insert(target_id, lane_key);
-        }
-    }
-
-    // Generic fallback for any remaining automation target IDs.
-    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
-        for target in device
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
-        {
-            if let Some(id) = target.attribute("Id") {
-                if map.contains_key(id) {
-                    continue; // Already mapped by mixer
-                }
-                let param_tag = target
-                    .parent()
-                    .and_then(|p| if p.is_element() { Some(p.tag_name().name().to_string()) } else { None })
-                    .unwrap_or_else(|| "param".to_string());
-                map.insert(id.to_string(), format!("device:{dev_idx}:{param_tag}"));
-            }
-        }
-    }
-
-    map
+    build_pointee_map_with_importer(track_node, infer_device_display_name, normalize_plugin_key)
 }
 
+#[cfg(test)]
 fn plugin_param_lane_key(
     dev_idx: usize,
     plugin_name: &str,
     param_name: &str,
     param_id: &str,
 ) -> String {
-    let plugin_key = normalize_plugin_key(plugin_name);
-    let mut param_key = normalize_plugin_key(param_name);
-    let maybe_numeric = param_id.trim().parse::<i64>().ok();
-    if param_key.is_empty() {
-        param_key = match maybe_numeric {
-            Some(v) if v >= 0 => format!("id{v}"),
-            _ => "unnamed".to_string(),
-        };
-    } else if let Some(v) = maybe_numeric {
-        if v >= 0 {
-            // Preserve human-readable parameter names while avoiding collisions
-            // when multiple plugin params share the same display name.
-            param_key = format!("{param_key}_id{v}");
-        }
-    }
-    format!("plugin:{dev_idx}:{plugin_key}:{param_key}")
-}
-
-fn plugin_param_manual_value(param_node: roxmltree::Node<'_, '_>) -> Option<f64> {
-    if let Some(v) = param_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Manual"))
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        return Some(v);
-    }
-    if let Some(v) = param_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Manual"))
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_bool_value)
-    {
-        return Some(if v { 1.0 } else { 0.0 });
-    }
-    // Some devices expose last/manual values on the parameter node itself.
-    param_node
-        .attribute("Value")
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-}
-
-fn semantic_external_aliases(
-    dev_idx: usize,
-    plugin_name: &str,
-    param_name: &str,
-    value: f64,
-) -> Vec<(String, f64)> {
-    let mut out = Vec::<(String, f64)>::new();
-    let plugin_key = normalize_plugin_key(plugin_name);
-    let param_key = normalize_plugin_key(param_name);
-    if plugin_key.is_empty() || param_key.is_empty() {
-        return out;
-    }
-
-    // Generic semantic key for readable diagnostics and tooling.
-    out.push((
-        format!("plugin_semantic:{dev_idx}:{plugin_key}:{param_key}"),
-        value,
-    ));
-
-    // Type-aware aliases that can drive native fallback processors.
-    if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
-        && param_key.contains("threshold")
-    {
-        out.push(("effect.compressor.threshold".to_string(), value.clamp(-80.0, 0.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
-        && param_key.contains("ratio")
-    {
-        out.push(("effect.compressor.ratio".to_string(), value.clamp(1.0, 20.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
-        && param_key.contains("attack")
-    {
-        out.push(("effect.compressor.attack".to_string(), value.clamp(0.01, 200.0)));
-    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
-        && param_key.contains("release")
-    {
-        out.push(("effect.compressor.release".to_string(), value.clamp(1.0, 1000.0)));
-    } else if plugin_key.contains("reastream") && (param_key.contains("mix") || param_key.contains("wet")) {
-        out.push(("plugin.mono".to_string(), value.clamp(0.0, 1.0)));
-    } else if plugin_key.contains("synthesizerv") && param_key.contains("detune") {
-        out.push(("synth.detune".to_string(), value.clamp(-50.0, 50.0)));
-    }
-
-    out
-}
-
-fn import_plugin_device_static_automation_fallback(
-    track_node: roxmltree::Node<'_, '_>,
-    track: &mut Track,
-) {
-    // Preserve as much external plugin state as possible even when no envelope
-    // exists or plugin binary is missing: write beat-0 static lanes from ALS
-    // parameter manual values.
-    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
-        if !device.is_element() || !device.has_tag_name("PluginDevice") {
-            continue;
-        }
-        let plugin_name_raw = infer_device_display_name(*device, "plugin");
-
-        for param_node in device.descendants().filter(|n| {
-            n.is_element()
-                && (n.has_tag_name("PluginFloatParameter")
-                    || n.has_tag_name("PluginIntParameter")
-                    || n.has_tag_name("PluginBoolParameter"))
-        }) {
-            let param_name = node_child_value(param_node, "ParameterName").unwrap_or_default();
-            let param_id = node_child_value(param_node, "ParameterId").unwrap_or_default();
-            let lane_key = plugin_param_lane_key(dev_idx, &plugin_name_raw, &param_name, &param_id);
-            let Some(value) = plugin_param_manual_value(param_node) else {
-                continue;
-            };
-            upsert_static_import_lane_if_missing(track, &lane_key, value);
-            for (alias_key, alias_value) in
-                semantic_external_aliases(dev_idx, &plugin_name_raw, &param_name, value)
-            {
-                upsert_static_import_lane_if_missing(track, &alias_key, alias_value);
-            }
-        }
-    }
+    plugin_param_lane_key_with_importer(
+        dev_idx,
+        plugin_name,
+        param_name,
+        param_id,
+        normalize_plugin_key,
+    )
 }
 
 fn import_track_automation(
     track_node: roxmltree::Node<'_, '_>,
     track: &mut Track,
 ) {
-    let pointee_map = build_pointee_map(track_node);
-
-    // Walk all AutomationEnvelope elements on this track
-    let envelopes_container = track_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-        .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
-
-    if let Some(envelopes) = envelopes_container {
-        for envelope in envelopes
-            .children()
-            .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
-        {
-            // Resolve param_id from PointeeId
-            let pointee_id = envelope
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
-                .and_then(|n| n.attribute("Value"))
-                .unwrap_or_default()
-                .to_string();
-
-            let param_id = pointee_map
-                .get(&pointee_id)
-                .cloned()
-                .unwrap_or_else(|| format!("unknown:{pointee_id}"));
-
-            // Parse FloatEvent entries
-            let mut points = Vec::new();
-            for event in envelope
-                .descendants()
-                .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
-            {
-                let time_beats = event
-                    .attribute("Time")
-                    .and_then(parse_f64_value)
-                    .unwrap_or(0.0);
-
-                // Skip the Ableton sentinel value (negative infinity placeholder)
-                if time_beats < -1_000_000.0 {
-                    continue;
-                }
-
-                let value = event
-                    .attribute("Value")
-                    .and_then(parse_f64_value)
-                    .unwrap_or(0.0);
-
-                // Detect bezier curve controls
-                let has_curve = event.attribute("CurveControl1X").is_some();
-                let curve_type = if has_curve {
-                    "bezier".to_string()
-                } else {
-                    "linear".to_string()
-                };
-
-                // Extract full cubic bezier control points for lossless import
-                let (bezier_cp1x, bezier_cp1y, bezier_cp2x, bezier_cp2y, tension) = if has_curve {
-                    let cp1x = event
-                        .attribute("CurveControl1X")
-                        .and_then(parse_f64_value)
-                        .unwrap_or(0.0);
-                    let cp1y = event
-                        .attribute("CurveControl1Y")
-                        .and_then(parse_f64_value)
-                        .unwrap_or(0.5);
-                    let cp2x = event
-                        .attribute("CurveControl2X")
-                        .and_then(parse_f64_value)
-                        .unwrap_or(1.0);
-                    let cp2y = event
-                        .attribute("CurveControl2Y")
-                        .and_then(parse_f64_value)
-                        .unwrap_or(0.5);
-                    // Backward-compatible tension approximation
-                    let tension = (cp2y - cp1y).clamp(-1.0, 1.0);
-                    (Some(cp1x), Some(cp1y), Some(cp2x), Some(cp2y), Some(tension))
-                } else {
-                    (None, None, None, None, None)
-                };
-
-                points.push(dream_models::project::AutomationPoint {
-                    beat: time_beats,
-                    value,
-                    curve_type,
-                    tension,
-                    bezier_cp1x,
-                    bezier_cp1y,
-                    bezier_cp2x,
-                    bezier_cp2y,
-                });
-            }
-
-            if points.is_empty() {
-                continue;
-            }
-
-            // Sort by beat position
-            points.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
-
-            track.automation_lanes.push(dream_models::project::AutomationLane {
-                param_id,
-                points,
-            });
-        }
-    }
-
-    import_plugin_device_static_automation_fallback(track_node, track);
+    import_track_automation_with_importer(
+        track_node,
+        track,
+        infer_device_display_name,
+        normalize_plugin_key,
+        upsert_static_import_lane_if_missing,
+    );
 }
 
 fn import_main_track_mixer_snapshot(
@@ -4764,716 +4450,14 @@ fn import_als_project_with_target_sample_rate(
     project.tracks.clear();
     project.markers = parse_project_markers(live_set);
     project.session_scenes = parse_project_scenes(live_set);
-    if let Some(v) = parse_live_set_bool(live_set, "AutomationMode") {
-        project.automation_mode_enabled = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "SnapAutomationToGrid") {
-        project.snap_automation_to_grid = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ArrangementOverdub") {
-        project.arrangement_overdub = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "SoloInPlace") {
-        project.solo_in_place = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "CrossfadeCurve") {
-        project.crossfade_curve = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "LatencyCompensation") {
-        project.latency_compensation_mode = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "GlobalQuantisation") {
-        project.global_quantisation = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "AutoQuantisation") {
-        project.auto_quantisation = v;
-    }
-    if let Some(session_scroll) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("SessionScrollPos"))
-    {
-        if let Some(v) = session_scroll.attribute("X").and_then(parse_i64_value) {
-            project.session_scroll_x = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        }
-        if let Some(v) = session_scroll.attribute("Y").and_then(parse_i64_value) {
-            project.session_scroll_y = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        }
-    }
-    if let Some(v) = first_child_f64(live_set, "SelectedBreakpointValue")
-        .filter(|v| v.is_finite())
-    {
-        project.selected_breakpoint_value = v;
-    }
-    if let Some(time_selection) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("TimeSelection"))
-    {
-        if let Some(v) = first_child_f64(time_selection, "AnchorTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
-        {
-            project.time_selection_anchor_beats = Some(v);
-        }
-        if let Some(v) = first_child_f64(time_selection, "OtherTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
-        {
-            project.time_selection_other_beats = Some(v);
-        }
-    }
-    if let Some(sequencer_navigator) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("SequencerNavigator"))
-    {
-        if let Some(v) = sequencer_navigator
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("CurrentZoom"))
-            .and_then(|n| n.attribute("Value"))
-            .and_then(parse_f64_value)
-            .filter(|v| v.is_finite() && *v > 0.0)
-        {
-            project.sequencer_navigator_zoom = Some(v);
-            // Also map to legacy persisted view zoom for compatibility.
-            project.view_zoom_scale = Some(v);
-        }
-        if let Some(scroller_pos) = sequencer_navigator
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("ScrollerPos"))
-        {
-            if let Some(v) = scroller_pos.attribute("X").and_then(parse_i64_value) {
-                let x = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-                project.sequencer_navigator_scroll_x = Some(x);
-                // Preserve previous single-axis field as well.
-                project.view_scroll_position = Some(x as f64);
-            }
-            if let Some(v) = scroller_pos.attribute("Y").and_then(parse_i64_value) {
-                project.sequencer_navigator_scroll_y =
-                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-            }
-        }
-        if let Some(client_size) = sequencer_navigator
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("ClientSize"))
-        {
-            if let Some(v) = client_size.attribute("X").and_then(parse_i64_value) {
-                project.sequencer_navigator_client_width =
-                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-            }
-            if let Some(v) = client_size.attribute("Y").and_then(parse_i64_value) {
-                project.sequencer_navigator_client_height =
-                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-            }
-        }
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "IsContentSplitterOpen") {
-        project.is_content_splitter_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "IsExpressionSplitterOpen") {
-        project.is_expression_splitter_open = v;
-    }
-    project.expression_lanes = parse_root_midi_editor_lanes(live_set, "ExpressionLanes");
-    project.content_lanes = parse_root_midi_editor_lanes(live_set, "ContentLanes");
-    project.view_data_json = first_child_value(live_set, "ViewData");
-    if let Some(v) = first_child_value(live_set, "Annotation") {
-        project.annotation = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "SmpteFormat") {
-        project.smpte_format = v;
-    }
-    if let Some(v) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForPlayerAndGroupTracks"))
-        .and_then(|n| first_child_i32(n, "NextColorIndex"))
-    {
-        project.auto_color_picker_player_group_next_color_index = v;
-    }
-    if let Some(v) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForReturnAndMainTracks"))
-        .and_then(|n| first_child_i32(n, "NextColorIndex"))
-    {
-        project.auto_color_picker_return_main_next_color_index = v;
-    }
-    if let Some(v) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
-        .and_then(|n| first_child_i32(n, "DefaultGrooveId"))
-    {
-        project.groove_pool_default_groove_id = Some(v);
-    }
-    if let Some(groove_pool) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
-    {
-        let count = groove_pool
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("Groove"))
-            .count();
-        project.groove_pool_groove_count = count.clamp(0, i32::MAX as usize) as i32;
-    }
-    if let Some(linked_groups) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("LinkedTrackGroups"))
-    {
-        let count = linked_groups
-            .children()
-            .filter(|n| n.is_element())
-            .count();
-        project.linked_track_group_count = count.clamp(0, i32::MAX as usize) as i32;
-    }
-    if let Some(tuning_systems) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("TuningSystems"))
-    {
-        let count = tuning_systems
-            .children()
-            .filter(|n| n.is_element())
-            .count();
-        project.tuning_system_count = count.clamp(0, i32::MAX as usize) as i32;
-    }
-    if let Some(note_algorithms) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("NoteAlgorithms"))
-    {
-        let count = note_algorithms
-            .children()
-            .filter(|n| n.is_element())
-            .count();
-        project.note_algorithm_count = count.clamp(0, i32::MAX as usize) as i32;
-    }
-    if let Some(video_rect) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("VideoWindowRect"))
-    {
-        project.video_window_rect_top = video_rect
-            .attribute("Top")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-        project.video_window_rect_left = video_rect
-            .attribute("Left")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-        project.video_window_rect_bottom = video_rect
-            .attribute("Bottom")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-        project.video_window_rect_right = video_rect
-            .attribute("Right")
-            .and_then(parse_i64_value)
-            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "SelectedDocumentViewInMainWindow") {
-        project.selected_document_view = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "ViewStateFxSlotCount") {
-        project.view_state_fx_slot_count = v;
-    }
-    if let Some(v) = first_child_value(live_set, "ViewStateSessionMixerVolumeSectionHeight")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.view_state_session_mixer_volume_section_height = v;
-    }
-    if let Some(v) = first_child_value(live_set, "ViewStateArrangerMixerVolumeSectionHeight")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.view_state_arranger_mixer_volume_section_height = v;
-    }
-    if let Some(v) = first_child_value(live_set, "ViewStateSessionTrackWidth")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.view_state_session_track_width = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ViewStateMainWindowClipDetailOpen") {
-        project.view_state_main_window_clip_detail_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ViewStateMainWindowDeviceDetailOpen") {
-        project.view_state_main_window_device_detail_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ViewStateSecondWindowClipDetailOpen") {
-        project.view_state_second_window_clip_detail_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ViewStateSecondWindowDeviceDetailOpen") {
-        project.view_state_second_window_device_detail_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ShouldSceneTempoAndTimeSignatureBeVisible") {
-        project.should_scene_tempo_time_signature_be_visible = v;
-    }
-    if let Some(v) = first_child_value(live_set, "WaveformVerticalZoomFactor")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.waveform_vertical_zoom_factor = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "IsWaveformVerticalZoomActive") {
-        project.is_waveform_vertical_zoom_active = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "HighlightedTrackIndex") {
-        project.highlighted_track_index = v;
-    }
-    if let Some(v) = first_child_value(live_set, "TrackHeaderWidth")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.track_header_width = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ResetNonautomatedMidiControllersOnClipStarts") {
-        project.reset_nonautomated_midi_controllers_on_clip_starts = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "MidiFoldIn") {
-        project.midi_fold_in = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "MidiFoldMode") {
-        project.midi_fold_mode = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "MultiClipFocusMode") {
-        project.multi_clip_focus_mode = v;
-    }
-    if let Some(v) = first_child_value(live_set, "MultiClipLoopBarHeight")
-        .as_deref()
-        .and_then(parse_f64_value)
-        .filter(|v| v.is_finite())
-    {
-        project.multi_clip_loop_bar_height = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "MidiPrelisten") {
-        project.midi_prelisten = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "UseWarperLegacyHiQMode") {
-        project.use_warper_legacy_hiq_mode = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "ShowVideoWindow") {
-        project.show_video_window = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "SoloOrPflSavedValue") {
-        project.solo_or_pfl_saved_value = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "ColorSequenceIndex") {
-        project.color_sequence_index = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "NoteSpellingPreference") {
-        project.note_spelling_preference = v;
-    }
-    if let Some(v) = parse_live_set_i32(live_set, "AccidentalSpellingPreference") {
-        project.accidental_spelling_preference = v;
-    }
-    if let Some(v) = parse_live_set_bool(live_set, "PreferFlatRootNote") {
-        project.prefer_flat_root_note = v;
-    }
-    if let Some(v) = parse_live_set_bool(
+    apply_live_set_project_metadata_from_importer(&mut project, live_set);
+
+    apply_live_set_timeline_and_signature_metadata_from_importer(
+        &mut project,
         live_set,
-        "ViewStateMainWindowHiddenOtherDocViewTypeClipDetailOpen",
-    ) {
-        project.view_state_main_window_hidden_other_doc_view_type_clip_detail_open = v;
-    }
-    if let Some(v) = parse_live_set_bool(
-        live_set,
-        "ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen",
-    ) {
-        project.view_state_main_window_hidden_other_doc_view_type_device_detail_open = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "MixerInArrangement") {
-        project.view_mixer_in_arrangement = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerIO") {
-        project.view_arranger_mixer_io = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerSends") {
-        project.view_arranger_mixer_sends = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerReturns") {
-        project.view_arranger_mixer_returns = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerVolume") {
-        project.view_arranger_mixer_volume = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerTrackOptions") {
-        project.view_arranger_mixer_track_options = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerCrossFade") {
-        project.view_arranger_mixer_crossfade = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerTrackPerformanceImpactMeter") {
-        project.view_arranger_mixer_track_performance_impact_meter = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "MixerInSession") {
-        project.view_mixer_in_session = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionIO") {
-        project.view_session_io = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionSends") {
-        project.view_session_sends = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionReturns") {
-        project.view_session_returns = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionVolume") {
-        project.view_session_volume = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionTrackOptions") {
-        project.view_session_track_options = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionCrossFade") {
-        project.view_session_crossfade = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionTrackPerformanceImpactMeter") {
-        project.view_session_track_performance_impact_meter = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "SessionShowOverView") {
-        project.view_session_show_overview = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerIO") {
-        project.view_arranger_io = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerReturns") {
-        project.view_arranger_returns = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerVolume") {
-        project.view_arranger_volume = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerTrackOptions") {
-        project.view_arranger_track_options = v;
-    }
-    if let Some(v) = parse_view_states_bool(live_set, "ArrangerShowOverView") {
-        project.view_arranger_show_overview = v;
-    }
-
-    if let Some(main_track) = live_set
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
-        && let Some(global_groove_amount) = main_track
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("GlobalGrooveAmount"))
-            .and_then(|n| {
-                n.children()
-                    .find(|c| c.is_element() && c.has_tag_name("Manual"))
-                    .and_then(|m| m.attribute("Value"))
-                    .and_then(parse_f64_value)
-            })
-            .filter(|v| v.is_finite())
-    {
-        project.global_groove_amount = global_groove_amount;
-    }
-
-    if let Some(transport) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Transport"))
-    {
-        if let Some(v) = first_child_f64(transport, "PhaseNudgeTempo")
-            .filter(|v| v.is_finite())
-        {
-            project.transport_phase_nudge_tempo = v;
-        }
-        if let Some(current_time_beats) = first_child_f64(transport, "CurrentTime")
-            .filter(|v| v.is_finite() && *v >= 0.0)
-        {
-            project.playhead_position_frames = beats_to_frames(current_time_beats, tempo, sample_rate);
-        }
-        let loop_on = first_child_bool(transport, "LoopOn").unwrap_or(false);
-        let loop_start_beats = first_child_f64(transport, "LoopStart").unwrap_or(0.0).max(0.0);
-        let loop_length_beats = first_child_f64(transport, "LoopLength").unwrap_or(0.0).max(0.0);
-        project.is_looping = loop_on;
-        project.loop_start_frames = Some(beats_to_frames(loop_start_beats, tempo, sample_rate));
-        project.loop_end_frames = Some(beats_to_frames(loop_start_beats + loop_length_beats, tempo, sample_rate));
-        if let Some(v) = first_child_bool(transport, "PunchIn") {
-            project.punch_in_enabled = v;
-        }
-        if let Some(v) = first_child_bool(transport, "PunchOut") {
-            project.punch_out_enabled = v;
-        }
-        if let Some(v) = first_child_f64(transport, "MetronomeTickDuration")
-            .filter(|v| v.is_finite())
-        {
-            project.metronome_tick_duration = v;
-        }
-        if let Some(v) = first_child_bool(transport, "LoopIsSongStart") {
-            project.transport_loop_is_song_start = v;
-        }
-        if let Some(v) = first_child_bool(transport, "DrawMode") {
-            project.transport_draw_mode = v;
-        }
-    }
-
-    // Import arrangement/editor grid settings (prefer LiveSet root grid).
-    if let Some((num, den, ntoles, snap, fixed)) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Grid"))
-        .and_then(parse_clip_grid)
-        .or_else(|| live_set
-        .descendants()
-        .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
-        .find_map(parse_clip_grid))
-    {
-        project.arrangement_grid_numerator = num;
-        project.arrangement_grid_denominator = den;
-        project.arrangement_grid_ntoles = ntoles;
-        project.arrangement_snap_to_grid = snap;
-        project.arrangement_grid_fixed = fixed;
-    }
-
-    // Import project key signature hint (prefer LiveSet root scale info).
-    if let Some(root_scale) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("ScaleInformation"))
-    {
-        let is_in_key = first_child_bool(live_set, "InKey").unwrap_or(false);
-        let scale_root = first_child_value(root_scale, "Root")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v.rem_euclid(12) as u8);
-        let scale_name = first_child_value(root_scale, "Name");
-        if is_in_key || scale_root.is_some() {
-            project.key_sig_enabled = true;
-        }
-        if let Some(root) = scale_root {
-            project.key_sig_tonic = semitone_to_tonic(root).to_string();
-        }
-        if let Some(name) = scale_name {
-            project.key_sig_mode = if name.chars().all(|c| c.is_ascii_digit()) {
-                format!("Scale {name}")
-            } else {
-                name
-            };
-        }
-    } else if let Some(first_clip_with_scale) = live_set
-        .descendants()
-        .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
-        .find(|clip| {
-            clip.children()
-                .any(|c| c.is_element() && c.has_tag_name("ScaleInformation"))
-                || node_child_value(*clip, "IsInKey").is_some()
-        })
-    {
-        let (is_in_key, scale_root, scale_name) = parse_clip_scale_info(first_clip_with_scale);
-        if is_in_key || scale_root.is_some() {
-            project.key_sig_enabled = true;
-        }
-        if let Some(root) = scale_root {
-            project.key_sig_tonic = semitone_to_tonic(root).to_string();
-        }
-        if let Some(name) = scale_name {
-            project.key_sig_mode = if name.chars().all(|c| c.is_ascii_digit()) {
-                format!("Scale {name}")
-            } else {
-                name
-            };
-        }
-    }
-    // ── Component 2: Time Signature Import ─────────────────────────────
-    if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
-        // Ableton stores time signature inside MainTrack > TimeSignature
-        if let Some(ts_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("TimeSignature")) {
-            let numerator = ts_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Numerator"))
-                .and_then(|n| n.attribute("Value"))
-                .and_then(parse_i64_value)
-                .map(|v| v.clamp(1, 32) as u8)
-                .unwrap_or(4);
-            let denominator = ts_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Denominator"))
-                .and_then(|n| n.attribute("Value"))
-                .and_then(parse_i64_value)
-                .map(|v| v.clamp(1, 32) as u8)
-                .unwrap_or(4);
-            project.time_signature = TimeSignature::new(numerator, denominator);
-        }
-
-        // ── STUB-12 FIX: Parse tempo automation from MainTrack ─────────
-        // Ableton stores tempo automation under:
-        //   MainTrack > AutomationEnvelopes > Envelopes > AutomationEnvelope
-        // where the PointeeId resolves to the Tempo parameter.
-        // We look for FloatEvent entries inside the Tempo node's automation.
-        if let Some(tempo_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("Tempo")) {
-            // The AutomationTarget may have an Id we can map, but for tempo
-            // we can also directly walk FloatEvent entries under AutomationEnvelopes
-            // that reference the tempo PointeeId.
-            let tempo_pointee_id = tempo_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
-                .and_then(|at| at.attribute("Id"))
-                .unwrap_or_default()
-                .to_string();
-
-            if !tempo_pointee_id.is_empty() {
-                // Walk the MainTrack's AutomationEnvelopes
-                if let Some(env_container) = main_track
-                    .children()
-                    .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
-                {
-                    for envelope in env_container
-                        .children()
-                        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
-                    {
-                        let pid = envelope
-                            .descendants()
-                            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
-                            .and_then(|n| n.attribute("Value"))
-                            .unwrap_or_default();
-
-                        if pid != tempo_pointee_id {
-                            continue;
-                        }
-
-                        // Found the tempo automation envelope — extract events
-                        let mut events = Vec::new();
-                        for event in envelope
-                            .descendants()
-                            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
-                        {
-                            let beat = event
-                                .attribute("Time")
-                                .and_then(parse_f64_value)
-                                .unwrap_or(0.0);
-                            // Skip Ableton sentinel (negative infinity)
-                            if beat < -1_000_000.0 {
-                                continue;
-                            }
-                            let bpm = event
-                                .attribute("Value")
-                                .and_then(parse_f64_value)
-                                .unwrap_or(tempo);
-                            let curve_type = if event.attribute("CurveControl1X").is_some() {
-                                "bezier".to_string()
-                            } else {
-                                "linear".to_string()
-                            };
-                            events.push(dream_models::project::TempoAutomationEvent {
-                                beat,
-                                bpm: bpm.clamp(20.0, 999.0),
-                                curve_type,
-                            });
-                        }
-                        if !events.is_empty() {
-                            events.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
-                            log::info!(
-                                "[ALS Import] Tempo automation: {} events (range {:.1}–{:.1} BPM)",
-                                events.len(),
-                                events.iter().map(|e| e.bpm).fold(f64::INFINITY, f64::min),
-                                events.iter().map(|e| e.bpm).fold(f64::NEG_INFINITY, f64::max),
-                            );
-                            project.tempo_automation_events = events;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        // ── STUB-13 FIX: Parse time signature automation events ────────
-        // Ableton stores time signature changes similarly via automation
-        // envelopes on the TimeSignature parameter of MainTrack.
-        // The numerator and denominator are encoded as FloatEvent values.
-        if let Some(ts_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("TimeSignature")) {
-            // Check for automation events on Numerator
-            let num_pointee = ts_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Numerator"))
-                .and_then(|n| n.descendants().find(|c| c.is_element() && c.has_tag_name("AutomationTarget")))
-                .and_then(|at| at.attribute("Id"))
-                .unwrap_or_default()
-                .to_string();
-
-            let den_pointee = ts_node
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("Denominator"))
-                .and_then(|n| n.descendants().find(|c| c.is_element() && c.has_tag_name("AutomationTarget")))
-                .and_then(|at| at.attribute("Id"))
-                .unwrap_or_default()
-                .to_string();
-
-            if !num_pointee.is_empty() {
-                // Collect numerator automation events
-                let mut num_events: Vec<(f64, u8)> = Vec::new();
-                let mut den_events: Vec<(f64, u8)> = Vec::new();
-
-                if let Some(env_container) = main_track
-                    .children()
-                    .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
-                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
-                {
-                    for envelope in env_container
-                        .children()
-                        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
-                    {
-                        let pid = envelope
-                            .descendants()
-                            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
-                            .and_then(|n| n.attribute("Value"))
-                            .unwrap_or_default();
-
-                        let is_num = pid == num_pointee;
-                        let is_den = !den_pointee.is_empty() && pid == den_pointee;
-                        if !is_num && !is_den {
-                            continue;
-                        }
-
-                        for event in envelope
-                            .descendants()
-                            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
-                        {
-                            let beat = event
-                                .attribute("Time")
-                                .and_then(parse_f64_value)
-                                .unwrap_or(0.0);
-                            if beat < -1_000_000.0 {
-                                continue;
-                            }
-                            let val = event
-                                .attribute("Value")
-                                .and_then(parse_f64_value)
-                                .unwrap_or(4.0);
-                            let clamped = val.round().clamp(1.0, 32.0) as u8;
-                            if is_num {
-                                num_events.push((beat, clamped));
-                            } else {
-                                den_events.push((beat, clamped));
-                            }
-                        }
-                    }
-                }
-
-                if !num_events.is_empty() {
-                    num_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    den_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
-                    let default_den = project.time_signature.denominator;
-
-                    let mut ts_changes = Vec::new();
-                    for (beat, num) in &num_events {
-                        // Find the denominator at this beat position (last <= beat)
-                        let den = den_events
-                            .iter()
-                            .rev()
-                            .find(|(b, _)| *b <= *beat)
-                            .map(|(_, d)| *d)
-                            .unwrap_or(default_den);
-                        ts_changes.push(dream_models::project::TimeSignatureChange {
-                            beat: *beat,
-                            numerator: *num,
-                            denominator: den,
-                        });
-                    }
-
-                    if !ts_changes.is_empty() {
-                        log::info!(
-                            "[ALS Import] Time signature automation: {} change(s)",
-                            ts_changes.len()
-                        );
-                        project.time_signature_changes = ts_changes;
-                    }
-                }
-            }
-        }
-    }
+        tempo,
+        sample_rate,
+    );
 
     let external_plugins = ExternalPluginIndex::build();
 
@@ -5523,10 +4507,7 @@ fn import_als_project_with_target_sample_rate(
         let mut static_mixer_values = Vec::<(String, f64)>::new();
 
         // ── Component 4: Ableton Color Index Mapping ──────────────────
-        if let Some(color_value) = node_child_value(track_node, "Color")
-            .as_deref()
-            .and_then(parse_i64_value)
-        {
+        if let Some(color_value) = extract_ableton_color_index(track_node) {
             track.color = ableton_color_to_track_color(color_value, index);
             // Store exact Ableton hex color for 1:1 visual fidelity
             track.color_hex = ableton_color_index_to_hex(color_value).map(|s| s.to_string());

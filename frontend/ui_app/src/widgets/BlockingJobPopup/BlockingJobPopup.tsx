@@ -25,7 +25,7 @@ const ERROR_DISPLAY_MS = 5000;
 
 export const BlockingJobPopup = () => {
     const [jobs, setJobs] = useState<BackgroundJobSnapshot[]>([]);
-    const [now, setNow] = useState(Date.now());
+    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
         let unlisten: UnlistenFn | null = null;

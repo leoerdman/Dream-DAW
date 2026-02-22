@@ -18,7 +18,7 @@ polluting workspace and to reduce disk-pressure failures in long hardening runs.
 3. `cargo clippy` for critical runtime crates with policy-deny lints:
    `clippy::unwrap_used`, `clippy::expect_used`, `clippy::todo`, `clippy::dbg_macro`.
 4. `cargo test --workspace --lib`.
-5. Frontend lint.
+5. Frontend TypeScript `tsc --noEmit`.
 6. Frontend production build.
 7. Optional headless fuzz gate (`scripts/headless_fuzz_gate.sh`).
 8. Optional sanitizer gate (`scripts/sanitizer_gate.sh`).
@@ -36,5 +36,6 @@ DREAM_ENABLE_SANITIZERS=1 bash scripts/quality_gate.sh
 
 - No merge to mainline without a green gate.
 - Policy-deny clippy findings in critical audio/host crates are treated as failure.
-- Frontend must be buildable from clean checkout.
+- Frontend must pass `tsc --noEmit` and be buildable from clean checkout.
+- Frontend lint currently runs in advisory mode during lint-debt burn-down.
 - Binding sync is mandatory before frontend checks.

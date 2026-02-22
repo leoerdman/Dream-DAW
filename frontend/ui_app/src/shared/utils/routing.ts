@@ -40,7 +40,7 @@ export function isTrackActive(
         if (!childTrack.is_solo) return false;
 
         let current = childTrack.output;
-        let visited = new Set<string>();
+        const visited = new Set<string>();
 
         while (current && current !== 'master') {
             if (visited.has(current)) break; // Prevent infinite loop on cycles
@@ -66,7 +66,7 @@ export function isTrackActive(
     // 4. Check if any ANCESTOR is explicitly soloed (DOWN propagation)
     // We walk up from trackIndex and check if any parent is soloed.
     let current = track.output;
-    let visited = new Set<string>();
+    const visited = new Set<string>();
 
     while (current && current !== 'master') {
         if (visited.has(current)) break; // Prevent infinite loop

@@ -37,7 +37,7 @@ export function useNativeMenu(onProjectChange?: () => void) {
         buildNativeMenu(() => onProjectChangeRef.current?.()).catch((err) => {
             console.error('[useNativeMenu] Failed to build native menu:', err);
         });
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 }
 
 // ── Menu Construction ────────────────────────────────────────────────────

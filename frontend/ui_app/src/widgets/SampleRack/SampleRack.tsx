@@ -35,7 +35,17 @@ const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePath: stri
     const [peaks, setPeaks] = useState<engineApi.PeakPair[] | null>(null);
 
     useEffect(() => {
-        if (!samplePath) { setPeaks(null); return; }
+        if (!samplePath) {
+            let cancelled = false;
+            queueMicrotask(() => {
+                if (!cancelled) {
+                    setPeaks(null);
+                }
+            });
+            return () => {
+                cancelled = true;
+            };
+        }
         let cancelled = false;
         engineApi.getWaveformPeaksBinary(samplePath)
             .then(wf => {

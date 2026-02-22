@@ -98,6 +98,10 @@ interface BrowserItem {
     _loading?: boolean;
 }
 
+type PluginGroupedRow =
+    | { kind: 'header'; id: string; title: string; count: number }
+    | { kind: 'item'; id: string; item: BrowserItem };
+
 // ── Static Categories ────────────────────────────────────
 
 const STATIC_CATEGORIES: BrowserCategory[] = [
@@ -399,7 +403,7 @@ const AssetSearchInput = memo(function AssetSearchInput({
 }: {
     debouncedQuery: string;
     setDebouncedQuery: (q: string) => void;
-    searchRef: React.RefObject<HTMLInputElement>;
+    searchRef: React.RefObject<HTMLInputElement | null>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
 }) {
     const [localQuery, setLocalQuery] = useState(debouncedQuery);
@@ -474,16 +478,16 @@ const VirtualFileList = memo(function VirtualFileList({
     setSelectedItemId: (id: string | null) => void;
     syncPreviewForItem: (item: BrowserItem | null) => void;
     isPreviewPlayingRef: React.MutableRefObject<boolean>;
-    setContextMenu: React.Dispatch<React.SetStateAction<any>>;
+    setContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; item: BrowserItem } | null>>;
     navigateInto: (path: string) => void;
     showTypeColumn: boolean;
     showSizeColumn: boolean;
     debouncedQuery: string;
     audioDurationSecRef: React.MutableRefObject<Record<string, number>>;
     itemRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
-    fileListRef: React.RefObject<HTMLDivElement>;
+    fileListRef: React.RefObject<HTMLDivElement | null>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
-    pluginGroupedRows: any[];
+    pluginGroupedRows: PluginGroupedRow[];
     scanLoading: boolean;
     scanError: string | null;
     columnMenuPos: { x: number; y: number } | null;
@@ -518,7 +522,9 @@ const VirtualFileList = memo(function VirtualFileList({
         const key = items.length === 0 ? '' : `${items[0].id}|${items[items.length - 1].id}|${items.length}`;
         if (prevItemsKeyRef.current !== key) {
             prevItemsKeyRef.current = key;
-            setScrollTop(0);
+            queueMicrotask(() => {
+                setScrollTop(0);
+            });
             if (fileListRef.current) {
                 fileListRef.current.scrollTop = 0;
             }
@@ -1728,16 +1734,10 @@ export const AssetBrowser = () => {
         return base;
     }, [selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, sizeFilter, sortFilter, pluginSourceFilter, collectionItems, formatFilter, audioFilter, sourceFilter]);
 
-    const pluginGroupedRows = useMemo(() => {
-        if (selectedCategoryId !== 'plugins') return [] as Array<
-            | { kind: 'header'; id: string; title: string; count: number }
-            | { kind: 'item'; id: string; item: BrowserItem }
-        >;
+    const pluginGroupedRows = useMemo<PluginGroupedRow[]>(() => {
+        if (selectedCategoryId !== 'plugins') return [];
 
-        const rows: Array<
-            | { kind: 'header'; id: string; title: string; count: number }
-            | { kind: 'item'; id: string; item: BrowserItem }
-        > = [];
+        const rows: PluginGroupedRow[] = [];
 
         for (const source of PLUGIN_SOURCE_ORDER) {
             const sourceItems = items.filter((it) => it.type === 'plugin' && (it.pluginSource ?? 'external') === source);
@@ -2235,7 +2235,7 @@ export const AssetBrowser = () => {
                 <AssetSearchInput
                     debouncedQuery={debouncedQuery}
                     setDebouncedQuery={setDebouncedQuery}
-                    searchRef={searchRef as any}
+                    searchRef={searchRef}
                     handleBrowserKeyDown={handleBrowserKeyDown}
                 />
             </div>
@@ -2618,7 +2618,7 @@ export const AssetBrowser = () => {
                             debouncedQuery={debouncedQuery}
                             audioDurationSecRef={audioDurationSecRef}
                             itemRowRefs={itemRowRefs}
-                            fileListRef={fileListRef as any}
+                            fileListRef={fileListRef}
                             handleBrowserKeyDown={handleBrowserKeyDown}
                             pluginGroupedRows={pluginGroupedRows}
                             scanLoading={scanLoading}

@@ -321,11 +321,11 @@ const knobParamNameStyle: CSSProperties = {
     whiteSpace: 'nowrap',
 };
 
-const knobDialStyle = (_dragging: boolean): CSSProperties => ({
+const knobDialStyle = (isDragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
     position: 'relative',
-    cursor: 'ns-resize',
+    cursor: isDragging ? 'grabbing' : 'ns-resize',
     touchAction: 'none',
     display: 'flex',
     alignItems: 'center',

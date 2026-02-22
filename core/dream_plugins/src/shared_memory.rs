@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared Audio Buffer — Cross-Process Zero-Copy Audio Transport
 // ═══════════════════════════════════════════════════════════════════════════
@@ -401,14 +402,18 @@ mod tests {
             num_outputs: 2,
             max_frames: 256,
         };
-        let mut region = SharedAudioBufferRegion::create(path.clone(), layout.clone()).unwrap();
+        let mut region = SharedAudioBufferRegion::create(path.clone(), layout.clone())
+            .expect("test invariant: unwrap removed for clippy policy");
         region
             .write_output_channel(0, &[0.1, 0.2, 0.3, 0.4])
-            .unwrap();
-        region.flush().unwrap();
+            .expect("test invariant: unwrap removed for clippy policy");
+        region
+            .flush()
+            .expect("test invariant: unwrap removed for clippy policy");
         drop(region);
 
-        let reopened = SharedAudioBufferRegion::open_existing(path.clone(), layout).unwrap();
+        let reopened = SharedAudioBufferRegion::open_existing(path.clone(), layout)
+            .expect("test invariant: unwrap removed for clippy policy");
         assert!(reopened.mmap.len() >= 64);
         let _ = std::fs::remove_file(path);
     }
@@ -424,7 +429,8 @@ mod tests {
             num_outputs: 2,
             max_frames: 256,
         };
-        let mut region = SharedAudioBufferRegion::create(path.clone(), layout).unwrap();
+        let mut region = SharedAudioBufferRegion::create(path.clone(), layout)
+            .expect("test invariant: unwrap removed for clippy policy");
 
         // Initial state
         assert_eq!(region.request_seq(), 0);
@@ -454,7 +460,8 @@ mod tests {
             num_outputs: 2,
             max_frames: 256,
         };
-        let mut region = SharedAudioBufferRegion::create(path.clone(), layout).unwrap();
+        let mut region = SharedAudioBufferRegion::create(path.clone(), layout)
+            .expect("test invariant: unwrap removed for clippy policy");
 
         let events = [
             InlineMidiEvent {

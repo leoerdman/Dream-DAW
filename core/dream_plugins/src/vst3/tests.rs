@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 use super::*;
 use crate::format::PluginCategory;
 use std::path::PathBuf;
@@ -34,7 +35,8 @@ fn vst3_stub_lifecycle() {
     assert!(!stub.is_active());
     assert_eq!(stub.latency_samples(), 256);
 
-    stub.activate(48000.0, 512).unwrap();
+    stub.activate(48000.0, 512)
+        .expect("test invariant: unwrap removed for clippy policy");
     assert!(stub.is_active());
 
     // Process some audio
@@ -49,12 +51,13 @@ fn vst3_stub_lifecycle() {
         128,
         &[],
     )
-    .unwrap();
+    .expect("test invariant: unwrap removed for clippy policy");
 
     assert_eq!(output_l[0], 1.0);
     assert_eq!(output_r[0], 0.5);
 
-    stub.deactivate().unwrap();
+    stub.deactivate()
+        .expect("test invariant: unwrap removed for clippy policy");
     assert!(!stub.is_active());
 }
 
@@ -63,7 +66,8 @@ fn vst3_stub_accepts_sidechain_channel_layout() {
     let mut desc = make_test_descriptor();
     desc.audio_inputs = 4;
     let mut stub = Vst3Instance::stub(desc, 0);
-    stub.activate(48000.0, 64).unwrap();
+    stub.activate(48000.0, 64)
+        .expect("test invariant: unwrap removed for clippy policy");
 
     let main_l = vec![0.25f32; 64];
     let main_r = vec![0.5f32; 64];
@@ -78,7 +82,7 @@ fn vst3_stub_accepts_sidechain_channel_layout() {
         64,
         &[],
     )
-    .unwrap();
+    .expect("test invariant: unwrap removed for clippy policy");
 
     // Stub/fallback path remains transparent for main bus.
     assert_eq!(out_l[0], 0.25);
@@ -122,7 +126,8 @@ fn editor_open_requires_activation() {
 fn editor_open_reports_unimplemented_after_activation() {
     let desc = make_test_descriptor();
     let mut stub = Vst3Instance::stub(desc, 0);
-    stub.activate(44100.0, 128).unwrap();
+    stub.activate(44100.0, 128)
+        .expect("test invariant: unwrap removed for clippy policy");
     let result = stub.open_editor();
     assert!(matches!(result, Err(PluginError::UnsupportedFormat(_))));
 }

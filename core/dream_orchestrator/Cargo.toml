@@ -11,6 +11,7 @@ dream_mutators = { path = "../dream_mutators" }
 dream_ipc = { path = "../dream_ipc" }
 dream_clip_engine = { path = "../dream_clip_engine" }
 dream_io = { path = "../dream_io" }
+dream_graph = { path = "../dream_graph" }
 serde = { workspace = true }
 uuid = { workspace = true }
 log = { workspace = true }

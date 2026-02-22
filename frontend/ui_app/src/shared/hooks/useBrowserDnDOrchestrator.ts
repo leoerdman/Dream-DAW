@@ -11,7 +11,7 @@ interface UseBrowserDnDOrchestratorArgs {
     transportBpm: number;
     projectSampleRate: number;
     importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
-    fetchProject: () => Promise<void>;
+    applyProjectDeltas: (deltas: engineApi.ProjectDelta[], reason?: string) => Promise<void>;
 }
 
 const resolvePluginSlot = (
@@ -30,7 +30,7 @@ export const useBrowserDnDOrchestrator = ({
     transportBpm,
     projectSampleRate,
     importFile,
-    fetchProject,
+    applyProjectDeltas,
 }: UseBrowserDnDOrchestratorArgs) => {
     const buildPluginSlotAttempts = (
         primary: 'instrument' | 'effect',
@@ -48,7 +48,8 @@ export const useBrowserDnDOrchestrator = ({
         const attempts = buildPluginSlotAttempts(slot);
         for (const attempt of attempts) {
             try {
-                await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);
+                const response = await engineApi.addPluginToTrackWithDeltas(track.id, item.path, item.name, attempt);
+                await applyProjectDeltas(response.deltas, 'browser-dnd:add-plugin');
                 lastErr = null;
                 break;
             } catch (err) {
@@ -56,8 +57,7 @@ export const useBrowserDnDOrchestrator = ({
             }
         }
         if (lastErr) throw lastErr;
-        await fetchProject();
-    }, [projectTracks, fetchProject]);
+    }, [projectTracks, applyProjectDeltas]);
 
     const addDefaultDeviceToTrack = useCallback(async (trackId: string) => {
         const track = projectTracks.find((t) => t.id === trackId);
@@ -66,9 +66,9 @@ export const useBrowserDnDOrchestrator = ({
         const pluginId = def.pluginId;
         const pluginName = def.pluginName;
         const slot = def.slot;
-        await engineApi.addPluginToTrack(track.id, pluginId, pluginName, slot);
-        await fetchProject();
-    }, [projectTracks, fetchProject]);
+        const response = await engineApi.addPluginToTrackWithDeltas(track.id, pluginId, pluginName, slot);
+        await applyProjectDeltas(response.deltas, 'browser-dnd:add-default-device');
+    }, [projectTracks, applyProjectDeltas]);
 
     const dropBrowserItemOnTimeline = useCallback(async (item: BrowserDragItem, trackIndex: number, beat: number) => {
         const track = projectTracks[Math.max(0, Math.min(projectTracks.length - 1, trackIndex))];

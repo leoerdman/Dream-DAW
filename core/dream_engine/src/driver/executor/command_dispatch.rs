@@ -13,6 +13,7 @@ pub(super) enum DeferredTopologyCmd {
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_pending_track_mixer_state(
     render_ctx: &mut RenderContext,
     pending_track_volume: &[Option<f32>; MAX_TRACKS],
@@ -56,8 +57,8 @@ pub(super) fn apply_pending_track_mixer_state(
     effective_soloed[..MAX_TRACKS].copy_from_slice(&track_soloed[..MAX_TRACKS]);
     let routing_now = routing_snapshot.load();
 
-    for child_idx in 0..active_track_count {
-        if !track_soloed[child_idx] {
+    for (child_idx, is_track_soloed) in track_soloed.iter().enumerate().take(active_track_count) {
+        if !*is_track_soloed {
             continue;
         }
         let mut visited = [0u64; 4];
@@ -79,8 +80,12 @@ pub(super) fn apply_pending_track_mixer_state(
         }
     }
 
-    for descendant_idx in 0..active_track_count {
-        if effective_soloed[descendant_idx] {
+    for (descendant_idx, effective_soloed_flag) in effective_soloed
+        .iter_mut()
+        .enumerate()
+        .take(active_track_count)
+    {
+        if *effective_soloed_flag {
             continue;
         }
         let mut visited = [0u64; 4];
@@ -95,7 +100,7 @@ pub(super) fn apply_pending_track_mixer_state(
             match routing_now.get(current) {
                 Some(Some(parent_idx)) if *parent_idx < active_track_count => {
                     if track_soloed[*parent_idx] {
-                        effective_soloed[descendant_idx] = true;
+                        *effective_soloed_flag = true;
                         break;
                     }
                     current = *parent_idx;

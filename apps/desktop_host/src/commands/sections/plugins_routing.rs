@@ -13,6 +13,7 @@ use dream_importers::routing_helpers::{
     lane_param_name_hints,
     find_device_node_on_track,
 };
+use dream_models::project::builtin_effect_type_from_plugin_id;
 mod plugins_routing_helpers;
 use plugins_routing_helpers::{
     apply_imported_external_state_blob,
@@ -747,37 +748,42 @@ fn replace_missing_plugin_slot_cmd(
     }
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let slot = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid).ok_or_else(|| {
-        format!(
-            "Plugin slot not found on track {}: {}",
-            payload.track_id, payload.slot_id
-        )
-    })?;
-
-    if !slot.plugin_id.starts_with("missing://") {
-        return Err("Slot is not a missing plugin placeholder".to_string());
-    }
-
-    slot.plugin_id = replacement_plugin_id.clone();
-    slot.name = payload
+    let replacement_name = payload
         .replacement_plugin_name
         .as_ref()
         .map(|v| v.trim())
         .filter(|v| !v.is_empty())
         .map(|v| v.to_string())
         .unwrap_or_else(|| descriptor.name.clone());
-    slot.external_audio_inputs = Some(descriptor.audio_inputs);
-    // VST3 scanner does NOT populate audio_inputs (it's always 0).
-    // Sidechain bus presence is only known after IComponent::get_bus_count()
-    // at activation time. Leave as None for VST3 to indicate "unknown".
-    if descriptor.format != PluginFormat::VST3 {
-        slot.supports_sidechain_input = Some(descriptor.audio_inputs > 2);
+
+    let cmd = dream_orchestrator::commands::ReplaceMissingPluginSlotCommand {
+        track_id: track_uuid,
+        slot_id: slot_uuid,
+        replacement_plugin_id: replacement_plugin_id.clone(),
+        replacement_plugin_name: replacement_name,
+        external_audio_inputs: Some(descriptor.audio_inputs),
+        supports_sidechain_input: if descriptor.format != PluginFormat::VST3 {
+            Some(descriptor.audio_inputs > 2)
+        } else {
+            None
+        },
+        external_format: Some(descriptor.format.to_string().to_lowercase()),
+        external_uid: descriptor.unique_id.clone(),
+        external_plugin_version: descriptor.version.clone(),
+    };
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
-    slot.external_format = Some(descriptor.format.to_string().to_lowercase());
-    slot.external_uid = descriptor.unique_id.clone();
-    slot.external_plugin_version = descriptor.version.clone();
-    slot.is_bypassed = false;
 
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
@@ -789,6 +795,7 @@ fn replace_missing_plugin_slot_cmd(
         );
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -1054,52 +1061,39 @@ fn set_external_plugin_param_for_slot_cmd(
         .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
     drop(host);
 
+    let lane_cmd = dream_orchestrator::commands::SetExternalPluginParamLaneCommand::from_str_ids(
+        &track_id,
+        &resolved_slot_id.to_string(),
+        param_index,
+        normalized,
+    )
+    .map_err(|e| e.to_string())?;
     {
-        let mut project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
-        if let Some(track_mut) = project_mut.tracks.iter_mut().find(|t| t.id == track_uuid) {
-            let lane_param_id = format!("ext:{}:{}", resolved_slot_id, param_index);
-            let legacy_param_id = format!("slot:{}:ext_param_{}", resolved_slot_id, param_index);
-            let point = dream_models::project::AutomationPoint {
-                beat: 0.0,
-                value: normalized,
-                curve_type: "linear".to_string(),
-                tension: None,
-                bezier_cp1x: None,
-                bezier_cp1y: None,
-                bezier_cp2x: None,
-                bezier_cp2y: None,
-            };
-            track_mut
-                .automation_lanes
-                .retain(|lane| !lane.param_id.eq_ignore_ascii_case(&legacy_param_id));
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&lane_cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
 
-            if let Some(existing_lane) = track_mut
-                .automation_lanes
-                .iter_mut()
-                .find(|lane| lane.param_id.eq_ignore_ascii_case(&lane_param_id))
-            {
-                existing_lane.param_id = lane_param_id;
-                existing_lane.points = vec![point];
-            } else {
-                track_mut.automation_lanes.push(dream_models::project::AutomationLane {
-                    param_id: lane_param_id,
-                    points: vec![point],
-                });
-            }
-        }
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-        if should_commit_snapshot {
-            // Expensive snapshot rebuilds are deferred during live gestures.
-            rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
-            clip_pool_state.rebuild_external_fx_snapshot(
-                &project_mut,
-                plugin_host_state.slot_instance_snapshot().as_ref(),
-            );
-            plugin_host_state.publish_registry();
-            let project_name = project_mut.name.clone();
-            drop(project_mut);
-            project_state.mark_dirty(&project_name, Some(&app))?;
-        }
+    let project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    if should_commit_snapshot {
+        // Expensive snapshot rebuilds are deferred during live gestures.
+        rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
+        clip_pool_state.rebuild_external_fx_snapshot(
+            &project_mut,
+            plugin_host_state.slot_instance_snapshot().as_ref(),
+        );
+        plugin_host_state.publish_registry();
+        let project_name = project_mut.name.clone();
+        drop(project_mut);
+        project_state.mark_dirty(&project_name, Some(&app))?;
     }
 
     log::debug!(
@@ -1299,12 +1293,6 @@ fn add_plugin_to_track_cmd(
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
     let slot = payload.slot.to_lowercase();
     
@@ -1324,7 +1312,7 @@ fn add_plugin_to_track_cmd(
     let canonical = if is_external_plugin {
         None
     } else {
-        dream_graph::routing::device_chain::canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name)
+        dream_importers::ableton::normalization::canonical_internal_plugin_for_import(&payload.plugin_id, &payload.plugin_name)
     };
     
     let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
@@ -1339,64 +1327,55 @@ fn add_plugin_to_track_cmd(
         .unwrap_or_else(|| payload.plugin_name.clone());
     let canonical_slot_hint = canonical.map(|v| v.2);
     
-    // Only MIDI tracks can host instrument slots.
-    let use_instrument = if track.track_type != TrackType::Midi {
-        false
-    } else {
-        match slot.as_str() {
-            "instrument" => true,
-            "effect" => false,
-            "auto" => canonical_slot_hint == Some("instrument")
-                || track.instrument.is_none(),
-            _ => track.instrument.is_none(),
-        }
-    };
-
-    let plugin_id_lower = effective_plugin_id.to_lowercase();
-    let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
-    let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
-        || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
-        
-    let mut slot_data = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
-    let new_slot_id = slot_data.id;
-    
+    let mut external_audio_inputs = None;
+    let mut external_supports_sidechain_input = None;
     if !effective_plugin_id.starts_with("internal://")
         && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
     {
-        slot_data.external_audio_inputs = Some(desc.audio_inputs);
+        external_audio_inputs = Some(desc.audio_inputs);
         if desc.format != PluginFormat::VST3 {
-            slot_data.supports_sidechain_input = Some(desc.audio_inputs > 2);
-        }
-    }
-    
-    let plugin_slot = DeviceNode::Single(slot_data);
-    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
-    let mut runtime_waveform: Option<(Uuid, u8)> = None;
-    
-    if use_instrument {
-        track.instrument = Some(plugin_slot);
-        if (is_sampler_instrument || is_wave_synth_instrument) && track.sampler.is_none() {
-            track.sampler = Some(SamplerConfig::default());
-        }
-        if is_wave_synth_instrument {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            if cfg.sample_path.trim().is_empty() {
-                cfg.sample_path = "internal://waveform/sine".to_string();
-            }
-            runtime_waveform = Some((track.id, dream_graph::routing::device_chain::waveform_code_from_token(&cfg.sample_path)));
-        }
-    } else {
-        // Delegate DAG mutation to dream_graph
-        let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(track, plugin_slot, None);
-        
-        if effective_plugin_id.starts_with("internal://")
-            && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
-            && let Some(internal_slot_index) = opt_internal_idx
-        {
-            runtime_add = Some((track.id, internal_slot_index, effect_type));
+            external_supports_sidechain_input = Some(desc.audio_inputs > 2);
         }
     }
 
+    let cmd = dream_orchestrator::commands::AddPluginToTrackCommand::from_str_track_id(
+        &payload.track_id,
+        effective_plugin_id.clone(),
+        effective_plugin_name.clone(),
+        &slot,
+        canonical_slot_hint,
+        external_audio_inputs,
+        external_supports_sidechain_input,
+    )
+    .map_err(|e| e.to_string())?;
+    let cmd_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+    let new_slot_id = cmd_result.slot_id;
+    let use_instrument = cmd_result.placed_as_instrument;
+
+    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
+    if effective_plugin_id.starts_with("internal://")
+        && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
+        && let Some(internal_slot_index) = cmd_result.runtime_effect_slot_index
+    {
+        runtime_add = Some((track_uuid, internal_slot_index, effect_type));
+    }
+    let runtime_waveform = cmd_result
+        .runtime_waveform_code
+        .map(|waveform| (track_uuid, waveform));
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     
@@ -1583,46 +1562,25 @@ fn remove_plugin_from_track_cmd(
         .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-
-    let mut removed = false;
-    let mut runtime_remove_slot: Option<u8> = None;
-    
-    if let Some(inst) = &track.instrument
-        && inst.id() == slot_uuid
-    {
-        let removed_plugin_id = inst.plugin_id();
-        track.instrument = None;
-        let removed_lower = removed_plugin_id.to_lowercase();
-        if removed_lower.starts_with("internal://instrument/sampler")
-            || removed_lower.starts_with("internal://instrument/wave-synth")
-            || removed_lower.starts_with("internal://instrument/simple-sine-synth")
-        {
-            track.sampler = None;
-        }
-        removed = true;
-    }
-
-    if !removed {
-        // Delegate DAG traversal AND internal index calc to dream_graph
-        if let Some((_node, runtime_idx)) = dream_graph::routing::device_chain::DeviceChain::remove_effect(track, slot_uuid) {
-            runtime_remove_slot = runtime_idx;
-            removed = true;
-        }
-    }
-
-    if !removed {
-        return Err(format!(
-            "Plugin slot not found on track {}: {}",
-            payload.track_id, payload.slot_id
-        ));
-    }
-
+    let cmd = dream_orchestrator::commands::RemovePluginFromTrackCommand::from_str_ids(
+        &payload.track_id,
+        &payload.slot_id,
+    )
+    .map_err(|e| e.to_string())?;
+    let runtime_remove_slot = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result.runtime_remove_slot
+    };
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     clip_pool_state.rebuild_routing_only(&project);
@@ -1650,12 +1608,6 @@ fn remove_plugin_from_track_cmd(
     Ok(())
 }
 
-/// Delegate: updates or creates a static automation lane on a track.
-/// Uses canonical implementation from `dream_models::mutators::upsert_static_automation_lane`.
-fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f64) {
-    mutators::upsert_static_automation_lane(track, param_id, value);
-}
-
 /// Set internal plugin parameter value and route to engine state/snapshots.
 #[tauri::command]
 fn set_internal_plugin_param_cmd(
@@ -1666,207 +1618,46 @@ fn set_internal_plugin_param_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    fn waveform_token_and_code(value: f64) -> (&'static str, u8) {
-        let idx = value.round().clamp(0.0, 3.0) as u8;
-        match idx {
-            1 => ("internal://waveform/triangle", 1),
-            2 => ("internal://waveform/saw", 2),
-            3 => ("internal://waveform/square", 3),
-            _ => ("internal://waveform/sine", 0),
-        }
-    }
-
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let should_commit_snapshot = payload.push_undo_step.unwrap_or(true);
     if should_commit_snapshot {
         push_undo(&project_state)?;
     }
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let raw_key = payload.param_id.to_lowercase();
-    let key = if raw_key.starts_with("slot:") {
-        raw_key
-            .splitn(3, ':')
-            .nth(2)
-            .unwrap_or(raw_key.as_str())
-            .to_string()
-    } else {
-        raw_key.clone()
+    let cmd = dream_orchestrator::commands::SetInternalPluginParamCommand::from_str_track_id(
+        &payload.track_id,
+        payload.param_id.clone(),
+        payload.value,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
     };
-    let lane_param_id = |fallback: &str| -> String {
-        if raw_key.starts_with("slot:") {
-            payload.param_id.clone()
-        } else {
-            fallback.to_string()
-        }
-    };
-    let mut sampler_command_needed = false;
-    let mut sampler_waveform: Option<u8> = None;
-    let mut sampler_waveform2: Option<u8> = None;
-    let mut sampler_osc_mix: Option<f32> = None;
-    let mut sampler_detune_cents: Option<f32> = None;
-    let mut sampler_sub_level: Option<f32> = None;
-    let mut sampler_filter_cutoff: Option<f32> = None;
-    let mut sampler_filter_resonance: Option<f32> = None;
-    let mut sampler_filter_type: Option<u8> = None;
-    let mut sampler_lfo_rate: Option<f32> = None;
-    let mut sampler_lfo_depth: Option<f32> = None;
-    let mut sampler_lfo_target: Option<u8> = None;
-    let mut sampler_pulse_width: Option<f32> = None;
-    let (track_index, sampler_cfg_for_rt) = {
-        let (idx, track) = project
-            .tracks
-            .iter_mut()
-            .enumerate()
-            .find(|(_, t)| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let track_index = result.track_index;
+    let sampler_command_needed = result.sampler_command_needed;
+    let sampler_cfg_for_rt = result.sampler_cfg_for_rt;
+    let sampler_waveform = result.sampler_waveform;
+    let sampler_waveform2 = result.sampler_waveform2;
+    let sampler_osc_mix = result.sampler_osc_mix;
+    let sampler_detune_cents = result.sampler_detune_cents;
+    let sampler_sub_level = result.sampler_sub_level;
+    let sampler_filter_cutoff = result.sampler_filter_cutoff;
+    let sampler_filter_resonance = result.sampler_filter_resonance;
+    let sampler_filter_type = result.sampler_filter_type;
+    let sampler_lfo_rate = result.sampler_lfo_rate;
+    let sampler_lfo_depth = result.sampler_lfo_depth;
+    let sampler_lfo_target = result.sampler_lfo_target;
+    let sampler_pulse_width = result.sampler_pulse_width;
 
-        match key.as_str() {
-            // Utility gain in dB => plugin.gain in linear 0..2
-            "gain" | "utility.gain" | "plugin.gain" => {
-                let linear = 10.0_f64.powf(payload.value.clamp(-60.0, 12.0) / 20.0).clamp(0.0, 2.0);
-                upsert_static_automation_lane(track, &lane_param_id("plugin.gain"), linear);
-            }
-            // Utility pan in -100..100 or -1..1 => plugin.pan in -1..1
-            "pan" | "utility.pan" | "plugin.pan" => {
-                let pan = if payload.value.abs() > 1.0 {
-                    (payload.value / 100.0).clamp(-1.0, 1.0)
-                } else {
-                    payload.value.clamp(-1.0, 1.0)
-                };
-                upsert_static_automation_lane(track, &lane_param_id("plugin.pan"), pan);
-            }
-            "width" | "utility.width" | "plugin.width" => {
-                upsert_static_automation_lane(track, &lane_param_id("plugin.width"), payload.value.clamp(0.0, 200.0));
-            }
-            "mono" | "utility.mono" | "plugin.mono" => {
-                upsert_static_automation_lane(
-                    track,
-                    &lane_param_id("plugin.mono"),
-                    if payload.value >= 0.5 { 1.0 } else { 0.0 },
-                );
-            }
-            // Sampler parameters
-            "sampler.volume" | "volume" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.volume = payload.value.clamp(0.0, 2.0);
-                sampler_command_needed = true;
-            }
-            "sampler.attack" | "attack" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.attack = payload.value.clamp(0.001, 10.0);
-                sampler_command_needed = true;
-            }
-            "sampler.decay" | "decay" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.decay = payload.value.clamp(0.001, 10.0);
-                sampler_command_needed = true;
-            }
-            "sampler.sustain" | "sustain" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.sustain = payload.value.clamp(0.0, 1.0);
-                sampler_command_needed = true;
-            }
-            "sampler.release" | "release" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.release = payload.value.clamp(0.001, 20.0);
-                sampler_command_needed = true;
-            }
-            "sampler.rootnote" | "rootnote" | "sampler.root_note" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                cfg.root_note = payload.value.round().clamp(0.0, 127.0) as u8;
-                sampler_command_needed = true;
-            }
-            "synth.waveform" | "waveform" | "sampler.waveform" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let (token, code) = waveform_token_and_code(payload.value);
-                cfg.sample_path = token.to_string();
-                sampler_waveform = Some(code);
-            }
-            "synth.osc1.waveform" | "synth.osc1.wave" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let (token, code) = waveform_token_and_code(payload.value);
-                cfg.sample_path = token.to_string();
-                sampler_waveform = Some(code);
-            }
-            "synth.osc2.waveform" | "synth.osc2.wave" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let (_, code) = waveform_token_and_code(payload.value);
-                cfg.osc2_waveform = code;
-                sampler_waveform2 = Some(code);
-            }
-            "synth.osc.mix" | "synth.oscmix" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let mix = payload.value.clamp(0.0, 1.0) as f32;
-                cfg.osc_mix = mix as f64;
-                sampler_osc_mix = Some(mix);
-            }
-            "synth.detune" | "synth.detunecents" | "synth.osc2.detune" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let cents = payload.value.clamp(-50.0, 50.0) as f32;
-                cfg.detune_cents = cents as f64;
-                sampler_detune_cents = Some(cents);
-            }
-            "synth.sub" | "synth.sublevel" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let level = payload.value.clamp(0.0, 1.0) as f32;
-                cfg.sub_level = level as f64;
-                sampler_sub_level = Some(level);
-            }
-            "synth.filter.cutoff" | "synth.filtercutoff" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let cutoff = payload.value.clamp(20.0, 20000.0) as f32;
-                cfg.filter_cutoff = cutoff as f64;
-                sampler_filter_cutoff = Some(cutoff);
-            }
-            "synth.filter.resonance" | "synth.filterresonance" | "synth.filter.res" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let res = payload.value.clamp(0.0, 0.99) as f32;
-                cfg.filter_resonance = res as f64;
-                sampler_filter_resonance = Some(res);
-            }
-            "synth.filter.type" | "synth.filtertype" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let ft = payload.value.round().clamp(0.0, 3.0) as u8;
-                cfg.filter_type = ft;
-                sampler_filter_type = Some(ft);
-            }
-            "synth.lfo.rate" | "synth.lforate" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let rate = payload.value.clamp(0.01, 20.0) as f32;
-                cfg.lfo_rate = rate as f64;
-                sampler_lfo_rate = Some(rate);
-            }
-            "synth.lfo.depth" | "synth.lfodepth" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let depth = payload.value.clamp(0.0, 1.0) as f32;
-                cfg.lfo_depth = depth as f64;
-                sampler_lfo_depth = Some(depth);
-            }
-            "synth.lfo.target" | "synth.lfotarget" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let target = payload.value.round().clamp(0.0, 2.0) as u8;
-                cfg.lfo_target = target;
-                sampler_lfo_target = Some(target);
-            }
-            "synth.pulse_width" | "synth.pulsewidth" | "synth.pw" => {
-                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-                let pw = payload.value.clamp(0.05, 0.95) as f32;
-                cfg.pulse_width = pw as f64;
-                sampler_pulse_width = Some(pw);
-            }
-            _ => {
-                // Keep unknown params round-trippable in automation lanes.
-                upsert_static_automation_lane(track, &payload.param_id, payload.value);
-            }
-        }
-
-        if sampler_command_needed {
-            (idx, track.sampler.clone())
-        } else {
-            (idx, None)
-        }
-    };
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
 
     let project_name = project.name.clone();
     if should_commit_snapshot {
@@ -1993,8 +1784,6 @@ fn set_sampler_sample_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let sample_path = payload.sample_path.clone();
     if !PathBuf::from(&sample_path).exists() {
         return Err(format!("Sample path does not exist: {}", sample_path));
@@ -2013,23 +1802,27 @@ fn set_sampler_sample_cmd(
     clip_pool_state.sync_pool_to_arc();
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::SetSamplerSampleCommand::from_str_track_id(
+        &payload.track_id,
+        sample_path.clone(),
+        payload.root_note,
+    )
+    .map_err(|e| e.to_string())?;
     let (track_index, sampler_cfg) = {
-        let (idx, track) = project
-            .tracks
-            .iter_mut()
-            .enumerate()
-            .find(|(_, t)| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-
-        let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-        cfg.sample_path = sample_path.clone();
-        if let Some(root) = payload.root_note {
-            cfg.root_note = root.min(127);
-        }
-        (idx, cfg.clone())
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        (result.track_index, result.sampler_cfg)
     };
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -2255,35 +2048,31 @@ fn set_slot_bypass_cmd(
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    // Find the track index for engine commands (0-based).
-    let track_index = project
-        .tracks
-        .iter()
-        .position(|t| t.id == track_uuid);
-
-    // Check whether this slot is the track's instrument (not an effect).
-    let is_instrument = if let Some(ti) = track_index {
-        project.tracks[ti]
-            .instrument
-            .as_ref()
-            .and_then(|inst| find_slot_in_node_by_id(inst, slot_uuid))
-            .is_some()
-    } else {
-        false
+    let cmd = dream_orchestrator::commands::SetPluginSlotBypassCommand {
+        track_id: track_uuid,
+        slot_id: slot_uuid,
+        bypassed,
+    };
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
     };
 
-    let slot = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid).ok_or_else(|| {
-        format!("Plugin slot not found: track={track_id}, slot={slot_id}")
-    })?;
-
-    slot.is_bypassed = bypassed;
     log::info!(
         "[IPC] set_slot_bypass_cmd(track={}, slot={}, bypassed={}, is_instrument={}) plugin={}",
-        track_id, slot_id, bypassed, is_instrument, slot.plugin_id
+        track_id, slot_id, bypassed, result.is_instrument, result.plugin_id
     );
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -2294,17 +2083,19 @@ fn set_slot_bypass_cmd(
 
     // For instrument slots, send BypassInstrument to the real-time audio thread
     // so the internal sampler stops producing audio immediately.
-    if is_instrument {
-        if let Some(ti) = track_index {
-            if let Err(e) = push_command(
-                &handle,
-                EngineCommand::BypassInstrument {
-                    track_index: ti as u16,
-                    bypassed,
-                },
-            ) {
-                log::error!("[IPC] Failed to push BypassInstrument command for track {}: {}", ti, e);
-            }
+    if result.is_instrument {
+        if let Err(e) = push_command(
+            &handle,
+            EngineCommand::BypassInstrument {
+                track_index: result.track_index as u16,
+                bypassed,
+            },
+        ) {
+            log::error!(
+                "[IPC] Failed to push BypassInstrument command for track {}: {}",
+                result.track_index,
+                e
+            );
         }
     }
 
@@ -2357,29 +2148,31 @@ async fn move_effect_slot_cmd(
     _handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-
-    push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    // Find the track to operate on (regular track or master)
-    let track = if track_id == "master" || project.master_track.id == track_uuid {
-        &mut project.master_track
-    } else {
-        project
-            .tracks
-            .iter_mut()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {track_id}"))?
+    let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
+        .map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
+        target,
+        slot_id: slot_uuid,
+        target_index,
     };
 
-    // Delegate reordering to device chain
-    if let Err(e) = dream_graph::routing::device_chain::DeviceChain::move_effect(track, slot_uuid, target_index) {
-        return Err(e.to_string());
+    push_undo(&project_state)?;
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
     // Rebuild FX snapshot so the audio engine picks up the new order
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
@@ -2404,40 +2197,31 @@ async fn move_effect_slot_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<PluginMutationDeltaResponse, String> {
-    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
-
-    push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let (old_slot_index, new_slot_index) = {
-        let track = if track_id == "master" || project.master_track.id == track_uuid {
-            &mut project.master_track
-        } else {
-            project
-                .tracks
-                .iter_mut()
-                .find(|t| t.id == track_uuid)
-                .ok_or_else(|| format!("Track not found: {track_id}"))?
-        };
-        let old_idx = track
-            .effects
-            .iter()
-            .position(|node| node.id() == slot_uuid)
-            .ok_or_else(|| format!("Effect slot not found on track {track_id}: {slot_id}"))?;
-
-        if let Err(e) = dream_graph::routing::device_chain::DeviceChain::move_effect(track, slot_uuid, target_index) {
-            return Err(e.to_string());
-        }
-
-        let new_idx = track
-            .effects
-            .iter()
-            .position(|node| node.id() == slot_uuid)
-            .ok_or_else(|| format!("Moved effect slot not found after move: {slot_uuid}"))?;
-        (old_idx, new_idx)
+    let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
+        .map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::MoveEffectSlotCommand {
+        target,
+        slot_id: slot_uuid,
+        target_index,
     };
 
+    push_undo(&project_state)?;
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let result = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        result
+    };
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
@@ -2450,10 +2234,13 @@ async fn move_effect_slot_with_deltas_cmd(
 
     Ok(PluginMutationDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::PluginMoved {
-            track_id: track_uuid,
+            track_id: match target {
+                dream_orchestrator::commands::EffectTrackTarget::Master => project.master_track.id,
+                dream_orchestrator::commands::EffectTrackTarget::Track(id) => id,
+            },
             slot_id: slot_uuid,
-            old_slot_index,
-            new_slot_index,
+            old_slot_index: result.old_slot_index,
+            new_slot_index: result.new_slot_index,
         }],
     })
 }

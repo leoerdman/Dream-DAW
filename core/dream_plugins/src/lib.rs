@@ -22,8 +22,8 @@ pub mod format;
 pub mod instance;
 pub mod sandbox_host;
 pub mod sandbox_instance;
-pub mod sandbox_types;
 pub mod sandbox_ipc;
+pub mod sandbox_types;
 pub mod scanner;
 pub mod shared_memory;
 pub mod vst2_host;
@@ -38,8 +38,8 @@ pub use descriptor::PluginDescriptor;
 pub use format::PluginFormat;
 pub use instance::{MidiEvent, PluginInstance, TransportContext};
 pub use sandbox_host::{
-    PluginCrashEvent, PluginRecoveryEvent, PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus,
-    PluginSandboxSupervisor,
+    PluginCrashEvent, PluginRecoveryEvent, PluginSandboxConfig, PluginSandboxSnapshot,
+    PluginSandboxStatus, PluginSandboxSupervisor,
 };
 pub use scanner::PluginScanner;
 pub use vst2_host::Vst2Instance;

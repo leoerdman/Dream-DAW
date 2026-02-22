@@ -9,17 +9,6 @@ import { normalizePickedPath, errorMessage } from '@/shared/lib/helpers';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 
-/**
- * DeviceRack — Bottom panel: instrument & effects signal chain.
- *
- * Each track has its own Instrument & Effects chain (currently empty until
- * the user drops a plugin from the browser).
- *
- * Architecture:
- *   • useDeviceRackLogic()  — all state, effects, and callbacks (~680 LOC)
- *   • DeviceRack (this file) — pure JSX rendering (~450 LOC)
- */
-
 const autoCtxMenuItemStyle: React.CSSProperties = {
     display: 'block',
     width: '100%',

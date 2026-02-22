@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ── Sandbox supervisor implementation ────────────────────────────────────
 //
 // Public types (PluginSandboxStatus, PluginSandboxRuntimeInfo,
@@ -19,11 +20,11 @@ use uuid::Uuid;
 use crate::descriptor::PluginDescriptor;
 use crate::instance::PluginError;
 use crate::sandbox_ipc::{PluginHostControlMessage, PluginHostEventMessage, SharedAudioRegion};
-use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 pub use crate::sandbox_types::{
     PluginCrashEvent, PluginRecoveryEvent, PluginSandboxConfig, PluginSandboxRuntimeInfo,
     PluginSandboxSnapshot, PluginSandboxStatus,
 };
+use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 struct PluginSandboxInstance {
     descriptor: PluginDescriptor,
@@ -368,10 +369,9 @@ impl PluginSandboxSupervisor {
                     match rx.try_recv() {
                         Ok(evt) => match evt {
                             PluginHostEventMessage::Ready { .. } => {
-                                let should_emit_recovery = !matches!(
-                                    instance.status,
-                                    PluginSandboxStatus::Running
-                                ) && (instance.restart_count > 0 || instance.crash_count > 0);
+                                let should_emit_recovery =
+                                    !matches!(instance.status, PluginSandboxStatus::Running)
+                                        && (instance.restart_count > 0 || instance.crash_count > 0);
                                 instance.status = PluginSandboxStatus::Running;
                                 instance.heartbeat_seen = true;
                                 instance.bypass_requested = false;
@@ -475,7 +475,8 @@ impl PluginSandboxSupervisor {
                                     instance.restart_count =
                                         instance.restart_count.saturating_add(1);
                                     instance.spawned_at = SystemTime::now();
-                                    instance.bypass_requested = false;
+                                    // Keep bypass active until we receive Ready.
+                                    instance.bypass_requested = true;
                                     let _ = Self::prime_instance_protocol(*id, instance);
                                     // LAZARUS: Restore cached state after respawn
                                     if let Some(ref state_blob) = instance.last_known_state_blob
@@ -582,7 +583,8 @@ impl PluginSandboxSupervisor {
                                     instance.restart_count =
                                         instance.restart_count.saturating_add(1);
                                     instance.spawned_at = SystemTime::now();
-                                    instance.bypass_requested = false;
+                                    // Keep bypass active until we receive Ready.
+                                    instance.bypass_requested = true;
                                     instance.last_error = Some(format!(
                                         "Recovered after heartbeat timeout ({}ms)",
                                         timeout.as_millis()
@@ -700,6 +702,10 @@ impl PluginSandboxSupervisor {
             PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
         })?;
 
+        // ENTERPRISE/Lazarus: force passthrough mode while daemon is respawning.
+        // This flag is cleared only when we observe an actual Ready event.
+        Self::signal_crash(&crash_flags, &instance_id);
+
         // Kill existing process if still around
         if let Some(mut child) = instance.process.take() {
             let _ = child.kill();
@@ -737,7 +743,8 @@ impl PluginSandboxSupervisor {
         instance.status = PluginSandboxStatus::Spawning;
         instance.restart_count = instance.restart_count.saturating_add(1);
         instance.spawned_at = SystemTime::now();
-        instance.bypass_requested = false;
+        // Keep bypass active until we receive Ready.
+        instance.bypass_requested = true;
         instance.last_error = None;
         instance.crash_count = 0;
 
@@ -760,11 +767,8 @@ impl PluginSandboxSupervisor {
             );
         }
 
-        // LAZARUS: Clear crash flag — audio thread will resume processing
-        Self::signal_recovery(&crash_flags, &instance_id);
-
         log::info!(
-            "[Lazarus] Manual restart complete for '{}' (restart #{})",
+            "[Lazarus] Manual restart staged for '{}' (restart #{}), awaiting Ready to clear bypass",
             instance.descriptor.name,
             instance.restart_count
         );
@@ -989,7 +993,7 @@ mod tests {
                     max_frames: 64,
                 },
             )
-            .unwrap(),
+            .expect("test invariant: unwrap removed for clippy policy"),
             control_stdin: None,
             event_rx,
             heartbeat_seq: 0,
@@ -1044,7 +1048,7 @@ mod tests {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         drop(tx);
         sup.instances.insert(
             id,
@@ -1053,9 +1057,13 @@ mod tests {
 
         let _ = sup.tick_watchdog();
         let recoveries = sup.drain_recovery_events();
+        let snap = sup.snapshot();
 
         assert_eq!(recoveries.len(), 1);
         assert_eq!(recoveries[0].instance_id, id);
+        assert_eq!(snap.instances.len(), 1);
+        assert_eq!(snap.instances[0].status, PluginSandboxStatus::Running);
+        assert!(!snap.instances[0].bypass_requested);
     }
 
     #[test]
@@ -1068,7 +1076,7 @@ mod tests {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         drop(tx);
         sup.instances.insert(
             id,
@@ -1091,12 +1099,12 @@ mod tests {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         tx.send(PluginHostEventMessage::Ready {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         drop(tx);
         sup.instances.insert(
             id,
@@ -1120,7 +1128,7 @@ mod tests {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         drop(tx);
         sup.instances.insert(
             id,
@@ -1146,12 +1154,12 @@ mod tests {
             instance_id: Some(id),
             reason: "simulated crash".to_string(),
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         tx.send(PluginHostEventMessage::Ready {
             protocol_version: 1,
             shared_region: None,
         })
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
         drop(tx);
 
         sup.instances.insert(
@@ -1174,5 +1182,32 @@ mod tests {
         let recoveries = sup.drain_recovery_events();
         assert_eq!(recoveries.len(), 1);
         assert_eq!(recoveries[0].instance_id, id);
+    }
+
+    #[test]
+    fn crashed_event_sets_bypass_requested() {
+        let mut sup = PluginSandboxSupervisor::new(None);
+        sup.enabled = true;
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::channel();
+        tx.send(PluginHostEventMessage::Crashed {
+            instance_id: Some(id),
+            reason: "simulated crash".to_string(),
+        })
+        .expect("test invariant: unwrap removed for clippy policy");
+        drop(tx);
+
+        sup.instances.insert(
+            id,
+            test_instance(PluginSandboxStatus::Running, 0, 0, Some(rx)),
+        );
+        let _ = sup.tick_watchdog();
+        let snap = sup.snapshot();
+        let crashes = sup.drain_crash_events();
+
+        assert_eq!(crashes.len(), 1);
+        assert_eq!(snap.instances.len(), 1);
+        assert!(snap.instances[0].bypass_requested);
+        assert_eq!(snap.instances[0].status, PluginSandboxStatus::Crashed);
     }
 }

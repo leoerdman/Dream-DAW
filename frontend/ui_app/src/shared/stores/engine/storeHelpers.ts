@@ -1,0 +1,53 @@
+import type * as engine from '@/shared/api/engine';
+import type { PluginSandboxSnapshot, ProjectHistoryEvent } from '@/shared/api/engine';
+
+export interface EntityState<T> {
+    byId: Record<string, T>;
+    allIds: string[];
+}
+
+export const PROJECT_HISTORY_WINDOW = 256;
+export const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
+export const METER_STATE_UPDATE_EVERY_TICKS = 5;
+export const DEBUG_PROJECT_FETCH =
+    (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
+    || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);
+
+export function mergeProjectHistory(
+    current: ProjectHistoryEvent[],
+    currentCursor: number,
+    delta: ProjectHistoryEvent[],
+): { history: ProjectHistoryEvent[]; cursor: number } {
+    if (delta.length === 0) {
+        return { history: current, cursor: currentCursor };
+    }
+    const firstSeq = delta[0].seq;
+    const shouldReplace = current.length === 0 || firstSeq <= currentCursor;
+    const merged = shouldReplace ? delta : [...current, ...delta];
+    const history = merged.length > PROJECT_HISTORY_WINDOW
+        ? merged.slice(-PROJECT_HISTORY_WINDOW)
+        : merged;
+    const cursor = delta[delta.length - 1].seq;
+    return { history, cursor };
+}
+
+export function patchSandboxInstancesById(
+    snapshot: PluginSandboxSnapshot | null,
+    ids: Set<string>,
+    patch: (inst: engine.PluginSandboxRuntimeInfo) => engine.PluginSandboxRuntimeInfo,
+): PluginSandboxSnapshot | null {
+    if (!snapshot || ids.size === 0) return snapshot;
+    return {
+        ...snapshot,
+        instances: snapshot.instances.map((inst) =>
+            ids.has(inst.plugin_instance_id) ? patch(inst) : inst,
+        ),
+    };
+}
+
+export function toEntityState<T extends { id: string }>(items: T[]): EntityState<T> {
+    return {
+        byId: Object.fromEntries(items.map((item) => [item.id, item])),
+        allIds: items.map((item) => item.id),
+    };
+}

@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ═══════════════════════════════════════════════════════════════════════════
 // SandboxedPluginInstance — Out-of-Process Plugin Bridge
 // ═══════════════════════════════════════════════════════════════════════════
@@ -435,7 +436,8 @@ mod tests {
             num_outputs: 2,
             max_frames: 64,
         };
-        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone()).unwrap();
+        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone())
+            .expect("test invariant: unwrap removed for clippy policy");
         let descriptor = PluginDescriptor::new(
             "Test Plugin",
             "Dream",
@@ -445,8 +447,10 @@ mod tests {
         );
         let mut instance =
             SandboxedPluginInstance::create(Uuid::new_v4(), descriptor, region_path, 2, 2, 64)
-                .unwrap();
-        instance.activate(48_000.0, 64).unwrap();
+                .expect("test invariant: unwrap removed for clippy policy");
+        instance
+            .activate(48_000.0, 64)
+            .expect("test invariant: unwrap removed for clippy policy");
 
         let in_l = [0.1_f32, 0.2, 0.3, 0.4];
         let in_r = [0.4_f32, 0.3, 0.2, 0.1];
@@ -456,7 +460,9 @@ mod tests {
         let mut outputs: [&mut [f32]; 2] = [&mut out_l, &mut out_r];
 
         instance.is_crashed.store(true, Ordering::Relaxed);
-        instance.process(&inputs, &mut outputs, 4, &[]).unwrap();
+        instance
+            .process(&inputs, &mut outputs, 4, &[])
+            .expect("test invariant: unwrap removed for clippy policy");
 
         assert_eq!(out_l, in_l);
         assert_eq!(out_r, in_r);
@@ -474,7 +480,8 @@ mod tests {
             num_outputs: 2,
             max_frames: 64,
         };
-        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone()).unwrap();
+        let _owner = SharedAudioBufferRegion::create(region_path.clone(), layout.clone())
+            .expect("test invariant: unwrap removed for clippy policy");
         let descriptor = PluginDescriptor::new(
             "Test Plugin",
             "Dream",
@@ -484,8 +491,10 @@ mod tests {
         );
         let mut instance =
             SandboxedPluginInstance::create(Uuid::new_v4(), descriptor, region_path, 2, 2, 64)
-                .unwrap();
-        instance.activate(48_000.0, 64).unwrap();
+                .expect("test invariant: unwrap removed for clippy policy");
+        instance
+            .activate(48_000.0, 64)
+            .expect("test invariant: unwrap removed for clippy policy");
 
         let in_l = [1.0_f32; 4];
         let in_r = [0.5_f32; 4];
@@ -497,7 +506,7 @@ mod tests {
         instance.is_crashed.store(true, Ordering::Relaxed);
         instance
             .process(&inputs, &mut crashed_outputs, 4, &[])
-            .unwrap();
+            .expect("test invariant: unwrap removed for clippy policy");
         assert_eq!(crashed_out_l, in_l);
         assert_eq!(crashed_out_r, in_r);
 
@@ -505,11 +514,11 @@ mod tests {
         instance
             .shared_region
             .write_output_channel(0, &[0.0_f32; 4])
-            .unwrap();
+            .expect("test invariant: unwrap removed for clippy policy");
         instance
             .shared_region
             .write_output_channel(1, &[0.0_f32; 4])
-            .unwrap();
+            .expect("test invariant: unwrap removed for clippy policy");
         instance.shared_region.set_processed_seq(1);
 
         let mut recovered_out_l = [0.0_f32; 4];
@@ -517,7 +526,7 @@ mod tests {
         let mut recovered_outputs: [&mut [f32]; 2] = [&mut recovered_out_l, &mut recovered_out_r];
         instance
             .process(&inputs, &mut recovered_outputs, 4, &[])
-            .unwrap();
+            .expect("test invariant: unwrap removed for clippy policy");
 
         assert!(recovered_out_l[0] >= recovered_out_l[1]);
         assert!(recovered_out_l[1] >= recovered_out_l[2]);

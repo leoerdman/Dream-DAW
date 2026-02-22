@@ -1,8 +1,12 @@
 use super::*;
+use crate::state_managers::sync_engine::*;
 
 type DeviceNode = dream_models::project::DeviceNode;
 type DeviceRack = dream_models::project::DeviceRack;
 type RackChain = dream_models::project::RackChain;
+
+pub mod payloads;
+pub use payloads::*;
 
 include!("sections/transport.rs");
 include!("sections/track_control.rs");
@@ -33,8 +37,8 @@ include!("sections/sample_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler(
-) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler()
+-> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -46,6 +50,7 @@ pub(crate) fn invoke_handler(
         set_bpm,
         set_bpm_with_deltas,
         set_loop,
+        set_loop_with_deltas,
         // Track Control
         set_track_volume,
         set_track_volume_with_deltas,
@@ -78,6 +83,7 @@ pub(crate) fn invoke_handler(
         get_project,
         get_project_status,
         set_arrangement_grid_cmd,
+        set_arrangement_grid_with_deltas_cmd,
         // Settings
         get_settings,
         update_settings,
@@ -108,6 +114,7 @@ pub(crate) fn invoke_handler(
         create_midi_clip_cmd,
         create_midi_clip_with_deltas_cmd,
         update_midi_clip_cmd,
+        update_midi_clip_with_deltas_cmd,
         set_midi_clip_envelopes_cmd,
         generate_midi_variation_cmd,
         // Waveform
@@ -126,6 +133,7 @@ pub(crate) fn invoke_handler(
         rename_track_with_deltas_cmd,
         set_track_height_cmd,
         set_track_color_cmd,
+        set_track_color_with_deltas_cmd,
         create_group_cmd,
         set_group_expanded_cmd,
         move_track_to_index_cmd,
@@ -135,6 +143,7 @@ pub(crate) fn invoke_handler(
         ungroup_track_cmd,
         move_track_block_to_index_cmd,
         duplicate_tracks_cmd,
+        duplicate_tracks_with_deltas_cmd,
         // Clip Editing
         move_clip_cmd,
         move_clip_with_deltas_cmd,
@@ -149,8 +158,11 @@ pub(crate) fn invoke_handler(
         resize_clip_cmd,
         resize_clip_with_deltas_cmd,
         set_clip_fades_cmd,
+        set_clip_fades_with_deltas_cmd,
         set_clip_source_offset_cmd,
+        set_clip_source_offset_with_deltas_cmd,
         set_clip_warp_cmd,
+        set_clip_warp_with_deltas_cmd,
         set_clip_pitch_cmd,
         set_clip_muted_cmd,
         set_clip_muted_with_deltas_cmd,
@@ -160,7 +172,9 @@ pub(crate) fn invoke_handler(
         resolve_missing_file_cmd,
         // Automation / recording / export
         set_automation_points_cmd,
+        set_automation_points_with_deltas_cmd,
         arm_track_cmd,
+        arm_track_with_deltas_cmd,
         start_recording_cmd,
         stop_recording_cmd,
         export_mix_cmd,
@@ -203,6 +217,7 @@ pub(crate) fn invoke_handler(
         log_frontend_error,
         get_routing_targets,
         set_track_routing_cmd,
+        set_track_routing_with_deltas_cmd,
         set_track_input_cmd,
         set_plugin_sidechain_source_cmd,
         set_plugin_sidechain_source_with_deltas_cmd,
@@ -240,6 +255,7 @@ pub(crate) fn invoke_handler(
         mark_dirty_cmd,
         sync_title_cmd,
         set_key_signature_cmd,
+        set_key_signature_with_deltas_cmd,
         // Spectrum Analyzer
         get_spectrum_data,
         // Sample Rack

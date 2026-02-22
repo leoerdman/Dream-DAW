@@ -1247,7 +1247,7 @@ export const DawShell = () => {
         transportBpm: transportBpm || 120,
         projectSampleRate,
         importFile,
-        fetchProject,
+        applyProjectDeltas,
     });
 
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {

@@ -1,11 +1,4 @@
-#[tauri::command]
-async fn set_track_color_cmd(
-    track_id: String,
-    color_hex: String,
-    project_state: tauri::State<'_, ProjectState>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+fn normalize_track_color_hex(color_hex: &str) -> Result<String, String> {
     let mut normalized = color_hex.trim().to_string();
     if normalized.is_empty() {
         return Err("Color cannot be empty".to_string());
@@ -16,6 +9,18 @@ async fn set_track_color_cmd(
     if normalized.len() != 7 {
         return Err(format!("Invalid color format: {color_hex}"));
     }
+    Ok(normalized.to_ascii_uppercase())
+}
+
+#[tauri::command]
+async fn set_track_color_cmd(
+    track_id: String,
+    color_hex: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let normalized = normalize_track_color_hex(&color_hex)?;
 
     // Check if mutation is a no-op BEFORE taking undo snapshot
     {
@@ -37,11 +42,44 @@ async fn set_track_color_cmd(
         .iter_mut()
         .find(|t| t.id == parsed_id)
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
-    track.color_hex = Some(normalized.to_ascii_uppercase());
+    track.color_hex = Some(normalized);
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn set_track_color_with_deltas_cmd(
+    track_id: String,
+    color_hex: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let normalized = normalize_track_color_hex(&color_hex)?;
+
+    // Keep no-op responses empty so frontend never needs fallback refresh.
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parsed_id)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        if track.color_hex.as_deref() == Some(normalized.as_str()) {
+            return Ok(DeltaMutationResponse { deltas: Vec::new() });
+        }
+    }
+
+    set_track_color_cmd(track_id, normalized.clone(), project_state.clone(), app).await?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackColorChanged {
+            track_id: parsed_id,
+            color: normalized,
+        }],
+    })
 }
 
 fn rebuild_group_children(project: &mut Project) {
@@ -300,4 +338,3 @@ async fn set_group_expanded_cmd(
     log::info!("[IPC] set_group_expanded_cmd({group_id} -> {expanded})");
     Ok(())
 }
-

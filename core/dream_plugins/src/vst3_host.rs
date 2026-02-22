@@ -378,6 +378,8 @@ impl Drop for Vst3Instance {
 
 #[path = "vst3/instance_core_impl.rs"]
 mod instance_core_impl;
+#[path = "vst3/instance_lifecycle_impl.rs"]
+mod instance_lifecycle_impl;
 
 #[inline]
 fn passthrough(inputs: &[&[f32]], outputs: &mut [&mut [f32]], num_frames: usize) {
@@ -396,6 +398,8 @@ fn passthrough(inputs: &[&[f32]], outputs: &mut [&mut [f32]], num_frames: usize)
 
 #[path = "vst3/instance_plugin_impl.rs"]
 mod instance_plugin_impl;
+#[path = "vst3/instance_state_editor_helpers.rs"]
+mod instance_state_editor_helpers;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests

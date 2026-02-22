@@ -387,6 +387,32 @@ fn set_loop(
     Ok(())
 }
 
+#[tauri::command]
+fn set_loop_with_deltas(
+    enabled: bool,
+    start_frames: i64,
+    end_frames: i64,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<TransportDeltaResponse, String> {
+    set_loop(
+        enabled,
+        start_frames,
+        end_frames,
+        handle,
+        project_state,
+    )?;
+
+    let effective_enabled = enabled && end_frames > start_frames;
+    Ok(TransportDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::LoopRegionChanged {
+            start: start_frames,
+            end: end_frames,
+            enabled: effective_enabled,
+        }],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::beat_to_engine_frames;

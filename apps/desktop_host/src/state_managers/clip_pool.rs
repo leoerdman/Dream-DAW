@@ -1,7 +1,7 @@
+use arc_swap::ArcSwap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{

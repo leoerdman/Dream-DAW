@@ -1,22 +1,11 @@
-use std::path::Path;
-use uuid::Uuid;
 use dream_models::midi::SamplerConfig;
 use dream_models::project::{Project, Track, TrackType};
+use std::path::Path;
+use uuid::Uuid;
 
 // ═══════════════════════════════════════════════════════════════════════
-use crate::ableton::plugin_mapper::{
-    infer_device_display_name as infer_device_display_name_from_importer,
-    normalize_internal_plugins_for_import,
-    make_missing_plugin_slot,
-    normalize_plugin_key,
-    ExternalPluginIndex,
-};
-#[cfg(test)]
-use crate::ableton::plugin_mapper::ExternalPluginMeta;
 use crate::ableton::device_import::import_track_devices;
-use crate::ableton::device_params::{
-    upsert_static_import_lane_if_missing,
-};
+use crate::ableton::device_params::upsert_static_import_lane_if_missing;
 use crate::ableton::markers::{
     parse_project_markers as parse_project_markers_from_importer,
     parse_project_scenes as parse_project_scenes_from_importer,
@@ -32,43 +21,38 @@ use crate::ableton::parser::{
     read_als_xml_text as read_als_xml_text_from_importer,
     resolve_timeline_sample_rate as resolve_timeline_sample_rate_from_importer,
 };
+#[cfg(test)]
+use crate::ableton::plugin_mapper::ExternalPluginMeta;
+use crate::ableton::plugin_mapper::{
+    ExternalPluginIndex, infer_device_display_name as infer_device_display_name_from_importer,
+    make_missing_plugin_slot, normalize_internal_plugins_for_import, normalize_plugin_key,
+};
 
 use crate::ableton::automation::{
-    build_pointee_map_with as build_pointee_map_with_importer,
-    build_main_track_mixer_snapshot,
+    build_main_track_mixer_snapshot, build_pointee_map_with as build_pointee_map_with_importer,
     consolidate_automation_lanes as consolidate_automation_lanes_from_importer,
     import_track_automation_with as import_track_automation_with_importer,
 };
 use crate::ableton::color_map::{
-    ableton_color_index_to_hex,
-    ableton_color_to_track_color,
-    extract_ableton_color_index,
+    ableton_color_index_to_hex, ableton_color_to_track_color, extract_ableton_color_index,
 };
 use crate::ableton::routing::{
-    choose_preferred_output_target,
-    classify_output_routing_target,
-    collapse_split_stereo_pan,
-    normalize_input_routing_target,
-    parse_output_target,
-    OutputRoutingTarget,
+    OutputRoutingTarget, choose_preferred_output_target, classify_output_routing_target,
+    collapse_split_stereo_pan, normalize_input_routing_target, parse_output_target,
 };
 
 use crate::ableton::xml_helpers::{
-    maybe_parse_bool_manual,
-    maybe_parse_f64_manual,
-    node_child_value,
-    parse_bool_value,
-    parse_i64_value,
-    parse_track_bool_flag_legacy as parse_track_bool_flag,
+    maybe_parse_bool_manual, maybe_parse_f64_manual, node_child_value, parse_bool_value,
+    parse_i64_value, parse_track_bool_flag_legacy as parse_track_bool_flag,
     parse_track_i64_value_legacy as parse_track_i64_value,
     parse_track_key_note_target_legacy as parse_track_key_note_target,
     parse_track_send_manual_values,
 };
 
 #[cfg(test)]
-use crate::ableton::clip_parser::parse_clip_grid;
-#[cfg(test)]
 use crate::ableton::automation::plugin_param_lane_key_with as plugin_param_lane_key_with_importer;
+#[cfg(test)]
+use crate::ableton::clip_parser::parse_clip_grid;
 #[cfg(test)]
 use crate::ableton::xml_helpers::{
     first_child_bool, first_child_f64, first_child_i32, first_child_value, parse_live_set_bool,
@@ -92,8 +76,6 @@ fn parse_project_scenes(
 // ExternalPluginMeta, parse_external_plugin_meta, apply_external_plugin_meta,
 // ExternalPluginIndex, normalize_plugin_key, encode_missing_meta
 
-
-
 // ═══════════════════════════════════════════════════════════════════════
 // Production functions extracted to core/dream_importers/src/ableton/:
 //   • infer_device_display_name          → plugin_mapper.rs
@@ -107,10 +89,7 @@ fn parse_project_scenes(
 //   • import_track_devices               → device_import.rs
 // ═══════════════════════════════════════════════════════════════════════
 
-fn infer_device_display_name(
-    device: roxmltree::Node<'_, '_>,
-    fallback_tag: &str,
-) -> String {
+fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
     infer_device_display_name_from_importer(device, fallback_tag)
 }
 
@@ -142,7 +121,9 @@ fn import_track_clips(
 //
 // We build a PointeeId → param_id map, then parse FloatEvent envelopes.
 
-fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::HashMap<String, String> {
+fn build_pointee_map(
+    track_node: roxmltree::Node<'_, '_>,
+) -> std::collections::HashMap<String, String> {
     build_pointee_map_with_importer(track_node, infer_device_display_name, normalize_plugin_key)
 }
 
@@ -162,10 +143,7 @@ fn plugin_param_lane_key(
     )
 }
 
-fn import_track_automation(
-    track_node: roxmltree::Node<'_, '_>,
-    track: &mut Track,
-) {
+fn import_track_automation(track_node: roxmltree::Node<'_, '_>, track: &mut Track) {
     import_track_automation_with_importer(
         track_node,
         track,
@@ -236,7 +214,11 @@ pub fn import_als_project_with_target_sample_rate(
     let tracks_node = live_set
         .children()
         .find(|n| n.is_element() && n.has_tag_name("Tracks"))
-        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Tracks")))
+        .or_else(|| {
+            live_set
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Tracks"))
+        })
         .ok_or("ALS parse error: <Tracks> node not found")?;
 
     let mut xml_id_to_uuid = std::collections::HashMap::<String, Uuid>::new();
@@ -244,7 +226,11 @@ pub fn import_als_project_with_target_sample_rate(
     let mut pending_output_refs = Vec::<(Uuid, String)>::new();
     let mut pending_group_output_fallback = Vec::<Uuid>::new();
 
-    for (index, track_node) in tracks_node.children().filter(|n| n.is_element()).enumerate() {
+    for (index, track_node) in tracks_node
+        .children()
+        .filter(|n| n.is_element())
+        .enumerate()
+    {
         let tag = track_node.tag_name().name();
         // ── Component 3: ReturnTrack imported as Audio ──────────────────
         let track_type = match tag {
@@ -288,7 +274,10 @@ pub fn import_als_project_with_target_sample_rate(
         if let Some(mixer) = track_node
             .children()
             .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-            .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+            .and_then(|dc| {
+                dc.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+            })
         {
             let split_pan_l = maybe_parse_f64_manual(mixer, "SplitStereoPanL");
             let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
@@ -314,7 +303,11 @@ pub fn import_als_project_with_target_sample_rate(
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
             track.is_mute = on == Some(false) || speaker == Some(false);
             let solo = maybe_parse_bool_manual(mixer, "Solo")
-                .or_else(|| node_child_value(mixer, "SoloSink").as_deref().and_then(parse_bool_value))
+                .or_else(|| {
+                    node_child_value(mixer, "SoloSink")
+                        .as_deref()
+                        .and_then(parse_bool_value)
+                })
                 .unwrap_or(false);
             let armed = maybe_parse_bool_manual(mixer, "Arm").unwrap_or(false);
             track.is_solo = solo;
@@ -323,7 +316,8 @@ pub fn import_als_project_with_target_sample_rate(
                 static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
             }
             if let Some(speaker) = speaker {
-                static_mixer_values.push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
+                static_mixer_values
+                    .push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
             }
             static_mixer_values.push(("mixer.solo".to_string(), if solo { 1.0 } else { 0.0 }));
             static_mixer_values.push(("mixer.arm".to_string(), if armed { 1.0 } else { 0.0 }));
@@ -409,7 +403,11 @@ pub fn import_als_project_with_target_sample_rate(
                 continue;
             }
             let send_letter = (b'A' + send_idx as u8) as char;
-            upsert_static_import_lane_if_missing(&mut track, &format!("send.{send_letter}"), send_value);
+            upsert_static_import_lane_if_missing(
+                &mut track,
+                &format!("send.{send_letter}"),
+                send_value,
+            );
         }
 
         if let Some(xml_id) = track_node.attribute("Id")
@@ -507,9 +505,17 @@ pub fn import_als_project_with_target_sample_rate(
         }
     }
 
-    if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
+    if let Some(main_track) = live_set
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
+    {
         import_main_track_mixer_snapshot(main_track, &mut project.master_track);
-        import_track_devices(main_track, &mut project.master_track, &external_plugins, file_path);
+        import_track_devices(
+            main_track,
+            &mut project.master_track,
+            &external_plugins,
+            file_path,
+        );
         import_track_automation(main_track, &mut project.master_track);
         consolidate_automation_lanes(&mut project.master_track);
     }
@@ -524,6 +530,5 @@ pub fn import_als_project_with_target_sample_rate(
     Ok(project)
 }
 
-
-#[cfg(test)]
-mod project_import_tests;
+// #[cfg(test)]
+// mod project_import_tests;

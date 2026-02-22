@@ -149,5 +149,62 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         return true;
     }
 
+    if (delta.kind === 'MidiClipNotesReplaced') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip || clip.type !== 'midi') return true;
+        const next = {
+            ...clip,
+            midiNotes: delta.data.notes.map((n) => ({
+                pitch: n.pitch,
+                velocity: n.velocity,
+                startBeat: n.start_beat,
+                durationBeats: n.duration_beats,
+            })),
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'ClipSourceOffsetChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = { ...clip, sourceOffset: delta.data.source_offset };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'ClipFadesChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = {
+            ...clip,
+            fadeIn: delta.data.fade_in_frames,
+            fadeOut: delta.data.fade_out_frames,
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
+    if (delta.kind === 'ClipWarpChanged') {
+        const clip = state.clipsById[delta.data.clip_id];
+        if (!clip) return true;
+        const next = {
+            ...clip,
+            isWarped: delta.data.is_warped,
+            warpMode: delta.data.warp_mode,
+            warpBaseBpm: delta.data.warp_base_bpm,
+        };
+        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
+        state.clipsById = { ...state.clipsById, [next.id]: next };
+        state.changed = true;
+        return true;
+    }
+
     return false;
 }

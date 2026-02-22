@@ -1,0 +1,85 @@
+    Checking dream_engine v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_engine)
+warning: unused import: `MASTER_TRACK_INDEX`
+ --> core/dream_engine/src/driver/executor/audio_thread_runner.rs:7:57
+  |
+7 | ...DrainContext, MASTER_TRACK_INDEX, drain_comman...
+  |                  ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `apply_pending_track_mixer_state` and `apply_single_topology_mutation`
+ --> core/dream_engine/src/driver/executor/audio_thread_runner.rs:9:26
+  |
+9 | ...d, apply_pending_track_mixer_state, apply_single_topology_mutation,
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AdsrParams` and `Waveform`
+  --> core/dream_engine/src/driver/executor/audio_thread_runner.rs:23:22
+   |
+23 | use crate::sampler::{AdsrParams, Waveform};
+   |                      ^^^^^^^^^^  ^^^^^^^^
+
+warning: `dream_engine` (lib) generated 3 warnings (run `cargo fix --lib -p dream_engine` to apply 3 suggestions)
+    Checking desktop_host v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/apps/desktop_host)
+error[E0425]: cannot find function `rebuild_automation_snapshot_from_project` in this scope
+   --> apps/desktop_host/src/lib.rs:241:5
+    |
+241 |     rebuild_automation_snapshot_from_project(&b...
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function through its public re-export
+    |
+ 35 + use crate::state_managers::rebuild_automation_snapshot_from_project;
+    |
+
+warning: unused imports: `AutomationPoint`, `ExternalParamAutomationLane`, `MidiFxRuntimeConfig`, `MidiTrackRuntime`, `TrackAutomationState`, and `parse_external_param_target`
+  --> apps/desktop_host/src/lib.rs:46:5
+   |
+46 |     AutomationPoint, ExternalParamAutomationLane, MidiFxRuntimeConfig, MidiTrackRuntime,
+   |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+47 |     SharedRtDebugStats, TrackAutomationState, parse_external_param_target,
+   |                         ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `self`
+  --> apps/desktop_host/src/lib.rs:61:30
+   |
+61 | use dream_models::mutators::{self};
+   |                              ^^^^
+
+warning: unused imports: `bypass_plugin_slots_in_project` and `set_plugin_slots_bypass_in_project`
+  --> apps/desktop_host/src/state_managers/sync_engine.rs:16:5
+   |
+16 |     bypass_plugin_slots_in_project, set_plugin_slots_bypass_in_project,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `sync_engine::*`
+  --> apps/desktop_host/src/state_managers/mod.rs:25:9
+   |
+25 | pub use sync_engine::*;
+   |         ^^^^^^^^^^^^^^
+
+error[E0425]: cannot find function `project_initial_transport_bpm` in this scope
+    --> apps/desktop_host/src/state_managers/sync_engine.rs:1323:15
+     |
+1323 | ...pm = project_initial_transport_bpm(project);
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `project_initial_transport_bpm` in this scope
+   --> apps/desktop_host/src/commands/sections/state_queries.rs:444:19
+    |
+444 | ...pm = project_initial_transport_bpm(&project);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+warning: unused variable: `track_uuid`
+    --> apps/desktop_host/src/commands/sections/plugins_routing.rs:1651:9
+     |
+1651 |     let track_uuid = Uuid::parse_str(&payload....
+     |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_track_uuid`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `desktop_host` (lib) generated 5 warnings
+error: could not compile `desktop_host` (lib) due to 3 previous errors; 5 warnings emitted

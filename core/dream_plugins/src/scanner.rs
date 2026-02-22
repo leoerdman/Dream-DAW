@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Plugin Scanner
 // ═══════════════════════════════════════════════════════════════════════════
@@ -318,19 +319,32 @@ mod tests {
     #[test]
     fn standard_paths_exist_for_all_formats() {
         let vst2 = PluginScanner::standard_paths(PluginFormat::VST2);
-        assert!(vst2.iter().any(|p| p.to_str().unwrap().contains("/VST")));
+        assert!(vst2.iter().any(|p| {
+            p.to_str()
+                .expect("test invariant: unwrap removed for clippy policy")
+                .contains("/VST")
+        }));
 
         let vst3 = PluginScanner::standard_paths(PluginFormat::VST3);
-        assert!(vst3.iter().any(|p| p.to_str().unwrap().contains("VST3")));
+        assert!(vst3.iter().any(|p| {
+            p.to_str()
+                .expect("test invariant: unwrap removed for clippy policy")
+                .contains("VST3")
+        }));
 
         let clap = PluginScanner::standard_paths(PluginFormat::CLAP);
-        assert!(clap.iter().any(|p| p.to_str().unwrap().contains("CLAP")));
+        assert!(clap.iter().any(|p| {
+            p.to_str()
+                .expect("test invariant: unwrap removed for clippy policy")
+                .contains("CLAP")
+        }));
 
         let au = PluginScanner::standard_paths(PluginFormat::AudioUnit);
-        assert!(
-            au.iter()
-                .any(|p| p.to_str().unwrap().contains("Components"))
-        );
+        assert!(au.iter().any(|p| {
+            p.to_str()
+                .expect("test invariant: unwrap removed for clippy policy")
+                .contains("Components")
+        }));
     }
 
     #[test]
@@ -355,7 +369,7 @@ mod tests {
             Path::new("/Library/Audio/Plug-Ins/VST3/Serum.vst3"),
             PluginFormat::VST3,
         )
-        .unwrap();
+        .expect("test invariant: unwrap removed for clippy policy");
 
         assert_eq!(desc.name, "Serum");
         assert_eq!(desc.format, PluginFormat::VST3);

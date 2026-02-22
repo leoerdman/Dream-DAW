@@ -492,6 +492,89 @@ impl GraphRenderer {
         self.node_buffers.as_mut_ptr()
     }
 
+    /// Unsafe version of sum_node_inputs for parallel execution.
+    /// Caller guarantees that `node_idx` is strictly unique across threads
+    /// in the current execution stage!
+    #[inline]
+    unsafe fn sum_node_inputs_unsafe(
+        &self,
+        dag: &AudioDag,
+        node_idx: petgraph::graph::NodeIndex,
+        frame_count: usize,
+        node_buffers_ptr: *mut NodeBuffer,
+        edge_pdc_ptr: *mut EdgeDelayRuntime,
+    ) {
+        let idx = node_idx.index();
+        if idx >= self.node_buffers.len() {
+            return;
+        }
+
+        if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
+            let edge_input_len = self.edge_inputs_by_dst[idx].len();
+            for i in 0..edge_input_len {
+                let (src_idx, edge_runtime_idx, edge_kind) = self.edge_inputs_by_dst[idx][i];
+
+                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
+                    continue;
+                }
+
+                if src_idx >= self.node_buffers.len()
+                    || src_idx == idx
+                    || edge_runtime_idx >= self.edge_pdc_delays.len()
+                {
+                    continue;
+                }
+
+                let copy_n = {
+                    let src = &*node_buffers_ptr.add(src_idx);
+                    let copy_n = frame_count.min(src.valid_frames);
+
+                    let edge_rt = &mut *edge_pdc_ptr.add(edge_runtime_idx);
+                    edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
+                    edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
+
+                    edge_rt.delay.process(
+                        &mut edge_rt.scratch_left[..copy_n],
+                        &mut edge_rt.scratch_right[..copy_n],
+                        copy_n,
+                    );
+                    copy_n
+                };
+
+                let dst = &mut *node_buffers_ptr.add(idx);
+                let edge_rt = &*edge_pdc_ptr.add(edge_runtime_idx);
+
+                mix_in_place(
+                    &mut dst.left[..copy_n],
+                    &edge_rt.scratch_left[..copy_n],
+                    copy_n,
+                );
+                mix_in_place(
+                    &mut dst.right[..copy_n],
+                    &edge_rt.scratch_right[..copy_n],
+                    copy_n,
+                );
+            }
+        } else {
+            let src_indices: Vec<usize> = dag
+                .graph()
+                .edges_directed(node_idx, petgraph::Direction::Incoming)
+                .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
+                .map(|e| e.source().index())
+                .filter(|&src_idx| src_idx < self.node_buffers.len() && src_idx != idx)
+                .collect();
+
+            for src_idx in src_indices {
+                let src = &*node_buffers_ptr.add(src_idx);
+                let dst = &mut *node_buffers_ptr.add(idx);
+
+                let copy_n = frame_count.min(src.valid_frames);
+                mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
+                mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
+            }
+        }
+    }
+
     /// Phase A: Sequential Input Summation
     /// Sums all inputs (via Routing edges) into this node's buffer, applying edge PDC.
     #[inline]
@@ -643,6 +726,88 @@ impl GraphRenderer {
         // d) Master node copies to final output.
         if matches!(&node.kind, NodeKind::MasterOutput) {
             self.copy_master_output(node_idx, output_left, output_right, frame_count);
+        }
+    }
+
+    /// Strike-6: Wait-Free DAG Parallel Execution
+    /// Uses rayon `par_iter()` across the parallel stages identified by the scheduler.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_parallel<FProcessor>(
+        &mut self,
+        plan: &ExecutionPlan,
+        dag: &AudioDag,
+        frame_count: usize,
+        output_left: &mut [f32],
+        output_right: &mut [f32],
+        processor: FProcessor,
+    ) where
+        FProcessor: Fn(&AudioNode, &mut [f32], &mut [f32], usize) + Sync + Send,
+    {
+        let n = frame_count.min(self.max_frames);
+        let out_n = n.min(output_left.len()).min(output_right.len());
+
+        output_left[..out_n].fill(0.0);
+        output_right[..out_n].fill(0.0);
+
+        self.clear_active_buffers(plan, n);
+
+        if !plan.parallel_stages.is_empty() {
+            let node_buffers_ptr = self.node_buffers.as_mut_ptr();
+            let edge_pdc_ptr = self.edge_pdc_delays.as_mut_ptr();
+            // We use rayon par_iter on the stages!
+            use rayon::prelude::*;
+
+            for stage in &plan.parallel_stages {
+                stage.par_iter().for_each(|&node_idx| {
+                    let idx = node_idx.index();
+                    if idx >= self.capacity() {
+                        return;
+                    }
+
+                    unsafe {
+                        self.sum_node_inputs_unsafe(
+                            dag,
+                            node_idx,
+                            n,
+                            node_buffers_ptr,
+                            edge_pdc_ptr,
+                        );
+                    }
+
+                    let node = dag.node(node_idx);
+                    let buf = unsafe { &mut *node_buffers_ptr.add(idx) };
+
+                    processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+
+                    if matches!(&node.kind, NodeKind::MasterOutput) {
+                        // Concurrent writes to final output_left/right are only safe if there is EXACTLY
+                        // one MasterOutput node in the graph, which our schema guarantees.
+                        let master_n = n.min(output_left.len()).min(output_right.len());
+                        let out_l_ptr = output_left.as_mut_ptr();
+                        let out_r_ptr = output_right.as_mut_ptr();
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(buf.left.as_ptr(), out_l_ptr, master_n);
+                            std::ptr::copy_nonoverlapping(buf.right.as_ptr(), out_r_ptr, master_n);
+                        }
+                    }
+                });
+            }
+        } else {
+            // Fallback for sequential plans
+            for &node_idx in &plan.processing_order {
+                let idx = node_idx.index();
+                if idx >= self.node_buffers.len() {
+                    continue;
+                }
+                self.sum_node_inputs(dag, node_idx, n);
+                let node = dag.node(node_idx);
+                let buf = &mut self.node_buffers[idx];
+                processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+                if matches!(&node.kind, NodeKind::MasterOutput) {
+                    self.copy_master_output(node_idx, output_left, output_right, n);
+                }
+            }
         }
     }
 

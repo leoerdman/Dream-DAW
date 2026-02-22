@@ -1122,6 +1122,7 @@ name = "dream_orchestrator"
 version = "1.0.108"
 dependencies = [
  "dream_clip_engine",
+ "dream_graph",
  "dream_io",
  "dream_ipc",
  "dream_models",

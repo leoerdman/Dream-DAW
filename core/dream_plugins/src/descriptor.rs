@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Plugin Descriptor (Metadata for UI)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -142,8 +143,10 @@ mod tests {
             PathBuf::from("/Library/Audio/Plug-Ins/CLAP/Vital.clap"),
         );
 
-        let json = serde_json::to_string(&desc).unwrap();
-        let back: PluginDescriptor = serde_json::from_str(&json).unwrap();
+        let json =
+            serde_json::to_string(&desc).expect("test invariant: unwrap removed for clippy policy");
+        let back: PluginDescriptor =
+            serde_json::from_str(&json).expect("test invariant: unwrap removed for clippy policy");
         assert_eq!(back.name, "Vital");
         assert_eq!(back.format, PluginFormat::CLAP);
     }

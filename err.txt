@@ -1,0 +1,6 @@
+    Checking dream_engine v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/core/dream_engine)
+core/dream_engine/src/driver/executor/audio_thread_runner.rs:578:66: error[E0422]: cannot find struct, variant or union type `ActiveMappedNote` in this scope: not found in this scope
+core/dream_engine/src/driver/executor/audio_thread_sampler_pass.rs:8:17: error[E0425]: cannot find type `MidiSnapshot` in this scope: not found in this scope
+core/dream_engine/src/driver/executor/audio_thread_runner.rs:8:5: warning: unused import: `super::audio_thread_sampler_pass::render_sampler_sources`
+warning: `dream_engine` (lib) generated 1 warning
+error: could not compile `dream_engine` (lib) due to 2 previous errors; 1 warning emitted

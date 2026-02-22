@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use arc_swap::ArcSwap;
+use std::sync::{Arc, Mutex};
 
 use dream_clip_engine::pool::ClipPool;
 use dream_engine::driver::{

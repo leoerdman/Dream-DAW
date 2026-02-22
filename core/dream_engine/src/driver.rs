@@ -78,8 +78,8 @@ const DEFAULT_FREQUENCY: f32 = 440.0;
 #[cfg(test)]
 const TEST_TONE_AMPLITUDE: f32 = 0.25;
 
-/// AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent
-/// coefficient computed at usage site (see AUD-010 fix).
+// AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent
+// coefficient computed at usage site (see AUD-010 fix).
 
 // ── Audio Stream Handle ─────────────────────────────────────────────────
 
@@ -204,7 +204,6 @@ pub fn start_audio_thread(
 ///
 /// If `preferred_output_device` is `None` or the name is not found, the
 /// default output device is used.
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub fn start_audio_thread_on_device(
     consumer: rtrb::Consumer<EngineCommand>,

@@ -1,0 +1,5 @@
+    Blocking waiting for file lock on build directory
+    Checking desktop_host v1.0.108 (/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/apps/desktop_host)
+apps/desktop_host/src/lib.rs:1644:62: error[E0425]: cannot find type `MeterReading` in this scope: not found in this scope
+apps/desktop_host/src/lib.rs:1645:5: error[E0422]: cannot find struct, variant or union type `MeterReading` in this scope: not found in this scope
+error: could not compile `desktop_host` (lib) due to 2 previous errors

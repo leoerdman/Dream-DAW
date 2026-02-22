@@ -18,8 +18,7 @@ use arc_swap::ArcSwap;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     PluginCrashEvent, PluginDescriptor, PluginHost, PluginRecoveryEvent, PluginSandboxConfig,
-    PluginSandboxSnapshot,
-    PluginSandboxSupervisor, PluginScanner,
+    PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
 use uuid::Uuid;
 

@@ -2,18 +2,28 @@ import type { ProjectDelta, TransportState } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 
+export interface EntityState<T> {
+    byId: Record<string, T>;
+    allIds: string[];
+}
+
 export interface DeltaApplyState {
     timelineClips: TimelineClip[];
     clipsById: Record<string, TimelineClip>;
+    clips: EntityState<TimelineClip>;
     projectTracks: ProjectTrack[];
     tracksById: Record<string, ProjectTrack>;
+    tracks: EntityState<ProjectTrack>;
     projectBpm: number;
     projectSampleRate: number;
     transport: TransportState;
 }
 
 export interface DeltaApplyResult {
-    nextState: Pick<DeltaApplyState, 'timelineClips' | 'clipsById' | 'projectTracks' | 'tracksById'> | null;
+    nextState: Pick<
+        DeltaApplyState,
+        'timelineClips' | 'clipsById' | 'clips' | 'projectTracks' | 'tracksById' | 'tracks'
+    > | null;
 }
 
 export interface DeltaWorkingState {

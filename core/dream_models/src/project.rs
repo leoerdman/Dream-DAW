@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::midi::{MidiClip, SampleRackConfig, SamplerConfig};
+pub use crate::midi::{MidiClip, SampleRackConfig, SamplerConfig};
 use crate::pulse_map::PulseMap;
 use crate::time::AbsoluteTime;
 

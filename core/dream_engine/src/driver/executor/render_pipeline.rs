@@ -38,9 +38,8 @@ pub(super) fn sync_sample_rack_engines(
     for (idx, rack_opt) in rack_samples_snapshot.iter().enumerate() {
         if idx < sample_rack_engines.len() {
             let engine = &mut sample_rack_engines[idx];
-            for p in 0..16 {
+            for (p, sample_opt) in rack_opt.iter().enumerate().take(16) {
                 if let Some(pad) = engine.pad_mut(p) {
-                    let sample_opt = &rack_opt[p];
                     match (sample_opt, &pad.sample) {
                         (Some(new_sample), Some(existing)) => {
                             if !Arc::ptr_eq(new_sample, existing) {
@@ -100,37 +99,36 @@ pub(super) fn process_master_runtime_fx_and_gain(
                     continue;
                 }
 
-                if let Some(instance_id) = runtime_slot.instance_id {
-                    if let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) {
-                        if let Some(mut host) = plugin_mtx.try_lock() {
-                            let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
-                            let transport = TransportContext {
-                                sample_rate: sample_rate_f64,
-                                position_samples: playhead_pos,
-                                tempo: bpm,
-                                is_playing,
-                                is_recording: false,
-                                time_sig_numerator: i32::from(time_sig_numerator),
-                                time_sig_denominator: i32::from(time_sig_denominator),
-                            };
-                            host.set_transport_context(transport);
+                if let Some(instance_id) = runtime_slot.instance_id
+                    && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
+                    && let Some(mut host) = plugin_mtx.try_lock()
+                {
+                    let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
+                    let transport = TransportContext {
+                        sample_rate: sample_rate_f64,
+                        position_samples: playhead_pos,
+                        tempo: bpm,
+                        is_playing,
+                        is_recording: false,
+                        time_sig_numerator: i32::from(time_sig_numerator),
+                        time_sig_denominator: i32::from(time_sig_denominator),
+                    };
+                    host.set_transport_context(transport);
 
-                            let empty_midi: &[MidiEvent] = &[];
-                            external_left[..n].copy_from_slice(&graph_out_left[..n]);
-                            external_right[..n].copy_from_slice(&graph_out_right[..n]);
-                            let mut out_slices: [&mut [f32]; 2] =
-                                [&mut external_left[..n], &mut external_right[..n]];
-                            let _ = host.process_with_sidechain(
-                                &main_inputs,
-                                None,
-                                &mut out_slices,
-                                n,
-                                &empty_midi,
-                            );
-                            graph_out_left[..n].copy_from_slice(&external_left[..n]);
-                            graph_out_right[..n].copy_from_slice(&external_right[..n]);
-                        }
-                    }
+                    let empty_midi: &[MidiEvent] = &[];
+                    external_left[..n].copy_from_slice(&graph_out_left[..n]);
+                    external_right[..n].copy_from_slice(&graph_out_right[..n]);
+                    let mut out_slices: [&mut [f32]; 2] =
+                        [&mut external_left[..n], &mut external_right[..n]];
+                    let _ = host.process_with_sidechain(
+                        &main_inputs,
+                        None,
+                        &mut out_slices,
+                        n,
+                        empty_midi,
+                    );
+                    graph_out_left[..n].copy_from_slice(&external_left[..n]);
+                    graph_out_right[..n].copy_from_slice(&external_right[..n]);
                 }
             }
         } else if !master_device_chain.is_empty() {
@@ -217,7 +215,8 @@ pub(super) fn render_test_tone_if_needed(
 
     let freq_smooth_coeff = 1.0 - (-1.0_f64 / (0.03 * sample_rate_f64)).exp() as f32;
     for frame in data.chunks_exact_mut(channels) {
-        *test_tone_current_freq += (test_tone_target_freq - *test_tone_current_freq) * freq_smooth_coeff;
+        *test_tone_current_freq +=
+            (test_tone_target_freq - *test_tone_current_freq) * freq_smooth_coeff;
         let phase_inc = *test_tone_current_freq as f64 / sample_rate_f64;
         let sample = (*test_tone_phase * std::f64::consts::TAU).sin() as f32 * test_tone_amplitude;
         for ch in frame.iter_mut() {

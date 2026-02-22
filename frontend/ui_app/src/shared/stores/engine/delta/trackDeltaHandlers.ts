@@ -48,6 +48,16 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
         patchTrack(state, delta.data.track_id, { is_solo: delta.data.soloed });
         return true;
     }
+    if (delta.kind === 'TrackArmChanged') {
+        const track = state.projectTracks[delta.data.track_index];
+        if (!track) return true;
+        patchTrack(state, track.id, { is_armed: delta.data.armed });
+        return true;
+    }
+    if (delta.kind === 'TrackRoutingChanged') {
+        patchTrack(state, delta.data.track_id, { output: delta.data.output_destination_id ?? 'master' });
+        return true;
+    }
     if (delta.kind === 'TrackSamplerSampleChanged') {
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;
@@ -70,6 +80,31 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _
     }
     if (delta.kind === 'TrackRenamed') {
         patchTrack(state, delta.data.track_id, { name: delta.data.new_name });
+        return true;
+    }
+    if (delta.kind === 'TrackColorChanged') {
+        patchTrack(state, delta.data.track_id, { color: delta.data.color });
+        return true;
+    }
+    if (delta.kind === 'AutomationPointsChanged') {
+        const track = state.tracksById[delta.data.track_id];
+        if (!track) return true;
+        const lanePoints = delta.data.points.map((point) => ({
+            beat: point.beat,
+            value: point.value,
+            curve_type: point.curve_type,
+            tension: point.tension ?? undefined,
+        }));
+        const nextLanes = track.automation_lanes.some((lane) => lane.param_id === delta.data.param_id)
+            ? track.automation_lanes
+                .map((lane) => lane.param_id === delta.data.param_id
+                    ? { ...lane, points: lanePoints }
+                    : lane)
+                .filter((lane) => lane.points.length > 0)
+            : (lanePoints.length > 0
+                ? [...track.automation_lanes, { param_id: delta.data.param_id, points: lanePoints }]
+                : track.automation_lanes);
+        patchTrack(state, delta.data.track_id, { automation_lanes: nextLanes });
         return true;
     }
 

@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used))]
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Plugin Format Definitions
 // ═══════════════════════════════════════════════════════════════════════════
@@ -114,8 +115,10 @@ mod tests {
     #[test]
     fn format_serialization_roundtrip() {
         let format = PluginFormat::CLAP;
-        let json = serde_json::to_string(&format).unwrap();
-        let back: PluginFormat = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&format)
+            .expect("test invariant: unwrap removed for clippy policy");
+        let back: PluginFormat =
+            serde_json::from_str(&json).expect("test invariant: unwrap removed for clippy policy");
         assert_eq!(format, back);
     }
 }

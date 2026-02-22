@@ -1,7 +1,11 @@
 use super::rt_debug::SharedRtDebugStats;
 
+#[path = "executor/audio_thread_commands.rs"]
+mod audio_thread_commands;
 #[path = "executor/audio_thread_runner.rs"]
 mod audio_thread_runner;
+#[path = "executor/audio_thread_sampler_pass.rs"]
+mod audio_thread_sampler_pass;
 #[path = "executor/command_dispatch.rs"]
 mod command_dispatch;
 #[path = "executor/render_pipeline.rs"]

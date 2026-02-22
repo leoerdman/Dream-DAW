@@ -18,6 +18,11 @@ struct CreateMidiClipWithDeltasResponse {
     deltas: Vec<dream_models::delta::ProjectDelta>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct MidiDeltaMutationResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
 /// Creates an empty MIDI clip on a track at a specified position.
 ///
 /// Used when the user double-clicks on a MIDI track to create a new
@@ -556,6 +561,75 @@ async fn update_midi_clip_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
+}
+
+fn collect_midi_note_deltas_for_clip(
+    project: &Project,
+    clip_id: Uuid,
+) -> Vec<dream_models::delta::MidiNoteDelta> {
+    let Some(clip) = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.midi_clips.iter())
+        .find(|clip| clip.id == clip_id)
+    else {
+        return Vec::new();
+    };
+
+    let clip_start = clip.position.sample_frame;
+    let clip_start_beat = project.pulse_map.beats(clip_start);
+
+    clip.notes
+        .iter()
+        .map(|note| {
+            let note_start_abs = clip_start + note.start_frame;
+            let note_end_abs = note_start_abs + note.duration_frames;
+            let note_start_beat = project.pulse_map.beats(note_start_abs) - clip_start_beat;
+            let note_duration_beats =
+                (project.pulse_map.beats(note_end_abs) - project.pulse_map.beats(note_start_abs)).max(0.0);
+            dream_models::delta::MidiNoteDelta {
+                pitch: note.pitch,
+                velocity: note.velocity,
+                start_beat: note_start_beat.max(0.0),
+                duration_beats: note_duration_beats,
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn update_midi_clip_with_deltas_cmd(
+    clip_id: String,
+    notes: Vec<MidiNotePayload>,
+    push_undo_step: Option<bool>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    update_midi_clip_cmd(
+        clip_id.clone(),
+        notes,
+        push_undo_step,
+        project_state.clone(),
+        clip_pool_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    let note_deltas = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        collect_midi_note_deltas_for_clip(&project, clip_uuid)
+    };
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::MidiClipNotesReplaced {
+            clip_id: clip_uuid,
+            notes: note_deltas,
+        }],
+    })
 }
 
 #[tauri::command]

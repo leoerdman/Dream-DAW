@@ -20,9 +20,7 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
         .or_else(|| key.strip_prefix("Ext:"))
         .or_else(|| key.strip_prefix("EXT:"))
     {
-        let mut parts = rest.splitn(2, ':');
-        let slot_id_str = parts.next()?;
-        let param_index_str = parts.next()?;
+        let (slot_id_str, param_index_str) = rest.split_once(':')?;
         let slot_id = Uuid::parse_str(slot_id_str).ok()?;
         let idx = param_index_str.parse::<u32>().ok()?;
         return Some(ExternalParamTarget {
@@ -37,9 +35,7 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
         .or_else(|| key.strip_prefix("Slot:"))
         .or_else(|| key.strip_prefix("SLOT:"))
     {
-        let mut parts = rest.splitn(2, ':');
-        let slot_id_str = parts.next()?;
-        let param_token = parts.next()?;
+        let (slot_id_str, param_token) = rest.split_once(':')?;
         let slot_id = Uuid::parse_str(slot_id_str).ok()?;
 
         let idx = if let Some(v) = param_token.strip_prefix("ext_param_") {

@@ -1,17 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Engine Store (Zustand)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The Global Brain. Single source of truth for the React UI.
-//
-// Architecture:
-//   1. UI calls an ACTION (e.g., togglePlay)
-//   2. Action sends IPC command to Rust engine
-//   3. Backend emits push telemetry events (`telemetry_tick`) at ~30fps
-//   4. Store updates → React re-renders
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -20,6 +6,16 @@ import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import { applyProjectDeltasToState } from '@/shared/stores/engine/applyProjectDeltas';
+import {
+    DEBUG_PROJECT_FETCH,
+    METER_STATE_UPDATE_EVERY_TICKS,
+    mergeProjectHistory,
+    patchSandboxInstancesById,
+    PROJECT_HISTORY_SYNC_EVERY_TICKS,
+    PROJECT_HISTORY_WINDOW,
+    toEntityState,
+    type EntityState,
+} from '@/shared/stores/engine/storeHelpers';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -33,8 +29,6 @@ import type {
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useGridStore } from '@/shared/stores/useGridStore';
 
-// ProjectTrack type is now imported from '@/shared/lib/trackAdapter' (SSOT with ts-rs Track binding).
-// resolveTrackColor is now imported from '@/shared/lib/trackAdapter'.
 export type { ProjectTrack } from '@/shared/lib/trackAdapter';
 
 const throttledVolumeSends = new Map<number, (volume: number) => void>();
@@ -43,29 +37,13 @@ const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
 let projectFetchSeq = 0;
-/** Re-entry guard: prevents recursive fetchProject calls triggered by
- *  synchronous React re-renders inside zustand's set() → useSyncExternalStore. */
+/** Re-entry guard for recursive fetches. */
 let _isFetchingProject = false;
-/** Module-level guard for startTelemetryLoop. Prevents re-entry from
- *  synchronous React re-renders triggered by zustand set() inside the call.
- *  The store-level `telemetryRunning` flag races with set() — React fires
- *  forceStoreRerender BEFORE zustand updates the state, so get().telemetryRunning
- *  still reads false on re-entry. This module-level flag is set BEFORE set(). */
+/** Module-level guard for startTelemetryLoop re-entry. */
 let _telemetryStarted = false;
-/** Timestamp (ms) until which telemetry BPM updates are suppressed (BUG-3 fix). */
+/** Timestamp (ms) until which telemetry BPM updates are suppressed. */
 let _bpmPendingUntil = 0;
-/** PERF-FIX: Debounce timer for fetchProject calls.
- *  Coalesces rapid-fire UI actions (e.g. addTrack, deleteTrack, rename)
- *  into a single project re-fetch after a 100ms quiet window. */
-let _fetchProjectDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const FETCH_PROJECT_DEBOUNCE_MS = 100;
-const PROJECT_HISTORY_WINDOW = 256;
-const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
-/** PERF-FIX: Only push meter data to React state every N ticks.
- *  At 30fps telemetry, N=5 gives ~6fps meter re-renders — smooth enough
- *  for VU meters while preventing catastrophic re-render storms.
- *  Raw 30fps data is always available via _latestMeters. */
-const METER_STATE_UPDATE_EVERY_TICKS = 5;
+/** Push meter data to React every N ticks; raw data remains in `_latestMeters`. */
 let _meterFrameCounter = 0;
 /** Latest raw meter snapshot (30fps), bypasses React state for perf. */
 let _latestMeters: MeteringSnapshot | null = null;
@@ -73,34 +51,30 @@ let _latestMeters: MeteringSnapshot | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _pendingUpdate: Record<string, any> = {};
 let _rafPending = false;
+type StoreSetFn = (partial: Partial<EngineStore>) => void;
+
+function flushPendingStoreUpdate(set: StoreSetFn): void {
+    _rafPending = false;
+    const update = _pendingUpdate;
+    _pendingUpdate = {};
+    if (Object.keys(update).length > 0) {
+        set(update as Partial<EngineStore>);
+    }
+}
+
+function enqueuePendingStoreUpdate(set: StoreSetFn, partial: Partial<EngineStore>): void {
+    _pendingUpdate = { ..._pendingUpdate, ...partial };
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => flushPendingStoreUpdate(set));
+}
 /** Get the latest meter snapshot without causing React re-renders. */
 export function getMetersRef(): MeteringSnapshot {
     return _latestMeters ?? useEngineStore.getState().meters;
 }
-const DEBUG_PROJECT_FETCH =
-    (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
-    || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);
 const throttledMasterVolumeSend = throttle((volume: number) => {
     void engine.setMasterVolume(volume);
 }, 16);
-
-function mergeProjectHistory(
-    current: ProjectHistoryEvent[],
-    currentCursor: number,
-    delta: ProjectHistoryEvent[],
-): { history: ProjectHistoryEvent[]; cursor: number } {
-    if (delta.length === 0) {
-        return { history: current, cursor: currentCursor };
-    }
-    const firstSeq = delta[0].seq;
-    const shouldReplace = current.length === 0 || firstSeq <= currentCursor;
-    const merged = shouldReplace ? delta : [...current, ...delta];
-    const history = merged.length > PROJECT_HISTORY_WINDOW
-        ? merged.slice(-PROJECT_HISTORY_WINDOW)
-        : merged;
-    const cursor = delta[delta.length - 1].seq;
-    return { history, cursor };
-}
 
 interface SandboxSlotUpdateEvent {
     instanceId?: string;
@@ -109,157 +83,57 @@ interface SandboxSlotUpdateEvent {
     changedSlots?: number;
 }
 
-function patchSandboxInstancesById(
-    snapshot: PluginSandboxSnapshot | null,
-    ids: Set<string>,
-    patch: (inst: engine.PluginSandboxRuntimeInfo) => engine.PluginSandboxRuntimeInfo,
-): PluginSandboxSnapshot | null {
-    if (!snapshot || ids.size === 0) return snapshot;
-    return {
-        ...snapshot,
-        instances: snapshot.instances.map((inst) =>
-            ids.has(inst.plugin_instance_id) ? patch(inst) : inst,
-        ),
-    };
-}
-
-// ── Store Types ──────────────────────────────────────────────────────────
-
 interface EngineStore {
-    // ── State ────────────────────────────────────────────────────────────
-    /** Whether push telemetry listener has started. */
     telemetryRunning: boolean;
-
-    /** Whether we've successfully connected to the engine at least once. */
     connected: boolean;
-
-    /** Transport state from the Rust engine. */
     transport: TransportState;
-
-    /** VU meter readings from the Rust engine. */
     meters: MeteringSnapshot;
-
-    /** Timeline clips converted from project (sample frames → beats). */
     timelineClips: TimelineClip[];
-
-    /** Track metadata from project. */
     projectTracks: ProjectTrack[];
-
-    /** O(1) indexed lookup: track.id → ProjectTrack. Built alongside projectTracks. */
     tracksById: Record<string, ProjectTrack>;
-
-    /** O(1) indexed lookup: clip.id → TimelineClip. Built alongside timelineClips. */
+    tracks: EntityState<ProjectTrack>;
     clipsById: Record<string, TimelineClip>;
-
-    /** Project sample rate (for beat conversion). */
+    clips: EntityState<TimelineClip>;
     projectSampleRate: number;
-
-    /** Authoritative project BPM from PulseMap (race-safe — not from telemetry). */
     projectBpm: number;
-
-    /** Key signature state from project. */
     keySigEnabled: boolean;
     keySigTonic: string;
     keySigMode: string;
-
-    /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
-    /** Recent event-sourcing journal entries from backend. */
     projectHistory: ProjectHistoryEvent[];
-    /** Last seen backend history sequence number (incremental sync cursor). */
     projectHistoryCursor: number;
-    /** Master fader volume (linear gain 0.0..2.0). */
     masterVolume: number;
-    /** Runtime state of out-of-process plugin sandbox supervisor. */
     pluginSandbox: PluginSandboxSnapshot | null;
-
-    /** Track native plugin editor states: Record<trackId, Set<slotId>> (idempotent SSOT). */
     openEditorsByTrack: Record<string, Set<string>>;
-
-    // ── Actions ──────────────────────────────────────────────────────────
-
-    /** Start/stop playback. Sends IPC command, then push telemetry syncs state. */
     togglePlay: () => Promise<void>;
-
-    /** Start playback. */
     play: () => Promise<void>;
-
-    /** Stop playback. */
     stop: () => Promise<void>;
-
-    /** Change BPM. Optimistically updates local state, then sends to engine. */
     setBpm: (bpm: number) => Promise<void>;
-
-    /** Seek to a position in seconds. */
     seekSeconds: (seconds: number) => Promise<void>;
-
-    /** Seek to a beat position (precision: single conversion on Rust side). */
     seekToBeat: (beat: number) => Promise<void>;
-
-    /** Set loop region. */
     setLoop: (enabled: boolean, startFrames: number, endFrames: number) => Promise<void>;
-
-    /** Set test tone frequency (debug). */
     setFrequency: (freq: number) => Promise<void>;
-
-    /** Track control: set volume. */
     setTrackVolume: (trackIndex: number, volume: number) => Promise<void>;
-
-    /** Track control: set pan. */
     setTrackPan: (trackIndex: number, pan: number) => Promise<void>;
-    /** Master control: set volume. */
     setMasterVolume: (volume: number) => Promise<void>;
-    /** Flush final unthrottled track control values (call on mouse/pointer up). */
     flushTrackControlFinals: () => Promise<void>;
-
-    /** Track control: mute/unmute. */
     setTrackMute: (trackIndex: number, muted: boolean) => Promise<void>;
-
-    /** Track control: solo/unsolo. */
     setTrackSolo: (trackIndex: number, soloed: boolean) => Promise<void>;
-
-    /** Add a new track to the project. */
     addTrack: (name?: string) => Promise<void>;
-
-    /** Delete a track by its zero-based index. */
     deleteTrack: (index: number) => Promise<void>;
-
-    /** Rename a track by its zero-based index. */
     renameTrack: (index: number, name: string) => Promise<void>;
-
-    /** Import an audio file onto a track, optionally at a specific position. */
     importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<ImportAudioResponse | null>;
-
-    /** Create an empty MIDI clip on a track at a given position. */
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
-
-    /** Apply backend ProjectDelta events to local normalized clip/track state. */
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
-
-    /** Fetch project state from Rust and convert to timeline format. */
     fetchProject: (reason?: string) => Promise<void>;
-    /** Incrementally sync project history journal without full project fetch. */
     syncProjectHistory: () => Promise<void>;
-
-    /** Expand window from splash to full DAW mode. */
     expandWindow: () => Promise<void>;
-
-    /** Start push telemetry listener (called once at app startup). */
     startTelemetryLoop: () => void;
-
-    /** Stop push telemetry listener. */
     stopTelemetryLoop: () => void;
-
-    /** Restart all crashed/timed-out sandbox plugin instances and clear forced bypass. */
     reloadCrashedSandboxPlugins: () => Promise<void>;
-
-    /** Toggle native plugin window visibility. Enforces SSOT and prevents double-close. */
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
-    /** Close all open native editors across all tracks (cleanup). */
     closeAllPluginEditors: () => Promise<void>;
 }
-
-// ── Default Values ───────────────────────────────────────────────────────
 
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
@@ -287,8 +161,6 @@ const DEFAULT_METERS: MeteringSnapshot = {
     master_right: { ...DEFAULT_METER },
 };
 
-// ── Telemetry Loop Control ───────────────────────────────────────────────
-
 let _telemetryUnlisten: UnlistenFn | null = null;
 let _pluginSandboxUnlisten: UnlistenFn | null = null;
 let _pluginSandboxCrashUnlisten: UnlistenFn | null = null;
@@ -297,10 +169,7 @@ let _pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
 let _pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
 let _pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
 
-// ── Store Creation ───────────────────────────────────────────────────────
-
 export const useEngineStore = create<EngineStore>((set, get) => ({
-    // ── Initial State ──────────────────────────────────────────────────
     telemetryRunning: false,
     connected: false,
     transport: { ...DEFAULT_TRANSPORT },
@@ -308,7 +177,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     timelineClips: [],
     projectTracks: [],
     tracksById: {},
+    tracks: { byId: {}, allIds: [] },
     clipsById: {},
+    clips: { byId: {}, allIds: [] },
     projectSampleRate: 44100,
     projectBpm: 120,
     keySigEnabled: false,
@@ -321,7 +192,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     pluginSandbox: null,
     openEditorsByTrack: {},
 
-    // ── Transport Actions ──────────────────────────────────────────────
 
     togglePlay: async () => {
         try {
@@ -364,8 +234,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         // Keep transport + project tempo in sync to avoid frame↔beat mismatches
         // during drag/move/loop calculations before the next project refresh.
         set((s) => ({ transport: { ...s.transport, bpm }, projectBpm: bpm }));
-        // BUG-3 fix: suppress telemetry BPM overwrites for 500ms so the
-        // optimistic value isn't immediately flickered back to the old BPM.
         _bpmPendingUntil = Date.now() + 500;
         try {
             await engine.setBpmWithDeltas(bpm);
@@ -398,7 +266,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             transport: { ...s.transport, loop_enabled: enabled, loop_start: startFrames, loop_end: endFrames },
         }));
         try {
-            await engine.setLoop(enabled, startFrames, endFrames);
+            const response = await engine.setLoopWithDeltas(enabled, startFrames, endFrames);
+            await get().applyProjectDeltas(response.deltas, 'setLoop');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -414,7 +283,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
-    // ── Track Actions ──────────────────────────────────────────────────
 
     setTrackVolume: async (trackIndex: number, volume: number) => {
         try {
@@ -510,6 +378,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             return {
                 projectTracks: nextTracks,
                 tracksById: { ...s.tracksById, [track.id]: updated },
+                tracks: {
+                    byId: { ...s.tracks.byId, [track.id]: updated },
+                    allIds: s.tracks.allIds,
+                },
             };
         });
         try {
@@ -532,6 +404,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             return {
                 projectTracks: nextTracks,
                 tracksById: { ...s.tracksById, [track.id]: updated },
+                tracks: {
+                    byId: { ...s.tracks.byId, [track.id]: updated },
+                    allIds: s.tracks.allIds,
+                },
             };
         });
         try {
@@ -543,7 +419,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
-    // ── Audio Import ───────────────────────────────────────────────────
 
     addTrack: async (name?: string) => {
         try {
@@ -564,7 +439,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         try {
             const response = await engine.deleteTrackWithDeltas(index);
 
-            // BUG-17: Prune stale throttles to prevent memory leaks.
             throttledVolumeSends.clear();
             throttledPanSends.clear();
             pendingVolumeValues.clear();
@@ -619,20 +493,77 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         if (!Array.isArray(deltas) || deltas.length === 0) return;
 
+        for (const delta of deltas) {
+            if (delta.kind === 'ArrangementGridChanged') {
+                useGridStore.getState().applyProjectGrid({
+                    numerator: delta.data.numerator,
+                    denominator: delta.data.denominator,
+                    ntoles: delta.data.ntoles,
+                    snapToGrid: delta.data.snap_to_grid,
+                    fixed: delta.data.fixed,
+                });
+            }
+        }
+
         set((s) => {
+            let nextProjectBpm = s.projectBpm;
+            let nextTransport = s.transport;
+            let nextKeySigEnabled = s.keySigEnabled;
+            let nextKeySigTonic = s.keySigTonic;
+            let nextKeySigMode = s.keySigMode;
+
+            for (const delta of deltas) {
+                if (delta.kind === 'TempoChanged') {
+                    nextProjectBpm = delta.data.bpm;
+                    nextTransport = { ...nextTransport, bpm: delta.data.bpm };
+                } else if (delta.kind === 'LoopRegionChanged') {
+                    nextTransport = {
+                        ...nextTransport,
+                        loop_enabled: delta.data.enabled,
+                        loop_start: delta.data.start,
+                        loop_end: delta.data.end,
+                    };
+                } else if (delta.kind === 'KeySignatureChanged') {
+                    nextKeySigEnabled = delta.data.enabled;
+                    nextKeySigTonic = delta.data.tonic;
+                    nextKeySigMode = delta.data.mode;
+                }
+            }
+
             const { nextState } =
                 applyProjectDeltasToState(s, deltas, reason);
-            return nextState ?? s;
+            if (!nextState) {
+                if (
+                    nextProjectBpm !== s.projectBpm
+                    || nextTransport !== s.transport
+                    || nextKeySigEnabled !== s.keySigEnabled
+                    || nextKeySigTonic !== s.keySigTonic
+                    || nextKeySigMode !== s.keySigMode
+                ) {
+                    return {
+                        projectBpm: nextProjectBpm,
+                        transport: nextTransport,
+                        keySigEnabled: nextKeySigEnabled,
+                        keySigTonic: nextKeySigTonic,
+                        keySigMode: nextKeySigMode,
+                    };
+                }
+                return s;
+            }
+
+            return {
+                ...nextState,
+                projectBpm: nextProjectBpm,
+                transport: nextTransport,
+                keySigEnabled: nextKeySigEnabled,
+                keySigTonic: nextKeySigTonic,
+                keySigMode: nextKeySigMode,
+            };
         });
     },
 
-    // ── Project Sync ───────────────────────────────────────────────────
 
     fetchProject: async (reason: string = 'manual') => {
-        // BUG-FIX: Re-entry guard prevents infinite loop.
-        // zustand set() → useSyncExternalStore → synchronous React re-render →
-        // Tauri IPC callback resolves → fetchProject called again → "Maximum
-        // update depth exceeded". The lock breaks this synchronous cycle.
         if (_isFetchingProject) {
             console.debug(`[fetchProject] BLOCKED re-entry reason="${reason}" — already in progress`);
             return;
@@ -733,9 +664,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
             console.debug(`[fetchProject] ACCEPTED #${requestSeq} reason="${reason}" tracks=${project.tracks?.length ?? '?'} name="${project.name ?? '?'}"`);
 
-            // CRITICAL: Use the project's own PulseMap BPM as the authoritative SSOT
-            // for frame↔beat conversion. transport.bpm may be stale immediately
-            // after open_project until the next telemetry tick arrives.
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
             const sr = resolveSampleRate(project.sample_rate, get().transport.sample_rate);
             const toFiniteNumber = (value: unknown, fallback = 0): number => {
@@ -763,7 +691,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
-                // SSOT: Use trackAdapter.ts to map raw backend track → UI ProjectTrack
                 const adapted = adaptTrack(track as Parameters<typeof adaptTrack>[0]);
                 projectTracks.push(adapted);
                 const trackColor = adapted.color;
@@ -780,7 +707,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     const treatAsMidi = isMidiTrack;
-                    // BUG-6 fix: cache color resolution instead of calling twice
                     const clipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
 
                     timelineClips.push({
@@ -788,9 +714,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         name: clip.name,
                         trackIndex: trackIdx,
                         startBeat: frameToBeat(posFrames, bpm, sr),
-                        // BUG-2 fix: always use project BPM for timeline duration.
-                        // durFrames already represents the timeline extent (Rust engine
-                        // handles warp stretching via playback_rate in render_callback).
                         durationBeats: frameToBeat(durFrames, bpm, sr),
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.
@@ -806,7 +729,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         fadeIn: fadeInFrames,
                         fadeOut: fadeOutFrames,
                         isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
-                        // BUG-1 fix: Boolean() runtime coercion
                         muted: Boolean((clip as Record<string, unknown>).is_muted ?? false),
                     });
                 }
@@ -816,7 +738,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration.sample_frame, 1));
                     const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
-                    // BUG-6 fix: cache color resolution
                     const midiClipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
                     timelineClips.push({
                         id: clip.id,
@@ -830,7 +751,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         sourceOffset: 0,
                         fadeIn: fadeInFrames,
                         fadeOut: fadeOutFrames,
-                        // BUG-1 fix: Boolean() runtime coercion
                         muted: Boolean((clip as Record<string, unknown>).is_muted ?? false),
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
@@ -852,7 +772,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
 
             if (requestSeq === projectFetchSeq) {
-                set((s) => ({
+                set((s) => {
+                    const tracks = toEntityState(projectTracks);
+                    const clips = toEntityState(timelineClips);
+                    return ({
                     // Append incremental delta from backend history journal.
                     // Backend falls back to full slice when cursor becomes stale
                     // (e.g. after new/open project reset).
@@ -869,8 +792,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     })(),
                     timelineClips,
                     projectTracks,
-                    tracksById: Object.fromEntries(projectTracks.map(t => [t.id, t])),
-                    clipsById: Object.fromEntries(timelineClips.map(c => [c.id, c])),
+                    tracksById: tracks.byId,
+                    tracks,
+                    clipsById: clips.byId,
+                    clips,
                     projectSampleRate: sr,
                     projectBpm: bpm,
                     keySigEnabled: project.key_sig_enabled ?? false,
@@ -879,14 +804,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     // Keep transport.bpm in sync so TransportBar/StatusBar
                     // show correct BPM immediately, even before next telemetry tick.
                     transport: { ...s.transport, bpm },
-                }));
+                });
+                });
                 if (DEBUG_PROJECT_FETCH) {
                     console.debug(
                         `[ProjectFetch] apply #${requestSeq} reason=${reason} tracks=${projectTracks.length} clips=${timelineClips.length} bpm=${bpm}`,
                     );
                 }
 
-                // BUG-23: Prune stale throttle closures for deleted tracks
                 const validTrackIndices = new Set(projectTracks.map((_, i) => i));
                 for (const key of throttledVolumeSends.keys()) {
                     if (!validTrackIndices.has(key)) throttledVolumeSends.delete(key);
@@ -937,7 +862,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
-    // ── Window ─────────────────────────────────────────────────────────
 
     expandWindow: async () => {
         try {
@@ -947,18 +871,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
-    // ── Telemetry Loop ─────────────────────────────────────────────────
-
     startTelemetryLoop: () => {
-        // CRITICAL FIX: Module-level guard for instant synchronous re-entry prevention.
-        // _telemetryStarted is set BEFORE any set() call — blocks re-entry even when
-        // React hasn't committed the store update yet.
-        // We do NOT check get().telemetryRunning because Vite HMR resets _telemetryStarted
-        // but zustand persists telemetryRunning: true → would permanently block re-registration.
         if (_telemetryStarted) return;
         _telemetryStarted = true;
 
-        // CRITICAL: Defer ALL state updates to break synchronous React re-render cascade.
         queueMicrotask(() => {
             set({ telemetryRunning: true });
             void get().fetchProject('telemetry-startup');
@@ -979,8 +895,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const nextMeters = event.payload.meters;
                     const prev = get().transport;
 
-                    // BUG-3 fix: suppress telemetry BPM overwrites while user's
-                    // optimistic setBpm update is still pending (avoids flicker).
                     const bpmProtected = Date.now() < _bpmPendingUntil;
                     const effectiveTransport = bpmProtected
                         ? { ...nextTransport, bpm: prev.bpm }
@@ -995,28 +909,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         prev.loop_start !== effectiveTransport.loop_start ||
                         prev.loop_end !== effectiveTransport.loop_end;
 
-                    // PERF-FIX: Always store latest meters in module-level ref
-                    // for high-frequency access, but throttle React state updates
-                    // to ~6fps to prevent catastrophic re-render storms.
                     _latestMeters = nextMeters;
                     _meterFrameCounter++;
                     const shouldUpdateMeterState = _meterFrameCounter % METER_STATE_UPDATE_EVERY_TICKS === 0;
 
-                    // ══════════════════════════════════════════════════════════
-                    // ENTERPRISE FIX: requestAnimationFrame batching
-                    //
-                    // Tauri pushes 30 telemetry events/sec. Each set() triggers
-                    // Zustand → React re-render of ALL subscribed components
-                    // (DawShell, TransportBar, Timeline, etc.).
-                    // At 30 set()/sec, React's reconciler is permanently busy
-                    // and NEVER processes user click/pointer handlers → UI
-                    // appears frozen even though events reach JS.
-                    //
-                    // Fix: Accumulate pending state in a module-level object.
-                    // Schedule a single rAF callback that does ONE set() per
-                    // browser frame (~16ms). Multiple Tauri events within the
-                    // same frame are coalesced → zero data loss, 60fps max.
-                    // ══════════════════════════════════════════════════════════
                     if (transportChanged) {
                         _pendingUpdate.transport = effectiveTransport;
                         _pendingUpdate.connected = true;
@@ -1035,36 +931,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     }
 
                     // Schedule single rAF flush (idempotent — only one pending at a time)
-                    if (!_rafPending) {
-                        _rafPending = true;
-                        requestAnimationFrame(() => {
-                            _rafPending = false;
-                            const update = _pendingUpdate;
-                            _pendingUpdate = {};
-                            if (Object.keys(update).length > 0) {
-                                set(update);
-                            }
-                        });
-                    }
+                    enqueuePendingStoreUpdate(set, {});
                 });
-                // BUG-P2 FIX: Route plugin_sandbox_tick through rAF batching.
-                // Previously called set() directly at 30fps, causing React re-render
-                // storms identical to the telemetry_tick issue.
                 _pluginSandboxUnlisten = await listen<PluginSandboxSnapshot>(
                     'plugin_sandbox_tick',
                     (event) => {
-                        _pendingUpdate.pluginSandbox = event.payload;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, { pluginSandbox: event.payload });
                     },
                 );
                 _pluginSandboxCrashUnlisten = await listen<PluginCrashEvent>(
@@ -1088,19 +960,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                                 ),
                             }
                             : state.pluginSandbox;
-                        _pendingUpdate.pluginSandbox = nextSandbox;
-                        _pendingUpdate.lastError = `Plugin crashed: ${crash.plugin_name} (${crash.reason})`;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, {
+                            pluginSandbox: nextSandbox,
+                            lastError: `Plugin crashed: ${crash.plugin_name} (${crash.reason})`,
+                        });
                     },
                 );
                 _pluginSandboxRecoveredUnlisten = await listen<PluginRecoveryEvent>(
@@ -1120,19 +983,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                                 last_error: null,
                             }),
                         );
-                        _pendingUpdate.pluginSandbox = nextSandbox;
-                        _pendingUpdate.lastError = null;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, {
+                            pluginSandbox: nextSandbox,
+                            lastError: null,
+                        });
                     },
                 );
                 _pluginSandboxAutoBypassUnlisten = await listen<SandboxSlotUpdateEvent>(
@@ -1149,18 +1003,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                                 status: inst.status === 'running' ? 'crashed' : inst.status,
                             }),
                         );
-                        _pendingUpdate.pluginSandbox = nextSandbox;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox });
                     },
                 );
                 _pluginSandboxAutoRecoveredUnlisten = await listen<SandboxSlotUpdateEvent>(
@@ -1178,19 +1021,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                                 last_error: null,
                             }),
                         );
-                        _pendingUpdate.pluginSandbox = nextSandbox;
-                        _pendingUpdate.lastError = null;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, {
+                            pluginSandbox: nextSandbox,
+                            lastError: null,
+                        });
                     },
                 );
                 _pluginSandboxReloadedUnlisten = await listen<SandboxSlotUpdateEvent>(
@@ -1211,26 +1045,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                                 status: 'spawning',
                             }),
                         );
-                        _pendingUpdate.pluginSandbox = nextSandbox;
-                        if (!_rafPending) {
-                            _rafPending = true;
-                            requestAnimationFrame(() => {
-                                _rafPending = false;
-                                const update = _pendingUpdate;
-                                _pendingUpdate = {};
-                                if (Object.keys(update).length > 0) {
-                                    set(update);
-                                }
-                            });
-                        }
+                        enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox });
                     },
                 );
             } catch (e) {
                 const msg = String(e);
                 console.error('[Telemetry] listen() failed — resetting guard for retry:', msg);
-                // CRITICAL: Reset module-level guard so DawShell safety-net useEffect
-                // can retry startTelemetryLoop(). Without this, a single failed listen()
-                // permanently locks out telemetry → entire UI goes dead.
                 _telemetryStarted = false;
                 if (get().lastError !== msg) {
                     set({ lastError: msg, connected: false, telemetryRunning: false });

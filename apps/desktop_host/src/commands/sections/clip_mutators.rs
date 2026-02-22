@@ -8,11 +8,6 @@ struct SplitClipResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct DeltaMutationResponse {
-    deltas: Vec<dream_models::delta::ProjectDelta>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct SplitClipWithDeltasResponse {
     left_id: String,
     right_id: String,
@@ -316,6 +311,32 @@ fn find_clip_position_frames(project: &Project, clip_id: Uuid) -> Option<i64> {
         }
         if let Some(clip) = track.midi_clips.iter().find(|clip| clip.id == clip_id) {
             return Some(clip.position.sample_frame);
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AudioClipDeltaState {
+    source_offset: i64,
+    fade_in_frames: i64,
+    fade_out_frames: i64,
+    is_warped: bool,
+    warp_mode: Option<i32>,
+    warp_base_bpm: f64,
+}
+
+fn find_audio_clip_delta_state(project: &Project, clip_id: Uuid) -> Option<AudioClipDeltaState> {
+    for track in &project.tracks {
+        if let Some(clip) = track.clips.iter().find(|clip| clip.id == clip_id) {
+            return Some(AudioClipDeltaState {
+                source_offset: clip.source_offset.sample_frame,
+                fade_in_frames: clip.fade_in_frames,
+                fade_out_frames: clip.fade_out_frames,
+                is_warped: clip.is_warped,
+                warp_mode: clip.warp_mode,
+                warp_base_bpm: clip.warp_base_bpm,
+            });
         }
     }
     None
@@ -1113,6 +1134,46 @@ async fn set_clip_source_offset_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_clip_source_offset_with_deltas_cmd(
+    clip_id: String,
+    source_offset_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let before_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
+    };
+
+    set_clip_source_offset_cmd(
+        clip_id,
+        source_offset_frames,
+        project_state.clone(),
+        clip_pool_state,
+        app,
+    )
+    .await?;
+
+    let after_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found after source-offset update: {clip_uuid}"))?
+    };
+
+    let mut deltas = Vec::new();
+    if before_state.source_offset != after_state.source_offset {
+        deltas.push(dream_models::delta::ProjectDelta::ClipSourceOffsetChanged {
+            clip_id: clip_uuid,
+            source_offset: after_state.source_offset,
+        });
+    }
+    Ok(DeltaMutationResponse { deltas })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SetClipWarpPayload {
@@ -1206,6 +1267,50 @@ async fn set_clip_warp_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_clip_warp_with_deltas_cmd(
+    payload: SetClipWarpPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let clip_uuid =
+        Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let before_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found: {}", payload.clip_id))?
+    };
+
+    set_clip_warp_cmd(
+        payload,
+        project_state.clone(),
+        clip_pool_state,
+        app,
+    )
+    .await?;
+
+    let after_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found after warp update: {clip_uuid}"))?
+    };
+
+    let mut deltas = Vec::new();
+    if before_state.is_warped != after_state.is_warped
+        || before_state.warp_mode != after_state.warp_mode
+        || (before_state.warp_base_bpm - after_state.warp_base_bpm).abs() > f64::EPSILON
+    {
+        deltas.push(dream_models::delta::ProjectDelta::ClipWarpChanged {
+            clip_id: clip_uuid,
+            is_warped: after_state.is_warped,
+            warp_mode: after_state.warp_mode,
+            warp_base_bpm: after_state.warp_base_bpm,
+        });
+    }
+    Ok(DeltaMutationResponse { deltas })
+}
+
 /// Set clip fades. Current engine applies always-on micro-fades; this command is
 /// accepted for IPC compatibility with interactive UI fade handles.
 #[tauri::command]
@@ -1248,6 +1353,53 @@ async fn set_clip_fades_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn set_clip_fades_with_deltas_cmd(
+    clip_id: String,
+    fade_in_frames: i64,
+    fade_out_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let before_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
+    };
+
+    set_clip_fades_cmd(
+        clip_id,
+        fade_in_frames,
+        fade_out_frames,
+        project_state.clone(),
+        clip_pool_state,
+        handle,
+        app,
+    )
+    .await?;
+
+    let after_state = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_audio_clip_delta_state(&project, clip_uuid)
+            .ok_or_else(|| format!("Audio clip not found after fades update: {clip_uuid}"))?
+    };
+
+    let mut deltas = Vec::new();
+    if before_state.fade_in_frames != after_state.fade_in_frames
+        || before_state.fade_out_frames != after_state.fade_out_frames
+    {
+        deltas.push(dream_models::delta::ProjectDelta::ClipFadesChanged {
+            clip_id: clip_uuid,
+            fade_in_frames: after_state.fade_in_frames,
+            fade_out_frames: after_state.fade_out_frames,
+        });
+    }
+    Ok(DeltaMutationResponse { deltas })
 }
 
 /// Toggle mute state on a clip (audio or MIDI).
@@ -1498,24 +1650,27 @@ async fn resolve_missing_file_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut updated = false;
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            clip.file_path = new_path.clone();
-            clip.is_offline = false;
-            updated = true;
-            break;
-        }
-    }
-    if !updated {
-        return Err(format!("Clip not found: {clip_id}"));
+
+    let cmd =
+        dream_orchestrator::commands::ResolveMissingClipFileCommand::from_str_id(&clip_id, &new_path)
+            .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
 
     // Load resolved media into clip pool so playback recovers immediately.
@@ -1531,6 +1686,7 @@ async fn resolve_missing_file_cmd(
         });
     }
 
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);
@@ -1548,56 +1704,41 @@ async fn set_automation_points_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
-    let normalized_param_id = param_id.trim().to_string();
-    if normalized_param_id.is_empty() {
-        return Err("Parameter ID cannot be empty".to_string());
-    }
+    let persistent_points = points
+        .iter()
+        .map(|p| dream_models::project::AutomationPoint {
+            beat: p.beat,
+            value: p.value,
+            curve_type: p.curve_type.clone(),
+            tension: p.tension,
+            bezier_cp1x: None,
+            bezier_cp1y: None,
+            bezier_cp2x: None,
+            bezier_cp2y: None,
+        })
+        .collect::<Vec<_>>();
+
+    let cmd = dream_orchestrator::commands::SetTrackAutomationPointsCommand::from_str_id(
+        &track_id,
+        &param_id,
+        persistent_points,
+    )
+    .map_err(|e| e.to_string())?;
+
     push_undo(&project_state)?;
     {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter_mut()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
 
-        let mut persistent_points: Vec<dream_models::project::AutomationPoint> = points
-            .iter()
-            .map(|p| dream_models::project::AutomationPoint {
-                beat: p.beat.max(0.0),
-                value: p.value,
-                curve_type: p.curve_type.clone(),
-                tension: p.tension,
-                bezier_cp1x: None,
-                bezier_cp1y: None,
-                bezier_cp2x: None,
-                bezier_cp2y: None,
-            })
-            .collect();
-        persistent_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
-
-        if let Some(existing) = track
-            .automation_lanes
-            .iter_mut()
-            .find(|lane| lane.param_id.eq_ignore_ascii_case(&normalized_param_id))
-        {
-            existing.points = persistent_points;
-            existing.param_id = normalized_param_id.clone();
-        } else {
-            track
-                .automation_lanes
-                .push(dream_models::project::AutomationLane {
-                    param_id: normalized_param_id.clone(),
-                    points: persistent_points,
-                });
-        }
-
-        // Keep project clean: remove empty lanes.
-        track
-            .automation_lanes
-            .retain(|lane| !lane.points.is_empty());
-
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         let project_name = project.name.clone();
         rebuild_automation_snapshot_from_project(&project, &automation_runtime);
         drop(project);
@@ -1613,6 +1754,48 @@ async fn set_automation_points_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_automation_points_with_deltas_cmd(
+    track_id: String,
+    param_id: String,
+    points: Vec<AutomationPointPayload>,
+    project_state: tauri::State<'_, ProjectState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
+    let normalized_param_id = param_id.trim().to_string();
+
+    set_automation_points_cmd(
+        track_id,
+        param_id,
+        points.clone(),
+        project_state,
+        automation_runtime,
+        app,
+    )
+    .await?;
+
+    let mut normalized_points: Vec<dream_models::delta::AutomationPointDelta> = points
+        .into_iter()
+        .map(|point| dream_models::delta::AutomationPointDelta {
+            beat: point.beat.max(0.0),
+            value: point.value,
+            curve_type: point.curve_type,
+            tension: point.tension,
+        })
+        .collect();
+    normalized_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::AutomationPointsChanged {
+            track_id: track_uuid,
+            param_id: normalized_param_id,
+            points: normalized_points,
+        }],
+    })
+}
+
 /// Arm/disarm a track for recording.
 #[tauri::command]
 async fn arm_track_cmd(
@@ -1621,16 +1804,39 @@ async fn arm_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .get_mut(track_index)
-        .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
-    track.is_armed = armed;
+    let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn arm_track_with_deltas_cmd(
+    track_index: usize,
+    armed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    arm_track_cmd(track_index, armed, project_state, app).await?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackArmChanged { track_index, armed }],
+    })
 }
 
 /// Start live recording on the first armed track.
@@ -1742,26 +1948,27 @@ async fn stop_recording_cmd(
     }
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_sr = project.sample_rate.max(1.0);
-    let source_sr = decoded.sample_rate.max(1) as f64;
-    let timeline_frames = ((result.total_frames as f64) * (project_sr / source_sr)).round() as i64;
-    while project.tracks.len() <= armed_idx {
-        let track_num = project.tracks.len() + 1;
-        project.add_track(Track::new(format!("Track {track_num}")));
+    let cmd = dream_orchestrator::commands::InsertRecordedClipCommand {
+        track_index: armed_idx,
+        clip_name: "Recording".to_string(),
+        file_path: path.clone(),
+        start_frame: result.start_frame,
+        source_total_frames: result.total_frames as i64,
+        source_sample_rate: decoded.sample_rate,
+    };
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
     }
-
-    let mut clip = AudioClip::new(
-        "Recording",
-        &path,
-        AbsoluteTime::new(result.start_frame),
-        AbsoluteTime::new(timeline_frames.max(1)),
-    );
-    // FIX: warp_source_duration_frames must be the RAW source frame count,
-    // NOT the SR-scaled timeline duration, to prevent double SR compensation
-    // when warp is enabled.
-    clip.warp_source_duration_frames = result.total_frames.max(1) as i64;
-    project.tracks[armed_idx].clips.push(clip);
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);

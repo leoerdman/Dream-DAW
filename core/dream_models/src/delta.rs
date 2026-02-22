@@ -17,6 +17,22 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MidiNoteDelta {
+    pub pitch: u8,
+    pub velocity: u8,
+    pub start_beat: f64,
+    pub duration_beats: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomationPointDelta {
+    pub beat: f64,
+    pub value: f64,
+    pub curve_type: String,
+    pub tension: Option<f64>,
+}
+
 // ── Project Delta ───────────────────────────────────────────────────────
 
 /// A single atomic change to the project state.
@@ -75,6 +91,30 @@ pub enum ProjectDelta {
     /// A clip's mute state changed.
     ClipMuteChanged { clip_id: Uuid, muted: bool },
 
+    /// Full MIDI note list for a clip was replaced.
+    MidiClipNotesReplaced {
+        clip_id: Uuid,
+        notes: Vec<MidiNoteDelta>,
+    },
+
+    /// Source offset for an audio clip changed.
+    ClipSourceOffsetChanged { clip_id: Uuid, source_offset: i64 },
+
+    /// Clip fade lengths changed.
+    ClipFadesChanged {
+        clip_id: Uuid,
+        fade_in_frames: i64,
+        fade_out_frames: i64,
+    },
+
+    /// Warp state for an audio clip changed.
+    ClipWarpChanged {
+        clip_id: Uuid,
+        is_warped: bool,
+        warp_mode: Option<i32>,
+        warp_base_bpm: f64,
+    },
+
     /// A clip's color was changed.
     ClipColorChanged {
         clip_id: Uuid,
@@ -106,11 +146,14 @@ pub enum ProjectDelta {
     /// A track was armed/disarmed for recording.
     TrackArmChanged { track_index: usize, armed: bool },
 
-    /// Track sampler sample path changed.
-    TrackSamplerSampleChanged {
+    /// Track output destination changed (`None` means master).
+    TrackRoutingChanged {
         track_id: Uuid,
-        sample_path: String,
+        output_destination_id: Option<Uuid>,
     },
+
+    /// Track sampler sample path changed.
+    TrackSamplerSampleChanged { track_id: Uuid, sample_path: String },
 
     /// A track was renamed.
     TrackRenamed { track_id: Uuid, new_name: String },
@@ -173,11 +216,12 @@ pub enum ProjectDelta {
     },
 
     // ── Automation ──────────────────────────────────────────────────────
-    /// Automation points were updated for a parameter.
-    /// The lane data is not included — the frontend should re-fetch automation
-    /// for this specific param_id.
-    /// for this specific param_id.
-    AutomationPointsChanged { track_id: Uuid, param_id: String },
+    /// Automation points were updated for a parameter lane on a track.
+    AutomationPointsChanged {
+        track_id: Uuid,
+        param_id: String,
+        points: Vec<AutomationPointDelta>,
+    },
 
     // ── Transport/Project ───────────────────────────────────────────────
     /// Tempo changed.
@@ -186,12 +230,27 @@ pub enum ProjectDelta {
     /// Time signature changed.
     TimeSignatureChanged { numerator: u32, denominator: u32 },
 
+    /// Arrangement/editor grid settings changed.
+    ArrangementGridChanged {
+        numerator: u16,
+        denominator: u16,
+        ntoles: u8,
+        snap_to_grid: bool,
+        fixed: bool,
+    },
+
+    /// Key signature changed.
+    KeySignatureChanged {
+        enabled: bool,
+        tonic: String,
+        mode: String,
+    },
+
     /// Project was renamed.
     ProjectRenamed { new_name: String },
 
     /// Loop region changed.
     LoopRegionChanged { start: i64, end: i64, enabled: bool },
-
 }
 
 // ── Delta Event (with metadata) ─────────────────────────────────────────

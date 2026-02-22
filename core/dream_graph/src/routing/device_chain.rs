@@ -44,7 +44,11 @@ impl DeviceChain {
     }
 
     /// Moves an effect node within the same chain.
-    pub fn move_effect(track: &mut Track, slot_id: Uuid, target_index: usize) -> Result<(), String> {
+    pub fn move_effect(
+        track: &mut Track,
+        slot_id: Uuid,
+        target_index: usize,
+    ) -> Result<(), String> {
         let from = track
             .effects
             .iter()
@@ -135,7 +139,11 @@ pub fn canonical_internal_plugin(
             "wavetable" | "operator" | "analog" | "collision" | "tension" | "electricpiano"
             | "instrumentmeld" | "drift" | "instrumentvector" | "loungelizard" | "ultraanalog"
             | "stringstudio" => {
-                return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+                return Some((
+                    "internal://instrument/wave-synth",
+                    "Wave Synth",
+                    "instrument",
+                ));
             }
             _ => {}
         }
@@ -147,7 +155,11 @@ pub fn canonical_internal_plugin(
                 return Some(("internal://effect/spectrum", "Spectrum", "effect"));
             }
             "synthesizer v studio 2 plugin" => {
-                return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+                return Some((
+                    "internal://instrument/wave-synth",
+                    "Wave Synth",
+                    "instrument",
+                ));
             }
             _ => return None,
         }

@@ -67,6 +67,32 @@ fn set_track_routing_cmd(
     Ok(())
 }
 
+#[tauri::command]
+fn set_track_routing_with_deltas_cmd(
+    track_id: String,
+    target_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<RoutingDeltaResponse, String> {
+    let track_uuid =
+        Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let output_destination_id = if target_id == "master" {
+        None
+    } else {
+        Some(Uuid::parse_str(&target_id).map_err(|_| format!("Invalid target_id: {target_id}"))?)
+    };
+
+    set_track_routing_cmd(track_id, target_id, project_state, clip_pool_state, app)?;
+
+    Ok(RoutingDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackRoutingChanged {
+            track_id: track_uuid,
+            output_destination_id,
+        }],
+    })
+}
+
 /// Set input source for a track.
 #[tauri::command]
 fn set_track_input_cmd(

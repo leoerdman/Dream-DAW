@@ -6,12 +6,11 @@ import {
     type MidiNoteLike,
     getOptionalStringField,
 } from '@/shared/api/assistant/types';
+import { shouldFetchProjectAfterTool } from '@/shared/api/assistant/toolPolicies';
 
 type GlobalWithPreviewTimer = typeof globalThis & {
     __dreamPreviewTimer?: ReturnType<typeof setTimeout> | null;
 };
-
-// ─── Resolve track index ────────────────────────────────────────────────────
 
 function resolveTrackIndex(track: string): number {
     const idx = parseInt(track, 10);
@@ -22,40 +21,6 @@ function resolveTrackIndex(track: string): number {
     );
     return found >= 0 ? found : -1;
 }
-
-// ─── Read-only tools (no fetchProject needed) ───────────────────────────────────
-const READ_ONLY_TOOLS = new Set([
-    'get_project_overview', 'get_track_clips', 'get_clip_details',
-    'get_transport_state', 'select_clips', 'select_all_clips_on_track',
-    'generate_chord', 'generate_scale', 'suggest_arrangement', 'get_metering',
-    'generate_beat_pattern', 'get_midi_clip_notes', 'get_audio_file_duration',
-    'get_arrangement_overview', 'preview_audio_file', 'stop_preview',
-]);
-
-// Mutating tools that already apply ProjectDelta locally and therefore
-// do not require a follow-up full fetchProject roundtrip.
-const DELTA_APPLIED_TOOLS = new Set([
-    'add_track',
-    'rename_track',
-    'delete_track',
-    'delete_tracks_batch',
-    'move_track',
-    'move_clip',
-    'resize_clip',
-    'split_clip',
-    'delete_clip',
-    'delete_clips_batch',
-    'delete_all_clips_on_track',
-    'set_clip_muted',
-    'set_clips_muted_batch',
-    'duplicate_clip',
-    'merge_clips',
-    'set_track_volume',
-    'set_track_pan',
-    'set_track_mute',
-    'set_track_solo',
-    'auto_gain_stage',
-]);
 
 export async function executeTool(
     name: string,
@@ -76,11 +41,7 @@ export async function executeTool(
             message: `Tool ${name} failed to execute: ${errorMsg}. Please revise your tool arguments or try an alternative approach.`
         });
     }
-
-    // CRITICAL: Refresh frontend store after any mutation so UI shows
-    // updated BPM, tracks, clips, etc. Without this, the Zustand store
-    // stays stale and the timeline doesn't show newly created clips.
-    if (!READ_ONLY_TOOLS.has(name) && !DELTA_APPLIED_TOOLS.has(name)) {
+    if (shouldFetchProjectAfterTool(name)) {
         try {
             await useEngineStore.getState().fetchProject(`agent-tool:${name}`);
         } catch (e) {
@@ -188,8 +149,12 @@ async function executeToolInner(
             return JSON.stringify({ status: 'stopped' });
 
         case 'set_bpm':
-            await engineApi.setBpm(args.bpm as number);
+        {
+            const bpm = args.bpm as number;
+            const response = await engineApi.setBpmWithDeltas(bpm);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-bpm');
             return JSON.stringify({ bpm: args.bpm });
+        }
 
         case 'seek_to_beat':
             await engineApi.seekToBeat(args.beat as number);
@@ -355,11 +320,14 @@ async function executeToolInner(
         // ── MIDI Composition Tools ──
         case 'add_midi_track': {
             const trackName = (args.name as string) || undefined;
-            await engineApi.addTrackAdvanced('midi', null, trackName);
-            // Return the new track's index (it's appended at the end)
+            const addTrackResponse = await engineApi.addTrackWithDeltasAdvanced('midi', null, trackName);
+            await useEngineStore.getState().applyProjectDeltas(addTrackResponse.deltas, 'agent-add-midi-track');
+            const addedTrackId = addTrackResponse.deltas.find((delta) => delta.kind === 'TrackAdded')?.data.track_id;
             const updatedState = useEngineStore.getState();
-            const newIdx = updatedState.projectTracks.length - 1;
-            const newTrackId = updatedState.projectTracks[newIdx]?.id;
+            const newIdx = addedTrackId
+                ? updatedState.projectTracks.findIndex((track) => track.id === addedTrackId)
+                : updatedState.projectTracks.length - 1;
+            const newTrackId = newIdx >= 0 ? updatedState.projectTracks[newIdx]?.id : undefined;
 
             // Auto-assign instrument if requested
             const instrumentArg = (args.instrument as string | undefined)?.toLowerCase();
@@ -450,7 +418,8 @@ async function executeToolInner(
             const framesPerBeat = (60.0 / bpmVal) * srVal;
             const posFrames = Math.round(startBeat * framesPerBeat);
             const durFrames = Math.round(durBeats * framesPerBeat);
-            const result = await engineApi.createMidiClip(tIdx, posFrames, durFrames, clipName);
+            const result = await engineApi.createMidiClipWithDeltas(tIdx, posFrames, durFrames, clipName);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-create-midi-clip');
             return JSON.stringify({
                 clipId: result.clip_id,
                 clipName: result.clip_name,
@@ -473,7 +442,8 @@ async function executeToolInner(
                 startFrames: Math.round(n.startBeat * fpb2),
                 durationFrames: Math.round(n.durationBeats * fpb2),
             }));
-            await engineApi.updateMidiClip(clipId, engineNotes);
+            const response = await engineApi.updateMidiClipWithDeltas(clipId, engineNotes);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-clip-notes');
             return JSON.stringify({ clipId, notesWritten: engineNotes.length });
         }
 
@@ -579,7 +549,12 @@ async function executeToolInner(
             const fOut = args.fadeOutBeats as number;
             const stFade = useEngineStore.getState();
             const fpbFade = (60.0 / (stFade.projectBpm || stFade.transport.bpm || 120)) * (resolveSampleRate(stFade.projectSampleRate));
-            await engineApi.setClipFades(clipId, Math.round(fIn * fpbFade), Math.round(fOut * fpbFade));
+            const response = await engineApi.setClipFadesWithDeltas(
+                clipId,
+                Math.round(fIn * fpbFade),
+                Math.round(fOut * fpbFade),
+            );
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-clip-fade');
             return JSON.stringify({ success: true, clipId });
         }
 
@@ -633,7 +608,8 @@ async function executeToolInner(
             const fpbL = (60.0 / (stL.projectBpm || stL.transport.bpm || 120)) * (resolveSampleRate(stL.projectSampleRate));
             const startF = Math.round((args.startBeat as number) * fpbL);
             const endF = Math.round((args.endBeat as number) * fpbL);
-            await engineApi.setLoop(enabled, startF, endF);
+            const response = await engineApi.setLoopWithDeltas(enabled, startF, endF);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-loop-region');
             return JSON.stringify({ success: true, loopEnabled: enabled, startBeat: args.startBeat, endBeat: args.endBeat });
         }
 
@@ -657,7 +633,8 @@ async function executeToolInner(
                     const newStartFrames = Math.round(startFrames + (nearestGrid - startFrames) * strength);
                     return { pitch: n.pitch, velocity: n.velocity, startFrames: Math.max(0, newStartFrames), durationFrames: Math.round(n.durationBeats * fpbQ) };
                 });
-                await engineApi.updateMidiClip(clipId, quantized);
+                const response = await engineApi.updateMidiClipWithDeltas(clipId, quantized);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-quantize-notes');
                 return JSON.stringify({ success: true, notesQuantized: quantized.length, gridBeats: grid });
             }
             return JSON.stringify({ error: 'No MIDI notes found in clip' });
@@ -674,7 +651,8 @@ async function executeToolInner(
                 const delta = Math.round((Math.random() * 2 - 1) * range);
                 return { pitch: n.pitch, velocity: Math.max(1, Math.min(127, n.velocity + delta)), startFrames: Math.round(n.startBeat * fpbH), durationFrames: Math.round(n.durationBeats * fpbH) };
             });
-            await engineApi.updateMidiClip(clipId, humanized);
+            const response = await engineApi.updateMidiClipWithDeltas(clipId, humanized);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-humanize-velocity');
             return JSON.stringify({ success: true, notesHumanized: humanized.length });
         }
 
@@ -727,7 +705,8 @@ async function executeToolInner(
                 const pitch = sequence[step % sequence.length];
                 notes.push({ pitch, velocity: vel, startFrames: Math.round(step * rate * fpbArp), durationFrames: Math.round(rate * gate * fpbArp) });
             }
-            await engineApi.updateMidiClip(clipId, notes);
+            const response = await engineApi.updateMidiClipWithDeltas(clipId, notes);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-generate-arpeggio');
             return JSON.stringify({ success: true, notesGenerated: notes.length, direction, rateBeats: rate });
         }
 
@@ -793,13 +772,23 @@ async function executeToolInner(
         case 'set_track_color': {
             const trackId = tracks[args.trackIndex as number]?.id;
             if (!trackId) return JSON.stringify({ error: 'Track not found' });
-            await engineApi.setTrackColor(trackId, args.colorHex as string);
+            const response = await engineApi.setTrackColorWithDeltas(trackId, args.colorHex as string);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-color');
             return JSON.stringify({ success: true, color: args.colorHex });
         }
 
         case 'bypass_effect': {
-            await engineApi.bypassDevice(args.trackIndex as number, args.slotIndex as number, args.bypassed as boolean);
-            return JSON.stringify({ success: true });
+            const trackIndex = args.trackIndex as number;
+            const slotIndex = args.slotIndex as number;
+            const bypassed = args.bypassed as boolean;
+            const track = tracks[trackIndex];
+            if (!track) return JSON.stringify({ error: `Track ${trackIndex} not found` });
+            const slot = track.effects?.[slotIndex];
+            if (!slot) return JSON.stringify({ error: `Effect slot ${slotIndex} not found on track ${trackIndex}` });
+
+            const response = await engineApi.setSlotBypassWithDeltas(track.id, slot.id, bypassed);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-bypass-effect');
+            return JSON.stringify({ success: true, trackIndex, slotIndex, bypassed });
         }
 
         case 'preview_note': {
@@ -1087,11 +1076,7 @@ async function executeToolInner(
 
         case 'get_midi_clip_notes': {
             const clipId = args.clipId as string;
-            // BUG-2 FIX: Force fresh fetch to avoid stale store data
-            try { await useEngineStore.getState().fetchProject('agent-tool:get_midi_clip_notes'); } catch { /* continue with stale */ }
-            const freshState = useEngineStore.getState();
-            const freshClips = freshState.timelineClips;
-            const clip = freshClips.find(c => c.id === clipId);
+            const clip = useEngineStore.getState().timelineClips.find(c => c.id === clipId);
             if (!clip) return JSON.stringify({ error: `Clip ${clipId} not found` });
             if (clip.type !== 'midi') return JSON.stringify({ error: `Clip ${clipId} is not a MIDI clip (type: ${clip.type})` });
             const notes = (clip as { midiNotes?: MidiNoteLike[] }).midiNotes ?? [];
@@ -1122,11 +1107,12 @@ async function executeToolInner(
         }
 
         case 'set_clip_warp': {
-            await engineApi.setClipWarp({
+            const response = await engineApi.setClipWarpWithDeltas({
                 clipId: args.clipId as string,
                 isWarped: args.isWarped as boolean,
                 warpBaseBpm: (args.warpBaseBpm as number) ?? null,
             });
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-clip-warp');
             return JSON.stringify({ success: true, clipId: args.clipId, isWarped: args.isWarped, warpBaseBpm: args.warpBaseBpm ?? null });
         }
 
@@ -1136,7 +1122,8 @@ async function executeToolInner(
             const srVal = resolveSampleRate(st.projectSampleRate);
             const fpb = (60.0 / bpmVal) * srVal;
             const offsetFrames = Math.round((args.offsetBeats as number) * fpb);
-            await engineApi.setClipSourceOffset(args.clipId as string, offsetFrames);
+            const response = await engineApi.setClipSourceOffsetWithDeltas(args.clipId as string, offsetFrames);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-clip-source-offset');
             return JSON.stringify({ success: true, clipId: args.clipId, offsetBeats: args.offsetBeats });
         }
 
@@ -1213,12 +1200,14 @@ async function executeToolInner(
                 const tIdx = resolveTrackIndex(target);
                 if (tIdx >= 0 && tracks[tIdx]) targetId = tracks[tIdx].id;
             }
-            await engineApi.setTrackRouting(trackId, targetId);
+            const response = await engineApi.setTrackRoutingWithDeltas(trackId, targetId);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-routing');
             return JSON.stringify({ success: true, trackIndex: args.trackIndex, routedTo: target });
         }
 
         case 'arm_track': {
-            await engineApi.armTrack(args.trackIndex as number, args.armed as boolean);
+            const response = await engineApi.armTrackWithDeltas(args.trackIndex as number, args.armed as boolean);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-arm-track');
             return JSON.stringify({ success: true, trackIndex: args.trackIndex, armed: args.armed });
         }
 
@@ -1267,7 +1256,8 @@ async function executeToolInner(
                 value: p.value,
                 curveType: (p.curveType || 'linear') as 'linear' | 'bezier' | 'step',
             }));
-            await engineApi.setAutomationPoints(trackId, args.paramId as string, points);
+            const response = await engineApi.setAutomationPointsWithDeltas(trackId, args.paramId as string, points);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-automation-points');
             return JSON.stringify({ success: true, trackIndex: args.trackIndex, paramId: args.paramId, pointsWritten: points.length });
         }
 

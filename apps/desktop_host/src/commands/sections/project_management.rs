@@ -380,6 +380,41 @@ fn set_arrangement_grid_cmd(
 }
 
 #[tauri::command]
+fn set_arrangement_grid_with_deltas_cmd(
+    numerator: u16,
+    denominator: u16,
+    ntoles: u8,
+    snap_to_grid: bool,
+    fixed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let numerator = numerator.max(1);
+    let denominator = denominator.max(1);
+    let ntoles = ntoles.max(1);
+
+    set_arrangement_grid_cmd(
+        numerator,
+        denominator,
+        ntoles,
+        snap_to_grid,
+        fixed,
+        project_state,
+        app,
+    )?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ArrangementGridChanged {
+            numerator,
+            denominator,
+            ntoles,
+            snap_to_grid,
+            fixed,
+        }],
+    })
+}
+
+#[tauri::command]
 fn set_key_signature_cmd(
     enabled: bool,
     tonic: String,
@@ -396,4 +431,29 @@ fn set_key_signature_cmd(
 
     project_state.mark_dirty(&name, Some(&app))?;
     Ok(())
+}
+
+#[tauri::command]
+fn set_key_signature_with_deltas_cmd(
+    enabled: bool,
+    tonic: String,
+    mode: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    set_key_signature_cmd(
+        enabled,
+        tonic.clone(),
+        mode.clone(),
+        project_state,
+        app,
+    )?;
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::KeySignatureChanged {
+            enabled,
+            tonic,
+            mode,
+        }],
+    })
 }

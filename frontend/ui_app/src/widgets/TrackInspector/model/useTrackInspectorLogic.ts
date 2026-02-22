@@ -9,6 +9,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useShallow } from 'zustand/react/shallow';
 import * as engineApi from '@/shared/api/engine';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { isTrackActive } from '@/shared/utils/routing';
@@ -53,19 +54,31 @@ export function useTrackInspectorLogic({
     collapsedGroups: collapsedGroupsProp,
     onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: UseTrackInspectorLogicProps) {
-    // ── Store selectors ────────────────────────────────────────────
-    const projectTracks = useEngineStore((s) => s.projectTracks);
+    const {
+        projectTracks,
+        engineSetTrackMute,
+        engineSetTrackSolo,
+        engineSetTrackVolume,
+        engineSetTrackPan,
+        engineSetMasterVolume,
+        masterVolume,
+        renameTrackAction,
+        meters,
+    } = useEngineStore(useShallow((s) => ({
+        projectTracks: s.projectTracks,
+        engineSetTrackMute: s.setTrackMute,
+        engineSetTrackSolo: s.setTrackSolo,
+        engineSetTrackVolume: s.setTrackVolume,
+        engineSetTrackPan: s.setTrackPan,
+        engineSetMasterVolume: s.setMasterVolume,
+        masterVolume: s.masterVolume,
+        renameTrackAction: s.renameTrack,
+        meters: s.meters,
+    })));
+
     const trackActiveStates = useMemo(() => {
         return projectTracks.map((_t, i, arr) => isTrackActive(i, arr));
     }, [projectTracks]);
-    const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
-    const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
-    const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
-    const engineSetTrackPan = useEngineStore((s) => s.setTrackPan);
-    const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
-    const masterVolume = useEngineStore((s) => s.masterVolume);
-    const renameTrackAction = useEngineStore((s) => s.renameTrack);
-    const meters = useEngineStore((s) => s.meters);
 
     // ── Refs ───────────────────────────────────────────────────────
     const scrollRef = useRef<HTMLDivElement>(null);

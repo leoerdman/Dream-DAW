@@ -52,10 +52,36 @@ pub struct SandboxedPluginInstance {
     /// When recovering from crash, starts at BYPASS_RAMP_SAMPLES and
     /// counts down to 0. Output is multiplied by (remaining / BYPASS_RAMP_SAMPLES).
     bypass_ramp_remaining: u32,
+    was_crashed_last_block: bool,
 }
 
 /// Number of samples over which to ramp bypass→active after crash recovery.
 const BYPASS_RAMP_SAMPLES: u32 = 64;
+
+fn apply_recovery_ramp_to_outputs(
+    remaining: &mut u32,
+    inputs: &[&[f32]],
+    outputs: &mut [&mut [f32]],
+    num_frames: usize,
+) {
+    if *remaining == 0 || num_frames == 0 {
+        return;
+    }
+    let fade_frames = (*remaining).min(num_frames as u32) as usize;
+    for i in 0..fade_frames {
+        let rem = *remaining;
+        let dry_gain = rem as f32 / BYPASS_RAMP_SAMPLES as f32;
+        let wet_gain = 1.0 - dry_gain;
+        for (ch, out) in outputs.iter_mut().enumerate() {
+            let dry = inputs
+                .get(ch)
+                .and_then(|input| input.get(i).copied())
+                .unwrap_or(0.0);
+            out[i] = dry * dry_gain + out[i] * wet_gain;
+        }
+        *remaining = remaining.saturating_sub(1);
+    }
+}
 
 impl SandboxedPluginInstance {
     pub fn create(
@@ -85,6 +111,7 @@ impl SandboxedPluginInstance {
             ipc_sender: None,
             is_crashed: Arc::new(AtomicBool::new(false)),
             bypass_ramp_remaining: 0,
+            was_crashed_last_block: false,
         })
     }
 
@@ -242,14 +269,28 @@ impl PluginInstance for SandboxedPluginInstance {
         // LAZARUS PROTOCOL: Zero-lock crash check via atomic flag.
         // If crashed, immediately passthrough — no blocking, no allocation.
         if self.is_crashed.load(Ordering::Relaxed) {
+            self.was_crashed_last_block = true;
+            self.bypass_ramp_remaining = BYPASS_RAMP_SAMPLES;
             return self.pass_through(inputs, outputs, num_frames);
+        }
+        if self.was_crashed_last_block {
+            self.was_crashed_last_block = false;
+            self.bypass_ramp_remaining = BYPASS_RAMP_SAMPLES;
         }
 
         // Forward MIDI via shared memory (zero-allocation for ≤4 events)
         self.forward_midi_events(midi_events);
 
         // Read previous block's output BEFORE writing new inputs (1-block latency model)
-        self.read_daemon_output(outputs, num_frames, inputs)?;
+        let read_ok = self.read_daemon_output(outputs, num_frames, inputs)?;
+        if read_ok && self.bypass_ramp_remaining > 0 {
+            apply_recovery_ramp_to_outputs(
+                &mut self.bypass_ramp_remaining,
+                inputs,
+                outputs,
+                num_frames,
+            );
+        }
 
         // Submit inputs for daemon consumption (for the NEXT block)
         self.submit_inputs_to_daemon(
@@ -282,14 +323,28 @@ impl PluginInstance for SandboxedPluginInstance {
         // LAZARUS PROTOCOL: Zero-lock crash check via atomic flag.
         // If crashed, immediately passthrough — no blocking, no allocation.
         if self.is_crashed.load(Ordering::Relaxed) {
+            self.was_crashed_last_block = true;
+            self.bypass_ramp_remaining = BYPASS_RAMP_SAMPLES;
             return self.pass_through(main_inputs, outputs, num_frames);
+        }
+        if self.was_crashed_last_block {
+            self.was_crashed_last_block = false;
+            self.bypass_ramp_remaining = BYPASS_RAMP_SAMPLES;
         }
 
         // Forward MIDI via shared memory
         self.forward_midi_events(midi_events);
 
         // Read previous block
-        self.read_daemon_output(outputs, num_frames, main_inputs)?;
+        let read_ok = self.read_daemon_output(outputs, num_frames, main_inputs)?;
+        if read_ok && self.bypass_ramp_remaining > 0 {
+            apply_recovery_ramp_to_outputs(
+                &mut self.bypass_ramp_remaining,
+                main_inputs,
+                outputs,
+                num_frames,
+            );
+        }
 
         // Write inputs for NEXT block — interleave main + sidechain
         let sidechain = sidechain_inputs.unwrap_or(&[]);
@@ -334,5 +389,32 @@ impl PluginInstance for SandboxedPluginInstance {
 
     fn supports_editor(&self) -> bool {
         self.supports_editor
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_recovery_ramp_to_outputs;
+
+    #[test]
+    fn recovery_ramp_blends_dry_to_wet() {
+        let input_l = [1.0_f32; 4];
+        let input_r = [0.5_f32; 4];
+        let mut out_l = [0.0_f32; 4];
+        let mut out_r = [0.0_f32; 4];
+        let mut remaining = 4_u32;
+        let inputs: [&[f32]; 2] = [&input_l, &input_r];
+        let mut outputs: [&mut [f32]; 2] = [&mut out_l, &mut out_r];
+
+        apply_recovery_ramp_to_outputs(&mut remaining, &inputs, &mut outputs, 4);
+
+        assert_eq!(remaining, 0);
+        assert!(out_l[0] > out_l[1]);
+        assert!(out_l[1] > out_l[2]);
+        assert!(out_l[2] > out_l[3]);
+        assert!(out_r[0] > out_r[1]);
+        assert!(out_r[1] > out_r[2]);
+        assert!(out_r[2] > out_r[3]);
+        assert!(out_l[0] > 0.0);
     }
 }

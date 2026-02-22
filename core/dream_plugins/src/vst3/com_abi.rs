@@ -88,7 +88,11 @@ pub const MAX_INPUT_EVENTS: usize = 512;
 
 // ── Helper ─────────────────────────────────────────────────────────────────
 
-pub fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
+/// Compares a raw VST3 TUID pointer with a concrete TUID value.
+///
+/// # Safety
+/// `a` must either be null or point to a valid, readable `Tuid`.
+pub unsafe fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
     if a.is_null() {
         return false;
     }

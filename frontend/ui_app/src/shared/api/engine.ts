@@ -196,9 +196,17 @@ export const setLoop = (enabled: boolean, startFrames: number, endFrames: number
 export const setTrackVolume = (trackIndex: number, volume: number) =>
     invoke<void>('set_track_volume', { trackIndex, volume });
 
+/** Set track volume and return ProjectDelta events. */
+export const setTrackVolumeWithDeltas = (trackIndex: number, volume: number) =>
+    invoke<DeltaMutationResponse>('set_track_volume_with_deltas', { trackIndex, volume });
+
 /** Set track pan (-1.0 to 1.0). */
 export const setTrackPan = (trackIndex: number, pan: number) =>
     invoke<void>('set_track_pan', { trackIndex, pan });
+
+/** Set track pan and return ProjectDelta events. */
+export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>
+    invoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
 
 /** Set master volume (linear gain 0.0–2.0). */
 export const setMasterVolume = (volume: number) =>
@@ -208,9 +216,17 @@ export const setMasterVolume = (volume: number) =>
 export const setTrackMute = (trackIndex: number, muted: boolean) =>
     invoke<void>('set_track_mute', { trackIndex, muted });
 
+/** Mute/unmute a track and return ProjectDelta events. */
+export const setTrackMuteWithDeltas = (trackIndex: number, muted: boolean) =>
+    invoke<DeltaMutationResponse>('set_track_mute_with_deltas', { trackIndex, muted });
+
 /** Solo/unsolo a track. */
 export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
     invoke<void>('set_track_solo', { trackIndex, soloed });
+
+/** Solo/unsolo a track and return ProjectDelta events. */
+export const setTrackSoloWithDeltas = (trackIndex: number, soloed: boolean) =>
+    invoke<DeltaMutationResponse>('set_track_solo_with_deltas', { trackIndex, soloed });
 
 /** Live audition note-on for sampler on a track (Piano Roll preview). */
 export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
@@ -834,6 +850,10 @@ export type ProjectDelta =
     | { kind: 'ClipDuplicated'; data: { source_clip_id: string; new_clip_id: string; new_position: number } }
     | { kind: 'ClipsMerged'; data: { source_clip_ids: string[]; new_clip_id: string } }
     | { kind: 'ClipMuteChanged'; data: { clip_id: string; muted: boolean } }
+    | { kind: 'TrackVolumeChanged'; data: { track_id: string; volume: number } }
+    | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
+    | { kind: 'TrackMuteChanged'; data: { track_id: string; muted: boolean } }
+    | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
     | { kind: 'FullRefreshRequired' };
 
 export interface DeltaMutationResponse {

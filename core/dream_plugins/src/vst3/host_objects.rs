@@ -27,6 +27,13 @@ use crate::vst3::com_abi::{
     K_RESTART_IO_CHANGED, K_RESTART_PARAM_TITLES_CHANGED,
 };
 
+#[inline]
+fn tuid_matches(iid: *const Tuid, expected: &Tuid) -> bool {
+    // SAFETY: All call sites pass ABI pointers received from VST3 callbacks.
+    // Nulls are handled by `tuid_eq` and return false.
+    unsafe { tuid_eq(iid, expected) }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // IHostApplication (COM singleton)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -56,10 +63,10 @@ unsafe extern "system" fn host_query_interface(
     if obj.is_null() {
         return K_NO_INTERFACE;
     }
-    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IHOST_APPLICATION) {
+    if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IHOST_APPLICATION) {
         unsafe { *obj = this; }
         K_RESULT_OK
-    } else if tuid_eq(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+    } else if tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
         unsafe {
             *obj = (this as *mut u8).add(std::mem::size_of::<*const c_void>()) as *mut c_void;
         }
@@ -138,7 +145,7 @@ fn cstr_to_string_safe(p: *const c_char) -> String {
 
 unsafe extern "C" fn host_attr_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
     if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
-    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IATTRIBUTE_LIST) {
+    if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IATTRIBUTE_LIST) {
         unsafe { *obj = this; }
         unsafe { host_attr_add_ref(this); }
         return K_RESULT_OK;
@@ -266,7 +273,7 @@ struct HostMsg {
 
 unsafe extern "C" fn host_msg_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
     if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
-    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IMESSAGE) {
+    if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IMESSAGE) {
         unsafe { *obj = this; }
         unsafe { host_msg_add_ref(this); }
         return K_RESULT_OK;
@@ -352,7 +359,7 @@ struct IPlugInterfaceSupportVtbl {
 
 unsafe extern "C" fn host_iface_support_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
     if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
-    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+    if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
         unsafe { *obj = this; }
         return K_RESULT_OK;
     }
@@ -383,7 +390,7 @@ unsafe extern "system" fn host_create_instance(
         return K_RESULT_FALSE;
     }
     unsafe { *obj = ptr::null_mut(); }
-    if tuid_eq(cid, &IID_IMESSAGE) && tuid_eq(iid, &IID_IMESSAGE) {
+    if tuid_matches(cid, &IID_IMESSAGE) && tuid_matches(iid, &IID_IMESSAGE) {
         unsafe { *obj = host_create_message(); }
         return K_RESULT_OK;
     }
@@ -530,11 +537,11 @@ unsafe extern "C" fn handler_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if obj.is_null() { return K_NO_INTERFACE; }
-    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_ICOMPONENT_HANDLER) {
+    if tuid_matches(iid, &IID_FUNKNOWN) || tuid_matches(iid, &IID_ICOMPONENT_HANDLER) {
         unsafe { handler_add_ref(this); }
         unsafe { *obj = this; }
         K_RESULT_OK
-    } else if tuid_eq(iid, &IID_ICOMPONENT_HANDLER_2) {
+    } else if tuid_matches(iid, &IID_ICOMPONENT_HANDLER_2) {
         unsafe { handler_add_ref(this); }
         let inst = this as *const ComponentHandlerInstance;
         unsafe { *obj = &(*inst).vtbl2 as *const _ as *mut c_void; }

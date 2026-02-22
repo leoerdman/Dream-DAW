@@ -491,9 +491,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 throttledVolumeSends.set(
                     trackIndex,
                     throttle((nextVolume: number) => {
-                        void engine.setTrackVolume(trackIndex, nextVolume).catch((e) => {
-                            set({ lastError: String(e) });
-                        });
+                        void engine
+                            .setTrackVolumeWithDeltas(trackIndex, nextVolume)
+                            .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackVolume'))
+                            .catch((e) => {
+                                set({ lastError: String(e) });
+                            });
                     }, 16),
                 );
             }
@@ -510,9 +513,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 throttledPanSends.set(
                     trackIndex,
                     throttle((nextPan: number) => {
-                        void engine.setTrackPan(trackIndex, nextPan).catch((e) => {
-                            set({ lastError: String(e) });
-                        });
+                        void engine
+                            .setTrackPanWithDeltas(trackIndex, nextPan)
+                            .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackPan'))
+                            .catch((e) => {
+                                set({ lastError: String(e) });
+                            });
                     }, 16),
                 );
             }
@@ -539,8 +545,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const panEntries = Array.from(pendingPanValues.entries());
 
             await Promise.all([
-                ...volumeEntries.map(([trackIndex, volume]) => engine.setTrackVolume(trackIndex, volume)),
-                ...panEntries.map(([trackIndex, pan]) => engine.setTrackPan(trackIndex, pan)),
+                ...volumeEntries.map(async ([trackIndex, volume]) => {
+                    const response = await engine.setTrackVolumeWithDeltas(trackIndex, volume);
+                    await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-volume');
+                }),
+                ...panEntries.map(async ([trackIndex, pan]) => {
+                    const response = await engine.setTrackPanWithDeltas(trackIndex, pan);
+                    await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-pan');
+                }),
             ]);
             if (pendingMasterVolume != null) {
                 await engine.setMasterVolume(pendingMasterVolume);
@@ -569,7 +581,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             };
         });
         try {
-            await engine.setTrackMute(trackIndex, muted);
+            const response = await engine.setTrackMuteWithDeltas(trackIndex, muted);
+            await get().applyProjectDeltas(response.deltas, 'setTrackMute');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -590,7 +603,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             };
         });
         try {
-            await engine.setTrackSolo(trackIndex, soloed);
+            const response = await engine.setTrackSoloWithDeltas(trackIndex, soloed);
+            await get().applyProjectDeltas(response.deltas, 'setTrackSolo');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -690,6 +704,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const sr = resolveSampleRate(s.projectSampleRate, s.transport.sample_rate);
             let timelineClips = s.timelineClips;
             let clipsById = s.clipsById;
+            let projectTracks = s.projectTracks;
+            let tracksById = s.tracksById;
             let changed = false;
 
             for (const delta of deltas) {
@@ -861,11 +877,51 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     timelineClips = timelineClips.map((c) => (c.id === nextClip.id ? nextClip : c));
                     clipsById = { ...clipsById, [nextClip.id]: nextClip };
                     changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'TrackVolumeChanged') {
+                    const track = tracksById[delta.data.track_id];
+                    if (!track) continue;
+                    const nextTrack: ProjectTrack = { ...track, volume: delta.data.volume };
+                    projectTracks = projectTracks.map((t) => (t.id === nextTrack.id ? nextTrack : t));
+                    tracksById = { ...tracksById, [nextTrack.id]: nextTrack };
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'TrackPanChanged') {
+                    const track = tracksById[delta.data.track_id];
+                    if (!track) continue;
+                    const nextTrack: ProjectTrack = { ...track, pan: delta.data.pan };
+                    projectTracks = projectTracks.map((t) => (t.id === nextTrack.id ? nextTrack : t));
+                    tracksById = { ...tracksById, [nextTrack.id]: nextTrack };
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'TrackMuteChanged') {
+                    const track = tracksById[delta.data.track_id];
+                    if (!track) continue;
+                    const nextTrack: ProjectTrack = { ...track, is_mute: delta.data.muted };
+                    projectTracks = projectTracks.map((t) => (t.id === nextTrack.id ? nextTrack : t));
+                    tracksById = { ...tracksById, [nextTrack.id]: nextTrack };
+                    changed = true;
+                    continue;
+                }
+
+                if (delta.kind === 'TrackSoloChanged') {
+                    const track = tracksById[delta.data.track_id];
+                    if (!track) continue;
+                    const nextTrack: ProjectTrack = { ...track, is_solo: delta.data.soloed };
+                    projectTracks = projectTracks.map((t) => (t.id === nextTrack.id ? nextTrack : t));
+                    tracksById = { ...tracksById, [nextTrack.id]: nextTrack };
+                    changed = true;
                 }
             }
 
             if (!changed) return s;
-            return { timelineClips, clipsById };
+            return { timelineClips, clipsById, projectTracks, tracksById };
         });
 
         if (fallbackReason) {

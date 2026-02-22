@@ -1,0 +1,344 @@
+use uuid::Uuid;
+
+use super::{AutomationPoint, ExternalFxRuntimeSlot, TrackAutomationState};
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExternalParamTarget {
+    pub slot_id: Option<Uuid>,
+    pub slot_index: Option<usize>,
+    pub param_index: u32,
+}
+
+pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
+    let key = param_key.trim();
+    if key.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = key
+        .strip_prefix("ext:")
+        .or_else(|| key.strip_prefix("Ext:"))
+        .or_else(|| key.strip_prefix("EXT:"))
+    {
+        let mut parts = rest.splitn(2, ':');
+        let slot_id_str = parts.next()?;
+        let param_index_str = parts.next()?;
+        let slot_id = Uuid::parse_str(slot_id_str).ok()?;
+        let idx = param_index_str.parse::<u32>().ok()?;
+        return Some(ExternalParamTarget {
+            slot_id: Some(slot_id),
+            slot_index: None,
+            param_index: idx,
+        });
+    }
+
+    if let Some(rest) = key
+        .strip_prefix("slot:")
+        .or_else(|| key.strip_prefix("Slot:"))
+        .or_else(|| key.strip_prefix("SLOT:"))
+    {
+        let mut parts = rest.splitn(2, ':');
+        let slot_id_str = parts.next()?;
+        let param_token = parts.next()?;
+        let slot_id = Uuid::parse_str(slot_id_str).ok()?;
+
+        let idx = if let Some(v) = param_token.strip_prefix("ext_param_") {
+            v.parse::<u32>().ok()
+        } else if let Some(v) = param_token.strip_prefix("param_id") {
+            v.parse::<u32>().ok()
+        } else if let Some(v) = param_token.strip_prefix("param") {
+            v.parse::<u32>().ok()
+        } else {
+            None
+        }?;
+
+        return Some(ExternalParamTarget {
+            slot_id: Some(slot_id),
+            slot_index: None,
+            param_index: idx,
+        });
+    }
+
+    if let Some(rest) = key
+        .strip_prefix("plugin:")
+        .or_else(|| key.strip_prefix("Plugin:"))
+        .or_else(|| key.strip_prefix("PLUGIN:"))
+    {
+        let mut parts = rest.split(':');
+        let slot_index = parts.next()?.parse::<usize>().ok()?;
+        let _plugin_key = parts.next()?;
+        let plugin_key_end = rest
+            .find(':')
+            .and_then(|first_colon| {
+                rest[first_colon + 1..]
+                    .find(':')
+                    .map(|second_colon| first_colon + 1 + second_colon + 1)
+            })
+            .unwrap_or(rest.len());
+        let param_token = &rest[plugin_key_end.min(rest.len())..];
+        if param_token.is_empty() {
+            return None;
+        }
+        if let Some(id_pos) = param_token.rfind("_id") {
+            let idx = param_token[(id_pos + 3)..].parse::<u32>().ok()?;
+            return Some(ExternalParamTarget {
+                slot_id: None,
+                slot_index: Some(slot_index),
+                param_index: idx,
+            });
+        }
+    }
+
+    None
+}
+
+#[inline]
+fn equal_power_pan_gains(pan: f32) -> (f32, f32) {
+    let pan = pan.clamp(-1.0, 1.0);
+    let t = (pan + 1.0) * 0.5;
+    let angle = t * std::f32::consts::FRAC_PI_2;
+    (angle.cos(), angle.sin())
+}
+
+#[inline]
+fn eval_automation_with_cursor(
+    points: &[AutomationPoint],
+    at_frame: i64,
+    cursor: &mut usize,
+) -> Option<f32> {
+    if points.is_empty() {
+        return None;
+    }
+    if points.len() == 1 {
+        return Some(points[0].value);
+    }
+    if at_frame <= points[0].sample_frame {
+        *cursor = 0;
+        return Some(points[0].value);
+    }
+
+    if *cursor > 0 && at_frame < points[*cursor].sample_frame {
+        *cursor = match points.binary_search_by_key(&at_frame, |p| p.sample_frame) {
+            Ok(exact) => exact,
+            Err(insert_pos) => insert_pos.saturating_sub(1),
+        };
+    }
+
+    let last_pair = points.len().saturating_sub(2);
+    while *cursor < last_pair && at_frame > points[*cursor + 1].sample_frame {
+        *cursor += 1;
+    }
+
+    let a = &points[*cursor];
+    let b = &points[(*cursor + 1).min(points.len() - 1)];
+    if at_frame <= b.sample_frame {
+        let span = (b.sample_frame - a.sample_frame).max(1) as f32;
+        let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
+        return Some(a.value + (b.value - a.value) * t);
+    }
+
+    points.last().map(|p| p.value)
+}
+
+#[inline]
+fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
+    if points.is_empty() {
+        return false;
+    }
+    if points.len() <= 2 && points.iter().all(|p| p.value.abs() < 0.001) {
+        return false;
+    }
+
+    let mut min_v = f32::INFINITY;
+    let mut max_v = f32::NEG_INFINITY;
+    let mut saw_center_hint = false;
+    for p in points {
+        let v = p.value;
+        min_v = min_v.min(v);
+        max_v = max_v.max(v);
+        if (v - 0.5).abs() <= 0.02 {
+            saw_center_hint = true;
+        }
+    }
+
+    if min_v < 0.0 || max_v > 1.0 {
+        return false;
+    }
+
+    saw_center_hint || (min_v <= 0.01 && max_v >= 0.99)
+}
+
+#[cfg(test)]
+#[inline]
+pub(crate) fn apply_plugin_automation_sample_accurate(
+    left: &mut [f32],
+    right: &mut [f32],
+    buffer_start_frame: i64,
+    gain_points: Option<&[AutomationPoint]>,
+    pan_points: Option<&[AutomationPoint]>,
+) {
+    let n = left.len().min(right.len());
+    if n == 0 || (gain_points.is_none() && pan_points.is_none()) {
+        return;
+    }
+
+    if gain_points.is_none_or(|p| p.len() <= 1) && pan_points.is_none_or(|p| p.len() <= 1) {
+        let gain = gain_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(0.0);
+        let pan = if pan_points
+            .map(pan_points_use_unit_interval_domain)
+            .unwrap_or(false)
+        {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
+        for i in 0..n {
+            left[i] *= gain * left_mul;
+            right[i] *= gain * right_mul;
+        }
+        return;
+    }
+
+    let pan_is_unit_interval = pan_points
+        .map(pan_points_use_unit_interval_domain)
+        .unwrap_or(false);
+    let mut gain_cursor = 0usize;
+    let mut pan_cursor = 0usize;
+
+    for i in 0..n {
+        let frame = buffer_start_frame + i as i64;
+        let gain = gain_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut gain_cursor))
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut pan_cursor))
+            .unwrap_or(0.0);
+        let pan = if pan_is_unit_interval {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
+        left[i] *= gain * left_mul;
+        right[i] *= gain * right_mul;
+    }
+}
+
+#[inline]
+pub(crate) fn apply_track_mixer_automation_sample_accurate(
+    left: &mut [f32],
+    right: &mut [f32],
+    buffer_start_frame: i64,
+    volume_points: Option<&[AutomationPoint]>,
+    pan_points: Option<&[AutomationPoint]>,
+) {
+    let n = left.len().min(right.len());
+    if n == 0 || (volume_points.is_none() && pan_points.is_none()) {
+        return;
+    }
+
+    if volume_points.is_none_or(|p| p.len() <= 1) && pan_points.is_none_or(|p| p.len() <= 1) {
+        let vol = volume_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(0.0);
+        let pan = if pan_points
+            .map(pan_points_use_unit_interval_domain)
+            .unwrap_or(false)
+        {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
+        for i in 0..n {
+            left[i] *= vol * left_mul;
+            right[i] *= vol * right_mul;
+        }
+        return;
+    }
+
+    let pan_is_unit_interval = pan_points
+        .map(pan_points_use_unit_interval_domain)
+        .unwrap_or(false);
+    let mut volume_cursor = 0usize;
+    let mut pan_cursor = 0usize;
+
+    for i in 0..n {
+        let frame = buffer_start_frame + i as i64;
+        let vol = volume_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut volume_cursor))
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut pan_cursor))
+            .unwrap_or(0.0);
+        let pan = if pan_is_unit_interval {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
+        left[i] *= vol * left_mul;
+        right[i] *= vol * right_mul;
+    }
+}
+
+pub(crate) fn apply_external_plugin_param_automation_block(
+    host: &mut Box<dyn dream_plugins::PluginInstance>,
+    lane: Option<&TrackAutomationState>,
+    runtime_slot: &ExternalFxRuntimeSlot,
+    runtime_slot_index: usize,
+    playhead_pos: i64,
+) {
+    if runtime_slot.instance_id.is_none() {
+        return;
+    }
+    let Some(lane) = lane else {
+        return;
+    };
+    if lane.external_plugin_params.is_empty() {
+        return;
+    }
+
+    for ext_lane in &lane.external_plugin_params {
+        let target = ext_lane.target;
+        let points = &ext_lane.points;
+
+        if let Some(target_slot_id) = target.slot_id
+            && runtime_slot.slot_id != Some(target_slot_id)
+        {
+            continue;
+        }
+        if let Some(target_slot_index) = target.slot_index
+            && target_slot_index != runtime_slot_index
+        {
+            continue;
+        }
+
+        let mut cursor = 0usize;
+        if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
+            let normalized = f64::from(value.clamp(0.0, 1.0));
+            let _ = host.set_parameter(target.param_index, normalized);
+        }
+    }
+}

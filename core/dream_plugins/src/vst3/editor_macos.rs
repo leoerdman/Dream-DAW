@@ -1,14 +1,23 @@
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Once;
 
 use cocoa::appkit::NSWindow;
 use cocoa::base::id;
 use cocoa::foundation::{NSPoint, NSRect, NSSize};
+use log::info;
 
 use crate::vst3::com_abi::{
     IPlugView, IID_FUNKNOWN, IID_IPLUG_FRAME, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK,
     Tresult, Tuid, ViewRect, tuid_eq,
 };
+
+#[inline]
+fn tuid_matches(iid: *const Tuid, expected: &Tuid) -> bool {
+    // SAFETY: `iid` comes from VST3 ABI callbacks and may be null.
+    // `tuid_eq` handles null safely and returns false.
+    unsafe { tuid_eq(iid, expected) }
+}
 
 thread_local! {
     static EDITOR_IN_ATTACHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -60,7 +69,7 @@ unsafe extern "C" fn plug_frame_query_interface(
     if this.is_null() || iid.is_null() || obj.is_null() {
         return K_NO_INTERFACE;
     }
-    if tuid_eq(iid, &IID_IPLUG_FRAME) || tuid_eq(iid, &IID_FUNKNOWN) {
+    if tuid_matches(iid, &IID_IPLUG_FRAME) || tuid_matches(iid, &IID_FUNKNOWN) {
         unsafe {
             *obj = this;
             plug_frame_add_ref(this);
@@ -151,3 +160,212 @@ static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
     release: plug_frame_release,
     resize_view: plug_frame_resize_view,
 };
+
+static DELEGATE_CLASS_INIT: Once = Once::new();
+static mut DELEGATE_CLASS: *const std::os::raw::c_char = std::ptr::null();
+
+unsafe extern "C" {
+    fn objc_allocateClassPair(
+        superclass: *const std::os::raw::c_void,
+        name: *const std::os::raw::c_char,
+        extra_bytes: usize,
+    ) -> *mut std::os::raw::c_void;
+    fn objc_registerClassPair(cls: *mut std::os::raw::c_void);
+    fn objc_getClass(name: *const std::os::raw::c_char) -> *const std::os::raw::c_void;
+    fn class_addIvar(
+        cls: *mut std::os::raw::c_void,
+        name: *const std::os::raw::c_char,
+        size: usize,
+        alignment: u8,
+        types: *const std::os::raw::c_char,
+    ) -> bool;
+    fn class_addMethod(
+        cls: *mut std::os::raw::c_void,
+        sel: *mut std::os::raw::c_void,
+        imp: *const std::os::raw::c_void,
+        types: *const std::os::raw::c_char,
+    ) -> bool;
+    fn object_getInstanceVariable(
+        obj: id,
+        name: *const std::os::raw::c_char,
+        out_value: *mut *mut std::os::raw::c_void,
+    ) -> *mut std::os::raw::c_void;
+    fn object_setInstanceVariable(
+        obj: id,
+        name: *const std::os::raw::c_char,
+        value: *mut std::os::raw::c_void,
+    ) -> *mut std::os::raw::c_void;
+}
+
+extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notification: id) {
+    unsafe {
+        let mut plug_view_raw: *mut c_void = std::ptr::null_mut();
+        object_getInstanceVariable(this, c"_plugView".as_ptr() as _, &mut plug_view_raw);
+
+        let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
+        object_getInstanceVariable(this, c"_cleaned".as_ptr() as _, &mut cleaned_raw);
+        let already_cleaned = cleaned_raw as usize != 0;
+
+        if already_cleaned || plug_view_raw.is_null() {
+            return;
+        }
+
+        let plug_view = plug_view_raw as *mut IPlugView;
+        if (*plug_view).vtbl.is_null() {
+            info!("[VST3-Delegate] windowWillClose: plug_view vtbl is null, skipping cleanup");
+            object_setInstanceVariable(
+                this,
+                c"_cleaned".as_ptr() as _,
+                std::ptr::dangling_mut::<c_void>(),
+            );
+            return;
+        }
+
+        info!(
+            "[VST3-Delegate] windowWillClose: performing VST3 cleanup for plug_view={:p}",
+            plug_view
+        );
+
+        let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, std::ptr::null_mut());
+        let _ = ((*(*plug_view).vtbl).removed)(plug_view);
+        let _ = ((*(*plug_view).vtbl).release)(plug_view);
+
+        object_setInstanceVariable(
+            this,
+            c"_cleaned".as_ptr() as _,
+            std::ptr::dangling_mut::<c_void>(),
+        );
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+pub(crate) unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
+    use std::os::raw::c_char;
+
+    let class_name = c"DreamDAWPluginWindowDelegate".as_ptr() as *const c_char;
+
+    DELEGATE_CLASS_INIT.call_once(|| {
+        let ns_object_class = unsafe { objc_getClass(c"NSObject".as_ptr() as _) };
+        let new_class = unsafe { objc_allocateClassPair(ns_object_class, class_name, 0) };
+        assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
+
+        unsafe {
+            class_addIvar(
+                new_class,
+                c"_plugView".as_ptr() as _,
+                std::mem::size_of::<*mut c_void>(),
+                std::mem::align_of::<*mut c_void>() as u8,
+                c"^v".as_ptr() as _,
+            );
+            class_addIvar(
+                new_class,
+                c"_cleaned".as_ptr() as _,
+                std::mem::size_of::<usize>(),
+                std::mem::align_of::<usize>() as u8,
+                c"Q".as_ptr() as _,
+            );
+        }
+
+        unsafe extern "C" {
+            fn sel_registerName(name: *const c_char) -> *mut c_void;
+        }
+        let sel = unsafe { sel_registerName(c"windowWillClose:".as_ptr() as _) };
+        unsafe {
+            class_addMethod(
+                new_class,
+                sel,
+                plugin_window_will_close as *const c_void,
+                c"v@:@".as_ptr() as _,
+            );
+            objc_registerClassPair(new_class);
+            DELEGATE_CLASS = class_name;
+        }
+    });
+
+    unsafe extern "C" {
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendAlloc = unsafe extern "C" fn(*const c_void, *mut c_void) -> id;
+    type MsgSendInit = unsafe extern "C" fn(id, *mut c_void) -> id;
+    type MsgSendSetDelegate = unsafe extern "C" fn(id, *mut c_void, id);
+
+    let delegate_class = unsafe { objc_getClass(class_name) };
+    let sel_alloc = unsafe { sel_registerName(c"alloc".as_ptr() as _) };
+    let sel_init = unsafe { sel_registerName(c"init".as_ptr() as _) };
+    let sel_set_delegate = unsafe { sel_registerName(c"setDelegate:".as_ptr() as _) };
+
+    let send_alloc: MsgSendAlloc = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    let send_init: MsgSendInit = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    let send_set_delegate: MsgSendSetDelegate =
+        unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+
+    let delegate = unsafe { send_alloc(delegate_class, sel_alloc) };
+    let delegate = unsafe { send_init(delegate, sel_init) };
+
+    unsafe {
+        object_setInstanceVariable(delegate, c"_plugView".as_ptr() as _, plug_view as *mut c_void);
+        object_setInstanceVariable(
+            delegate,
+            c"_cleaned".as_ptr() as _,
+            std::ptr::null_mut::<c_void>(),
+        );
+        send_set_delegate(window, sel_set_delegate, delegate);
+    }
+
+    info!(
+        "[VST3-Delegate] Installed window delegate {:p} with plug_view={:p}",
+        delegate, plug_view
+    );
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+pub(crate) unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
+    unsafe extern "C" {
+        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
+
+    let sel_delegate = unsafe { sel_registerName(c"delegate".as_ptr() as _) };
+    let send_delegate: MsgSendGetDelegate =
+        unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    let delegate = unsafe { send_delegate(window, sel_delegate) };
+
+    if delegate.is_null() {
+        return false;
+    }
+
+    let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
+    unsafe {
+        object_getInstanceVariable(delegate, c"_cleaned".as_ptr() as _, &mut cleaned_raw);
+    }
+    cleaned_raw as usize != 0
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+pub(crate) unsafe fn mark_delegate_cleaned(window: id) {
+    unsafe extern "C" {
+        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
+
+    let sel_delegate = unsafe { sel_registerName(c"delegate".as_ptr() as _) };
+    let send_delegate: MsgSendGetDelegate =
+        unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    let delegate = unsafe { send_delegate(window, sel_delegate) };
+
+    if delegate.is_null() {
+        return;
+    }
+
+    unsafe {
+        object_setInstanceVariable(
+            delegate,
+            c"_cleaned".as_ptr() as _,
+            std::ptr::dangling_mut::<c_void>(),
+        );
+        object_setInstanceVariable(delegate, c"_plugView".as_ptr() as _, std::ptr::null_mut());
+    }
+}

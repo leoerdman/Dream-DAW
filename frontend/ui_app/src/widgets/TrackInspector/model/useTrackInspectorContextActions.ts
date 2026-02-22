@@ -49,8 +49,11 @@ export function useTrackInspectorContextActions({
         const resolvedInsertAfter = Number.isInteger(insertAfterIndex) && (insertAfterIndex ?? -1) >= 0
             ? (insertAfterIndex as number)
             : null;
-        void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
-            .then(() => onRefresh(`track-context:add-${trackType}`))
+        void engineApi.addTrackAdvancedWithSnapshotDelta(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, `track-inspector:add-${trackType}`);
+                onRefresh(`track-context:add-${trackType}`);
+            })
             .catch((err) => {
                 console.error(`[TrackInspector] add ${trackType} track failed:`, err);
             });
@@ -194,9 +197,10 @@ export function useTrackInspectorContextActions({
     const handleUngroupTrack = useCallback((trackId: string) => {
         const target = tracks.find((t) => t.id === trackId);
         const op = target?.type === 'group'
-            ? engineApi.ungroupTrack(trackId)
-            : engineApi.setTrackGroup(trackId, null);
-        void op.then(() => {
+            ? engineApi.ungroupTrackWithSnapshotDelta(trackId)
+            : engineApi.setTrackGroupWithSnapshotDelta(trackId, null);
+        void op.then(async (response) => {
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:ungroup');
             onRefresh('ungroup');
         }).catch((err) => {
             console.error('[TrackInspector] ungroup failed:', err);
@@ -228,8 +232,11 @@ export function useTrackInspectorContextActions({
     }, [onRefresh, setLocalOverrides]);
 
     const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
-        void engineApi.paintTrackClipsWithTrackColor(trackId)
-            .then(() => onRefresh('track-context:paint-clips-with-track-color'))
+        void engineApi.paintTrackClipsWithTrackColorWithSnapshotDelta(trackId)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:paint-clips-with-track-color');
+                onRefresh('track-context:paint-clips-with-track-color');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
             });

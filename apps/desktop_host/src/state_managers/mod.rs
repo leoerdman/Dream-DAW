@@ -21,9 +21,7 @@ pub(crate) mod recording;
 pub mod sync_engine;
 
 pub(crate) use audio_engine::{AudioEngineHandle, SpectrumState, SpectrumStateInner};
-pub(crate) use background_runtime::{
-    configure_app_runtime, shutdown_plugins_on_exit, spawn_background_runtime_threads,
-};
+pub(crate) use background_runtime::{configure_app_runtime, shutdown_plugins_on_exit};
 pub(crate) use clip_pool::ClipPoolState;
 pub(crate) use plugin_host::PluginHostState;
 pub(crate) use project_state::ProjectState;

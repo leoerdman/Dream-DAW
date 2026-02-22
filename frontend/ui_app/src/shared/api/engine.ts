@@ -6,7 +6,6 @@ import type {
     DuplicateClipWithDeltasResponse,
     MergeClipsResponse,
     MergeClipsWithDeltasResponse,
-    MidiClipDeltaNote,
     ProjectDelta,
     SplitClipResponse,
     SplitClipWithDeltasResponse,
@@ -46,7 +45,6 @@ export type {
     DuplicateClipWithDeltasResponse,
     MergeClipsResponse,
     MergeClipsWithDeltasResponse,
-    MidiClipDeltaNote,
     ProjectDelta,
     SplitClipResponse,
     SplitClipWithDeltasResponse,
@@ -308,6 +306,8 @@ export const ungroupTrackWithSnapshotDelta = (groupId: string) =>
 
 export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
     invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
+export const moveTrackBlockToIndexWithSnapshotDelta = (rootTrackId: string, targetIndex: number) =>
+    mutateThenSnapshotDelta(() => moveTrackBlockToIndex(rootTrackId, targetIndex));
 
 export const duplicateTracks = (trackIds: string[]) =>
     invoke<void>('duplicate_tracks_cmd', { trackIds });
@@ -934,6 +934,8 @@ export const setTrackRoutingWithDeltas = (trackId: string, targetId: string) =>
 
 export const setTrackInput = (trackId: string, inputId: string) =>
     invoke<void>('set_track_input_cmd', { trackId, inputId });
+export const setTrackInputWithSnapshotDelta = (trackId: string, inputId: string) =>
+    mutateThenSnapshotDelta(() => setTrackInput(trackId, inputId));
 
 export const setPluginSidechainSource = (
     trackId: string,
@@ -1212,11 +1214,15 @@ export const bounceTrackWithDeltas = (trackId: string) =>
 
 export const bounceGroup = (groupTrackId: string) =>
     invoke<void>('bounce_group_cmd', { groupTrackId });
+export const bounceGroupWithSnapshotDelta = (groupTrackId: string) =>
+    mutateThenSnapshotDelta(() => bounceGroup(groupTrackId));
 
 export const splitTrackToStems = (trackId: string) =>
     invoke<void>('split_track_to_stems_cmd', {
         payload: { trackId },
     });
+export const splitTrackToStemsWithSnapshotDelta = (trackId: string) =>
+    mutateThenSnapshotDelta(() => splitTrackToStems(trackId));
 
 export const undo = () => invoke<void>('undo_cmd');
 export const undoWithDeltas = () =>

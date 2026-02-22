@@ -110,15 +110,17 @@ export function useTrackInspectorDragDrop({
         }
 
         trackMoveInFlightRef.current = true;
-        void engineApi.moveTrackWithParent(trackId, targetIndex, groupId)
-            .then(() => debouncedFetchProject('move-to-group'))
+        void engineApi.moveTrackWithParentWithSnapshotDelta(trackId, targetIndex, groupId)
+            .then(async (response) => {
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:move-to-group');
+            })
             .catch((err) => {
                 console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
             })
             .finally(() => {
                 trackMoveInFlightRef.current = false;
             });
-    }, [tracks, canDropIntoGroup, computeRawInsert, debouncedFetchProject]);
+    }, [tracks, canDropIntoGroup, computeRawInsert]);
 
     const beginHeaderPointerDrag = useCallback((e: React.PointerEvent<HTMLDivElement>, trackId: string) => {
         if (e.button !== 0) return;

@@ -22,3 +22,4 @@ arc-swap = { workspace = true }
 hound = { workspace = true }
 dream_io = { path = "../dream_io" }
 uuid = { workspace = true }
+petgraph = "0.8"

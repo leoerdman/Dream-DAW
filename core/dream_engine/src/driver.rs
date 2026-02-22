@@ -22,23 +22,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicUsize};
 
 use arc_swap::ArcSwap;
-use dream_graph::GraphRenderer;
-use dream_plugins::{MidiEvent, TransportContext};
+use dream_plugins::MidiEvent;
 
-use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
-use dream_ipc::metering::{
-    METER_FLOOR_DB, MeterBank, compute_peak, compute_rms, linear_to_db, peak_decay_for_block,
-};
+use dream_ipc::metering::{MeterBank, linear_to_db, peak_decay_for_block};
 use dream_ipc::{EngineCommand, MasterClock};
 #[cfg(test)]
 use dream_models::project::AudioClip;
 
 use crate::render_callback::{MAX_BUFFER_FRAMES, MAX_TRACKS, RenderContext};
-use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine, Waveform};
+use crate::sampler::{SampleRackEngine, SamplerEngine};
 #[path = "driver/automation.rs"]
 mod automation;
 #[path = "driver/cpal_backend.rs"]
@@ -53,20 +49,17 @@ mod midi_dispatcher;
 mod rt_debug;
 #[path = "driver/snapshots.rs"]
 mod snapshots;
-#[cfg(test)]
-use automation::apply_plugin_automation_sample_accurate;
 pub use automation::{ExternalParamTarget, parse_external_param_target};
+#[cfg(test)]
 use automation::{
-    apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
+    apply_plugin_automation_sample_accurate, apply_track_mixer_automation_sample_accurate,
 };
 use cpal_backend::{list_audio_devices_backend, resolve_output_setup};
 pub use graph_topology::{
     PreparedGraphSnapshot, SharedPreparedGraphSnapshot, prepare_graph_snapshot_for_routing,
     resolve_master_runtime_slots,
 };
-use midi_dispatcher::{
-    ActiveMappedNote, MidiNoteMapState, Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale,
-};
+use midi_dispatcher::MidiNoteMapState;
 pub use rt_debug::{RtDebugSnapshot, SharedRtDebugStats};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
@@ -81,8 +74,8 @@ pub use snapshots::{
 
 /// Default test tone frequency (A4 = 440 Hz).
 const DEFAULT_FREQUENCY: f32 = 440.0;
-
-/// Output amplitude for test tone (0.0 – 1.0). Conservative to protect ears.
+/// Test tone amplitude for RT sanity checks in driver tests.
+#[cfg(test)]
 const TEST_TONE_AMPLITUDE: f32 = 0.25;
 
 /// AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent

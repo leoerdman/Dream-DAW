@@ -2,15 +2,12 @@
 rust apps/desktop_host/src/commands/sections/clip_mutators.rs 3035
 rust apps/desktop_host/src/commands/sections/plugins_routing.rs 3019
 rust apps/desktop_host/src/lib.rs 5049
-rust core/dream_engine/src/driver.rs 3868
 rust core/dream_engine/src/offline_bounce.rs 1701
 rust core/dream_engine/src/sampler.rs 1321
-rust core/dream_graph/src/renderer.rs 1162
 rust core/dream_models/src/mutators.rs 1180
 rust core/dream_models/src/project.rs 2588
 rust core/dream_plugins/examples/test_serum2.rs 1671
 rust core/dream_plugins/src/vst2_host.rs 1434
-rust core/dream_plugins/src/vst3_host.rs 5665
 ts frontend/ui_app/src/app/layouts/DawShell.tsx 2516
 ts frontend/ui_app/src/shared/api/assistant/toolExecutor.ts 1315
 ts frontend/ui_app/src/shared/api/assistant/tools.ts 1222

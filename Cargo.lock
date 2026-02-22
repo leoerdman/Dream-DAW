@@ -1037,6 +1037,7 @@ dependencies = [
  "env_logger",
  "hound",
  "log",
+ "petgraph",
  "rtrb",
  "uuid",
 ]

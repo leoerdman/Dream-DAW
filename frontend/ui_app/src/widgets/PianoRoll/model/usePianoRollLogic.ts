@@ -32,6 +32,9 @@ import {
     type RootNote,
     type ScaleName,
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
+import { usePianoRollCanvasEngine } from './usePianoRollCanvasEngine';
+import { usePianoRollHotkeys } from './usePianoRollHotkeys';
+import { usePianoRollTransforms } from './usePianoRollTransforms';
 
 export interface PianoRollProps {
     notes: MidiNote[];
@@ -252,7 +255,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
 
 
     const scrollRef = useRef<HTMLDivElement>(null);
-    const noteCanvasRef = useRef<HTMLCanvasElement>(null);
     const gridViewportRef = useRef<HTMLDivElement>(null);
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
     const editorRootRef = useRef<HTMLDivElement>(null);
@@ -779,40 +781,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
         // Audit #15 fix: dep was totalBeats (zoom-derived), should be clipBeats.
     }, [tool, currentGridInterval, yToPitch, clipBeats, pixelsPerBeat, onNotesChange, auditionNote, enforceNoOverlap, snapToCellStart]);
 
-    const applyRatchet = useCallback(() => {
-        const repeats = Math.max(2, Math.min(12, Math.round(ratchetCount)));
-        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
-        if (targets.size === 0) return;
-
-        const next: MidiNote[] = [];
-        const newSelected = new Set<string>();
-        for (const note of notes) {
-            if (!targets.has(note.id)) {
-                next.push(note);
-                continue;
-            }
-            const sub = Math.max(0.03125, note.durationBeats / repeats);
-            for (let i = 0; i < repeats; i++) {
-                const subStart = note.startBeat + sub * i;
-                // Audit #28 fix: clamp sub-notes to clip boundary.
-                if (subStart >= clipBeats) break;
-                const id = genNoteId();
-                next.push({
-                    ...note,
-                    id,
-                    startBeat: subStart,
-                    durationBeats: Math.min(sub, clipBeats - subStart),
-                });
-                newSelected.add(id);
-            }
-        }
-
-        // Bug #13: ratchet sub-notes must go through enforceNoOverlap to avoid
-        // collisions with other notes at the same pitch.
-        onNotesChange(enforceNoOverlap(next, newSelected));
-        setSelectedNotes(newSelected);
-    }, [ratchetCount, selectedNotes, notes, onNotesChange, enforceNoOverlap, clipBeats]);
-
     // BUG-12: Ref to track the last-clicked note for Shift+Click range selection.
     const lastClickedNoteIdRef = useRef<string | null>(null);
 
@@ -1175,404 +1143,51 @@ export function usePianoRollLogic(props: PianoRollProps) {
         window.addEventListener('mouseup', onUp);
     }, [onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote, notes]);
 
-    const transposeNotes = useCallback((delta: number) => {
-        // Bug #34: Only transpose selected notes. If nothing selected, do nothing
-        // to avoid accidentally transposing the entire clip.
-        if (delta === 0 || notes.length === 0 || selectedNotes.size === 0) return;
-        const targets = selectedNotes;
-        const next = notes.map((n) => {
-            if (!targets.has(n.id)) return n;
-            return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
-        });
-        setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
-        onNotesChange(enforceNoOverlap(next, targets));
-    }, [notes, onNotesChange, selectedNotes, enforceNoOverlap]);
+    const {
+        applyRatchet,
+        transposeNotes,
+        quantizeAllNotesToGrid,
+        duplicateSelection,
+        selectSamePitch,
+        humanizeSelection,
+        applyLegato,
+    } = usePianoRollTransforms({
+        notes,
+        selectedNotes,
+        ratchetCount,
+        currentGridInterval,
+        quantizeAmount,
+        clipBeats,
+        beatsPerBar,
+        pixelsPerBeat,
+        snapBeat,
+        onNotesChange,
+        enforceNoOverlap,
+        setSelectedNotes,
+        setClipTranspose,
+        auditionNote,
+    });
 
-    const quantizeAllNotesToGrid = useCallback((amountPct = quantizeAmount) => {
-        const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const amt = Math.max(0, Math.min(1, amountPct / 100));
-        // Bug #35: Only quantize selected notes. Require an explicit selection.
-        if (selectedNotes.size === 0) return;
-        const targetIds = selectedNotes;
-        const next = notes.map((n) => {
-            if (!targetIds.has(n.id)) return n;
-            const snappedStart = snapBeat(n.startBeat, beatsPerBar, pixelsPerBeat);
-            const snappedDur = Math.max(step, Math.round(n.durationBeats / step) * step);
-            const blendedStart = n.startBeat + (snappedStart - n.startBeat) * amt;
-            const blendedDur = n.durationBeats + (snappedDur - n.durationBeats) * amt;
-            return {
-                ...n,
-                // Bug fix: guard against step > clipBeats which makes (clipBeats - step) negative,
-                // causing the note to teleport to beat 0.
-                startBeat: Math.max(0, Math.min(Math.max(0, clipBeats - step), blendedStart)),
-                durationBeats: Math.max(step, Math.min(clipBeats - blendedStart, blendedDur)),
-            };
-        });
-        onNotesChange(enforceNoOverlap(next, targetIds));
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, clipBeats, selectedNotes, quantizeAmount, enforceNoOverlap]);
+    // Canvas note renderer (Extracted to micro-hook)
+    const { noteCanvasRef } = usePianoRollCanvasEngine({
+        notes,
+        ghostNotes,
+        selectedNotes,
+        canvasWidth,
+        canvasHeight,
+        pixelsPerBeat,
+        noteHeight,
+        color,
+        pitchToY
+    });
 
-    const duplicateSelection = useCallback(() => {
-        const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
-        if (targets.length === 0) return;
-        const spanStart = Math.min(...targets.map((n) => n.startBeat));
-        const spanEnd = Math.max(...targets.map((n) => n.startBeat + n.durationBeats));
-        // Audit #33 fix: always use selection span for shift distance,
-        // not max(interval, span) which creates gaps.
-        const shift = spanEnd - spanStart;
-        // Bug #10: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
-        const clones = targets.map((n) => ({
-            ...n,
-            id: genNoteId(),
-            startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + shift)),
-            selected: false,
-        }));
-        onNotesChange(enforceNoOverlap([...notes, ...clones], new Set(clones.map((n) => n.id))));
-        setSelectedNotes(new Set(clones.map((n) => n.id)));
-    }, [selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap]);
-
-    const selectSamePitch = useCallback(() => {
-        if (selectedNotes.size === 0) return;
-        const seed = notes.find((n) => selectedNotes.has(n.id));
-        if (!seed) return;
-        const samePitchIds = notes.filter((n) => n.pitch === seed.pitch).map((n) => n.id);
-        setSelectedNotes(new Set(samePitchIds));
-    }, [selectedNotes, notes]);
-
-    const humanizeSelection = useCallback(() => {
-        // Bug #36: Only humanize selected notes. Require an explicit selection.
-        if (selectedNotes.size === 0) return;
-        const targets = selectedNotes;
-        const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const next = notes.map((n) => {
-            if (!targets.has(n.id)) return n;
-            // Audit #31 fix: seed humanize from note ID for deterministic results.
-            // Simple hash: sum of char codes mod 1000 / 1000 → pseudo-random 0..1.
-            const hashSeed = n.id.split('').reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 0);
-            const pseudoRand1 = ((hashSeed & 0x7fffffff) % 997) / 997;
-            const pseudoRand2 = (((hashSeed * 127) & 0x7fffffff) % 991) / 991;
-            const timing = (pseudoRand1 - 0.5) * step * 0.35;
-            const velocity = Math.round((pseudoRand2 - 0.5) * 10);
-            return {
-                ...n,
-                startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
-                velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
-            };
-        });
-        onNotesChange(enforceNoOverlap(next, targets));
-    }, [selectedNotes, notes, currentGridInterval, clipBeats, onNotesChange, enforceNoOverlap]);
-
-    const applyLegato = useCallback(() => {
-        // Bug #37: Only apply legato to selected notes. Require an explicit selection.
-        if (selectedNotes.size === 0) return;
-        const targets = selectedNotes;
-        const byPitch = new Map<number, MidiNote[]>();
-        notes.forEach((n) => {
-            if (!targets.has(n.id)) return;
-            const arr = byPitch.get(n.pitch) ?? [];
-            arr.push(n);
-            byPitch.set(n.pitch, arr);
-        });
-        const durationById = new Map<string, number>();
-        byPitch.forEach((arr) => {
-            arr.sort((a, b) => a.startBeat - b.startBeat);
-            for (let i = 0; i < arr.length; i++) {
-                const current = arr[i];
-                const next = arr[i + 1];
-                const targetEnd = next ? next.startBeat : clipBeats;
-                durationById.set(current.id, Math.max(MIN_NOTE_BEATS, targetEnd - current.startBeat));
-            }
-        });
-        if (durationById.size === 0) return;
-        onNotesChange(enforceNoOverlap(notes.map((n) => (
-            durationById.has(n.id)
-                ? { ...n, durationBeats: Math.max(MIN_NOTE_BEATS, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
-                : n
-        )), targets));
-    }, [selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap]);
-
-    // Canvas note renderer
-    useEffect(() => {
-        const canvas = noteCanvasRef.current;
-        if (!canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.ceil(canvasWidth * dpr);
-        canvas.height = Math.ceil(canvasHeight * dpr);
-        canvas.style.width = `${canvasWidth}px`;
-        canvas.style.height = `${canvasHeight}px`;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-        // Ghost notes (same track, other clips) for harmony/rhythm context.
-        for (const note of ghostNotes) {
-            const x = note.startBeat * pixelsPerBeat;
-            const rawY = pitchToY(note.pitch);
-            if (rawY < 0) continue; // Bug #15: pitch not in visible row set
-            const y = rawY + 1;
-            const w = Math.max(3, note.durationBeats * pixelsPerBeat - 1);
-            const h = noteHeight - 2;
-            if (x + w < 0 || x > canvasWidth) continue;
-            ctx.globalAlpha = 0.17;
-            ctx.fillStyle = '#9db2d6';
-            ctx.fillRect(x, y, w, h);
-        }
-
-        for (const note of notes) {
-            const x = note.startBeat * pixelsPerBeat;
-            const rawY = pitchToY(note.pitch);
-            if (rawY < 0) continue; // Bug #15: pitch not in visible row set
-            const y = rawY + 1;
-            const w = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
-            const h = noteHeight - 2;
-
-            // Note body — rounded rect with subtle gradient feel
-            // Audit #48: expand alpha range from [0.4, 1.0] to [0.15, 1.0] for better
-            // visual discrimination of low velocities.
-            const alpha = 0.15 + (note.velocity / 127) * 0.85;
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            const r = Math.min(2, h / 4);
-            ctx.roundRect(x, y, w, h, r);
-            ctx.fill();
-
-            // Top highlight edge (gives 3D feel)
-            ctx.globalAlpha = 0.35;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(x + 1, y, w - 2, 1);
-
-            // Selection outline
-            if (selectedNotes.has(note.id)) {
-                ctx.globalAlpha = 1;
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.roundRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, h - 1), r);
-                ctx.stroke();
-            }
-        }
-        ctx.globalAlpha = 1;
-    }, [notes, ghostNotes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY]);
-
-    // MIDI-editor-local keyboard editing (active only when this editor has focus).
-    // Audit #10 fix: also check that active element is not an editable field.
-    useEffect(() => {
-        if (!isEditorFocused) return;
-        const onKeyDown = (e: KeyboardEvent) => {
-            // Audit #10 fix: don't intercept keys when an editable field is focused
-            // (inputs, textareas, contenteditable) or inside assistant chat.
-            const active = document.activeElement as HTMLElement | null;
-            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-            if (active?.closest?.('[data-assistant-chat]')) return;
-
-            const hasSelected = selectedNotes.size > 0;
-            const stepBeatRaw = currentGridInterval;
-            const stepBeat = stepBeatRaw > 0 ? stepBeatRaw : 0.25;
-
-            // Audit #52: Escape deselects all — standard in all DAWs.
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                setSelectedNotes(new Set());
-                return;
-            }
-
-            if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (!hasSelected) return;
-                e.preventDefault();
-                e.stopPropagation();
-                onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
-                setSelectedNotes(new Set());
-                return;
-            }
-
-            // Ctrl+Z / Cmd+Z / Ctrl+Y — Undo/Redo
-            // Intentionally NOT handled here: the global useKeyboardShortcuts
-            // hook routes these to engine.undo() / engine.redo() which operate
-            // on the unified backend undo stack.
-
-            // Audit #51: Ctrl+X / Cmd+X — Cut selected notes
-            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyX') {
-                e.preventDefault();
-                e.stopPropagation();
-                copySelection();
-                if (selectedNotes.size > 0) {
-                    onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
-                    setSelectedNotes(new Set());
-                }
-                return;
-            }
-
-            // Ctrl+C / Cmd+C — Copy selected notes
-            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
-                e.preventDefault();
-                e.stopPropagation();
-                copySelection();
-                return;
-            }
-
-            // Ctrl+V / Cmd+V — Paste notes from clipboard
-            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
-                e.preventDefault();
-                e.stopPropagation();
-                pasteClipboard();
-                return;
-            }
-
-            // Ctrl+A / Cmd+A — select all notes
-            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-                e.preventDefault();
-                e.stopPropagation();
-                setSelectedNotes(new Set(notes.map((n) => n.id)));
-                return;
-            }
-
-            // Ctrl/Cmd + D — duplicate selected (or all) notes
-            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyD') {
-                e.preventDefault();
-                e.stopPropagation();
-                duplicateSelection();
-                return;
-            }
-
-            // Q — quantize selected (or all) to current grid amount.
-            // Shift+Q forces 100% quantize.
-            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyQ') {
-                e.preventDefault();
-                e.stopPropagation();
-                quantizeAllNotesToGrid(e.shiftKey ? 100 : quantizeAmount);
-                return;
-            }
-
-            // H — humanize selected (or all)
-            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyH') {
-                e.preventDefault();
-                e.stopPropagation();
-                humanizeSelection();
-                return;
-            }
-
-            // L — legato on selected (or all per pitch)
-            if (!e.ctrlKey && !e.metaKey && e.code === 'KeyL') {
-                e.preventDefault();
-                e.stopPropagation();
-                applyLegato();
-                return;
-            }
-
-            // Shift+P — select all notes with the same pitch as first selected note.
-            if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyP') {
-                e.preventDefault();
-                e.stopPropagation();
-                selectSamePitch();
-                return;
-            }
-
-            // Step input octave down/up.
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === '[') {
-                e.preventDefault();
-                setStepInputOctave((prev) => Math.max(0, prev - 1));
-                return;
-            }
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === ']') {
-                e.preventDefault();
-                setStepInputOctave((prev) => Math.min(9, prev + 1));
-                return;
-            }
-
-            // Step input from keyboard: A W S E D F T G Y H U J K
-            // Bug Fix: Only allow these when the user is explicitly focused on the canvas root,
-            // not just anywhere in the DAW (which was swallowing typing shortcuts like 'S' for solo).
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement === editorRootRef.current) {
-                const keyToSemitone: Record<string, number> = {
-                    KeyA: 0,
-                    KeyW: 1,
-                    KeyS: 2,
-                    KeyE: 3,
-                    KeyD: 4,
-                    KeyF: 5,
-                    KeyT: 6,
-                    KeyG: 7,
-                    KeyY: 8,
-                    KeyH: 9,
-                    KeyU: 10,
-                    KeyJ: 11,
-                    KeyK: 12,
-                };
-                if (Object.prototype.hasOwnProperty.call(keyToSemitone, e.code)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const semitone = keyToSemitone[e.code];
-                    const pitch = Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, stepInputOctave * 12 + semitone));
-                    const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-                    const beat = Math.max(0, Math.min(clipBeats - step, snapBeat(stepInputCursorBeat, beatsPerBar, pixelsPerBeat)));
-                    if (beat >= clipBeats) return; // cursor past clip end
-                    const newNote: MidiNote = {
-                        id: genNoteId(),
-                        pitch,
-                        startBeat: beat,
-                        durationBeats: Math.min(step, clipBeats - beat),
-                        velocity: 100,
-                    };
-                    onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
-                    setSelectedNotes(new Set([newNote.id]));
-                    setStepInputCursorBeat((prev) => Math.min(clipBeats, prev + step));
-                    auditionNote(pitch, 100, 170);
-                    return;
-                }
-            }
-
-            if (!hasSelected) return;
-            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-
-            e.preventDefault();
-            e.stopPropagation();
-
-            const beatStep = stepBeat;
-            const moved = notes.map((n) => {
-                if (!selectedNotes.has(n.id)) return n;
-
-                // Shift+Up/Down: transpose by octave (12 semitones)
-                if (e.key === 'ArrowUp') {
-                    const pitchStep = e.shiftKey ? 12 : 1;
-                    // BUG-P6 FIX: Update clipTranspose counter to match sidebar display.
-                    setClipTranspose(prev => Math.max(-24, Math.min(24, prev + pitchStep)));
-                    return { ...n, pitch: Math.min(HIGHEST_PITCH, n.pitch + pitchStep) };
-                }
-                if (e.key === 'ArrowDown') {
-                    const pitchStep = e.shiftKey ? 12 : 1;
-                    // BUG-P6 FIX: Update clipTranspose counter to match sidebar display.
-                    setClipTranspose(prev => Math.max(-24, Math.min(24, prev - pitchStep)));
-                    return { ...n, pitch: Math.max(LOWEST_PITCH, n.pitch - pitchStep) };
-                }
-
-                // Audit #54: Shift+Left/Right adjusts note length (shrink/extend duration).
-                if (e.shiftKey && e.key === 'ArrowLeft') {
-                    return { ...n, durationBeats: Math.max(MIN_NOTE_BEATS, n.durationBeats - beatStep) };
-                }
-                if (e.shiftKey && e.key === 'ArrowRight') {
-                    const maxDur = clipBeats - n.startBeat;
-                    return { ...n, durationBeats: Math.min(maxDur, n.durationBeats + beatStep) };
-                }
-
-                // Plain Left/Right: move note start horizontally.
-                if (e.key === 'ArrowLeft') {
-                    return { ...n, startBeat: Math.max(0, n.startBeat - beatStep) };
-                }
-                // Bug #8: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
-                return { ...n, startBeat: Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + beatStep) };
-            });
-            onNotesChange(enforceNoOverlap(moved, selectedNotes));
-        };
-        window.addEventListener('keydown', onKeyDown, { capture: true });
-        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-    }, [
+    usePianoRollHotkeys({
         isEditorFocused,
         selectedNotes,
         notes,
         onNotesChange,
         currentGridInterval,
-        clipBeats, // Bug #31: was totalBeats (zoom-derived), use actual clip length
+        clipBeats,
         duplicateSelection,
         quantizeAllNotesToGrid,
         quantizeAmount,
@@ -1582,13 +1197,18 @@ export function usePianoRollLogic(props: PianoRollProps) {
         pasteClipboard,
         selectSamePitch,
         stepInputOctave,
+        setStepInputOctave,
         stepInputCursorBeat,
+        setStepInputCursorBeat,
         pixelsPerBeat,
         snapBeat,
         beatsPerBar,
         auditionNote,
         enforceNoOverlap,
-    ]);
+        setSelectedNotes,
+        editorRootRef,
+        setClipTranspose,
+    });
 
     // Clip duration label
     const clipDurationLabel = useMemo(() => {

@@ -33,3 +33,4 @@ pub use dag::{
 };
 pub use rcu::LiveGraph;
 pub use renderer::{GraphRenderer, NodeBuffer, PdcDelayLine};
+pub mod routing;

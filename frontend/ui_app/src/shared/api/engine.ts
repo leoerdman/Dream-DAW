@@ -202,7 +202,6 @@ export const addTrack = (name?: string, inheritFromTrackId?: string | null) =>
         inheritFromTrackId: inheritFromTrackId ?? null,
     });
 
-/** Add audio track and return ProjectDelta events. */
 export const addTrackWithDeltas = (name?: string, inheritFromTrackId?: string | null) =>
     invoke<DeltaMutationResponse>('add_track_with_deltas_cmd', {
         name: name ?? null,
@@ -231,7 +230,6 @@ export const addTrackAdvanced = (
 export const deleteTrack = (trackIndex: number) =>
     invoke<void>('delete_track_cmd', { index: trackIndex });
 
-/** Delete a track and return ProjectDelta events. */
 export const deleteTrackWithDeltas = (trackIndex: number) =>
     invoke<DeltaMutationResponse>('delete_track_with_deltas_cmd', { index: trackIndex });
 
@@ -243,7 +241,6 @@ export const deleteTracks = (trackIds: string[]) =>
 export const renameTrack = (index: number, name: string) =>
     invoke<void>('rename_track_cmd', { index, name });
 
-/** Rename a track and return ProjectDelta events. */
 export const renameTrackWithDeltas = (index: number, name: string) =>
     invoke<DeltaMutationResponse>('rename_track_with_deltas_cmd', { index, name });
 
@@ -270,7 +267,6 @@ export const setGroupExpanded = (groupId: string, expanded: boolean) =>
 export const moveTrackToIndex = (trackId: string, targetIndex: number) =>
     invoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
 
-/** Move track to target visual index and return ProjectDelta events. */
 export const moveTrackToIndexWithDeltas = (trackId: string, targetIndex: number) =>
     invoke<DeltaMutationResponse>('move_track_to_index_with_deltas_cmd', { trackId, targetIndex });
 

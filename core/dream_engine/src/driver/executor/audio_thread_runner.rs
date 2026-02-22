@@ -1,19 +1,31 @@
 use super::super::*;
 use super::SharedRtDebugStats;
-use crate::render_callback::soft_clip;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use log::{error, info};
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use super::command_dispatch::{
     DeferredTopologyCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
-    dispatch_engine_command,
 };
 use super::render_pipeline::{
-    finalize_output_and_publish, interleave_graph_output, mix_preview_audio,
-    sync_sample_rack_engines, sync_sampler_engines,
+    finalize_output_and_publish, mix_preview_audio, sync_sample_rack_engines, sync_sampler_engines,
 };
+
+use crate::driver::automation::{
+    apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
+};
+use crate::driver::midi_dispatcher::{
+    ActiveMappedNote, Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale,
+};
+use crate::render_callback::soft_clip;
+use crate::sampler::{AdsrParams, Waveform};
+use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
+use dream_graph::GraphRenderer;
+use dream_ipc::metering::{METER_FLOOR_DB, compute_peak, compute_rms};
+use dream_plugins::TransportContext;
+
+/// Safe test tone amplitude: -10 dBFS to avoid clipping during development.
+const TEST_TONE_AMPLITUDE: f32 = 0.316_227_76;
 
 pub(crate) fn start_audio_thread_on_device_impl(
     mut consumer: rtrb::Consumer<EngineCommand>,
@@ -224,34 +236,436 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
                         for _ in 0..max_commands {
                             let Ok(cmd) = consumer.pop() else {
-                            dispatch_engine_command(
-                                cmd,
-                                &mut is_playing,
-                                &mut render_ctx,
-                                &mut sampler_engines,
-                                &mut sample_rack_engines,
-                                &mut midi_note_states,
-                                &mut vst3_flush_per_track,
-                                &mut test_tone_phase,
-                                &mut test_tone_target_freq,
-                                &mut test_tone_enabled,
-                                &mut midi_chase_needed,
-                                &mut bpm,
-                                &mut time_sig_numerator,
-                                &mut time_sig_denominator,
-                                &mut last_loop_region,
-                                &mut pending_track_volume,
-                                &mut pending_track_pan,
-                                &mut pending_track_mute,
-                                &mut pending_track_solo,
-                                &mut master_gain_target,
-                                &mut vst3_rt_midi_queue,
-                                &mut deferred_topology,
-                                &mut master_device_chain,
-                                MASTER_TRACK_INDEX,
-                                rt_debug_stats.as_ref(),
-                                clock.as_ref(),
-                            );
+                                break;
+                            };
+                            commands_processed += 1;
+                            match cmd {
+                                EngineCommand::SetPlay(play) => {
+                                    is_playing = play;
+                                    render_ctx.playhead.set_advancing(play);
+                                    if !play {
+                                        for idx in 0..sampler_engines.len() {
+                                            sampler_engines[idx].all_notes_off();
+                                            sample_rack_engines[idx].all_notes_off();
+                                            // DEEP-01 FIX: Reuse existing Vec allocation instead of
+                                            // constructing a new MidiNoteMapState (which heap-allocates
+                                            // Vec::with_capacity(128) and drops the old Vec on the RT thread).
+                                            midi_note_states[idx].active_notes.clear();
+                                            midi_note_states[idx].rng_state = 0xA5A5_1337;
+                                        }
+                                        // BUG-012 FIX: Flush all tracks on transport stop.
+                                        vst3_flush_per_track.fill(true);
+                                        test_tone_phase = 0.0;
+                                        test_tone_enabled = false;
+                                        // Reset all meters to silence when transport stops
+                                        // so stale peaks don't stick on the UI.
+                                        render_ctx.meter_bank.reset_all();
+                                    }
+                                }
+                                EngineCommand::SetFreq(freq) => {
+                                    test_tone_target_freq = freq.clamp(20.0, 20_000.0);
+                                    test_tone_enabled = true;
+                                }
+                                EngineCommand::Seek(frame) => {
+                                    // BUG-056 FIX: Clamp negative seek to 0.
+                                    let safe_frame = frame.max(0);
+                                    clock.set_position(safe_frame);
+                                    render_ctx.playhead.seek(safe_frame);
+                                    // Prevent stuck/stacked notes after timeline jumps.
+                                    for idx in 0..sampler_engines.len() {
+                                        sampler_engines[idx].all_notes_off();
+                                        sample_rack_engines[idx].all_notes_off();
+                                        // DEEP-07 FIX: Same as DEEP-01 — reuse existing Vec allocation.
+                                        midi_note_states[idx].active_notes.clear();
+                                        midi_note_states[idx].rng_state = 0xA5A5_1337;
+                                    }
+                                    // BUG-012 FIX: Flush all tracks on seek.
+                                    vst3_flush_per_track.fill(true);
+                                    // MIDI-CHASE: Re-trigger sustaining notes at the new position.
+                                    midi_chase_needed = true;
+                                }
+                                EngineCommand::SetBpm(new_bpm) => {
+                                    // AUD-088 FIX: Extended BPM range. DAWs support
+                                    // extreme tempos for sound design (10 BPM) and
+                                    // breakcore/speedcore (999 BPM).
+                                    bpm = new_bpm.clamp(10.0, 999.0);
+                                }
+                                EngineCommand::SetTimeSignature { numerator, denominator } => {
+                                    time_sig_numerator = numerator.max(1);
+                                    time_sig_denominator = denominator.max(1);
+                                }
+                                EngineCommand::SetBpmAndLoop {
+                                    bpm: new_bpm,
+                                    loop_enabled,
+                                    loop_region,
+                                } => {
+                                    bpm = new_bpm.clamp(10.0, 999.0);
+                                    if !loop_enabled {
+                                        render_ctx.loop_region = None;
+                                    } else if let Some((start, end)) = loop_region {
+                                        let region = LoopRegion { start, end };
+                                        last_loop_region = Some(region.clone());
+                                        render_ctx.loop_region = Some(region);
+                                    } else if let Some(ref lr) = last_loop_region {
+                                        // enabled but no struct given = fallback to last known
+                                        render_ctx.loop_region = Some(lr.clone());
+                                    }
+                                }
+                                EngineCommand::SetTimelineSampleRate(sample_rate) => {
+                                    render_ctx.set_timeline_sample_rate(sample_rate);
+                                }
+                                EngineCommand::SetLoopEnabled(enabled) => {
+                                    // BUG-026 FIX: Store last loop region so re-enabling
+                                    // restores it. Previously SetLoopEnabled(false) destroyed
+                                    // the region irreversibly.
+                                    if !enabled {
+                                        render_ctx.loop_region = None;
+                                    } else if let Some(ref lr) = last_loop_region {
+                                        render_ctx.loop_region = Some(lr.clone());
+                                    }
+                                }
+                                EngineCommand::SetLoopRegion { start, end } => {
+                                    if end > start {
+                                        let region = LoopRegion { start, end };
+                                        last_loop_region = Some(region.clone());
+                                        render_ctx.loop_region = Some(region);
+                                    }
+                                }
+                                EngineCommand::SetTrackVolume {
+                                    track_index,
+                                    volume,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < MAX_TRACKS {
+                                        pending_track_volume[idx] = Some(volume);
+                                    }
+                                }
+                                EngineCommand::SetTrackPan { track_index, pan } => {
+                                    let idx = track_index as usize;
+                                    if idx < MAX_TRACKS {
+                                        pending_track_pan[idx] = Some(pan);
+                                    }
+                                }
+                                EngineCommand::SetMasterVolume { volume } => {
+                                    master_gain_target = volume.clamp(0.0, 2.0);
+                                }
+                                EngineCommand::SetTrackMute { track_index, muted } => {
+                                    let idx = track_index as usize;
+                                    if idx < MAX_TRACKS {
+                                        pending_track_mute[idx] = Some(muted);
+                                    }
+                                }
+                                EngineCommand::SetTrackSolo {
+                                    track_index,
+                                    soloed,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < MAX_TRACKS {
+                                        pending_track_solo[idx] = Some(soloed);
+                                    }
+                                }
+                                // ── Sampler Commands ────────────────────────
+                                EngineCommand::SamplerNoteOn {
+                                    track_index,
+                                    pitch,
+                                    velocity,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].note_on(pitch, velocity);
+                                    }
+                                    if idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].note_on(pitch, velocity);
+                                    }
+                                    // Also queue for VST3 instruments on this track.
+                                    // The graph pass will drain this into vst3_midi_scratch.
+                                    // BUG-S1-02 FIX: Bounded push — drop events beyond 256 per
+                                    // buffer to prevent unbounded Vec growth from MIDI storms.
+                                    if idx < vst3_rt_midi_queue.len() && vst3_rt_midi_queue[idx].len() < 256 {
+                                        vst3_rt_midi_queue[idx].push(
+                                            MidiEvent::note_on(0, 0, pitch, velocity),
+                                        );
+                                    }
+                                }
+                                EngineCommand::SamplerNoteOff { track_index, pitch } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].note_off(pitch);
+                                    }
+                                    if idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].note_off(pitch);
+                                    }
+                                    // Also queue for VST3 instruments on this track.
+                                    // BUG-S1-02 FIX: Same bounded push guard as note-on above.
+                                    if idx < vst3_rt_midi_queue.len() && vst3_rt_midi_queue[idx].len() < 256 {
+                                        vst3_rt_midi_queue[idx].push(
+                                            MidiEvent::note_off(0, 0, pitch, 0),
+                                        );
+                                    }
+                                }
+                                EngineCommand::SetSamplerRootNote {
+                                    track_index,
+                                    root_note,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].root_note = root_note;
+                                    }
+                                }
+                                EngineCommand::SetSamplerVolume {
+                                    track_index,
+                                    volume,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].volume = volume;
+                                    }
+                                }
+                                EngineCommand::SetSamplerAdsr {
+                                    track_index,
+                                    attack,
+                                    decay,
+                                    sustain,
+                                    release,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_adsr(AdsrParams {
+                                            attack: attack as f64,
+                                            decay: decay as f64,
+                                            sustain: sustain as f64,
+                                            release: release as f64,
+                                        });
+                                    }
+                                }
+                                EngineCommand::SetSamplerWaveform {
+                                    track_index,
+                                    waveform,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx]
+                                            .set_waveform(Waveform::from_u8(waveform));
+                                    }
+                                }
+                                EngineCommand::SetSamplerOsc2Waveform {
+                                    track_index,
+                                    waveform,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx]
+                                            .set_waveform2(Waveform::from_u8(waveform));
+                                    }
+                                }
+                                EngineCommand::SetSamplerOscMix { track_index, mix } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_osc_mix(mix);
+                                    }
+                                }
+                                EngineCommand::SetSamplerDetuneCents { track_index, cents } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_detune_cents(cents);
+                                    }
+                                }
+                                EngineCommand::SetSamplerSubLevel { track_index, level } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_sub_level(level);
+                                    }
+                                }
+                                EngineCommand::SetSamplerFilterCutoff {
+                                    track_index,
+                                    cutoff,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_cutoff(cutoff);
+                                    }
+                                }
+                                EngineCommand::SetSamplerFilterResonance {
+                                    track_index,
+                                    resonance,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_resonance(resonance);
+                                    }
+                                }
+                                EngineCommand::SetSamplerFilterType {
+                                    track_index,
+                                    filter_type,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_type(filter_type);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoRate { track_index, rate } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_rate(rate);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoDepth { track_index, depth } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_depth(depth);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoTarget {
+                                    track_index,
+                                    target,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_target(target);
+                                    }
+                                }
+                                EngineCommand::SetSamplerPulseWidth { track_index, width } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_pulse_width(width);
+                                    }
+                                }
+                                EngineCommand::SamplerAllNotesOff { track_index } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].all_notes_off();
+                                    }
+                                }
+                                EngineCommand::BypassInstrument {
+                                    track_index,
+                                    bypassed,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx].instrument_bypassed = bypassed;
+                                    }
+                                    // Kill active voices when bypassing so sound stops immediately.
+                                    if bypassed && idx < sampler_engines.len() {
+                                        sampler_engines[idx].all_notes_off();
+                                    }
+                                    if bypassed && idx < sample_rack_engines.len() {
+                                        sample_rack_engines[idx].all_notes_off();
+                                    }
+                                    // BUG-012 FIX: Only flush the bypassed track, not all.
+                                    if bypassed && idx < MAX_TRACKS {
+                                        vst3_flush_per_track[idx] = true;
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadVolume { track_index, pad_index, volume } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.volume = volume;
+                                        }
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadMute { track_index: _, pad_index: _, muted: _ } => {
+                                    // handled via composite volume in host, no-op in engine layer
+                                }
+                                EngineCommand::SetSampleRackPadSolo { track_index: _, pad_index: _, soloed: _ } => {
+                                    // handled via composite volume in host, no-op in engine layer
+                                }
+                                EngineCommand::SetSampleRackPadAdsr { track_index, pad_index, attack, decay, sustain, release } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.set_adsr(AdsrParams {
+                                                attack: attack as f64,
+                                                decay: decay as f64,
+                                                sustain: sustain as f64,
+                                                release: release as f64,
+                                            });
+                                        }
+                                    }
+                                }
+                                EngineCommand::SetSampleRackPadFilterCutoff { track_index, pad_index, cutoff } => {
+                                    if let Some(engine) = sample_rack_engines.get_mut(track_index as usize) {
+                                        if let Some(pad) = engine.pad_mut(pad_index as usize) {
+                                            pad.set_filter_cutoff(cutoff);
+                                        }
+                                    }
+                                }
+                                EngineCommand::Shutdown => {
+                                    is_playing = false;
+                                    test_tone_phase = 0.0;
+                                    // Kill all sampler voices on shutdown
+                                    for engine in sampler_engines.iter_mut() {
+                                        engine.all_notes_off();
+                                    }
+                                    // BUG-012 FIX: Flush all tracks on shutdown.
+                                    vst3_flush_per_track.fill(true);
+                                }
+                                // ── Device Chain Commands ────────────────────
+                                EngineCommand::AddDevice {
+                                    track_index,
+                                    slot_index,
+                                    effect_type,
+                                } => {
+                                    if deferred_topology.len() >= 1024 {
+                                        // RT-SAFETY: Never log from the audio callback.
+                                        // Atomic counter avoids the global Mutex in log backends.
+                                        rt_debug_stats.record_topology_overflow();
+                                        let _ = deferred_topology.pop_front();
+                                    }
+                                    deferred_topology.push_back(DeferredTopologyCmd::Add {
+                                        track_index,
+                                        slot_index,
+                                        effect_type,
+                                    });
+                                }
+                                EngineCommand::RemoveDevice {
+                                    track_index,
+                                    slot_index,
+                                } => {
+                                    if deferred_topology.len() >= 1024 {
+                                        rt_debug_stats.record_topology_overflow();
+                                        let _ = deferred_topology.pop_front();
+                                    }
+                                    deferred_topology.push_back(DeferredTopologyCmd::Remove {
+                                        track_index,
+                                        slot_index,
+                                    });
+                                }
+                                EngineCommand::BypassDevice {
+                                    track_index,
+                                    slot_index,
+                                    bypassed,
+                                } => {
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        master_device_chain.set_bypass(slot_index as usize, bypassed);
+                                    } else {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .set_bypass(slot_index as usize, bypassed);
+                                    }
+                                    }
+                                }
+                                EngineCommand::SetDeviceParam {
+                                    track_index,
+                                    slot_index,
+                                    param_index,
+                                    value,
+                                } => {
+                                    if track_index == MASTER_TRACK_INDEX {
+                                        master_device_chain.set_param(
+                                            slot_index as usize,
+                                            param_index,
+                                            value,
+                                        );
+                                    } else {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx].device_chain.set_param(
+                                            slot_index as usize,
+                                            param_index,
+                                            value,
+                                        );
+                                    }
                                     }
                                 }
                             }
@@ -1051,51 +1465,31 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if let Some(master_slots) = master_slots_opt {
                             if !master_slots.is_empty() {
                                 for runtime_slot in master_slots.iter() {
-                        graph_renderer.clear_active_buffers(&graph_plan, n);
+                                    // Internal effects on master bus (EQ, compressor, etc.)
+                                    // are processed via the master_device_chain.
+                                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                                        master_device_chain.process_slot_with_sidechain(
+                                            internal_idx,
+                                            &mut graph_out_left[..n],
+                                            &mut graph_out_right[..n],
+                                            None,
+                                            None,
+                                            sample_rate_f64 as f32,
+                                        );
+                                        continue;
+                                    }
 
-                        let track_slots_ptr = render_ctx.track_slots.as_mut_ptr();
-                        let track_slots_len = render_ctx.track_slots.len();
-                        let note_states_ptr = midi_note_states.as_mut_ptr();
-                        let trackers_ptr = vst3_note_trackers.as_mut_ptr();
-                        let trackers_len = vst3_note_trackers.len();
-                        let sampler_engines_ptr = sampler_engines.as_mut_ptr();
-                        let rack_engines_ptr = sample_rack_engines.as_mut_ptr();
-                        let rt_queue_ptr = vst3_rt_midi_queue.as_mut_ptr();
-                        let rt_queue_len = vst3_rt_midi_queue.len();
-                        let vst3_flush_ptr = vst3_flush_per_track.as_mut_ptr();
-                        let vst3_flush_len = vst3_flush_per_track.len();
-
-                        // Capture meter_bank for concurrent access
-                        let meter_bank = std::sync::Arc::clone(&render_ctx.meter_bank);
-
-                        // RT-SAFE: Create closure for processing a single track
-                        let mut execute_track = |node_idx: petgraph::graph::NodeIndex| {
-                            let node = graph_dag.node(node_idx);
-                            const MASTER_OUTPUT_ID: u64 = 0;
-                            if node.id.0 == MASTER_OUTPUT_ID { return; }
-                            
-                            let track_idx = (node.id.0 - 1) as usize;
-                            if track_idx >= track_slots_len { return; }
-
-                            // SAFETY: The DAG builder guarantees that no two nodes in the same parallel stage
-                            // correspond to the same Track ID. Thus, we have exclusive access.
-                            let slot = unsafe { &mut *track_slots_ptr.add(track_idx) };
-                            let note_state = unsafe { &mut *note_states_ptr.add(track_idx) };
-                            let mut tracker_opt = if track_idx < trackers_len {
-                                Some(unsafe { &mut *trackers_ptr.add(track_idx) })
-                            } else { None };
-                            let engine = unsafe { &mut *sampler_engines_ptr.add(track_idx) };
-                            let rack = unsafe { &mut *rack_engines_ptr.add(track_idx) };
-                            let mut rt_queue = if track_idx < rt_queue_len {
-                                Some(unsafe { &mut *rt_queue_ptr.add(track_idx) })
-                            } else { None };
-
-                            let node_buffers_ptr = graph_renderer.node_buffers_ptr();
-                            let buf = unsafe { &mut *node_buffers_ptr.add(node_idx.index()) };
-                            let count = n;
-                            let c = count.min(slot.buf_left.len()).min(slot.buf_right.len());
-                            let left = &mut buf.left[..c];
-                            let right = &mut buf.right[..c];
+                                    if let Some(instance_id) = runtime_slot.instance_id
+                                        && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
+                                        && let Some(mut host) = plugin_mtx.try_lock()
+                                    {
+                                        let c = n;
+                                        let main_inputs: [&[f32]; 2] = [
+                                            &graph_out_left[..c],
+                                            &graph_out_right[..c],
+                                        ];
+                                        let transport = TransportContext {
+                                            sample_rate: sample_rate_f64,
                                             position_samples: playhead_pos,
                                             tempo: bpm,
                                             is_playing,
@@ -1111,11 +1505,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                                         // Seed output with current master input so plugin failure
                                         // or partial writes cannot leak stale buffer data.
-                                        ext_left[..c].copy_from_slice(&graph_out_left[..c]);
-                                        ext_right[..c].copy_from_slice(&graph_out_right[..c]);
+                                        external_left[..c].copy_from_slice(&graph_out_left[..c]);
+                                        external_right[..c].copy_from_slice(&graph_out_right[..c]);
                                         let mut out_slices: [&mut [f32]; 2] = [
-                                            &mut ext_left[..c],
-                                            &mut ext_right[..c],
+                                            &mut external_left[..c],
+                                            &mut external_right[..c],
                                         ];
                                         let _ = host.process_with_sidechain(
                                             &main_inputs,
@@ -1126,8 +1520,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         );
 
                                         // Write processed output back to graph_out buffers.
-                                        graph_out_left[..c].copy_from_slice(&ext_left[..c]);
-                                        graph_out_right[..c].copy_from_slice(&ext_right[..c]);
+                                        graph_out_left[..c].copy_from_slice(&external_left[..c]);
+                                        graph_out_right[..c].copy_from_slice(&external_right[..c]);
                                     }
                                 }
                             } else if !master_device_chain.is_empty() {
@@ -1221,181 +1615,22 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         if is_playing && !playhead_advanced_in_render {
                             render_ctx.advance_playhead_by_frames(frame_count);
                         }
-                        // ── C. Mix preview audio (browser audition) ─────
-                        // Preview plays regardless of transport state.
-                        // 100% lock-free: ArcSwap::load() is wait-free.
-                        // BUG-002 FIX: Preview data is interleaved stereo. Mix it
-                        // respecting the actual output channel count to prevent
-                        // misalignment on mono or surround devices.
-                        //
-                        // SSOT-FIX: Fractional cursor advancement for pitch-correct
-                        // preview. When source SR ≠ device SR, advancing 1:1 causes
-                        // pitch shift. Now advances by (source_sr / device_sr) per
-                        // output frame, using linear interpolation for sub-sample positions.
-                        let preview_snap = preview_buffer.load();
-                        if let Some(ref preview_data) = **preview_snap {
-                            let cursor = preview_cursor.load(Ordering::Relaxed);
-                            let total = preview_data.len();
-                            let preview_channels = 2usize; // preview is always stereo
-                            let total_frames = total / preview_channels;
-                            if cursor < total {
-                                let cursor_frame = cursor / preview_channels;
-                                // SSOT-FIX: Compute advancement rate.
-                                // source_sr=0 means "same as device" (legacy fallback).
-                                let src_sr = preview_source_sr.load(Ordering::Relaxed);
-                                let rate = if src_sr > 0 && sample_rate > 0 {
-                                    src_sr as f64 / sample_rate as f64
-                                } else {
-                                    1.0
-                                };
-
-                                if (rate - 1.0).abs() < 0.001 {
-                                    // Fast path: 1:1 advancement (no interpolation needed)
-                                    let preview_frames = total_frames.saturating_sub(cursor_frame);
-                                    let mix_frames = preview_frames.min(frame_count);
-                                    for f in 0..mix_frames {
-                                        let p_idx = cursor + f * preview_channels;
-                                        let d_idx = f * channels;
-                                        if p_idx + 1 < total && d_idx < data.len() {
-                                            let p_left = preview_data[p_idx];
-                                            let p_right = preview_data[p_idx + 1];
-                                            if channels == 1 {
-                                                data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
-                                            } else {
-                                                data[d_idx] += soft_clip(p_left);
-                                                if d_idx + 1 < data.len() {
-                                                    data[d_idx + 1] += soft_clip(p_right);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    let new_cursor = cursor + mix_frames * preview_channels;
-                                    let _ = preview_cursor.compare_exchange(
-                                        cursor,
-                                        new_cursor,
-                                        Ordering::Release,
-                                        Ordering::Relaxed,
-                                    );
-                                } else {
-                                    // SR-conversion path: fractional advancement with linear interp
-                                    let mut src_pos = cursor_frame as f64;
-                                    for f in 0..frame_count {
-                                        if src_pos >= (total_frames - 1) as f64 {
-                                            break;
-                                        }
-                                        let i0 = src_pos.floor() as usize;
-                                        let i1 = (i0 + 1).min(total_frames - 1);
-                                        let frac = (src_pos - i0 as f64) as f32;
-                                        let inv = 1.0 - frac;
-
-                                        let l0 = preview_data[i0 * 2];
-                                        let l1 = preview_data[i1 * 2];
-                                        let r0 = preview_data[i0 * 2 + 1];
-                                        let r1 = preview_data[i1 * 2 + 1];
-
-                                        let p_left = l0 * inv + l1 * frac;
-                                        let p_right = r0 * inv + r1 * frac;
-
-                                        let d_idx = f * channels;
-                                        if d_idx < data.len() {
-                                            if channels == 1 {
-                                                data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
-                                            } else {
-                                                data[d_idx] += soft_clip(p_left);
-                                                if d_idx + 1 < data.len() {
-                                                    data[d_idx + 1] += soft_clip(p_right);
-                                                }
-                                            }
-                                        }
-                                        src_pos += rate;
-                                    }
-                                    // Convert fractional position back to interleaved cursor
-                                    let new_cursor_frame = src_pos.ceil() as usize;
-                                    let new_cursor = (new_cursor_frame * preview_channels).min(total);
-                                    let _ = preview_cursor.compare_exchange(
-                                        cursor,
-                                        new_cursor,
-                                        Ordering::Release,
-                                        Ordering::Relaxed,
-                                    );
-                                }
-                            }
-                        }
-
-                        // ── C2. Final safety limiter ─────────────────────
-                        // BUG-R4/R5 FIX: Master gain is now applied pre-metering
-                        // (to graph_out buffers above). This loop applies only
-                        // the final soft_clip limiter to prevent DAC clipping
-                        // from preview audio mix-in or accumulated rounding.
-                        for sample in data[..n * channels].iter_mut() {
-                            *sample = soft_clip(*sample);
-                        }
-
-                        // ── BUG-075 FIX: Feed spectrum analyzer POST-fader ──
-                        if let Some(producer) = &mut render_ctx.spectrum_producer {
-                            let mut drops = 0u32;
-                            if channels >= 2 {
-                                for frame in data.chunks_exact(channels) {
-                                    let mono = (frame[0] + frame[1]) * 0.5;
-                                    if producer.push(mono).is_err() {
-                                        drops += 1;
-                                    }
-                                }
-                            } else if channels == 1 {
-                                for &sample in data.iter() {
-                                    if producer.push(sample).is_err() {
-                                        drops += 1;
-                                    }
-                                }
-                            }
-                            if drops > 0 {
-                                crate::render_callback::SPECTRUM_DROP_COUNT
-                                    .fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        }
-
-                        // Keep master metering in sync with the real final output,
-                        // including sampler and preview contributions.
-                        if channels >= 2 {
-                            let mut sum_sq_l = 0.0f64;
-                            let mut sum_sq_r = 0.0f64;
-                            let mut peak_l = 0.0f32;
-                            let mut peak_r = 0.0f32;
-                            let mut frames = 0usize;
-
-                            for frame in data.chunks_exact(channels) {
-                                let l = frame[0];
-                                let r = frame[1];
-                                sum_sq_l += (l as f64) * (l as f64);
-                                sum_sq_r += (r as f64) * (r as f64);
-                                peak_l = peak_l.max(l.abs());
-                                peak_r = peak_r.max(r.abs());
-                                frames += 1;
-                            }
-
-                            if frames > 0 {
-                                let rms_l = (sum_sq_l / frames as f64).sqrt() as f32;
-                                let rms_r = (sum_sq_r / frames as f64).sqrt() as f32;
-                                // AUD-037 FIX: Compute master peak_decay once per metering pass.
-                                let master_decay = peak_decay_for_block(sample_rate_f64, frames);
-                                render_ctx
-                                    .meter_bank
-                                    .master_left()
-                                    .store_rms(linear_to_db(rms_l));
-                                render_ctx
-                                    .meter_bank
-                                    .master_right()
-                                    .store_rms(linear_to_db(rms_r));
-                                render_ctx
-                                    .meter_bank
-                                    .master_left()
-                                    .store_peak_decay(linear_to_db(peak_l), master_decay);
-                                render_ctx
-                                    .meter_bank
-                                    .master_right()
-                                    .store_peak_decay(linear_to_db(peak_r), master_decay);
-                            }
-                        }
+                        mix_preview_audio(
+                            &preview_buffer,
+                            &preview_cursor,
+                            &preview_source_sr,
+                            sample_rate,
+                            frame_count,
+                            channels,
+                            data,
+                        );
+                        finalize_output_and_publish(
+                            data,
+                            n,
+                            channels,
+                            &mut render_ctx,
+                            sample_rate_f64,
+                        );
 
                         // ── D. Sync master clock to transport playhead ───
                         if is_playing {
@@ -1442,35 +1677,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                     let _ = tx.send(err_msg);
                 }
             },
-                                }
-                        }; // end execute_track
+            None,
+        )
+        .map_err(|e| AudioDriverError::BuildStreamError(e.to_string()))?;
 
-                        if !graph_plan.parallel_stages.is_empty() {
-                            for stage in &graph_plan.parallel_stages {
-                                for &node_idx in stage {
-                                    graph_renderer.sum_node_inputs(&graph_dag, node_idx, n);
-                                }
-                                stage.par_iter().for_each(|&node_idx| {
-                                    execute_track(node_idx);
-                                });
-                            }
-                        } else {
-                            for &node_idx in &graph_plan.processing_order {
-                                graph_renderer.sum_node_inputs(&graph_dag, node_idx, n);
-                                execute_track(node_idx);
-                            }
-                        }
-
-                        // Phase C: Master Output Copy
-                        for node_idx in graph_dag.graph().node_indices() {
-                            if matches!(graph_dag.node(node_idx).kind, dream_graph::dag::NodeKind::MasterOutput) {
-                                graph_renderer.copy_master_output(node_idx, &mut graph_out_left[..n], &mut graph_out_right[..n], n);
-                                break;
-                            }
-                        }
-
-                        // BUG-012 FIX: Clear per-track flush flags after processing.
-                        vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
+    // ── 6. Estimate output latency ──────────────────────────────────
+    // cpal 0.17: StreamConfig.buffer_size may be Default (OS-chosen)
+    // or Fixed(n). When Default, we use a conservative 512 frames
     // which matches typical macOS CoreAudio buffer size (~10.7ms @ 48kHz).
     // AUD-086 FIX: Proportional latency estimate based on sample rate.
     // 512 is correct for 48kHz (~10.7ms) but too low for 96kHz (~5.3ms).

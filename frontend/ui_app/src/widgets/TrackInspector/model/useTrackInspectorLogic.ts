@@ -14,6 +14,7 @@ import { scrollSync } from '@/shared/lib/useScrollSync';
 import { isTrackActive } from '@/shared/utils/routing';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 import { mapProjectTrack } from '@/widgets/TrackInspector/model/trackModels';
+import { useTrackInspectorContextActions } from '@/widgets/TrackInspector/model/useTrackInspectorContextActions';
 
 // ── BUG-P4 FIX: Debounced project refresh ──────────────────────────────
 let _inspectorFetchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -78,14 +79,10 @@ export function useTrackInspectorLogic({
     const suppressNextClickRef = useRef(false);
     const trackRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const draggingTrackIdRef = useRef<string | null>(null);
-    const deletionInFlightRef = useRef(false);
 
     // ── State ──────────────────────────────────────────────────────
-    const [masterColor, setMasterColor] = useState('#2b2f36');
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
-    const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string>>(
-        () => new Set(selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []),
-    );
+    const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
     const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
     const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
     const [groupDropTargetId, setGroupDropTargetId] = useState<string | null>(null);
@@ -96,22 +93,17 @@ export function useTrackInspectorLogic({
         startY: number;
         active: boolean;
     } | null>(null);
-    const [rowHeightsByTrackId, setRowHeightsByTrackId] = useState<Record<string, number>>({});
+    const [rowHeightOverrides, setRowHeightOverrides] = useState<Record<string, number>>({});
     const [resizingTrackId, setResizingTrackId] = useState<string | null>(null);
-    const [contextMenu, setContextMenu] = useState<{
-        trackId: string | null; trackIndex: number | null; x: number; y: number;
-    } | null>(null);
-    const [colorPickerState, setColorPickerState] = useState<{
-        trackId: string; x: number; y: number;
-    } | null>(null);
-    const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
-    const [renameValue, setRenameValue] = useState('');
-    const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string>>(new Set());
+    const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string> | null>(null);
 
     // ── Computed: selection ─────────────────────────────────────────
-    const effectiveSelectedTrackIds = useMemo(() => (
-        selectedTrackIdsProp ?? Array.from(localSelectedTrackIds)
-    ), [selectedTrackIdsProp, localSelectedTrackIds]);
+    const effectiveSelectedTrackIds = useMemo(() => {
+        if (selectedTrackIdsProp) return selectedTrackIdsProp;
+        if (localSelectedTrackIds) return Array.from(localSelectedTrackIds);
+        if (selectedTrackId && selectedTrackId !== 'master') return [selectedTrackId];
+        return [];
+    }, [selectedTrackIdsProp, localSelectedTrackIds, selectedTrackId]);
 
     const selectedTrackIdSet = useMemo(
         () => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')),
@@ -183,7 +175,18 @@ export function useTrackInspectorLogic({
     const getTrackIndex = useCallback((id: string) => liveTrackIndexById.get(id) ?? -1, [liveTrackIndexById]);
 
     // ── Collapse ────────────────────────────────────────────────────
-    const collapsedGroups = collapsedGroupsProp ?? localCollapsedGroups;
+    const backendCollapsedGroups = useMemo(() => {
+        const collapsed = new Set<string>();
+        for (const pt of projectTracks) {
+            const normalized = (pt.track_type ?? '').toLowerCase();
+            if (normalized === 'group' && pt.is_expanded === false) {
+                collapsed.add(pt.id);
+            }
+        }
+        return collapsed;
+    }, [projectTracks]);
+
+    const collapsedGroups = collapsedGroupsProp ?? localCollapsedGroups ?? backendCollapsedGroups;
 
     const toggleGroupCollapse = useCallback((groupId: string) => {
         if (onToggleGroupCollapseProp) {
@@ -191,7 +194,8 @@ export function useTrackInspectorLogic({
             return;
         }
         setLocalCollapsedGroups(prev => {
-            const next = new Set(prev);
+            const base = prev ?? backendCollapsedGroups;
+            const next = new Set(base);
             let expanded = true;
             if (next.has(groupId)) {
                 next.delete(groupId);
@@ -205,7 +209,22 @@ export function useTrackInspectorLogic({
             });
             return next;
         });
-    }, [onToggleGroupCollapseProp]);
+    }, [onToggleGroupCollapseProp, backendCollapsedGroups]);
+
+    const rowHeightsByTrackId = useMemo(() => {
+        const next: Record<string, number> = {};
+        for (const track of liveTracks) {
+            if (track.type === 'master') {
+                next[track.id] = rowHeightOverrides[track.id] ?? trackHeight;
+                continue;
+            }
+            const persisted = Number.isFinite(track.height) ? track.height : trackHeight;
+            const resolved = Math.max(24, Math.min(120, Math.round(persisted)));
+            next[track.id] = rowHeightOverrides[track.id] ?? resolved;
+        }
+        next.master = rowHeightOverrides.master ?? trackHeight;
+        return next;
+    }, [liveTracks, rowHeightOverrides, trackHeight]);
 
     const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
         let groupId = track.groupId;
@@ -394,240 +413,45 @@ export function useTrackInspectorLogic({
         });
     }, []);
 
-    // ── Context Menu handlers ───────────────────────────────────────
-    const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setContextMenu({ trackId, trackIndex, x: e.clientX, y: e.clientY });
-    }, []);
-
-    const handleAddTrackFromContext = useCallback((trackType: 'audio' | 'midi') => {
-        const insertAfterIndex = contextMenu?.trackIndex;
-        const resolvedInsertAfter = Number.isInteger(insertAfterIndex) && (insertAfterIndex ?? -1) >= 0
-            ? (insertAfterIndex as number)
-            : null;
-        void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
-            .then(() => debouncedFetchProject(`track-context:add-${trackType}`))
-            .catch((err) => {
-                console.error(`[TrackInspector] add ${trackType} track failed:`, err);
-            });
-        setContextMenu(null);
-    }, [contextMenu]);
-
-    const handleRenameStart = useCallback((trackId: string) => {
-        const track = tracks.find(t => t.id === trackId);
-        if (track) {
-            setRenamingTrackId(trackId);
-            setRenameValue(track.name);
-        }
-        setContextMenu(null);
-    }, [tracks]);
-
-    const handleRenameCommit = useCallback(() => {
-        if (renamingTrackId && renameValue.trim()) {
-            const idx = getTrackIndex(renamingTrackId);
-            if (idx >= 0) renameTrackAction(idx, renameValue.trim());
-        }
-        setRenamingTrackId(null);
-        setRenameValue('');
-    }, [renamingTrackId, renameValue, getTrackIndex, renameTrackAction]);
-
-    const handleRenameCancel = useCallback(() => {
-        setRenamingTrackId(null);
-        setRenameValue('');
-    }, []);
-
-    const handleDeleteTrack = useCallback((trackId: string) => {
-        const idx = getTrackIndex(trackId);
-        if (idx < 0) { setContextMenu(null); return; }
-
-        const nonMaster = liveTracks.filter(t => t.type !== 'master');
-        const posInNonMaster = nonMaster.findIndex(t => t.id === trackId);
-        let nextId: string | null = null;
-        if (posInNonMaster >= 0) {
-            if (posInNonMaster + 1 < nonMaster.length) nextId = nonMaster[posInNonMaster + 1].id;
-            else if (posInNonMaster - 1 >= 0) nextId = nonMaster[posInNonMaster - 1].id;
-        }
-
-        void (async () => {
-            await engineApi.deleteTrack(idx);
-            setLocalOverrides(prev => {
-                if (!(trackId in prev)) return prev;
-                const next = { ...prev };
-                delete next[trackId];
-                return next;
-            });
-            if (onSelectTrack) onSelectTrack(nextId ?? 'master');
-            if (selectedTrackIdsProp) {
-                onSelectTracks?.(nextId ? [nextId] : [], nextId ?? 'master');
-            } else {
-                setLocalSelectedTrackIds(nextId ? new Set([nextId]) : new Set());
-            }
-            debouncedFetchProject('delete-single');
-        })().catch(err => console.error('[TrackInspector] deleteTrack failed:', err));
-        setContextMenu(null);
-    }, [getTrackIndex, liveTracks, onSelectTrack, onSelectTracks, selectedTrackIdsProp]);
-
-    const handleDeleteSelectedTracks = useCallback(() => {
-        if (deletionInFlightRef.current) return;
-        const selected = Array.from(selectedTrackIdSet)
-            .map((id) => ({ id, idx: getTrackIndex(id) }))
-            .filter((v) => v.idx >= 0)
-            .sort((a, b) => b.idx - a.idx);
-        if (selected.length === 0) return;
-        deletionInFlightRef.current = true;
-
-        const deletedIds = new Set(selected.map((s) => s.id));
-        const lowestDeletedIdx = Math.min(...selected.map((s) => s.idx));
-
-        let nextSelectedId: string | null = null;
-        for (let i = lowestDeletedIdx - 1; i >= 0; i--) {
-            const candidate = liveTracks[i];
-            if (candidate && candidate.type !== 'master' && !deletedIds.has(candidate.id)) {
-                nextSelectedId = candidate.id;
-                break;
-            }
-        }
-        if (!nextSelectedId) {
-            for (let i = lowestDeletedIdx + 1; i < liveTracks.length; i++) {
-                const candidate = liveTracks[i];
-                if (candidate && candidate.type !== 'master' && !deletedIds.has(candidate.id)) {
-                    nextSelectedId = candidate.id;
-                    break;
-                }
-            }
-        }
-
-        void (async () => {
-            for (const item of selected) {
-                await engineApi.deleteTrack(item.idx);
-            }
-            setLocalOverrides(prev => {
-                let changed = false;
-                const next = { ...prev };
-                for (const id of deletedIds) {
-                    if (id in next) { delete next[id]; changed = true; }
-                }
-                return changed ? next : prev;
-            });
-            if (selectedTrackIdsProp) {
-                onSelectTracks?.(nextSelectedId ? [nextSelectedId] : [], nextSelectedId ?? 'master');
-            } else {
-                setLocalSelectedTrackIds(nextSelectedId ? new Set([nextSelectedId]) : new Set());
-            }
-            if (onSelectTrack) onSelectTrack(nextSelectedId ?? 'master');
-            debouncedFetchProject('delete-selected');
-        })().catch((err) => {
-            console.error('[TrackInspector] delete selected tracks failed:', err);
-        }).finally(() => {
-            deletionInFlightRef.current = false;
-        });
-    }, [selectedTrackIdSet, getTrackIndex, liveTracks, onSelectTracks, onSelectTrack, selectedTrackIdsProp]);
-
-    const handleDuplicateSelectedTracks = useCallback(() => {
-        const ids = Array.from(selectedTrackIdSet);
-        if (ids.length === 0) return;
-        void engineApi.duplicateTracks(ids).then(() => {
-            debouncedFetchProject('duplicate-selected');
-            return;
-        }).catch((err) => {
-            console.error('[TrackInspector] duplicate selected tracks failed:', err);
-        });
-    }, [selectedTrackIdSet]);
-
-    const handleGroupTrack = useCallback((trackId: string) => {
-        void engineApi.createGroup([trackId]).then(() => {
-            debouncedFetchProject('create-group');
-        }).catch((err) => {
-            console.error('[TrackInspector] createGroup failed:', err);
-        });
-        setContextMenu(null);
-    }, []);
-
-    const handleUngroupTrack = useCallback((trackId: string) => {
-        const target = tracks.find((t) => t.id === trackId);
-        const op = target?.type === 'group'
-            ? engineApi.ungroupTrack(trackId)
-            : engineApi.setTrackGroup(trackId, null);
-        void op.then(() => {
-            debouncedFetchProject('ungroup');
-        }).catch((err) => {
-            console.error('[TrackInspector] ungroup failed:', err);
-        });
-        setContextMenu(null);
-    }, [tracks]);
-
-    const handleOpenColorPicker = useCallback((trackId: string, x: number, y: number) => {
-        setColorPickerState({ trackId, x, y });
-        setContextMenu(null);
-    }, []);
-
-    const handleColorSelect = useCallback((trackId: string, color: string) => {
-        if (trackId === 'master') {
-            setMasterColor(color);
-            setColorPickerState(null);
-            return;
-        }
-        setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
-        void engineApi.setTrackColor(trackId, color)
-            .then(() => debouncedFetchProject('track-color-change'))
-            .catch((err) => {
-                console.error('[TrackInspector] setTrackColor failed:', err);
-            });
-        setColorPickerState(null);
-    }, []);
-
-    const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
-        void engineApi.paintTrackClipsWithTrackColor(trackId)
-            .then(() => debouncedFetchProject('track-context:paint-clips-with-track-color'))
-            .catch((err) => {
-                console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
-            });
-        setContextMenu(null);
-    }, []);
-
-    const handlePaintGroupColor = useCallback((groupTrackId: string) => {
-        const group = tracks.find((t) => t.id === groupTrackId);
-        if (!group || group.type !== 'group') return;
-        const groupColor = group.color;
-        const children = tracks.filter((t) => t.groupId === groupTrackId);
-        if (children.length === 0) return;
-        void Promise.all(
-            children.map((child) => engineApi.setTrackColor(child.id, groupColor)),
-        )
-            .then(() => debouncedFetchProject('track-context:paint-group-color'))
-            .catch((err) => {
-                console.error('[TrackInspector] paintGroupColor failed:', err);
-            });
-        setContextMenu(null);
-    }, [tracks]);
-
-    const handleBounceTrack = useCallback((trackId: string) => {
-        void engineApi.bounceTrack(trackId)
-            .then(() => debouncedFetchProject('track-context:bounce-track'))
-            .catch((err) => {
-                console.error('[TrackInspector] bounceTrack failed:', err);
-            });
-        setContextMenu(null);
-    }, []);
-
-    const handleBounceGroup = useCallback((groupTrackId: string) => {
-        void engineApi.bounceGroup(groupTrackId)
-            .then(() => debouncedFetchProject('track-context:bounce-group'))
-            .catch((err) => {
-                console.error('[TrackInspector] bounceGroup failed:', err);
-            });
-        setContextMenu(null);
-    }, []);
-
-    const handleSplitTrackToStems = useCallback((trackId: string) => {
-        void engineApi.splitTrackToStems(trackId)
-            .then(() => debouncedFetchProject('track-context:split-to-stems'))
-            .catch((err) => {
-                console.error('[TrackInspector] splitTrackToStems failed:', err);
-            });
-        setContextMenu(null);
-    }, []);
+    const {
+        contextMenu,
+        colorPickerState,
+        renamingTrackId,
+        renameValue,
+        masterColor,
+        setRenameValue,
+        setContextMenu,
+        setColorPickerState,
+        handleContextMenu,
+        handleAddTrackFromContext,
+        handleRenameStart,
+        handleRenameCommit,
+        handleRenameCancel,
+        handleDeleteTrack,
+        handleDeleteSelectedTracks,
+        handleDuplicateSelectedTracks,
+        handleGroupTrack,
+        handleUngroupTrack,
+        handleOpenColorPicker,
+        handleColorSelect,
+        handlePaintClipsWithTrackColor,
+        handlePaintGroupColor,
+        handleBounceTrack,
+        handleBounceGroup,
+        handleSplitTrackToStems,
+    } = useTrackInspectorContextActions({
+        tracks,
+        liveTracks,
+        selectedTrackIdSet,
+        selectedTrackIdsProp,
+        getTrackIndex,
+        setLocalOverrides,
+        setLocalSelectedTrackIds,
+        onSelectTrack,
+        onSelectTracks,
+        renameTrackAction,
+        onRefresh: debouncedFetchProject,
+    });
 
     // ── Drag & Drop ─────────────────────────────────────────────────
     const isDescendantOf = useCallback((candidateId: string, ancestorId: string): boolean => {
@@ -859,54 +683,6 @@ export function useTrackInspectorLogic({
         };
     }, [draggingTrackId]);
 
-    // Sync row heights from project
-    useEffect(() => {
-        setRowHeightsByTrackId((prev) => {
-            const next: Record<string, number> = {};
-            let changed = false;
-            for (const track of liveTracks) {
-                if (track.type === 'master') {
-                    next[track.id] = prev[track.id] ?? trackHeight;
-                    continue;
-                }
-                const persisted = Number.isFinite(track.height) ? track.height : trackHeight;
-                const resolved = Math.max(24, Math.min(120, Math.round(persisted)));
-                if (prev[track.id] !== resolved) changed = true;
-                next[track.id] = resolved;
-            }
-            if (prev.master != null) next.master = prev.master;
-            else next.master = trackHeight;
-            if (Object.keys(prev).length !== Object.keys(next).length) changed = true;
-            if (!changed) return prev;
-            return next;
-        });
-    }, [liveTracks, trackHeight]);
-
-    // Sync selection from prop
-    useEffect(() => {
-        if (selectedTrackIdsProp) return;
-        setLocalSelectedTrackIds((prev) => {
-            if (!selectedTrackId || selectedTrackId === 'master') {
-                return prev.size === 0 ? prev : new Set();
-            }
-            if (prev.has(selectedTrackId)) return prev;
-            return new Set([selectedTrackId]);
-        });
-    }, [selectedTrackId, selectedTrackIdsProp]);
-
-    // Sync collapsed groups from backend
-    useEffect(() => {
-        if (collapsedGroupsProp) return;
-        const collapsed = new Set<string>();
-        for (const pt of projectTracks) {
-            const normalized = (pt.track_type ?? '').toLowerCase();
-            if ((normalized === 'group') && pt.is_expanded === false) {
-                collapsed.add(pt.id);
-            }
-        }
-        setLocalCollapsedGroups(collapsed);
-    }, [projectTracks, collapsedGroupsProp]);
-
     // Resize pointer tracking
     useEffect(() => {
         if (!resizingTrackId) return;
@@ -915,7 +691,7 @@ export function useTrackInspectorLogic({
             const dy = e.clientY - resizeStartYRef.current;
             const nextHeight = clampRowHeight(resizeStartHeightRef.current + dy);
             resizeCurrentHeightRef.current = nextHeight;
-            setRowHeightsByTrackId((prev) => {
+            setRowHeightOverrides((prev) => {
                 if (resizingTrackId === 'master') {
                     if (prev.master === nextHeight) return prev;
                     return { ...prev, master: nextHeight };

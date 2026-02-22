@@ -34,7 +34,6 @@ export function useDeviceParamGestures(
     const pushedUndoForGestureRef = useRef<Set<string>>(new Set());
     const gestureGroupByParamKeyRef = useRef<Map<string, string>>(new Map());
 
-    // ── Adaptive param sender factory ──
     const createAdaptiveParamSender = useCallback(
         (emit: (value: number, pushUndoStep: boolean) => Promise<void> | void): AdaptiveSender => {
             let timer: number | null = null;
@@ -284,7 +283,6 @@ export function useDeviceParamGestures(
         });
     }, [selectedTrack, sendInternalParam, setLocalParams]);
 
-    // Handle cleanup of pending throttles
     const cleanupGestures = useCallback(() => {
         throttledParamSendsRef.current.forEach((s) => s.cancel());
         throttledExternalParamSendsRef.current.forEach((s) => s.cancel());
@@ -296,12 +294,5 @@ export function useDeviceParamGestures(
         gestureGroupByParamKeyRef.current.clear();
     }, []);
 
-    return {
-        activeParamGesturesRef,
-        sendInternalParam,
-        beginParamGesture,
-        endParamGesture,
-        applyParamBatch,
-        cleanupGestures,
-    };
+    return { activeParamGesturesRef, sendInternalParam, beginParamGesture, endParamGesture, applyParamBatch, cleanupGestures };
 }

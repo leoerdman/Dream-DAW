@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::format::PluginCategory;
 use std::path::PathBuf;

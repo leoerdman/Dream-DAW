@@ -2,8 +2,9 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import * as engineApi from '@/shared/api/engine';
 import type { BrowserItem, PluginGroupedRow } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
 import { useDragStore } from '@/shared/stores/useDragStore';
-import { BrowserGlyph } from './AssetBrowserPrimitives';
-import { AssetListItemRow, PluginGroupHeaderRow, PluginGroupItemRow } from './AssetBrowserRows';
+import { EmptyAssetState, ScanStatus, VirtualListHeader } from './AssetBrowserVirtualMeta';
+import { AssetListItemRow } from './AssetBrowserRows';
+import { PluginGroupHeaderRow, PluginGroupItemRow } from './AssetBrowserPluginRows';
 
 // ── Component ──────────────────────────────────────────
 
@@ -159,82 +160,12 @@ export const VirtualFileList = memo(function VirtualFileList({
                 outline: 'none',
             }}
         >
-            <div
-                onContextMenu={(e) => {
-                    e.preventDefault();
-                    setColumnMenuPos({ x: e.clientX, y: e.clientY });
-                }}
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '2px 8px',
-                    background: 'var(--color-bg-header)',
-                    borderBottom: '1px solid var(--color-divider-light)',
-                    color: 'var(--color-text-secondary)',
-                    fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 'var(--z-local-raised)' as unknown as number,
-                }}>
-                <button
-                    onClick={(e) => {
-                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                        setColumnMenuPos((prev) => prev
-                            ? null
-                            : { x: rect.left, y: rect.bottom + 2 });
-                    }}
-                    style={{
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        color: 'var(--color-text-secondary)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        flexShrink: 0,
-                    }}
-                    title="Column visility"
-                >
-                    <BrowserGlyph name="settings" size={10} />
-                </button>
-                <span style={{ flex: 1, minWidth: 0 }}>Name</span>
-                {showTypeColumn && (
-                    <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
-                )}
-                {showSizeColumn && (
-                    <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
-                )}
-            </div>
-            {/* Scan Status */}
-            {scanLoading && (
-                <div style={{
-                    padding: '12px 10px',
-                    textAlign: 'center',
-                    color: 'var(--color-text-tertiary)',
-                    fontSize: 'var(--font-size-xs)',
-                }}>
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                        <BrowserGlyph name="hourglass" size={11} />
-                        Scanning…
-                    </span>
-                </div>
-            )}
-            {
-                scanError && !scanLoading && (
-                    <div style={{
-                        padding: '8px 10px',
-                        color: 'var(--color-status-error)',
-                        fontSize: 'var(--font-size-xs)',
-                    }}>
-                        <span>⚠ Scan error</span>
-                        <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
-                    </div>
-                )
-            }
+            <VirtualListHeader
+                showTypeColumn={showTypeColumn}
+                showSizeColumn={showSizeColumn}
+                setColumnMenuPos={setColumnMenuPos}
+            />
+            <ScanStatus scanLoading={scanLoading} scanError={scanError} />
             {/* Virtual scroll container */}
             {
                 selectedCategoryId !== 'plugins' ? (
@@ -289,28 +220,12 @@ export const VirtualFileList = memo(function VirtualFileList({
                     </div>
                 )
             }
-            {/* BUG-42 FIX: Contextual empty state messages */}
-            {
-                !scanLoading && items.length === 0 && (
-                    <div style={{
-                        padding: '20px 12px',
-                        textAlign: 'center',
-                        color: 'var(--color-text-tertiary)',
-                        fontSize: 'var(--font-size-xs)',
-                    }}>
-                        {selectedCategoryId === 'plugins'
-                            ? 'No plug-ins found. Try importing a VST folder.'
-                            : selectedCategoryId.startsWith('collection-')
-                                ? 'Collection is empty. Right-click items to add them.'
-                                : selectedCategoryId === 'drums'
-                                    ? 'No drum samples found.'
-                                    : debouncedQuery.trim()
-                                        ? `No results for "${debouncedQuery.trim()}"`
-                                        : 'No items found'
-                        }
-                    </div>
-                )
-            }
+            <EmptyAssetState
+                scanLoading={scanLoading}
+                itemsLength={items.length}
+                selectedCategoryId={selectedCategoryId}
+                query={debouncedQuery}
+            />
         </div >
     );
 });

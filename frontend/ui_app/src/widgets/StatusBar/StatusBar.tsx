@@ -18,6 +18,7 @@ import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import { resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
+import { StatusGroup, StatusLabel, StatusText, StatusValue, panelModeBtnStyle } from './ui/statusBarParts';
 
 interface StatusBarProps {
     projectEnd?: string;
@@ -404,61 +405,3 @@ export const StatusBar = ({
         </div>
     );
 };
-
-// ── Helpers ──────────────────────────────────────────────
-
-const StatusLabel = ({ children }: { children: React.ReactNode }) => (
-    <span style={{
-        color: 'var(--color-text-tertiary)',
-        fontWeight: 400,
-    }}>
-        {children}
-    </span>
-);
-
-const StatusValue = ({ children }: { children: React.ReactNode }) => (
-    <span style={{
-        color: 'var(--color-text-secondary)',
-        fontFamily: 'var(--font-mono)',
-        fontWeight: 500,
-    }}>
-        {children}
-    </span>
-);
-
-const StatusText = ({
-    children,
-    title,
-}: {
-    children: React.ReactNode;
-    title?: string;
-}) => (
-    <span style={{
-        color: 'var(--color-text-secondary)',
-        fontWeight: 500,
-    }} title={title}>
-        {children}
-    </span>
-);
-
-const StatusGroup = ({ children }: { children: React.ReactNode }) => (
-    <span style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 3,
-    }}>
-        {children}
-    </span>
-);
-
-const panelModeBtnStyle = (active: boolean): React.CSSProperties => ({
-    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 52%, transparent)' : '1px solid transparent',
-    borderRadius: 'var(--radius-md)',
-    background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
-    color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 700,
-    letterSpacing: '0.02em',
-    padding: '3px 8px',
-    cursor: 'pointer',
-});

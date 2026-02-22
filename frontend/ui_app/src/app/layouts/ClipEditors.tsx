@@ -1,0 +1,49 @@
+import { type CSSProperties } from 'react';
+export { SampleClipEditor } from './SampleClipEditor';
+
+export const EmptyClipEditor = () => (
+    <div style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-bg-panel) 88%, #2a3a55) 0%, var(--color-bg-panel) 66%)',
+    }}>
+        <div style={cardStyle}>
+            <div style={titleStyle}>No Clip Selected</div>
+            <div style={textStyle}>Select a MIDI or audio clip on the timeline to open the editor.</div>
+            <div style={hintStyle}>Shift+Tab switches Rack/Clip panel</div>
+        </div>
+    </div>
+);
+
+const cardStyle: CSSProperties = {
+    textAlign: 'center',
+    padding: '18px 26px',
+    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
+    borderRadius: 'var(--radius-xl)',
+    background: 'color-mix(in srgb, var(--color-bg-header) 86%, #0a111f)',
+    boxShadow: '0 10px 24px var(--color-overlay-dark)',
+    maxWidth: 520,
+};
+
+const titleStyle: CSSProperties = {
+    color: 'var(--color-text-primary)',
+    fontSize: 'var(--font-size-2xl)',
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    letterSpacing: '0.03em',
+    marginBottom: 6,
+};
+
+const textStyle: CSSProperties = {
+    color: 'var(--color-text-secondary)',
+    fontSize: 'var(--font-size-base)',
+    lineHeight: 1.5,
+};
+
+const hintStyle: CSSProperties = {
+    marginTop: 8,
+    fontSize: 'var(--font-size-xs)',
+    color: 'var(--color-text-tertiary)',
+    fontFamily: 'var(--font-mono)',
+};

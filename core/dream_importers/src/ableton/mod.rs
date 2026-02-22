@@ -30,6 +30,7 @@ pub mod file_resolver;
 pub mod markers;
 pub mod normalization;
 pub mod parser;
+pub mod project_import;
 pub mod plugin_mapper;
 pub mod rack_parser;
 pub mod routing;

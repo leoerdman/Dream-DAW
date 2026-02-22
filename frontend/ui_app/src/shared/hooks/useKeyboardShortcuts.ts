@@ -384,7 +384,6 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                         batchedDeltas.push(...response.deltas);
                     }
                     await useEngineStore.getState().applyProjectDeltas(batchedDeltas, 'shortcut-split');
-                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Split clip failed:', err);
                 }
@@ -424,10 +423,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                         selected.map((clip) => {
                             const destBeat = clip.startBeat + spanBeats;
                             const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
-                            return engine.duplicateClip(clip.id, destFrames);
+                            return engine.duplicateClipWithDeltas(clip.id, destFrames);
                         }),
                     );
-                    onProjectMutated();
+                    await useEngineStore.getState().applyProjectDeltas(
+                        results.flatMap((r) => r.deltas),
+                        'shortcut-duplicate',
+                    );
                     // Auto-select the newly duplicated clips.
                     onClipSelectionChanged(results.map((r) => r.new_id));
                 } catch (err) {
@@ -453,8 +455,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 if (!sameTrack) return;
 
                 try {
-                    await engine.mergeClips(selected.map((c) => c.id));
-                    onProjectMutated();
+                    const response = await engine.mergeClipsWithDeltas(selected.map((c) => c.id));
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-merge');
                 } catch (err) {
                     console.error('[Shortcuts] Merge clips failed:', err);
                 }
@@ -519,10 +521,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                                 const relative = clip.startBeat - firstBeat;
                                 const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
                                 const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
-                                return engine.duplicateClip(clip.id, destFrames);
+                                return engine.duplicateClipWithDeltas(clip.id, destFrames);
                             }),
                         );
-                        onProjectMutated();
+                        await useEngineStore.getState().applyProjectDeltas(
+                            results.flatMap((r) => r.deltas),
+                            'shortcut-paste-same-track',
+                        );
                         onClipSelectionChanged(results.map((r) => r.new_id));
                     } else {
                         // BUG-3 FIX: Cross-track paste.
@@ -531,7 +536,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                         // Then immediately move each clone to the target track + position.
                         const results = await Promise.all(
                             clipboardRef.current.map((clip) =>
-                                engine.duplicateClip(clip.id),
+                                engine.duplicateClipWithDeltas(clip.id),
                             ),
                         );
 
@@ -548,7 +553,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-move');
                         }
 
-                        onProjectMutated();
+                        await useEngineStore.getState().applyProjectDeltas(
+                            results.flatMap((r) => r.deltas),
+                            'shortcut-paste-cross-track',
+                        );
                         onClipSelectionChanged(results.map((r) => r.new_id));
                     }
                 } catch (err) {
@@ -573,8 +581,11 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 // affected if the objects are mutated after the cut.
                 clipboardRef.current = selected.map((c) => ({ ...c }));
                 try {
-                    await Promise.all(selected.map((c) => engine.deleteClip(c.id)));
-                    onProjectMutated();
+                    const responses = await Promise.all(selected.map((c) => engine.deleteClipWithDeltas(c.id)));
+                    await useEngineStore.getState().applyProjectDeltas(
+                        responses.flatMap((r) => r.deltas),
+                        'shortcut-cut',
+                    );
                     // Clear selection after cut — original clips are gone.
                     onClipSelectionChanged([]);
                 } catch (err) {
@@ -606,12 +617,15 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 if (targets.length === 0) return;
 
                 try {
-                    await Promise.all(targets.map((id) => engine.deleteClip(id)));
+                    const responses = await Promise.all(targets.map((id) => engine.deleteClipWithDeltas(id)));
+                    await useEngineStore.getState().applyProjectDeltas(
+                        responses.flatMap((r) => r.deltas),
+                        'shortcut-delete',
+                    );
                     // BUG-A9 FIX: Clear selection after delete to prevent ghost state.
                     // Without this, stale clip IDs remain in selection, causing broken
                     // subsequent operations and ghost outlines in the timeline.
                     onClipSelectionChanged([]);
-                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Delete clip failed:', err);
                 }
@@ -640,11 +654,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
                 try {
                     if (targets.length === 1) {
-                        await engine.setClipMuted(targets[0], newMutedState);
+                        const response = await engine.setClipMutedWithDeltas(targets[0], newMutedState);
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-mute-single');
                     } else {
-                        await engine.setClipsMuted(targets, newMutedState);
+                        const response = await engine.setClipsMutedWithDeltas(targets, newMutedState);
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-mute-batch');
                     }
-                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Toggle clip mute failed:', err);
                 }

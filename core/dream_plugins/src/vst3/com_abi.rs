@@ -1,15 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — VST3 COM ABI Types
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// All COM interface layout structs, vtable types, IIDs, and constants
-// needed by the VST3 host bridge. No logic — pure data definitions.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 use core::ffi::{c_char, c_void};
-
-// ── Basic COM types ────────────────────────────────────────────────────────
 
 pub type Tuid = [u8; 16];
 pub type Tresult = i32;
@@ -20,7 +9,7 @@ pub const K_RESULT_NOT_IMPLEMENTED: Tresult = -2147467263;
 pub const K_RESULT_FALSE: Tresult = 1;
 pub const K_SAMPLE32: i32 = 0;
 pub const K_REALTIME: i32 = 0;
-pub const K_NO_INTERFACE: Tresult = -1; // E_NOINTERFACE
+pub const K_NO_INTERFACE: Tresult = -1;
 pub const K_SEEK_SET: i32 = 0;
 pub const K_SEEK_CUR: i32 = 1;
 pub const K_SEEK_END: i32 = 2;
@@ -89,21 +78,22 @@ pub const K_RESTART_PARAM_TITLES_CHANGED: i32 = 0x08;
 
 pub const K_NOTE_ON_EVENT: u16 = 0;
 pub const K_NOTE_OFF_EVENT: u16 = 1;
-/// LegacyMIDICCOut event type for CC, pitch bend, aftertouch.
 pub const K_LEGACY_MIDI_CC_OUT_EVENT: u16 = 65535;
 
-// ── Automation ─────────────────────────────────────────────────────────────
+// ── Automation & events max sizes ──────────────────────────────────────────
 
 pub const MAX_HOST_PARAM_CHANGES: usize = 256;
 pub const MAX_POINTS_PER_QUEUE: usize = 16;
 pub const MAX_INPUT_EVENTS: usize = 512;
 
-// ── ProcessContext C-ABI struct ────────────────────────────────────────────
+// ── Helper ─────────────────────────────────────────────────────────────────
 
-/// C-ABI struct matching `Steinberg::Vst::ProcessContext` from ivstprocesscontext.h.
-/// Must be #[repr(C)] with the EXACT field order from the SDK.
-///
-/// Total size: 112 bytes (verified by static assertion below).
+pub fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
+    if a.is_null() {
+        return false;
+    }
+    unsafe { *a == *b }
+}
 #[repr(C)]
 #[derive(Clone)]
 pub struct Vst3ProcessContext {
@@ -130,7 +120,6 @@ const _: () = assert!(
     "Vst3ProcessContext size mismatch: must be exactly 112 bytes to match VST3 SDK"
 );
 
-/// C-ABI Chord struct matching `Steinberg::Vst::Chord` (4 bytes).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vst3Chord {
@@ -139,7 +128,6 @@ pub struct Vst3Chord {
     pub chord_mask: i16,
 }
 
-/// C-ABI FrameRate struct matching `Steinberg::Vst::FrameRate` (8 bytes).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vst3FrameRate {
@@ -147,7 +135,35 @@ pub struct Vst3FrameRate {
     pub flags: u32,
 }
 
-// ── FUnknown ───────────────────────────────────────────────────────────────
+#[repr(C)]
+pub struct PClassInfo {
+    pub cid: Tuid,
+    pub cardinality: i32,
+    pub category: [c_char; 32],
+    pub name: [c_char; 64],
+}
+
+#[repr(C)]
+pub struct IPluginFactory {
+    pub vtbl: *const IPluginFactoryVtbl,
+}
+
+#[repr(C)]
+pub struct IPluginFactoryVtbl {
+    pub query_interface:
+        unsafe extern "C" fn(*mut IPluginFactory, *const c_char, *mut *mut c_void) -> Tresult,
+    pub add_ref: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
+    pub release: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
+    pub get_factory_info: unsafe extern "C" fn(*mut IPluginFactory, *mut c_void) -> Tresult,
+    pub count_classes: unsafe extern "C" fn(*mut IPluginFactory) -> i32,
+    pub get_class_info: unsafe extern "C" fn(*mut IPluginFactory, i32, *mut PClassInfo) -> Tresult,
+    pub create_instance: unsafe extern "C" fn(
+        *mut IPluginFactory,
+        *const Tuid,
+        *const c_char,
+        *mut *mut c_void,
+    ) -> Tresult,
+}
 
 #[repr(C)]
 #[allow(dead_code)]
@@ -163,8 +179,6 @@ pub struct FUnknownVtbl {
     pub add_ref: unsafe extern "C" fn(*mut FUnknown) -> u32,
     pub release: unsafe extern "C" fn(*mut FUnknown) -> u32,
 }
-
-// ── IComponent ─────────────────────────────────────────────────────────────
 
 #[repr(C)]
 pub struct IComponent {
@@ -183,14 +197,13 @@ pub struct IComponentVtbl {
     pub set_io_mode: unsafe extern "C" fn(*mut IComponent, i32) -> Tresult,
     pub get_bus_count: unsafe extern "C" fn(*mut IComponent, i32, i32) -> i32,
     pub get_bus_info: unsafe extern "C" fn(*mut IComponent, i32, i32, *mut c_void) -> Tresult,
-    pub get_routing_info: unsafe extern "C" fn(*mut IComponent, *mut c_void, *mut c_void) -> Tresult,
+    pub get_routing_info:
+        unsafe extern "C" fn(*mut IComponent, *mut c_void, *mut c_void) -> Tresult,
     pub activate_bus: unsafe extern "C" fn(*mut IComponent, i32, i32, i32, i32) -> Tresult,
     pub set_active: unsafe extern "C" fn(*mut IComponent, i8) -> Tresult,
     pub set_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
     pub get_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
 }
-
-// ── IEditController ────────────────────────────────────────────────────────
 
 #[repr(C)]
 pub struct IEditController {
@@ -209,7 +222,8 @@ pub struct IEditControllerVtbl {
     pub set_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub get_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub get_parameter_count: unsafe extern "C" fn(*mut IEditController) -> i32,
-    pub get_parameter_info: unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
+    pub get_parameter_info:
+        unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
     pub get_param_string_by_value:
         unsafe extern "C" fn(*mut IEditController, u32, f64, *mut u16) -> Tresult,
     pub get_param_value_by_string:
@@ -218,11 +232,10 @@ pub struct IEditControllerVtbl {
     pub plain_param_to_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
     pub get_param_normalized: unsafe extern "C" fn(*mut IEditController, u32) -> f64,
     pub set_param_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> Tresult,
-    pub set_component_handler: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    pub set_component_handler:
+        unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
     pub create_view: unsafe extern "C" fn(*mut IEditController, *const c_char) -> *mut c_void,
 }
-
-// ── IConnectionPoint ───────────────────────────────────────────────────────
 
 #[repr(C)]
 pub struct IConnectionPoint {
@@ -235,11 +248,11 @@ pub struct IConnectionPointVtbl {
         unsafe extern "C" fn(*mut IConnectionPoint, *const c_char, *mut *mut c_void) -> Tresult,
     pub add_ref: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
     pub release: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
-    pub connect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
-    pub disconnect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+    pub connect:
+        unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+    pub disconnect:
+        unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
 }
-
-// ── IPlugView ──────────────────────────────────────────────────────────────
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -275,8 +288,6 @@ pub struct IPlugViewVtbl {
     pub check_size_constraint: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
 }
 
-// ── ProcessSetup / AudioBusBuffers / ProcessData ───────────────────────────
-
 #[repr(C)]
 pub struct ProcessSetup {
     pub process_mode: i32,
@@ -308,32 +319,30 @@ pub struct ProcessData {
     pub process_context: *mut c_void,
 }
 
-// ── IAudioProcessor ────────────────────────────────────────────────────────
-
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct IAudioProcessor {
     pub vtbl: *const IAudioProcessorVtbl,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct IAudioProcessorVtbl {
     pub query_interface:
         unsafe extern "C" fn(*mut IAudioProcessor, *const c_char, *mut *mut c_void) -> Tresult,
     pub add_ref: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
     pub release: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
     pub set_bus_arrangements:
-        unsafe extern "C" fn(*mut IAudioProcessor, *mut u64, i32, *mut u64, i32) -> Tresult,
+        unsafe extern "C" fn(*mut IAudioProcessor, *mut c_void, i32, *mut c_void, i32) -> Tresult,
     pub get_bus_arrangement:
-        unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut u64) -> Tresult,
+        unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut c_void) -> Tresult,
     pub can_process_sample_size: unsafe extern "C" fn(*mut IAudioProcessor, i32) -> Tresult,
     pub get_latency_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    pub setup_processing: unsafe extern "C" fn(*mut IAudioProcessor, *mut ProcessSetup) -> Tresult,
+    pub setup_processing: unsafe extern "C" fn(*mut IAudioProcessor, *const ProcessSetup) -> Tresult,
     pub set_processing: unsafe extern "C" fn(*mut IAudioProcessor, i8) -> Tresult,
     pub process: unsafe extern "C" fn(*mut IAudioProcessor, *mut ProcessData) -> Tresult,
     pub get_tail_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
 }
-
-// ── IBStream ───────────────────────────────────────────────────────────────
 
 #[repr(C)]
 pub struct IBStream {
@@ -346,47 +355,11 @@ pub struct IBStreamVtbl {
         unsafe extern "C" fn(*mut IBStream, *const c_char, *mut *mut c_void) -> Tresult,
     pub add_ref: unsafe extern "C" fn(*mut IBStream) -> u32,
     pub release: unsafe extern "C" fn(*mut IBStream) -> u32,
-    pub read:
-        unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
-    pub write:
-        unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
+    pub read: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
+    pub write: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
     pub seek: unsafe extern "C" fn(*mut IBStream, i64, i32, *mut i64) -> Tresult,
     pub tell: unsafe extern "C" fn(*mut IBStream, *mut i64) -> Tresult,
 }
-
-// ── IPluginFactory (was already here) ──────────────────────────────────────
-
-#[repr(C)]
-pub struct PClassInfo {
-    pub cid: Tuid,
-    pub cardinality: i32,
-    pub category: [c_char; 32],
-    pub name: [c_char; 64],
-}
-
-#[repr(C)]
-pub struct IPluginFactory {
-    pub vtbl: *const IPluginFactoryVtbl,
-}
-
-#[repr(C)]
-pub struct IPluginFactoryVtbl {
-    pub query_interface:
-        unsafe extern "C" fn(*mut IPluginFactory, *const c_char, *mut *mut c_void) -> Tresult,
-    pub add_ref: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
-    pub release: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
-    pub get_factory_info: unsafe extern "C" fn(*mut IPluginFactory, *mut c_void) -> Tresult,
-    pub count_classes: unsafe extern "C" fn(*mut IPluginFactory) -> i32,
-    pub get_class_info: unsafe extern "C" fn(*mut IPluginFactory, i32, *mut PClassInfo) -> Tresult,
-    pub create_instance: unsafe extern "C" fn(
-        *mut IPluginFactory,
-        *const Tuid,
-        *const c_char,
-        *mut *mut c_void,
-    ) -> Tresult,
-}
-
-// ── IParamValueQueue ───────────────────────────────────────────────────────
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -407,8 +380,6 @@ pub struct IParamValueQueueVtbl {
     pub add_point: unsafe extern "C" fn(*mut IParamValueQueue, i32, f64, *mut i32) -> Tresult,
 }
 
-// ── IParameterChanges ──────────────────────────────────────────────────────
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct IParameterChanges {
@@ -423,29 +394,8 @@ pub struct IParameterChangesVtbl {
     pub add_ref: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
     pub release: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
     pub get_parameter_count: unsafe extern "C" fn(*mut IParameterChanges) -> i32,
-    pub get_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, i32) -> *mut IParamValueQueue,
+    pub get_parameter_data:
+        unsafe extern "C" fn(*mut IParameterChanges, i32) -> *mut IParamValueQueue,
     pub add_parameter_data:
         unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
-}
-
-// ── IEventList ─────────────────────────────────────────────────────────────
-
-#[repr(C)]
-pub struct IEventListVtbl {
-    pub query_interface:
-        unsafe extern "C" fn(*mut c_void, *const c_char, *mut *mut c_void) -> Tresult,
-    pub add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
-    pub release: unsafe extern "C" fn(*mut c_void) -> u32,
-    pub get_event_count: unsafe extern "C" fn(*mut c_void) -> i32,
-    pub get_event: unsafe extern "C" fn(*mut c_void, i32, *mut c_void) -> Tresult,
-    pub add_event: unsafe extern "C" fn(*mut c_void, *const c_void) -> Tresult,
-}
-
-// ── Helper ─────────────────────────────────────────────────────────────────
-
-pub fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
-    if a.is_null() {
-        return false;
-    }
-    unsafe { *a == *b }
 }

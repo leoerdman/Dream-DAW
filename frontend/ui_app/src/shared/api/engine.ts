@@ -831,6 +831,8 @@ export type ProjectDelta =
     | { kind: 'ClipResized'; data: { clip_id: string; new_position: number; new_duration: number } }
     | { kind: 'ClipSplit'; data: { original_clip_id: string; left_id: string; right_id: string; split_frame: number } }
     | { kind: 'ClipDeleted'; data: { clip_id: string; track_index: number } }
+    | { kind: 'ClipDuplicated'; data: { source_clip_id: string; new_clip_id: string; new_position: number } }
+    | { kind: 'ClipsMerged'; data: { source_clip_ids: string[]; new_clip_id: string } }
     | { kind: 'ClipMuteChanged'; data: { clip_id: string; muted: boolean } }
     | { kind: 'FullRefreshRequired' };
 
@@ -839,6 +841,14 @@ export interface DeltaMutationResponse {
 }
 
 export interface SplitClipWithDeltasResponse extends SplitClipResponse {
+    deltas: ProjectDelta[];
+}
+
+export interface DuplicateClipWithDeltasResponse extends DuplicateClipResponse {
+    deltas: ProjectDelta[];
+}
+
+export interface MergeClipsWithDeltasResponse extends MergeClipsResponse {
     deltas: ProjectDelta[];
 }
 
@@ -873,21 +883,44 @@ export const duplicateClip = (clipId: string, newPositionFrames?: number) =>
         newPositionFrames: newPositionFrames ?? null,
     });
 
+/** Duplicate a clip and return ProjectDelta events. */
+export const duplicateClipWithDeltas = (clipId: string, newPositionFrames?: number) =>
+    invoke<DuplicateClipWithDeltasResponse>('duplicate_clip_with_deltas_cmd', {
+        clipId,
+        newPositionFrames: newPositionFrames ?? null,
+    });
+
 /** Merge multiple clips into one on the same track. */
 export const mergeClips = (clipIds: string[]) =>
     invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
+
+/** Merge clips and return ProjectDelta events. */
+export const mergeClipsWithDeltas = (clipIds: string[]) =>
+    invoke<MergeClipsWithDeltasResponse>('merge_clips_with_deltas_cmd', { clipIds });
 
 /** Delete a clip by UUID. */
 export const deleteClip = (clipId: string) =>
     invoke<void>('delete_clip_cmd', { clipId });
 
+/** Delete a clip and return ProjectDelta events. */
+export const deleteClipWithDeltas = (clipId: string) =>
+    invoke<DeltaMutationResponse>('delete_clip_with_deltas_cmd', { clipId });
+
 /** Mute or unmute a clip. Muted clips remain on the timeline but don't play. */
 export const setClipMuted = (clipId: string, muted: boolean) =>
     invoke<void>('set_clip_muted_cmd', { clipId, muted });
 
+/** Mute/unmute clip and return ProjectDelta events. */
+export const setClipMutedWithDeltas = (clipId: string, muted: boolean) =>
+    invoke<DeltaMutationResponse>('set_clip_muted_with_deltas_cmd', { clipId, muted });
+
 /** Mute or unmute multiple clips in one undo-safe batch. Returns number applied. */
 export const setClipsMuted = (clipIds: string[], muted: boolean) =>
     invoke<number>('set_clips_muted_cmd', { clipIds, muted });
+
+/** Mute/unmute multiple clips and return ProjectDelta events. */
+export const setClipsMutedWithDeltas = (clipIds: string[], muted: boolean) =>
+    invoke<DeltaMutationResponse>('set_clips_muted_with_deltas_cmd', { clipIds, muted });
 
 /** Clear clip color overrides on a track so clips inherit track color. */
 export const paintTrackClipsWithTrackColor = (trackId: string) =>

@@ -279,6 +279,12 @@ impl PluginInstance for SandboxedPluginInstance {
             ));
         }
 
+        // LAZARUS PROTOCOL: Zero-lock crash check via atomic flag.
+        // If crashed, immediately passthrough — no blocking, no allocation.
+        if self.is_crashed.load(Ordering::Relaxed) {
+            return self.pass_through(main_inputs, outputs, num_frames);
+        }
+
         // Forward MIDI via shared memory
         self.forward_midi_events(midi_events);
 

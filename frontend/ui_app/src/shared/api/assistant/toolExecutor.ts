@@ -216,9 +216,11 @@ async function executeToolInner(
             return JSON.stringify({ deletedIds: idsToDelete });
         }
 
-        case 'delete_clip':
-            await engineApi.deleteClip(args.clipId as string);
+        case 'delete_clip': {
+            const response = await engineApi.deleteClipWithDeltas(args.clipId as string);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-clip');
             return JSON.stringify({ deleted: args.clipId });
+        }
 
         // ── Batch Operations (10x faster) ──
         case 'add_audio_clips_batch': {
@@ -238,7 +240,11 @@ async function executeToolInner(
                     (c.startBeat + c.durationBeats) > def.startBeat
                 );
                 for (const oc of existing) {
-                    try { await engineApi.deleteClip(oc.id); batchOverlapsRemoved++; } catch { /* skip */ }
+                    try {
+                        const response = await engineApi.deleteClipWithDeltas(oc.id);
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-batch-overlap-delete');
+                        batchOverlapsRemoved++;
+                    } catch { /* skip */ }
                 }
             }
 
@@ -256,7 +262,11 @@ async function executeToolInner(
             if (!Array.isArray(idsToDelete) || idsToDelete.length === 0) return JSON.stringify({ error: 'clipIds array is required' });
             let deleted = 0;
             for (const id of idsToDelete) {
-                try { await engineApi.deleteClip(id); deleted++; } catch { /* skip missing */ }
+                try {
+                    const response = await engineApi.deleteClipWithDeltas(id);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-clips-batch');
+                    deleted++;
+                } catch { /* skip missing */ }
             }
             return JSON.stringify({ success: true, deleted, total: idsToDelete.length });
         }
@@ -266,14 +276,19 @@ async function executeToolInner(
             const tIdx = resolveTrackIndex(trackStr);
             const toDelete = clips.filter(c => c.trackIndex === tIdx);
             for (const c of toDelete) {
-                try { await engineApi.deleteClip(c.id); } catch { /* skip */ }
+                try {
+                    const response = await engineApi.deleteClipWithDeltas(c.id);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-all-track');
+                } catch { /* skip */ }
             }
             return JSON.stringify({ success: true, deleted: toDelete.length, trackIndex: tIdx });
         }
 
-        case 'set_clip_muted':
-            await engineApi.setClipMuted(args.clipId as string, args.muted as boolean);
+        case 'set_clip_muted': {
+            const response = await engineApi.setClipMutedWithDeltas(args.clipId as string, args.muted as boolean);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-clip-muted');
             return JSON.stringify({ clipId: args.clipId, muted: args.muted });
+        }
 
         case 'undo':
             await engineApi.undo();
@@ -358,7 +373,10 @@ async function executeToolInner(
                 (c.startBeat + c.durationBeats) > startBeat
             );
             for (const oc of overlapping) {
-                try { await engineApi.deleteClip(oc.id); } catch { /* skip missing */ }
+                try {
+                    const response = await engineApi.deleteClipWithDeltas(oc.id);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-create-midi-overlap-delete');
+                } catch { /* skip missing */ }
             }
 
             // Convert beats to frames: frames = beats * 60 / BPM * sampleRate
@@ -435,7 +453,10 @@ async function executeToolInner(
                 (c.startBeat + c.durationBeats) > startBeat
             );
             for (const oc of overlapping) {
-                try { await engineApi.deleteClip(oc.id); } catch { /* skip missing */ }
+                try {
+                    const response = await engineApi.deleteClipWithDeltas(oc.id);
+                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-add-audio-overlap-delete');
+                } catch { /* skip missing */ }
             }
 
             const st3 = useEngineStore.getState();
@@ -471,7 +492,8 @@ async function executeToolInner(
                 const fpbDup = (60.0 / (stDup.projectBpm || stDup.transport.bpm || 120)) * (resolveSampleRate(stDup.projectSampleRate));
                 posFrames = Math.round((args.newPositionBeats as number) * fpbDup);
             }
-            const result = await engineApi.duplicateClip(clipId, posFrames);
+            const result = await engineApi.duplicateClipWithDeltas(clipId, posFrames);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-duplicate-clip');
             return JSON.stringify({ success: true, duplicatedClipId: result.new_id });
         }
 
@@ -498,7 +520,8 @@ async function executeToolInner(
 
         case 'merge_clips': {
             const clipIds = args.clipIds as string[];
-            const result = await engineApi.mergeClips(clipIds);
+            const result = await engineApi.mergeClipsWithDeltas(clipIds);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-merge-clips');
             return JSON.stringify({ success: true, newClipId: result.new_id });
         }
 
@@ -1141,8 +1164,9 @@ async function executeToolInner(
         case 'set_clips_muted_batch': {
             const clipIds = args.clipIds as string[];
             const muted = args.muted as boolean;
-            const result = await engineApi.setClipsMuted(clipIds, muted);
-            return JSON.stringify({ success: true, muted, applied: result });
+            const result = await engineApi.setClipsMutedWithDeltas(clipIds, muted);
+            await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-set-clips-muted-batch');
+            return JSON.stringify({ success: true, muted, applied: result.deltas.length });
         }
 
         case 'bounce_track': {

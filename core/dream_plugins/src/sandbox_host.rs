@@ -3,7 +3,9 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -150,6 +152,10 @@ pub struct PluginSandboxSupervisor {
     instances: HashMap<Uuid, PluginSandboxInstance>,
     /// Accumulated crash events for the Tauri layer to drain and forward to frontend.
     crash_events: Vec<PluginCrashEvent>,
+    /// LAZARUS PROTOCOL: Shared crash flags wired to `SandboxedPluginInstance.is_crashed`.
+    /// The supervisor sets these on crash (true) and recovery (false).
+    /// The audio thread reads them lock-free via `Relaxed` ordering.
+    crash_flags: HashMap<Uuid, Arc<AtomicBool>>,
 }
 
 impl PluginSandboxSupervisor {
@@ -262,6 +268,28 @@ impl PluginSandboxSupervisor {
             config,
             instances: HashMap::new(),
             crash_events: Vec::new(),
+            crash_flags: HashMap::new(),
+        }
+    }
+
+    /// LAZARUS PROTOCOL: Register a shared crash flag for an instance.
+    /// The `SandboxedPluginInstance` creates the `Arc<AtomicBool>` and passes it here
+    /// so the supervisor can signal crash/recovery to the audio thread without locks.
+    pub fn register_crash_flag(&mut self, instance_id: Uuid, flag: Arc<AtomicBool>) {
+        self.crash_flags.insert(instance_id, flag);
+    }
+
+    /// LAZARUS PROTOCOL: Signal crash state via the shared atomic flag.
+    fn signal_crash(crash_flags: &HashMap<Uuid, Arc<AtomicBool>>, instance_id: &Uuid) {
+        if let Some(flag) = crash_flags.get(instance_id) {
+            flag.store(true, Ordering::Release);
+        }
+    }
+
+    /// LAZARUS PROTOCOL: Clear crash state via the shared atomic flag.
+    fn signal_recovery(crash_flags: &HashMap<Uuid, Arc<AtomicBool>>, instance_id: &Uuid) {
+        if let Some(flag) = crash_flags.get(instance_id) {
+            flag.store(false, Ordering::Release);
         }
     }
 
@@ -392,6 +420,7 @@ impl PluginSandboxSupervisor {
         let timeout = self.heartbeat_timeout();
         let now = SystemTime::now();
         let max_auto_restarts: u32 = 3;
+        let crash_flags = self.crash_flags.clone();
 
         for (id, instance) in &mut self.instances {
             if let Some(stdin) = instance.control_stdin.as_mut() {
@@ -424,6 +453,8 @@ impl PluginSandboxSupervisor {
                                 instance.status = PluginSandboxStatus::Running;
                                 instance.heartbeat_seen = true;
                                 instance.bypass_requested = false;
+                                // LAZARUS: Clear crash flag on successful recovery.
+                                Self::signal_recovery(&crash_flags, id);
                             }
                             PluginHostEventMessage::HeartbeatAck { .. } => {
                                 instance.heartbeat_seen = true;
@@ -434,6 +465,8 @@ impl PluginSandboxSupervisor {
                                 instance.status = PluginSandboxStatus::Crashed;
                                 instance.bypass_requested = true;
                                 instance.last_error = Some(reason.clone());
+                                // LAZARUS: Signal crash to audio thread immediately.
+                                Self::signal_crash(&crash_flags, id);
                                 self.crash_events.push(PluginCrashEvent {
                                     instance_id: *id,
                                     plugin_name: instance.descriptor.name.clone(),
@@ -539,6 +572,8 @@ impl PluginSandboxSupervisor {
                         }
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.bypass_requested = true;
+                        // LAZARUS: Signal crash to audio thread.
+                        Self::signal_crash(&crash_flags, id);
                         self.crash_events.push(PluginCrashEvent {
                             instance_id: *id,
                             plugin_name: instance.descriptor.name.clone(),
@@ -641,6 +676,8 @@ impl PluginSandboxSupervisor {
                         }
                         instance.status = PluginSandboxStatus::TimedOut;
                         instance.bypass_requested = true;
+                        // LAZARUS: Signal timeout to audio thread.
+                        Self::signal_crash(&crash_flags, id);
                         if instance.last_error.is_none() {
                             instance.last_error = Some(format!(
                                 "Plugin host heartbeat timeout: {}ms",
@@ -663,6 +700,8 @@ impl PluginSandboxSupervisor {
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.crash_count = instance.crash_count.saturating_add(1);
                         instance.bypass_requested = true;
+                        // LAZARUS: Signal poll error to audio thread.
+                        Self::signal_crash(&crash_flags, id);
                         instance.last_error =
                             Some(format!("Failed to poll plugin host process: {err}"));
                         if should_emit {
@@ -684,7 +723,94 @@ impl PluginSandboxSupervisor {
         bypass
     }
 
+    /// LAZARUS PROTOCOL: Manually restart a crashed/timed-out plugin.
+    ///
+    /// Called by the Tauri layer when the user clicks "Reload Plugin".
+    /// Kills the current daemon (if alive), spawns a fresh process, and
+    /// restores the last known plugin state.
+    pub fn manual_restart(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
+        let config = self.config.as_ref().ok_or_else(|| {
+            PluginError::InvalidState("Plugin sandbox host binary is not configured".to_string())
+        })?.clone();
+        let crash_flags = self.crash_flags.clone();
+
+        let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+            PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+        })?;
+
+        // Kill existing process if still around
+        if let Some(mut child) = instance.process.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        instance.control_stdin.take();
+        instance.event_rx.take();
+
+        // Reset heartbeat
+        let _ = fs::write(&instance.heartbeat_file, b"0");
+
+        // Spawn fresh daemon
+        let spawn_spec = DaemonSpawnSpec {
+            instance_id,
+            plugin_path: &instance.descriptor.path,
+            heartbeat_file: &instance.heartbeat_file,
+            shared_region_file: std::path::Path::new(&instance.shared_region.map_name),
+            num_inputs: instance.shared_region.num_inputs,
+            num_outputs: instance.shared_region.num_outputs,
+            max_frames: instance.shared_region.max_frames,
+        };
+        let mut new_child = Self::spawn_daemon_process(&config, &spawn_spec)?;
+
+        instance.control_stdin = new_child.stdin.take();
+        instance.event_rx =
+            if let (Some(stdout), Some(stderr)) = (new_child.stdout.take(), new_child.stderr.take())
+            {
+                Some(Self::spawn_event_reader(stdout, stderr))
+            } else {
+                None
+            };
+        instance.heartbeat_seq = 0;
+        instance.heartbeat_seen = false;
+        instance.process = Some(new_child);
+        instance.status = PluginSandboxStatus::Spawning;
+        instance.restart_count = instance.restart_count.saturating_add(1);
+        instance.spawned_at = SystemTime::now();
+        instance.bypass_requested = false;
+        instance.last_error = None;
+        instance.crash_count = 0;
+
+        let _ = Self::prime_instance_protocol(instance_id, instance);
+
+        // LAZARUS: Restore cached state if available
+        if let Some(ref state_blob) = instance.last_known_state_blob {
+            if let Some(ref mut stdin) = instance.control_stdin {
+                let _ = Self::send_control_message(
+                    stdin,
+                    &PluginHostControlMessage::RestoreState {
+                        instance_id,
+                        state_blob_b64: state_blob.clone(),
+                    },
+                );
+                log::info!(
+                    "[Lazarus] Restored state for '{}' after manual restart",
+                    instance.descriptor.name
+                );
+            }
+        }
+
+        // LAZARUS: Clear crash flag — audio thread will resume processing
+        Self::signal_recovery(&crash_flags, &instance_id);
+
+        log::info!(
+            "[Lazarus] Manual restart complete for '{}' (restart #{})",
+            instance.descriptor.name,
+            instance.restart_count
+        );
+        Ok(())
+    }
+
     pub fn remove_instance(&mut self, instance_id: Uuid) {
+        self.crash_flags.remove(&instance_id);
         if let Some(mut instance) = self.instances.remove(&instance_id) {
             if let Some(stdin) = instance.control_stdin.as_mut() {
                 let _ = Self::send_control_message(

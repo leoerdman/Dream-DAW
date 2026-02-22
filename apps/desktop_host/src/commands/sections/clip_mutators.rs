@@ -20,6 +20,18 @@ struct SplitClipWithDeltasResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct DuplicateClipWithDeltasResponse {
+    new_id: String,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MergeClipsWithDeltasResponse {
+    new_id: String,
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct DuplicateClipResponse {
     new_id: String,
 }
@@ -82,9 +94,7 @@ fn next_job_id() -> String {
     format!("job_{:x}_{:x}", now_ms(), seq)
 }
 
-fn prune_finished_jobs_locked(
-    jobs: &mut std::collections::HashMap<String, BackgroundJobState>,
-) {
+fn prune_finished_jobs_locked(jobs: &mut std::collections::HashMap<String, BackgroundJobState>) {
     const FINISHED_JOB_TTL_MS: u128 = 15 * 60 * 1000;
     const MAX_FINISHED_JOBS: usize = 200;
 
@@ -93,7 +103,10 @@ fn prune_finished_jobs_locked(
         if job.snapshot.status == "running" {
             return true;
         }
-        let finished_at = job.snapshot.finished_at_ms.unwrap_or(job.snapshot.started_at_ms);
+        let finished_at = job
+            .snapshot
+            .finished_at_ms
+            .unwrap_or(job.snapshot.started_at_ms);
         now.saturating_sub(finished_at) <= FINISHED_JOB_TTL_MS
     });
 
@@ -232,8 +245,6 @@ fn finish_job(
     Ok(())
 }
 
-
-
 fn build_local_pool_for_project(
     project: &Project,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
@@ -280,7 +291,8 @@ fn build_local_pool_for_project(
                         });
                         log::info!(
                             "[ExportPool] Loaded sampler sample '{}' for track '{}'",
-                            sampler_cfg.sample_path, track.name
+                            sampler_cfg.sample_path,
+                            track.name
                         );
                     }
                 }
@@ -291,13 +303,22 @@ fn build_local_pool_for_project(
 }
 
 fn find_clip_track_index(project: &Project, clip_id: Uuid) -> Option<usize> {
-    project
-        .tracks
-        .iter()
-        .position(|track| {
-            track.clips.iter().any(|clip| clip.id == clip_id)
-                || track.midi_clips.iter().any(|clip| clip.id == clip_id)
-        })
+    project.tracks.iter().position(|track| {
+        track.clips.iter().any(|clip| clip.id == clip_id)
+            || track.midi_clips.iter().any(|clip| clip.id == clip_id)
+    })
+}
+
+fn find_clip_position_frames(project: &Project, clip_id: Uuid) -> Option<i64> {
+    for track in &project.tracks {
+        if let Some(clip) = track.clips.iter().find(|clip| clip.id == clip_id) {
+            return Some(clip.position.sample_frame);
+        }
+        if let Some(clip) = track.midi_clips.iter().find(|clip| clip.id == clip_id) {
+            return Some(clip.position.sample_frame);
+        }
+    }
+    None
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -305,12 +326,8 @@ fn find_clip_track_index(project: &Project, clip_id: Uuid) -> Option<usize> {
 // core/dream_importers/src/stem_separation.rs
 // ═══════════════════════════════════════════════════════════════════════
 use dream_importers::stem_separation::{
-    make_bounce_output_path,
-    run_demucs_4stems,
-    compute_file_fingerprint,
-    get_cached_or_build_stems,
+    compute_file_fingerprint, get_cached_or_build_stems, make_bounce_output_path, run_demucs_4stems,
 };
-
 
 fn place_bounced_file_on_new_track(
     project_state: &tauri::State<'_, ProjectState>,
@@ -444,7 +461,6 @@ fn place_stem_files_on_new_tracks(
     Ok(())
 }
 
-
 ///
 /// The clip is identified by UUID string. After mutation, the
 /// clip snapshot is atomically rebuilt for the audio thread.
@@ -462,12 +478,19 @@ async fn move_clip_cmd(
     push_undo_coalesced(&project_state)?;
 
     let cmd = dream_orchestrator::commands::MoveClipCommand::from_str_id(
-        &clip_id, new_track_index, new_position_frames,
-    ).map_err(|e| e.to_string())?;
+        &clip_id,
+        new_track_index,
+        new_position_frames,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
@@ -511,7 +534,11 @@ async fn move_clip_with_deltas_cmd(
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         let result_project = ctx.lock_project().map_err(|e| e.to_string())?;
@@ -539,8 +566,6 @@ async fn move_clip_with_deltas_cmd(
     Ok(DeltaMutationResponse { deltas })
 }
 
-
-
 /// Resizes a clip to a new position and duration.
 #[tauri::command]
 async fn resize_clip_cmd(
@@ -556,12 +581,19 @@ async fn resize_clip_cmd(
     push_undo_coalesced(&project_state)?;
 
     let cmd = dream_orchestrator::commands::ResizeClipCommand::from_str_id(
-        &clip_id, new_position_frames, new_duration_frames,
-    ).map_err(|e| e.to_string())?;
+        &clip_id,
+        new_position_frames,
+        new_duration_frames,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -600,7 +632,11 @@ async fn resize_clip_with_deltas_cmd(
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -640,13 +676,16 @@ async fn split_clip_cmd(
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
-    let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(
-        &clip_id, split_frame,
-    ).map_err(|e| e.to_string())?;
+    let cmd = dream_orchestrator::commands::SplitClipCommand::from_str_id(&clip_id, split_frame)
+        .map_err(|e| e.to_string())?;
 
     let result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -684,7 +723,11 @@ async fn split_clip_with_deltas_cmd(
 
     let result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -732,7 +775,11 @@ async fn delete_clip_cmd(
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -751,6 +798,58 @@ async fn delete_clip_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn delete_clip_with_deltas_cmd(
+    clip_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    push_undo(&project_state)?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let track_index_before = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_clip_track_index(&project, clip_uuid)
+    };
+
+    let cmd = dream_orchestrator::commands::DeleteClipCommand::from_str_id(&clip_id)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    let deltas = if let Some(track_index) = track_index_before {
+        vec![dream_models::delta::ProjectDelta::ClipDeleted {
+            clip_id: clip_uuid,
+            track_index,
+        }]
+    } else {
+        vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
+    };
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    clip_pool_state.evict_unused_clips(&project_state);
+
+    Ok(DeltaMutationResponse { deltas })
+}
+
 /// Duplicate a clip, optionally at a specific destination position.
 #[tauri::command]
 async fn duplicate_clip_cmd(
@@ -765,12 +864,18 @@ async fn duplicate_clip_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
-        &clip_id, new_position_frames,
-    ).map_err(|e| e.to_string())?;
+        &clip_id,
+        new_position_frames,
+    )
+    .map_err(|e| e.to_string())?;
 
     let result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -787,6 +892,66 @@ async fn duplicate_clip_cmd(
 
     Ok(DuplicateClipResponse {
         new_id: result.new_id.to_string(),
+    })
+}
+
+#[tauri::command]
+async fn duplicate_clip_with_deltas_cmd(
+    clip_id: String,
+    new_position_frames: Option<i64>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DuplicateClipWithDeltasResponse, String> {
+    push_undo(&project_state)?;
+
+    let source_clip_uuid =
+        Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let cmd = dream_orchestrator::commands::DuplicateClipCommand::from_str_id(
+        &clip_id,
+        new_position_frames,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
+
+    let deltas = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let position = find_clip_position_frames(&project, result.new_id);
+        if let Some(new_position) = position {
+            vec![dream_models::delta::ProjectDelta::ClipDuplicated {
+                source_clip_id: source_clip_uuid,
+                new_clip_id: result.new_id,
+                new_position,
+            }]
+        } else {
+            vec![dream_models::delta::ProjectDelta::FullRefreshRequired]
+        }
+    };
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(DuplicateClipWithDeltasResponse {
+        new_id: result.new_id.to_string(),
+        deltas,
     })
 }
 
@@ -807,7 +972,11 @@ async fn merge_clips_cmd(
 
     let result = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -827,6 +996,56 @@ async fn merge_clips_cmd(
     })
 }
 
+#[tauri::command]
+async fn merge_clips_with_deltas_cmd(
+    clip_ids: Vec<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<MergeClipsWithDeltasResponse, String> {
+    push_undo(&project_state)?;
+
+    let source_ids: Vec<Uuid> = clip_ids
+        .iter()
+        .filter_map(|id| Uuid::parse_str(id).ok())
+        .collect();
+
+    let cmd = dream_orchestrator::commands::MergeClipsCommand::from_str_ids(&clip_ids)
+        .map_err(|e| e.to_string())?;
+
+    let result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
+
+    let deltas = vec![dream_models::delta::ProjectDelta::ClipsMerged {
+        source_clip_ids: source_ids,
+        new_clip_id: result.new_id,
+    }];
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(MergeClipsWithDeltasResponse {
+        new_id: result.new_id.to_string(),
+        deltas,
+    })
+}
+
 /// Update a clip's source offset (slip editing).
 #[tauri::command]
 async fn set_clip_source_offset_cmd(
@@ -840,16 +1059,42 @@ async fn set_clip_source_offset_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::SetClipSourceOffsetCommand::from_str_id(
-        &clip_id, source_offset_frames,
-    ).map_err(|e| e.to_string())?;
+        &clip_id,
+        source_offset_frames,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
             ctx.lock_project().map_err(|e| e.to_string())?.clone();
+    }
+
+    // BUG-AUD-1 FIX: Post-orchestrator source_offset clamping.
+    // The orchestrator uses NoopClipPoolAccess (max_offset=i64::MAX).
+    // Clamp against the REAL clip pool to prevent reading past the decoded buffer.
+    {
+        let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        for track in &mut project.tracks {
+            if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_uuid) {
+                if let Some(audio) = pool.get(&clip.file_path) {
+                    let max_offset = (audio.num_frames as i64).saturating_sub(1).max(0);
+                    if clip.source_offset.sample_frame > max_offset {
+                        clip.source_offset = dream_models::time::AbsoluteTime::new(max_offset);
+                    }
+                }
+                break;
+            }
+        }
     }
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -887,12 +1132,18 @@ async fn set_clip_pitch_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::SetClipPitchCommand::from_str_id(
-        &payload.clip_id, payload.pitch_shift_semitones,
-    ).map_err(|e| e.to_string())?;
+        &payload.clip_id,
+        payload.pitch_shift_semitones,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -919,12 +1170,20 @@ async fn set_clip_warp_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::SetClipWarpCommand::from_str_id(
-        &payload.clip_id, payload.is_warped, payload.warp_mode, payload.warp_base_bpm,
-    ).map_err(|e| e.to_string())?;
+        &payload.clip_id,
+        payload.is_warped,
+        payload.warp_mode,
+        payload.warp_base_bpm,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -955,12 +1214,19 @@ async fn set_clip_fades_cmd(
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::SetClipFadesCommand::from_str_id(
-        &clip_id, fade_in_frames, fade_out_frames,
-    ).map_err(|e| e.to_string())?;
+        &clip_id,
+        fade_in_frames,
+        fade_out_frames,
+    )
+    .map_err(|e| e.to_string())?;
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -997,7 +1263,11 @@ async fn set_clip_muted_cmd(
 
     {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -1013,6 +1283,52 @@ async fn set_clip_muted_cmd(
 
     log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
     Ok(())
+}
+
+#[tauri::command]
+async fn set_clip_muted_with_deltas_cmd(
+    clip_id: String,
+    muted: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    push_undo(&project_state)?;
+
+    let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let cmd = dream_orchestrator::commands::MuteClipCommand::from_str_id(&clip_id, muted)
+        .map_err(|e| e.to_string())?;
+
+    let changed = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_clips_only(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    let mut deltas = Vec::new();
+    if changed {
+        deltas.push(dream_models::delta::ProjectDelta::ClipMuteChanged {
+            clip_id: clip_uuid,
+            muted,
+        });
+    }
+    Ok(DeltaMutationResponse { deltas })
 }
 
 /// Set mute state on multiple clips in one operation.
@@ -1039,7 +1355,11 @@ async fn set_clips_muted_cmd(
 
     let applied = {
         let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state.project.lock().map_err(|e| e.to_string())?.clone(),
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
         );
         let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
         *project_state.project.lock().map_err(|e| e.to_string())? =
@@ -1066,6 +1386,59 @@ async fn set_clips_muted_cmd(
     Ok(applied)
 }
 
+#[tauri::command]
+async fn set_clips_muted_with_deltas_cmd(
+    clip_ids: Vec<String>,
+    muted: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    if clip_ids.is_empty() {
+        return Ok(DeltaMutationResponse { deltas: Vec::new() });
+    }
+
+    push_undo(&project_state)?;
+
+    let parsed_ids: Vec<Uuid> = clip_ids
+        .iter()
+        .filter_map(|id| Uuid::parse_str(id).ok())
+        .collect();
+
+    let cmd = dream_orchestrator::commands::MuteClipsBatchCommand::from_str_ids(&clip_ids, muted)
+        .map_err(|e| e.to_string())?;
+
+    let applied = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        let r = ctx.execute(&cmd).map_err(|e| e.to_string())?;
+        *project_state.project.lock().map_err(|e| e.to_string())? =
+            ctx.lock_project().map_err(|e| e.to_string())?.clone();
+        r
+    };
+
+    if applied > 0 {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project_name = project.name.clone();
+        clip_pool_state.rebuild_clips_only(&project);
+        rebuild_midi_snapshot_from_project(&project, &handle);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    }
+
+    let deltas = parsed_ids
+        .into_iter()
+        .map(|clip_id| dream_models::delta::ProjectDelta::ClipMuteChanged { clip_id, muted })
+        .collect();
+    Ok(DeltaMutationResponse { deltas })
+}
+
 /// Clear clip color overrides on a track so all clips inherit track color.
 #[tauri::command]
 async fn paint_track_clips_with_track_color_cmd(
@@ -1090,8 +1463,7 @@ async fn paint_track_clips_with_track_color_cmd(
     let target_color_hex = track.color_hex.clone();
 
     for clip in &mut track.clips {
-        if clip.color_override.as_ref() != Some(&target_color)
-            || clip.color_hex != target_color_hex
+        if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex
         {
             changed = true;
         }
@@ -1100,8 +1472,7 @@ async fn paint_track_clips_with_track_color_cmd(
     }
 
     for clip in &mut track.midi_clips {
-        if clip.color_override.as_ref() != Some(&target_color)
-            || clip.color_hex != target_color_hex
+        if clip.color_override.as_ref() != Some(&target_color) || clip.color_hex != target_color_hex
         {
             changed = true;
         }
@@ -1202,7 +1573,10 @@ async fn set_automation_points_cmd(
                 value: p.value,
                 curve_type: p.curve_type.clone(),
                 tension: p.tension,
-                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
             })
             .collect();
         persistent_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
@@ -1215,14 +1589,18 @@ async fn set_automation_points_cmd(
             existing.points = persistent_points;
             existing.param_id = normalized_param_id.clone();
         } else {
-            track.automation_lanes.push(dream_models::project::AutomationLane {
-                param_id: normalized_param_id.clone(),
-                points: persistent_points,
-            });
+            track
+                .automation_lanes
+                .push(dream_models::project::AutomationLane {
+                    param_id: normalized_param_id.clone(),
+                    points: persistent_points,
+                });
         }
 
         // Keep project clean: remove empty lanes.
-        track.automation_lanes.retain(|lane| !lane.points.is_empty());
+        track
+            .automation_lanes
+            .retain(|lane| !lane.points.is_empty());
 
         let project_name = project.name.clone();
         rebuild_automation_snapshot_from_project(&project, &automation_runtime);
@@ -1287,7 +1665,13 @@ async fn start_recording_cmd(
 
     let output_dir = std::env::temp_dir().join("dream_daw_recordings");
     let start_frame = handle.master_clock.position();
-    let file_name = format!("recording_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs());
+    let file_name = format!(
+        "recording_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs()
+    );
 
     let session = RecordingSession::start(&output_dir, &file_name, start_frame)
         .map_err(|e| format!("start_recording failed: {e}"))?;
@@ -1310,7 +1694,10 @@ async fn start_recording_cmd(
         }
     });
 
-    *recording_runtime.session.lock().map_err(|e| e.to_string())? = Some(session);
+    *recording_runtime
+        .session
+        .lock()
+        .map_err(|e| e.to_string())? = Some(session);
     *recording_runtime
         .armed_track_index
         .lock()
@@ -1397,7 +1784,11 @@ async fn export_mix_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
     if !["full", "loop", "selected"].contains(&export_range.as_str()) {
@@ -1479,9 +1870,11 @@ async fn export_mix_cmd(
     // Only native device_chain FX are processed inside bounce().
 
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
-    
+
     // Reset cancel flag and execute export as detached background worker.
-    handle.export_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    handle
+        .export_cancel
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     let cancel_flag = std::sync::Arc::clone(&job_cancel);
     let app_for_progress = app.clone();
     let app_for_finish = app.clone();
@@ -1541,7 +1934,8 @@ async fn export_mix_cmd(
                     let Some(slot_id) = instrument_slot_id else {
                         log::warn!(
                             "[Export/VST3-MIDI] Track '{}' has {} MIDI clips but no instrument — skipping",
-                            track.name, track.midi_clips.len()
+                            track.name,
+                            track.midi_clips.len()
                         );
                         continue;
                     };
@@ -1549,14 +1943,18 @@ async fn export_mix_cmd(
                     let Some(instance_id) = slot_instance_map.get(&slot_id).copied() else {
                         log::warn!(
                             "[Export/VST3-MIDI] Track '{}': instrument slot {} not bound to any instance — skipping",
-                            track.name, slot_id
+                            track.name,
+                            slot_id
                         );
                         continue;
                     };
 
                     log::info!(
                         "[Export/VST3-MIDI] Pre-rendering track '{}': {} clips, instance={}, {} frames",
-                        track.name, track.midi_clips.len(), instance_id, total_frames
+                        track.name,
+                        track.midi_clips.len(),
+                        instance_id,
+                        total_frames
                     );
 
                     // ── Pre-render buffer by buffer ───────────────
@@ -1566,7 +1964,9 @@ async fn export_mix_cmd(
                     let mut out_left = vec![0.0f32; total_frames];
                     let mut out_right = vec![0.0f32; total_frames];
 
-                    let mut schedule_scratch: Vec<dream_clip_engine::midi_scheduler::ScheduledNote> = Vec::new();
+                    let mut schedule_scratch: Vec<
+                        dream_clip_engine::midi_scheduler::ScheduledNote,
+                    > = Vec::new();
                     let mut frames_done = 0usize;
                     let mut playhead = start_frame;
 
@@ -1605,7 +2005,8 @@ async fn export_mix_cmd(
 
                         // Sort: by sample_offset, then note-off before note-on at same offset
                         midi_events.sort_by(|a, b| {
-                            a.sample_offset.cmp(&b.sample_offset)
+                            a.sample_offset
+                                .cmp(&b.sample_offset)
                                 .then_with(|| a.data[0].cmp(&b.data[0]))
                         });
 
@@ -1632,7 +2033,8 @@ async fn export_mix_cmd(
                                     ) {
                                         log::warn!(
                                             "[Export/VST3-MIDI] process_with_sidechain failed for '{}': {}",
-                                            track_name, e
+                                            track_name,
+                                            e
                                         );
                                     }
                                 }
@@ -1663,7 +2065,8 @@ async fn export_mix_cmd(
                     // what the user hears from the master in real-time.
                     {
                         let track_effects = project.tracks[track_idx].effects.clone();
-                        let fx_slots: Vec<_> = track_effects.iter()
+                        let fx_slots: Vec<_> = track_effects
+                            .iter()
                             .flat_map(|node| node.collect_plugin_slots())
                             .filter(|slot| !slot.is_bypassed)
                             .collect();
@@ -1672,7 +2075,9 @@ async fn export_mix_cmd(
                         // Without this, tails from MIDI instrument FX chains are cut off
                         // at the exact end of the last MIDI note. Mirrors BUG-E3 for audio.
                         const MIDI_FX_TAIL_FRAMES: usize = 44100 * 4; // 4 seconds
-                        let has_vst3_fx = fx_slots.iter().any(|s| slot_instance_map.contains_key(&s.id));
+                        let has_vst3_fx = fx_slots
+                            .iter()
+                            .any(|s| slot_instance_map.contains_key(&s.id));
                         let padded_total = if has_vst3_fx {
                             total_frames + MIDI_FX_TAIL_FRAMES
                         } else {
@@ -1682,17 +2087,22 @@ async fn export_mix_cmd(
                         out_right.resize(padded_total, 0.0);
 
                         for fx_slot in &fx_slots {
-                            let Some(fx_instance_id) = slot_instance_map.get(&fx_slot.id).copied() else {
+                            let Some(fx_instance_id) = slot_instance_map.get(&fx_slot.id).copied()
+                            else {
                                 log::debug!(
                                     "[Export/VST3-FX] Track '{}': FX slot '{}' ({}) not bound — skipping",
-                                    track_name, fx_slot.name, fx_slot.id
+                                    track_name,
+                                    fx_slot.name,
+                                    fx_slot.id
                                 );
                                 continue;
                             };
 
                             log::info!(
                                 "[Export/VST3-FX] Track '{}': applying FX '{}' (instance={})",
-                                track_name, fx_slot.name, fx_instance_id
+                                track_name,
+                                fx_slot.name,
+                                fx_instance_id
                             );
 
                             // Process the entire pre-rendered buffer through this FX in chunks.
@@ -1722,12 +2132,16 @@ async fn export_mix_cmd(
                                         ) {
                                             log::warn!(
                                                 "[Export/VST3-FX] FX '{}' process failed: {}",
-                                                fx_slot.name, e
+                                                fx_slot.name,
+                                                e
                                             );
                                         }
                                     }
                                     Err(e) => {
-                                        log::error!("[Export/VST3-FX] PluginHost lock poisoned: {}", e);
+                                        log::error!(
+                                            "[Export/VST3-FX] PluginHost lock poisoned: {}",
+                                            e
+                                        );
                                         break;
                                     }
                                 }
@@ -1742,25 +2156,31 @@ async fn export_mix_cmd(
                         if !fx_slots.is_empty() {
                             log::info!(
                                 "[Export/VST3-FX] Track '{}': applied {} insert FX slot(s)",
-                                track_name, fx_slots.len()
+                                track_name,
+                                fx_slots.len()
                             );
                         }
                     }
 
                     // ── Check if anything was rendered ──────────
-                    let peak = out_left.iter().chain(out_right.iter())
+                    let peak = out_left
+                        .iter()
+                        .chain(out_right.iter())
                         .fold(0.0f32, |acc, &s| acc.max(s.abs()));
 
                     if peak < 1e-7 {
                         log::warn!(
                             "[Export/VST3-MIDI] Track '{}': pre-render produced silence (peak={:.2e})",
-                            track_name, peak
+                            track_name,
+                            peak
                         );
                         // Still add the clip — silence is valid (e.g. if all notes are outside range)
                     } else {
                         log::info!(
                             "[Export/VST3-MIDI] Track '{}': pre-render complete, peak={:.4}, {} frames",
-                            track_name, peak, total_frames
+                            track_name,
+                            peak,
+                            total_frames
                         );
                     }
 
@@ -1769,11 +2189,8 @@ async fn export_mix_cmd(
                     // BUG-E4: Capture actual buffer length (includes FX tail padding)
                     // BEFORE out_left is moved into ClipAudio.
                     let rendered_frames = out_left.len();
-                    let clip_audio = ClipAudio::new(
-                        synth_path.clone(),
-                        vec![out_left, out_right],
-                        sample_rate,
-                    );
+                    let clip_audio =
+                        ClipAudio::new(synth_path.clone(), vec![out_left, out_right], sample_rate);
                     let _ = local_pool.insert(clip_audio);
 
                     let synth_clip = AudioClip::new(
@@ -1816,15 +2233,20 @@ async fn export_mix_cmd(
                 }
 
                 // Collect VST3 FX slots for this track's insert chain.
-                let fx_slots: Vec<_> = track.effects.iter()
+                let fx_slots: Vec<_> = track
+                    .effects
+                    .iter()
                     .flat_map(|node| node.collect_plugin_slots())
                     .filter(|slot| !slot.is_bypassed)
                     .collect();
 
                 // Find VST3 FX slots that have bound instances.
-                let vst3_fx: Vec<_> = fx_slots.iter()
+                let vst3_fx: Vec<_> = fx_slots
+                    .iter()
                     .filter_map(|slot| {
-                        slot_instance_map.get(&slot.id).map(|&iid| (slot.name.clone(), iid))
+                        slot_instance_map
+                            .get(&slot.id)
+                            .map(|&iid| (slot.name.clone(), iid))
                     })
                     .collect();
 
@@ -1834,7 +2256,9 @@ async fn export_mix_cmd(
 
                 log::info!(
                     "[Export/AudioFX] Track '{}': {} audio clips, {} VST3 FX to pre-render",
-                    track.name, track.clips.len(), vst3_fx.len()
+                    track.name,
+                    track.clips.len(),
+                    vst3_fx.len()
                 );
 
                 // For each audio clip on this track, read its raw audio from the pool,
@@ -1843,7 +2267,8 @@ async fn export_mix_cmd(
                 // BUG-E10 FIX: Use per-track synthetic keys instead of overwriting
                 // the original pool entry, so other tracks sharing the same file
                 // read the unprocessed original.
-                let mut already_processed: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut already_processed: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 for clip_idx in 0..project.tracks[track_idx].clips.len() {
                     let original_path = project.tracks[track_idx].clips[clip_idx].file_path.clone();
                     if original_path.is_empty() {
@@ -1851,7 +2276,8 @@ async fn export_mix_cmd(
                     }
                     if !already_processed.insert(original_path.clone()) {
                         // Already processed this file for this track — just update the clip ref.
-                        let fx_key = format!("__fx_processed__/track_{}/{}", track_idx, original_path);
+                        let fx_key =
+                            format!("__fx_processed__/track_{}/{}", track_idx, original_path);
                         project.tracks[track_idx].clips[clip_idx].file_path = fx_key;
                         continue;
                     }
@@ -1861,7 +2287,8 @@ async fn export_mix_cmd(
                         None => {
                             log::warn!(
                                 "[Export/AudioFX] Track '{}': clip '{}' not in pool — skipping",
-                                project.tracks[track_idx].name, original_path
+                                project.tracks[track_idx].name,
+                                original_path
                             );
                             continue;
                         }
@@ -1921,7 +2348,8 @@ async fn export_mix_cmd(
                                     ) {
                                         log::warn!(
                                             "[Export/AudioFX] FX '{}' process failed: {}",
-                                            fx_name, e
+                                            fx_name,
+                                            e
                                         );
                                     }
                                 }
@@ -1942,11 +2370,8 @@ async fn export_mix_cmd(
                     // BUG-E10 FIX: Write to per-track synthetic key, NOT the original path.
                     let fx_key = format!("__fx_processed__/track_{}/{}", track_idx, original_path);
                     let processed_channels = vec![buf_l, buf_r];
-                    let processed_clip = ClipAudio::new(
-                        fx_key.clone(),
-                        processed_channels,
-                        clip_audio.sample_rate,
-                    );
+                    let processed_clip =
+                        ClipAudio::new(fx_key.clone(), processed_channels, clip_audio.sample_rate);
                     let _ = local_pool.insert(processed_clip);
                     // Update the clip's file_path to point to the FX-processed version.
                     project.tracks[track_idx].clips[clip_idx].file_path = fx_key;
@@ -1955,7 +2380,8 @@ async fn export_mix_cmd(
                 vst3_fx_rendered += 1;
                 log::info!(
                     "[Export/AudioFX] Track '{}': VST3 FX pre-render complete ({} FX applied)",
-                    project.tracks[track_idx].name, vst3_fx.len()
+                    project.tracks[track_idx].name,
+                    vst3_fx.len()
                 );
             }
 
@@ -1969,23 +2395,33 @@ async fn export_mix_cmd(
 
         // Pass empty plugin maps: VST3 FX are now pre-rendered above, native FX
         // are handled by device_chain inside render_routing_aware.
-        let no_plugins: std::collections::HashMap<uuid::Uuid, dream_engine::driver::PluginInstanceArc> = std::collections::HashMap::new();
+        let no_plugins: std::collections::HashMap<
+            uuid::Uuid,
+            dream_engine::driver::PluginInstanceArc,
+        > = std::collections::HashMap::new();
         let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
         let result = bouncer
-            .bounce(&mut project, &mut local_pool, None, &no_plugins, &no_fx, move |progress| {
-                let payload = serde_json::json!({
-                    "jobId": &job_id_for_progress,
-                    "progress": (progress * 100.0).clamp(0.0, 100.0),
-                    "phase": "Rendering"
-                });
-                let _ = app_for_progress.emit("bounce_progress", payload);
-                let _ = set_job_progress(
-                    &app_for_progress,
-                    &job_id_for_progress,
-                    (progress * 100.0).clamp(0.0, 100.0),
-                    "Rendering",
-                );
-            })
+            .bounce(
+                &mut project,
+                &mut local_pool,
+                None,
+                &no_plugins,
+                &no_fx,
+                move |progress| {
+                    let payload = serde_json::json!({
+                        "jobId": &job_id_for_progress,
+                        "progress": (progress * 100.0).clamp(0.0, 100.0),
+                        "phase": "Rendering"
+                    });
+                    let _ = app_for_progress.emit("bounce_progress", payload);
+                    let _ = set_job_progress(
+                        &app_for_progress,
+                        &job_id_for_progress,
+                        (progress * 100.0).clamp(0.0, 100.0),
+                        "Rendering",
+                    );
+                },
+            )
             .map_err(|e| e.to_string());
 
         match result {
@@ -2024,7 +2460,9 @@ async fn cancel_export_cmd(
     app: tauri::AppHandle,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    handle.export_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    handle
+        .export_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     if let Ok(mut jobs) = background_jobs().lock() {
         for job in jobs.values_mut() {
             if job.snapshot.status == "running" && job.snapshot.cancellable {
@@ -2103,7 +2541,11 @@ async fn bounce_selection_to_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     let mut bounce_project = project.clone();
     let mut bounce_track_name = "Bounce".to_string();
     let insert_after_track_index: Option<usize>;
@@ -2177,7 +2619,9 @@ async fn bounce_selection_to_track_cmd(
         }
         let lo = start_track.min(end_track);
         let hi = start_track.max(end_track);
-        if lo == hi && let Some(track) = project.tracks.get(lo) {
+        if lo == hi
+            && let Some(track) = project.tracks.get(lo)
+        {
             bounce_track_name = format!("{} Bounce", track.name);
         }
         insert_after_track_index = Some(hi);
@@ -2220,17 +2664,28 @@ async fn bounce_selection_to_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        let no_plugins: std::collections::HashMap<uuid::Uuid, dream_engine::driver::PluginInstanceArc> = std::collections::HashMap::new();
+        let no_plugins: std::collections::HashMap<
+            uuid::Uuid,
+            dream_engine::driver::PluginInstanceArc,
+        > = std::collections::HashMap::new();
         let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &no_plugins, &no_fx, move |progress| {
-            let _ = set_job_progress(
-                &app_for_progress,
-                &job_id_for_progress,
-                (progress * 100.0).clamp(0.0, 100.0),
-                "Rendering",
-            );
-        })
-        .map_err(|e| e.to_string())
+        bouncer
+            .bounce(
+                &mut bounce_project,
+                &mut local_pool,
+                None,
+                &no_plugins,
+                &no_fx,
+                move |progress| {
+                    let _ = set_job_progress(
+                        &app_for_progress,
+                        &job_id_for_progress,
+                        (progress * 100.0).clamp(0.0, 100.0),
+                        "Rendering",
+                    );
+                },
+            )
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Bounce worker failed: {e}"))?;
@@ -2280,7 +2735,11 @@ async fn bounce_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let source_index = project
         .tracks
@@ -2339,15 +2798,23 @@ async fn bounce_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
-            let _ = set_job_progress(
-                &app_for_progress,
-                &job_id_for_progress,
-                (progress * 100.0).clamp(0.0, 100.0),
-                "Rendering",
-            );
-        })
-        .map_err(|e| e.to_string())
+        bouncer
+            .bounce(
+                &mut bounce_project,
+                &mut local_pool,
+                None,
+                &std::collections::HashMap::new(),
+                &[],
+                move |progress| {
+                    let _ = set_job_progress(
+                        &app_for_progress,
+                        &job_id_for_progress,
+                        (progress * 100.0).clamp(0.0, 100.0),
+                        "Rendering",
+                    );
+                },
+            )
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Bounce worker failed: {e}"))?;
@@ -2397,9 +2864,13 @@ async fn bounce_group_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let group_uuid = Uuid::parse_str(&group_track_id)
-        .map_err(|e| format!("Invalid group track ID: {e}"))?;
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let group_uuid =
+        Uuid::parse_str(&group_track_id).map_err(|e| format!("Invalid group track ID: {e}"))?;
     let group_track = project
         .tracks
         .iter()
@@ -2481,15 +2952,23 @@ async fn bounce_group_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
-            let _ = set_job_progress(
-                &app_for_progress,
-                &job_id_for_progress,
-                (progress * 100.0).clamp(0.0, 100.0),
-                "Rendering",
-            );
-        })
-        .map_err(|e| e.to_string())
+        bouncer
+            .bounce(
+                &mut bounce_project,
+                &mut local_pool,
+                None,
+                &std::collections::HashMap::new(),
+                &[],
+                move |progress| {
+                    let _ = set_job_progress(
+                        &app_for_progress,
+                        &job_id_for_progress,
+                        (progress * 100.0).clamp(0.0, 100.0),
+                        "Rendering",
+                    );
+                },
+            )
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Bounce worker failed: {e}"))?;
@@ -2540,9 +3019,13 @@ async fn split_track_to_stems_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|e| format!("Invalid track ID: {e}"))?;
+    let project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let track_uuid =
+        Uuid::parse_str(&payload.track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let source_index = project
         .tracks
         .iter()
@@ -2629,11 +3112,24 @@ async fn split_track_to_stems_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        bouncer.bounce(&mut bounce_project, &mut local_pool, None, &std::collections::HashMap::new(), &[], move |progress| {
-            let p = (progress * 45.0).clamp(0.0, 45.0);
-            let _ = set_job_progress(&app_for_progress, &job_id_for_progress, p, "Rendering source mix");
-        })
-        .map_err(|e| e.to_string())
+        bouncer
+            .bounce(
+                &mut bounce_project,
+                &mut local_pool,
+                None,
+                &std::collections::HashMap::new(),
+                &[],
+                move |progress| {
+                    let p = (progress * 45.0).clamp(0.0, 45.0);
+                    let _ = set_job_progress(
+                        &app_for_progress,
+                        &job_id_for_progress,
+                        p,
+                        "Rendering source mix",
+                    );
+                },
+            )
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Stem bounce worker failed: {e}"))?;
@@ -2683,10 +3179,7 @@ async fn split_track_to_stems_cmd(
                 "vocals" => "Vocals",
                 _ => stem,
             };
-            stem_tracks.push((
-                path.clone(),
-                format!("{} {}", source_track.name, label),
-            ));
+            stem_tracks.push((path.clone(), format!("{} {}", source_track.name, label)));
         }
     }
 

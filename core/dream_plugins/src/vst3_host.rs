@@ -32,8 +32,20 @@ use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::sandbox_instance::SandboxedPluginInstance;
-use crate::vst3::com_abi::{IPluginFactory, PClassInfo};
+use crate::vst3::com_abi::{
+    AudioBusBuffers, FUnknown, IAudioProcessor, IBStream, IBStreamVtbl, IComponent,
+    IConnectionPoint, IEditController, IPlugView, IPluginFactory, IID_IATTRIBUTE_LIST,
+    IID_ICOMPONENT_HANDLER_2, IID_IMESSAGE, IID_IPLUG_INTERFACE_SUPPORT,
+    IID_FUNKNOWN, IID_IAUDIO_PROCESSOR, IID_ICOMPONENT, IID_ICOMPONENT_HANDLER,
+    IID_ICONNECTION_POINT, IID_IEDIT_CONTROLLER, IID_IHOST_APPLICATION, IID_IPLUG_FRAME,
+    K_BAR_POSITION_VALID, K_CONT_TIME_VALID, K_NO_INTERFACE, K_PLAYING, K_PROJECT_TIME_VALID,
+    K_REALTIME, K_RECORDING, K_RESULT_FALSE, K_RESULT_NOT_IMPLEMENTED, K_RESULT_OK, K_SAMPLE32,
+    K_SEEK_CUR, K_SEEK_END, K_SEEK_SET, K_TEMPO_VALID, K_TIME_SIG_VALID, MAX_HOST_PARAM_CHANGES,
+    PClassInfo, ProcessData, ProcessSetup, Tresult, Tuid, ViewRect, Vst3Chord, Vst3FrameRate,
+    Vst3ProcessContext, tuid_eq,
+};
 use crate::vst3::factory::resolve_vst3_binary;
+use crate::vst3::parameter_bus::HostParameterChanges;
 
 #[cfg(target_os = "macos")]
 use cocoa::appkit::{
@@ -57,109 +69,6 @@ type DreamDawProcessF32Fn = unsafe extern "C" fn(
 type DreamDawOpenEditorFn = unsafe extern "C" fn() -> i32;
 type DreamDawSetParameterFn = unsafe extern "C" fn(index: u32, value: f64) -> i32;
 
-// ── Minimal VST3 ABI (COM) ─────────────────────────────────────────────
-
-type Tuid = [u8; 16];
-type Tresult = i32;
-
-const K_RESULT_OK: Tresult = 0;
-#[allow(dead_code)]
-const K_RESULT_NOT_IMPLEMENTED: Tresult = -2147467263;
-const K_RESULT_FALSE: Tresult = 1;
-const K_SAMPLE32: i32 = 0;
-const K_REALTIME: i32 = 0;
-const K_NO_INTERFACE: Tresult = -1; // E_NOINTERFACE
-const K_SEEK_SET: i32 = 0;
-const K_SEEK_CUR: i32 = 1;
-const K_SEEK_END: i32 = 2;
-
-// ── VST3 ProcessContext C-ABI (matches Steinberg::Vst::ProcessContext) ──
-//
-// This struct MUST match the exact binary layout of the VST3 SDK's ProcessContext.
-// Fields that we don't populate are zeroed — plugins must check the `state` flags
-// before reading optional fields.
-//
-// Reference: vst3sdk/pluginterfaces/vst/ivstprocesscontext.h
-
-/// State bit flags for ProcessContext.
-const K_PLAYING: u32 = 1 << 1;
-const K_RECORDING: u32 = 1 << 3;
-const K_TEMPO_VALID: u32 = 1 << 10;
-const K_TIME_SIG_VALID: u32 = 1 << 13;
-const K_PROJECT_TIME_VALID: u32 = 1 << 9;
-const K_BAR_POSITION_VALID: u32 = 1 << 11;
-const K_CONT_TIME_VALID: u32 = 1 << 17;
-
-/// C-ABI struct matching `Steinberg::Vst::ProcessContext` from ivstprocesscontext.h.
-/// Must be #[repr(C)] with the EXACT field order from the SDK.
-///
-/// Total size: 112 bytes (verified by static assertion below).
-///
-/// Reference: vst3sdk/pluginterfaces/vst/ivstprocesscontext.h
-#[repr(C)]
-#[derive(Clone)]
-struct Vst3ProcessContext {
-    /// Bit combination of ProcessContext state flags.
-    state: u32,
-    // (4 bytes implicit padding to align sample_rate to 8-byte boundary)
-    /// Current sample rate in Hz.
-    sample_rate: f64,
-    /// Project time in samples (absolute position). TSamples = int64.
-    project_time_samples: i64,
-    /// System time in nanoseconds (optional — set to 0).
-    system_time: i64,
-    /// BUG-C1 FIX: Project time in samples, without loop. TSamples = int64.
-    /// Previously MISSING — caused 8-byte offset shift for ALL subsequent fields.
-    continuous_time_samples: i64,
-    /// Musical position in quarter notes (beats).
-    project_time_music: f64,
-    /// Last bar start position in quarter notes.
-    bar_position_music: f64,
-    /// Cycle start position in quarter notes.
-    cycle_start_music: f64,
-    /// Cycle end position in quarter notes.
-    cycle_end_music: f64,
-    /// Tempo in BPM.
-    tempo: f64,
-    /// Time signature numerator (e.g., 3 for 3/4).
-    time_sig_numerator: i32,
-    /// Time signature denominator (e.g., 4 for 3/4).
-    time_sig_denominator: i32,
-    /// BUG-C2 FIX: Chord info — Steinberg::Vst::Chord struct (4 bytes).
-    chord: Vst3Chord,
-    /// SMPTE offset in subframes (1/80 of a frame).
-    smpte_offset_subframes: i32,
-    /// BUG-C2 FIX: Frame rate — Steinberg::Vst::FrameRate struct (8 bytes).
-    /// Previously hacked as two separate i32 fields.
-    frame_rate: Vst3FrameRate,
-    /// BUG-C2 FIX: MIDI clock resolution (24 per quarter note), can be negative.
-    /// Previously this was split into `clock_offset: i32` + `flags: u32` (wrong).
-    samples_to_next_clock: i32,
-}
-
-/// C-ABI Chord struct matching `Steinberg::Vst::Chord` (4 bytes).
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Vst3Chord {
-    key_note: u8,
-    root_note: u8,
-    chord_mask: i16,
-}
-
-/// C-ABI FrameRate struct matching `Steinberg::Vst::FrameRate` (8 bytes).
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Vst3FrameRate {
-    frames_per_second: u32,
-    flags: u32,
-}
-
-// Static size assertion: Vst3ProcessContext MUST be exactly 112 bytes
-// to match the Steinberg VST3 SDK ProcessContext layout.
-const _: () = assert!(
-    std::mem::size_of::<Vst3ProcessContext>() == 112,
-    "Vst3ProcessContext size mismatch: must be exactly 112 bytes to match VST3 SDK"
-);
 
 impl Vst3ProcessContext {
     /// Creates a ProcessContext from the stored transport state.
@@ -209,31 +118,6 @@ impl Vst3ProcessContext {
     }
 }
 
-const IID_IAUDIO_PROCESSOR: Tuid = [
-    0x42, 0x04, 0x3F, 0x99, 0xB7, 0xDA, 0x45, 0x3C, 0xA5, 0x69, 0xE7, 0x9D, 0x9A, 0xAE, 0xC3, 0x3D,
-];
-const IID_ICOMPONENT: Tuid = [
-    0xE8, 0x31, 0xFF, 0x31, 0xF2, 0xD5, 0x43, 0x01, 0x92, 0x8E, 0xBB, 0xEE, 0x25, 0x69, 0x78, 0x02,
-];
-const IID_IEDIT_CONTROLLER: Tuid = [
-    0xDC, 0xD7, 0xBB, 0xE3, 0x77, 0x42, 0x44, 0x8D, 0xA8, 0x74, 0xAA, 0xCC, 0x97, 0x9C, 0x75, 0x9E,
-];
-
-// IHostApplication IID: {58E595CC-DB2D-4969-8B6A-AF8C36A664E5}
-const IID_IHOST_APPLICATION: Tuid = [
-    0x58, 0xE5, 0x95, 0xCC, 0xDB, 0x2D, 0x49, 0x69, 0x8B, 0x6A, 0xAF, 0x8C, 0x36, 0xA6, 0x64, 0xE5,
-];
-
-// IPlugFrame IID: {367FAF01-AFA9-4693-8D4D-A2A0ED0882A3}
-const IID_IPLUG_FRAME: Tuid = [
-    0x36, 0x7F, 0xAF, 0x01, 0xAF, 0xA9, 0x46, 0x93, 0x8D, 0x4D, 0xA2, 0xA0, 0xED, 0x08, 0x82, 0xA3,
-];
-
-// FUnknown IID: {00000000-0000-0000-C000-000000000046}
-const IID_FUNKNOWN: Tuid = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
-];
-
 // Module-level thread-local guard: prevents `plug_frame_resize_view` from
 // calling `onSize()` back into the plugin while `attached()` is still running.
 // Without this, Serum2 crashes (SIGSEGV) because `attached()` → `resizeView`
@@ -241,16 +125,6 @@ const IID_FUNKNOWN: Tuid = [
 thread_local! {
     static EDITOR_IN_ATTACHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
-
-// IComponentHandler IID: {93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6}
-const IID_ICOMPONENT_HANDLER: Tuid = [
-    0x93, 0xA0, 0xBE, 0xA3, 0x0B, 0xD0, 0x45, 0xDB, 0x8E, 0x89, 0x0B, 0x0C, 0xC1, 0xE4, 0x6A, 0xC6,
-];
-
-// IConnectionPoint IID: {70A4156F-6E6E-4026-9891-48BFAA60D8D1}
-const IID_ICONNECTION_POINT: Tuid = [
-    0x70, 0xA4, 0x15, 0x6F, 0x6E, 0x6E, 0x40, 0x26, 0x98, 0x91, 0x48, 0xBF, 0xAA, 0x60, 0xD8, 0xD1,
-];
 
 // ── Minimal IHostApplication (COM singleton) ───────────────────────────
 //
@@ -277,15 +151,7 @@ struct IHostApplicationVtbl {
     ) -> Tresult,
 }
 
-// HostApplicationInstance struct moved below HOST_APP_VTBL (dual-vtable version).
 
-
-fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
-    if a.is_null() {
-        return false;
-    }
-    unsafe { *a == *b }
-}
 
 unsafe extern "system" fn host_query_interface(
     this: *mut c_void,
@@ -348,23 +214,6 @@ unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> T
     K_RESULT_OK
 }
 
-// ── IMessage IID: {936F033B-C6C0-47DB-BB08-82F813C1E613} ──
-const IID_IMESSAGE: Tuid = [
-    0x93, 0x6F, 0x03, 0x3B, 0xC6, 0xC0, 0x47, 0xDB,
-    0xBB, 0x08, 0x82, 0xF8, 0x13, 0xC1, 0xE6, 0x13,
-];
-
-// ── IAttributeList IID: {1E5F0AEB-CC7F-4533-A254-401138AD5EE4} ──
-const IID_IATTRIBUTE_LIST: Tuid = [
-    0x1E, 0x5F, 0x0A, 0xEB, 0xCC, 0x7F, 0x45, 0x33,
-    0xA2, 0x54, 0x40, 0x11, 0x38, 0xAD, 0x5E, 0xE4,
-];
-
-// ── IPlugInterfaceSupport IID: {A3B8C6C5-C095-4688-B091-6F0BB697AA44} ──
-const IID_IPLUG_INTERFACE_SUPPORT: Tuid = [
-    0xA3, 0xB8, 0xC6, 0xC5, 0xC0, 0x95, 0x46, 0x88,
-    0xB0, 0x91, 0x6F, 0x0B, 0xB6, 0x97, 0xAA, 0x44,
-];
 
 // ── Real IAttributeList with Vec-backed storage ──
 //
@@ -728,11 +577,7 @@ fn host_application_ptr() -> *mut c_void {
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
-/// IID for IComponentHandler: {93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6}
-const IID_ICOMPONENT_HANDLER_2: Tuid = [
-    0xF0, 0x40, 0xB4, 0xB3, 0xA3, 0x60, 0x45, 0xEC,
-    0xAB, 0xCD, 0xDE, 0x7E, 0x3F, 0xBC, 0xA9, 0xED,
-];
+
 
 /// BUG-H1 FIX: Thread-safe ring buffer for GUI-originated parameter edits.
 /// Lock-free: uses atomic head/tail indices. Sized for 1024 entries to handle
@@ -1017,460 +862,6 @@ pub fn take_param_values_changed() -> bool {
 pub fn take_plugin_state_dirty() -> bool {
     PLUGIN_STATE_DIRTY.swap(false, Ordering::AcqRel)
 }
-
-#[repr(C)]
-#[allow(dead_code)]
-struct FUnknown {
-    vtbl: *const FUnknownVtbl,
-}
-
-#[repr(C)]
-#[allow(dead_code)]
-struct FUnknownVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut FUnknown, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut FUnknown) -> u32,
-    release: unsafe extern "C" fn(*mut FUnknown) -> u32,
-}
-
-#[repr(C)]
-struct IComponent {
-    vtbl: *const IComponentVtbl,
-}
-
-#[repr(C)]
-struct IComponentVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IComponent, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IComponent) -> u32,
-    release: unsafe extern "C" fn(*mut IComponent) -> u32,
-    initialize: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
-    terminate: unsafe extern "C" fn(*mut IComponent) -> Tresult,
-    get_controller_class_id: unsafe extern "C" fn(*mut IComponent, *mut Tuid) -> Tresult,
-    set_io_mode: unsafe extern "C" fn(*mut IComponent, i32) -> Tresult,
-    get_bus_count: unsafe extern "C" fn(*mut IComponent, i32, i32) -> i32,
-    get_bus_info: unsafe extern "C" fn(*mut IComponent, i32, i32, *mut c_void) -> Tresult,
-    get_routing_info: unsafe extern "C" fn(*mut IComponent, *mut c_void, *mut c_void) -> Tresult,
-    activate_bus: unsafe extern "C" fn(*mut IComponent, i32, i32, i32, i32) -> Tresult,
-    set_active: unsafe extern "C" fn(*mut IComponent, i8) -> Tresult,
-    set_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
-    get_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
-}
-
-#[repr(C)]
-struct IEditController {
-    vtbl: *const IEditControllerVtbl,
-}
-
-#[repr(C)]
-struct IEditControllerVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IEditController, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IEditController) -> u32,
-    release: unsafe extern "C" fn(*mut IEditController) -> u32,
-    initialize: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
-    terminate: unsafe extern "C" fn(*mut IEditController) -> Tresult,
-    set_component_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
-    set_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
-    get_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
-    get_parameter_count: unsafe extern "C" fn(*mut IEditController) -> i32,
-    get_parameter_info: unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
-    get_param_string_by_value:
-        unsafe extern "C" fn(*mut IEditController, u32, f64, *mut u16) -> Tresult,
-    get_param_value_by_string:
-        unsafe extern "C" fn(*mut IEditController, u32, *const u16, *mut f64) -> Tresult,
-    normalized_param_to_plain: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
-    plain_param_to_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
-    get_param_normalized: unsafe extern "C" fn(*mut IEditController, u32) -> f64,
-    set_param_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> Tresult,
-    set_component_handler: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
-    create_view: unsafe extern "C" fn(*mut IEditController, *const c_char) -> *mut c_void,
-}
-
-// ── IConnectionPoint COM interface ──────────────────────────────────────
-// Used to wire separate IComponent ↔ IEditController communication.
-// Both sides QI for this interface, and the host calls connect() to link them.
-
-#[repr(C)]
-struct IConnectionPoint {
-    vtbl: *const IConnectionPointVtbl,
-}
-
-#[repr(C)]
-struct IConnectionPointVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IConnectionPoint, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
-    release: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
-    connect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
-    disconnect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct ViewRect {
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-}
-
-#[repr(C)]
-struct IPlugView {
-    vtbl: *const IPlugViewVtbl,
-}
-
-#[repr(C)]
-struct IPlugViewVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IPlugView, *const Tuid, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IPlugView) -> u32,
-    release: unsafe extern "C" fn(*mut IPlugView) -> u32,
-    is_platform_type_supported: unsafe extern "C" fn(*mut IPlugView, *const c_char) -> Tresult,
-    attached: unsafe extern "C" fn(*mut IPlugView, *mut c_void, *const c_char) -> Tresult,
-    removed: unsafe extern "C" fn(*mut IPlugView) -> Tresult,
-    on_wheel: unsafe extern "C" fn(*mut IPlugView, f32) -> Tresult,
-    on_key_down: unsafe extern "C" fn(*mut IPlugView, i16, i16, i16) -> Tresult,
-    on_key_up: unsafe extern "C" fn(*mut IPlugView, i16, i16, i16) -> Tresult,
-    get_size: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
-    on_size: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
-    on_focus: unsafe extern "C" fn(*mut IPlugView, i8) -> Tresult,
-    set_frame: unsafe extern "C" fn(*mut IPlugView, *mut c_void) -> Tresult,
-    can_resize: unsafe extern "C" fn(*mut IPlugView) -> Tresult,
-    check_size_constraint: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
-}
-
-#[repr(C)]
-struct ProcessSetup {
-    process_mode: i32,
-    symbolic_sample_size: i32,
-    max_samples_per_block: i32,
-    sample_rate: f64,
-}
-
-#[repr(C)]
-struct AudioBusBuffers {
-    num_channels: i32,
-    silence_flags: u64,
-    /// In the VST3 SDK this is a union of channelBuffers32 / channelBuffers64.
-    /// We only use kSample32, so a single pointer field matches the SDK layout
-    /// (24 bytes total with alignment padding after num_channels).
-    channel_buffers32: *mut *mut f32,
-}
-
-#[repr(C)]
-struct ProcessData {
-    process_mode: i32,
-    symbolic_sample_size: i32,
-    num_samples: i32,
-    num_inputs: i32,
-    num_outputs: i32,
-    inputs: *mut AudioBusBuffers,
-    outputs: *mut AudioBusBuffers,
-    input_parameter_changes: *mut c_void,
-    output_parameter_changes: *mut c_void,
-    input_events: *mut c_void,
-    output_events: *mut c_void,
-    process_context: *mut c_void,
-}
-
-const MAX_HOST_PARAM_CHANGES: usize = 256;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct IParamValueQueue {
-    vtbl: *const IParamValueQueueVtbl,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct IParamValueQueueVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IParamValueQueue, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
-    release: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
-    get_parameter_id: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
-    get_point_count: unsafe extern "C" fn(*mut IParamValueQueue) -> i32,
-    get_point: unsafe extern "C" fn(*mut IParamValueQueue, i32, *mut i32, *mut f64) -> Tresult,
-    add_point: unsafe extern "C" fn(*mut IParamValueQueue, i32, f64, *mut i32) -> Tresult,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct IParameterChanges {
-    vtbl: *const IParameterChangesVtbl,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct IParameterChangesVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IParameterChanges, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
-    release: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
-    get_parameter_count: unsafe extern "C" fn(*mut IParameterChanges) -> i32,
-    get_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, i32) -> *mut IParamValueQueue,
-    add_parameter_data:
-        unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
-}
-
-/// BUG-A5 FIX: Maximum automation points per parameter per process call.
-/// 16 is sufficient for sample-accurate automation with a typical 512-sample buffer.
-const MAX_POINTS_PER_QUEUE: usize = 16;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct HostParamValueQueue {
-    vtbl: *const IParamValueQueueVtbl,
-    ref_count: u32,
-    param_id: u32,
-    /// BUG-A5 FIX: Number of automation points stored.
-    point_count: i32,
-    /// BUG-A5 FIX: Sample-accurate automation points (offset, value).
-    sample_offsets: [i32; MAX_POINTS_PER_QUEUE],
-    values: [f64; MAX_POINTS_PER_QUEUE],
-}
-
-impl HostParamValueQueue {
-    const fn empty() -> Self {
-        Self {
-            vtbl: &HOST_PARAM_VALUE_QUEUE_VTBL,
-            ref_count: 1,
-            param_id: 0,
-            point_count: 0,
-            sample_offsets: [0i32; MAX_POINTS_PER_QUEUE],
-            values: [0.0f64; MAX_POINTS_PER_QUEUE],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct HostParameterChanges {
-    vtbl: *const IParameterChangesVtbl,
-    ref_count: u32,
-    queue_count: i32,
-    queues: [HostParamValueQueue; MAX_HOST_PARAM_CHANGES],
-}
-
-impl HostParameterChanges {
-    fn from_pending(changes: &[(u32, f64)]) -> Self {
-        let mut this = Self {
-            vtbl: &HOST_PARAMETER_CHANGES_VTBL,
-            ref_count: 1,
-            queue_count: 0,
-            queues: [HostParamValueQueue::empty(); MAX_HOST_PARAM_CHANGES],
-        };
-        for (slot, (param_id, value)) in changes.iter().take(MAX_HOST_PARAM_CHANGES).enumerate() {
-            this.queues[slot].param_id = *param_id;
-            // BUG-A5 FIX: Store as first point in the multi-point array.
-            this.queues[slot].sample_offsets[0] = 0;
-            this.queues[slot].values[0] = value.clamp(0.0, 1.0);
-            this.queues[slot].point_count = 1;
-            this.queue_count += 1;
-        }
-        this
-    }
-}
-
-unsafe extern "C" fn host_param_queue_query_interface(
-    _this: *mut IParamValueQueue,
-    _iid: *const c_char,
-    obj: *mut *mut c_void,
-) -> Tresult {
-    if !obj.is_null() {
-        unsafe {
-            *obj = ptr::null_mut();
-        }
-    }
-    K_NO_INTERFACE
-}
-
-unsafe extern "C" fn host_param_queue_add_ref(this: *mut IParamValueQueue) -> u32 {
-    if this.is_null() {
-        return 1;
-    }
-    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
-    queue.ref_count = queue.ref_count.saturating_add(1);
-    queue.ref_count
-}
-
-unsafe extern "C" fn host_param_queue_release(this: *mut IParamValueQueue) -> u32 {
-    if this.is_null() {
-        return 1;
-    }
-    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
-    queue.ref_count = queue.ref_count.saturating_sub(1);
-    queue.ref_count
-}
-
-unsafe extern "C" fn host_param_queue_get_parameter_id(this: *mut IParamValueQueue) -> u32 {
-    if this.is_null() {
-        return 0;
-    }
-    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    queue.param_id
-}
-
-/// BUG-A5 FIX: Returns the number of automation points in this queue.
-unsafe extern "C" fn host_param_queue_get_point_count(this: *mut IParamValueQueue) -> i32 {
-    if this.is_null() {
-        return 0;
-    }
-    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    queue.point_count
-}
-
-/// BUG-A5 FIX: Retrieves a specific automation point by index.
-unsafe extern "C" fn host_param_queue_get_point(
-    this: *mut IParamValueQueue,
-    index: i32,
-    sample_offset: *mut i32,
-    value: *mut f64,
-) -> Tresult {
-    if this.is_null() || sample_offset.is_null() || value.is_null() {
-        return K_RESULT_FALSE;
-    }
-    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    if index < 0 || index >= queue.point_count || (index as usize) >= MAX_POINTS_PER_QUEUE {
-        return K_RESULT_FALSE;
-    }
-    unsafe {
-        *sample_offset = queue.sample_offsets[index as usize];
-        *value = queue.values[index as usize];
-    }
-    K_RESULT_OK
-}
-
-/// BUG-A5 FIX: Adds an automation point to the multi-point array.
-unsafe extern "C" fn host_param_queue_add_point(
-    this: *mut IParamValueQueue,
-    sample_offset: i32,
-    value: f64,
-    index: *mut i32,
-) -> Tresult {
-    if this.is_null() {
-        return K_RESULT_FALSE;
-    }
-    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
-    let slot = queue.point_count as usize;
-    if slot >= MAX_POINTS_PER_QUEUE {
-        // Queue full — silently reject (overflow protection).
-        return K_RESULT_FALSE;
-    }
-    queue.sample_offsets[slot] = sample_offset;
-    queue.values[slot] = value.clamp(0.0, 1.0);
-    queue.point_count += 1;
-    if !index.is_null() {
-        unsafe {
-            *index = slot as i32;
-        }
-    }
-    K_RESULT_OK
-}
-
-unsafe extern "C" fn host_param_changes_query_interface(
-    _this: *mut IParameterChanges,
-    _iid: *const c_char,
-    obj: *mut *mut c_void,
-) -> Tresult {
-    if !obj.is_null() {
-        unsafe {
-            *obj = ptr::null_mut();
-        }
-    }
-    K_NO_INTERFACE
-}
-
-unsafe extern "C" fn host_param_changes_add_ref(this: *mut IParameterChanges) -> u32 {
-    if this.is_null() {
-        return 1;
-    }
-    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    changes.ref_count = changes.ref_count.saturating_add(1);
-    changes.ref_count
-}
-
-unsafe extern "C" fn host_param_changes_release(this: *mut IParameterChanges) -> u32 {
-    if this.is_null() {
-        return 1;
-    }
-    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    changes.ref_count = changes.ref_count.saturating_sub(1);
-    changes.ref_count
-}
-
-unsafe extern "C" fn host_param_changes_get_parameter_count(this: *mut IParameterChanges) -> i32 {
-    if this.is_null() {
-        return 0;
-    }
-    let changes = unsafe { &*(this as *mut HostParameterChanges) };
-    changes.queue_count
-}
-
-unsafe extern "C" fn host_param_changes_get_parameter_data(
-    this: *mut IParameterChanges,
-    index: i32,
-) -> *mut IParamValueQueue {
-    if this.is_null() || index < 0 {
-        return ptr::null_mut();
-    }
-    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    let idx = index as usize;
-    if idx >= changes.queue_count as usize || idx >= MAX_HOST_PARAM_CHANGES {
-        return ptr::null_mut();
-    }
-    (&mut changes.queues[idx] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
-}
-
-unsafe extern "C" fn host_param_changes_add_parameter_data(
-    this: *mut IParameterChanges,
-    id: *mut u32,
-    index: *mut i32,
-) -> *mut IParamValueQueue {
-    if this.is_null() {
-        return ptr::null_mut();
-    }
-    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    if changes.queue_count as usize >= MAX_HOST_PARAM_CHANGES {
-        if !index.is_null() {
-            unsafe {
-                *index = -1;
-            }
-        }
-        return ptr::null_mut();
-    }
-    let slot = changes.queue_count as usize;
-    changes.queue_count += 1;
-    let param_id = if id.is_null() { 0 } else { unsafe { *id } };
-    changes.queues[slot].param_id = param_id;
-    changes.queues[slot].point_count = 0;
-    if !index.is_null() {
-        unsafe {
-            *index = slot as i32;
-        }
-    }
-    (&mut changes.queues[slot] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
-}
-
-static HOST_PARAM_VALUE_QUEUE_VTBL: IParamValueQueueVtbl = IParamValueQueueVtbl {
-    query_interface: host_param_queue_query_interface,
-    add_ref: host_param_queue_add_ref,
-    release: host_param_queue_release,
-    get_parameter_id: host_param_queue_get_parameter_id,
-    get_point_count: host_param_queue_get_point_count,
-    get_point: host_param_queue_get_point,
-    add_point: host_param_queue_add_point,
-};
-
-static HOST_PARAMETER_CHANGES_VTBL: IParameterChangesVtbl = IParameterChangesVtbl {
-    query_interface: host_param_changes_query_interface,
-    add_ref: host_param_changes_add_ref,
-    release: host_param_changes_release,
-    get_parameter_count: host_param_changes_get_parameter_count,
-    get_parameter_data: host_param_changes_get_parameter_data,
-    add_parameter_data: host_param_changes_add_parameter_data,
-};
 
 // ── VST3 IEventList (MIDI Event Delivery) ──────────────────────────────
 //
@@ -1817,46 +1208,6 @@ static HOST_EVENT_LIST_VTBL: IEventListVtbl = IEventListVtbl {
     get_event: host_event_list_get_event,
     add_event: host_event_list_add_event,
 };
-
-#[repr(C)]
-struct IAudioProcessor {
-    vtbl: *const IAudioProcessorVtbl,
-}
-
-#[repr(C)]
-struct IAudioProcessorVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IAudioProcessor, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    release: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    set_bus_arrangements:
-        unsafe extern "C" fn(*mut IAudioProcessor, *mut c_void, i32, *mut c_void, i32) -> Tresult,
-    get_bus_arrangement:
-        unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut c_void) -> Tresult,
-    can_process_sample_size: unsafe extern "C" fn(*mut IAudioProcessor, i32) -> Tresult,
-    get_latency_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    setup_processing: unsafe extern "C" fn(*mut IAudioProcessor, *const ProcessSetup) -> Tresult,
-    set_processing: unsafe extern "C" fn(*mut IAudioProcessor, i8) -> Tresult,
-    process: unsafe extern "C" fn(*mut IAudioProcessor, *mut ProcessData) -> Tresult,
-    get_tail_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-}
-
-#[repr(C)]
-struct IBStream {
-    vtbl: *const IBStreamVtbl,
-}
-
-#[repr(C)]
-struct IBStreamVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut IBStream, *const c_char, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut IBStream) -> u32,
-    release: unsafe extern "C" fn(*mut IBStream) -> u32,
-    read: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
-    write: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
-    seek: unsafe extern "C" fn(*mut IBStream, i64, i32, *mut i64) -> Tresult,
-    tell: unsafe extern "C" fn(*mut IBStream, *mut i64) -> Tresult,
-}
 
 #[repr(C)]
 struct HostReadStream {

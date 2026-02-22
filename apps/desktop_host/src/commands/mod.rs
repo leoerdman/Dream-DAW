@@ -29,8 +29,8 @@ include!("sections/sample_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler(
-) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler()
+-> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -124,8 +124,11 @@ pub(crate) fn invoke_handler(
         split_clip_cmd,
         split_clip_with_deltas_cmd,
         duplicate_clip_cmd,
+        duplicate_clip_with_deltas_cmd,
         merge_clips_cmd,
+        merge_clips_with_deltas_cmd,
         delete_clip_cmd,
+        delete_clip_with_deltas_cmd,
         resize_clip_cmd,
         resize_clip_with_deltas_cmd,
         set_clip_fades_cmd,
@@ -133,7 +136,9 @@ pub(crate) fn invoke_handler(
         set_clip_warp_cmd,
         set_clip_pitch_cmd,
         set_clip_muted_cmd,
+        set_clip_muted_with_deltas_cmd,
         set_clips_muted_cmd,
+        set_clips_muted_with_deltas_cmd,
         paint_track_clips_with_track_color_cmd,
         resolve_missing_file_cmd,
         // Automation / recording / export

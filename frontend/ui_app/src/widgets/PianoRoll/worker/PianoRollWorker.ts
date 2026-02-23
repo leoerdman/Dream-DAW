@@ -10,6 +10,10 @@
 // - Note instancing → one GPU draw call for 10K+ notes
 // - Playhead animation at 60fps without main thread involvement
 //
+// Render loop modes:
+// - CONTINUOUS: When playhead is visible, rAF loops every frame (60fps)
+// - ON-DEMAND:  When stopped, render only when state changes (dirty flag)
+//
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { PianoRollGLRenderer, type GridStyle, type ViewState } from './PianoRollGLRenderer';
@@ -34,6 +38,7 @@ let renderer: PianoRollGLRenderer | null = null;
 let canvas: OffscreenCanvas | null = null;
 let animFrameId: number | null = null;
 let needsRedraw = true;
+let continuousMode = false; // true when playhead is visible
 
 function scheduleRender(): void {
     needsRedraw = true;
@@ -44,9 +49,19 @@ function scheduleRender(): void {
 
 function renderLoop(): void {
     animFrameId = null;
-    if (!renderer || !needsRedraw) return;
-    needsRedraw = false;
-    renderer.render();
+
+    if (!renderer) return;
+
+    if (needsRedraw) {
+        needsRedraw = false;
+        renderer.render();
+    }
+
+    // If playhead is visible, keep the loop running for smooth animation.
+    // Otherwise, stop and wait for the next dirty flag.
+    if (continuousMode) {
+        animFrameId = requestAnimationFrame(renderLoop);
+    }
 }
 
 // ── Message Handler ─────────────────────────────────────────────────────
@@ -65,7 +80,7 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
                 const gl = canvas.getContext('webgl2', {
                     alpha: false,
                     antialias: false,
-                    desynchronized: true, // Reduce latency
+                    desynchronized: true,
                     powerPreference: 'high-performance',
                 });
 
@@ -78,6 +93,8 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
                 }
 
                 renderer = new PianoRollGLRenderer(gl);
+                renderer.setView({ dpr });
+
                 (self as unknown as Worker).postMessage({
                     type: 'ready',
                 } satisfies WorkerOutMessage);
@@ -99,6 +116,7 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
                 renderer.setView({
                     canvasWidth: canvas.width,
                     canvasHeight: canvas.height,
+                    dpr,
                 });
                 scheduleRender();
             }
@@ -116,6 +134,17 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
         case 'updateView': {
             if (renderer) {
                 renderer.setView(msg.view);
+
+                // Enable continuous mode when playhead is visible
+                const playheadX = msg.view.playheadX;
+                const shouldContinue = playheadX !== undefined && playheadX >= 0;
+                if (shouldContinue !== continuousMode) {
+                    continuousMode = shouldContinue;
+                    if (continuousMode && animFrameId === null) {
+                        animFrameId = requestAnimationFrame(renderLoop);
+                    }
+                }
+
                 scheduleRender();
             }
             break;
@@ -130,6 +159,7 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
         }
 
         case 'destroy': {
+            continuousMode = false;
             if (animFrameId !== null) {
                 cancelAnimationFrame(animFrameId);
                 animFrameId = null;

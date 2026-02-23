@@ -1,15 +1,8 @@
-// ═══════════════════════════════════════════════════════════════════════
-// usePianoRollLogic — extracted state/effects/callbacks from PianoRoll
-// ═══════════════════════════════════════════════════════════════════════
-
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, type MouseEvent } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import {
-    MAX_PPB,
-    MIN_PPB,
-} from '@/widgets/PianoRoll/model/pianoRollConfig';
+import { MAX_PPB, MIN_PPB } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { PianoRollProps } from '@/widgets/PianoRoll/model/pianoRollTypes';
 import { usePianoRollAudition } from './usePianoRollAudition';
 import { usePianoRollClipboard } from './usePianoRollClipboard';
@@ -21,9 +14,7 @@ import { usePianoRollViewport } from './usePianoRollViewport';
 import { usePianoRollNoteMath } from './usePianoRollNoteMath';
 import { usePianoRollEditorPipeline } from './usePianoRollEditorPipeline';
 import { usePianoRollState } from './usePianoRollState';
-import { composePianoRollLogicResult } from './pianoRollLogicResult';
 
-// Audit #8: Shared platform detection
 const isMac: boolean = (() => {
     const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
     if (uad?.platform) return uad.platform === 'macOS';
@@ -48,7 +39,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
         clipLengthBeats,
     } = props;
 
-    // Subscribe to transport position directly — avoids DawShell 30fps re-render.
     const storePositionBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
     const playheadBeat = playheadBeatProp ?? (storePositionBeats - clipStartBeat);
     const pianoState = usePianoRollState({
@@ -114,15 +104,11 @@ export function usePianoRollLogic(props: PianoRollProps) {
     );
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
 
-    // Auto-fit horizontal: scale so the entire clip fills the available width.
-    // Bug #32: MIN_PPB clamp was applied to auto-fit, which prevented very long
-    // clips from shrinking to fit. Only clamp user-driven zoom overrides.
     const gridAreaWidth = Math.max(100, containerWidth);
-    const autoFitPPB = Math.min(MAX_PPB, gridAreaWidth / clipBeats); // Audit #35: clamp to MAX_PPB
+    const autoFitPPB = Math.min(MAX_PPB, gridAreaWidth / clipBeats);
     const pixelsPerBeat = zoomOverrideH != null
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
-    // Keep always-current refs in sync for use inside stable drag/wheel callbacks.
     useEffect(() => {
         notesRef.current = notes;
         pixelsPerBeatRef.current = pixelsPerBeat;
@@ -235,12 +221,10 @@ export function usePianoRollLogic(props: PianoRollProps) {
         setSelectedNotes,
     });
 
-    const handleVelocityMouseDownWithFocus = useCallback((noteId: string, event: React.MouseEvent) => {
+    const handleVelocityMouseDownWithFocus = useCallback((noteId: string, event: MouseEvent) => {
         editorRootRef.current?.focus();
         handleVelocityMouseDown(noteId, event);
     }, [editorRootRef, handleVelocityMouseDown]);
-
-
     const {
         noteCanvasRef,
         applyRatchet,
@@ -281,36 +265,101 @@ export function usePianoRollLogic(props: PianoRollProps) {
         copySelection,
         pasteClipboard,
     });
-    return composePianoRollLogicResult({
-        refs: { scrollRef, noteCanvasRef, gridViewportRef, keyboardScrollRef, editorRootRef, isDragInProgressRef },
-        state: {
-            tool, setTool, selectedNotes, setSelectedNotes, selectionRect, setSelectionRect,
-            containerWidth, noteHeight, setNoteHeight, isEditorFocused, setIsEditorFocused,
-            highlightScale, setHighlightScale, rootNote, setRootNote, scaleName, setScaleName,
-            clipTranspose, setClipTranspose, quantizeAmount, setQuantizeAmount,
-            foldToUsedNotes, setFoldToUsedNotes, stepInputOctave, setStepInputOctave,
-            stepInputCursorBeat, setStepInputCursorBeat, drumMode, setDrumMode,
-            activeLane, setActiveLane, ratchetCount, setRatchetCount,
-            laneValuesByNote, setLaneValuesByNote, hoveredNoteEdge, setHoveredNoteEdge,
-            zoomOverrideH, setZoomOverrideH,
-        },
-        computed: {
-            playheadBeat, pixelsPerBeat, totalBeats, clipBeats, canvasWidth, canvasHeight,
-            visiblePitches, pitchRowIndex, scaleSet, gridLines, rulerBeatLabels, pianoKeys,
-            currentGridInterval, beatsPerBar, clipDurationLabel,
-        },
-        callbacks: {
-            pitchToY, yToPitch, handleGridClick, handleGridDoubleClick, handleGridMouseDown,
-            handleNoteClick, handleNoteDrag, handleNoteMouseMove,
-            handleVelocityMouseDown: handleVelocityMouseDownWithFocus,
-            transposeNotes, quantizeAllNotesToGrid, duplicateSelection, humanizeSelection,
-            applyLegato, applyRatchet, selectSamePitch, copySelection, pasteClipboard,
-            readLaneValue, auditionNote,
-        },
-        passthrough: {
-            notes, ghostNotes, color, timeSignature, onNotesChange, onGenerateVariation,
-            aiVariationBusy, trackIndex, clipStartBeat, snapBeat, pianoPencilMode,
-            snapEnabled, gridDivision, gridTriplet, setGridDivision,
-        },
-    });
+    return {
+        scrollRef,
+        noteCanvasRef,
+        gridViewportRef,
+        keyboardScrollRef,
+        editorRootRef,
+        isDragInProgressRef,
+        tool,
+        setTool,
+        selectedNotes,
+        setSelectedNotes,
+        selectionRect,
+        setSelectionRect,
+        containerWidth,
+        noteHeight,
+        setNoteHeight,
+        isEditorFocused,
+        setIsEditorFocused,
+        highlightScale,
+        setHighlightScale,
+        rootNote,
+        setRootNote,
+        scaleName,
+        setScaleName,
+        clipTranspose,
+        setClipTranspose,
+        quantizeAmount,
+        setQuantizeAmount,
+        foldToUsedNotes,
+        setFoldToUsedNotes,
+        stepInputOctave,
+        setStepInputOctave,
+        stepInputCursorBeat,
+        setStepInputCursorBeat,
+        drumMode,
+        setDrumMode,
+        activeLane,
+        setActiveLane,
+        ratchetCount,
+        setRatchetCount,
+        laneValuesByNote,
+        setLaneValuesByNote,
+        hoveredNoteEdge,
+        setHoveredNoteEdge,
+        zoomOverrideH,
+        setZoomOverrideH,
+        playheadBeat,
+        pixelsPerBeat,
+        totalBeats,
+        clipBeats,
+        canvasWidth,
+        canvasHeight,
+        visiblePitches,
+        pitchRowIndex,
+        scaleSet,
+        gridLines,
+        rulerBeatLabels,
+        pianoKeys,
+        currentGridInterval,
+        beatsPerBar,
+        clipDurationLabel,
+        pitchToY,
+        yToPitch,
+        handleGridClick,
+        handleGridDoubleClick,
+        handleGridMouseDown,
+        handleNoteClick,
+        handleNoteDrag,
+        handleNoteMouseMove,
+        handleVelocityMouseDown: handleVelocityMouseDownWithFocus,
+        transposeNotes,
+        quantizeAllNotesToGrid,
+        duplicateSelection,
+        humanizeSelection,
+        applyLegato,
+        applyRatchet,
+        selectSamePitch,
+        copySelection,
+        pasteClipboard,
+        readLaneValue,
+        auditionNote,
+        notes,
+        ghostNotes,
+        color,
+        timeSignature,
+        onNotesChange,
+        onGenerateVariation,
+        aiVariationBusy,
+        trackIndex,
+        clipStartBeat,
+        snapBeat,
+        pianoPencilMode,
+        snapEnabled,
+        gridDivision,
+        gridTriplet,
+        setGridDivision,
+    };
 }

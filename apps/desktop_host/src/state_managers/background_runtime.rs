@@ -3,7 +3,6 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use bytemuck::cast_slice;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 use uuid::Uuid;
@@ -34,33 +33,7 @@ struct TelemetryTickPayload {
 }
 
 fn build_meters_binary_packet(handle: &AudioEngineHandle) -> Vec<u8> {
-    let bank = &handle.meter_bank;
-    let track_count = bank.track_count();
-    let mut payload = Vec::<f32>::with_capacity((track_count * 2 + 2) * 3);
-    for i in 0..track_count {
-        if let Some((left, right)) = bank.track(i) {
-            payload.push(left.load_rms());
-            payload.push(left.load_peak());
-            payload.push(if left.is_clipping() { 1.0 } else { 0.0 });
-            payload.push(right.load_rms());
-            payload.push(right.load_peak());
-            payload.push(if right.is_clipping() { 1.0 } else { 0.0 });
-        }
-    }
-    let master_left = bank.master_left();
-    payload.push(master_left.load_rms());
-    payload.push(master_left.load_peak());
-    payload.push(if master_left.is_clipping() { 1.0 } else { 0.0 });
-    let master_right = bank.master_right();
-    payload.push(master_right.load_rms());
-    payload.push(master_right.load_peak());
-    payload.push(if master_right.is_clipping() { 1.0 } else { 0.0 });
-
-    let payload_bytes: &[u8] = cast_slice(payload.as_slice());
-    let mut bytes = Vec::with_capacity(4 + payload_bytes.len());
-    bytes.extend_from_slice(&(track_count as u32).to_le_bytes());
-    bytes.extend_from_slice(payload_bytes);
-    bytes
+    handle.meter_bank.pack_meters_binary()
 }
 
 /// Spawns non-audio background threads used by the desktop host runtime.

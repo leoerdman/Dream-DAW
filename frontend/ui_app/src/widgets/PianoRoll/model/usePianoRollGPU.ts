@@ -8,7 +8,11 @@
 // - OffscreenCanvas transfer via transferControlToOffscreen()
 // - Note data serialization to Float32Array (zero-copy transfer)
 // - View/style synchronization on zoom/scroll/color changes
+// - Scale notes computation for GPU scale highlighting
 // - Fallback to 2D canvas if OffscreenCanvas or WebGL2 unavailable
+//
+// All coordinate values are passed in CSS pixels. The shaders apply DPR
+// scaling internally so Retina displays render correctly.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -33,11 +37,14 @@ export interface UsePianoRollGPUProps {
     totalPitches: number;
     highlightScale: boolean;
     scaleRoot: number;
+    scaleNotes?: Set<number>;  // Pitch classes in the scale (0-11)
     playheadBeat: number | undefined;
     clipBeats: number;
 }
 
-// Parse CSS hex color to RGB [0-1] tuple
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/** Parse CSS hex color to RGB [0-1] tuple */
 function hexToRGB(hex: string): [number, number, number] {
     const clean = hex.replace('#', '');
     if (clean.length === 3) {
@@ -50,6 +57,21 @@ function hexToRGB(hex: string): [number, number, number] {
     const g = parseInt(clean.substring(2, 4), 16) / 255;
     const b = parseInt(clean.substring(4, 6), 16) / 255;
     return [r, g, b];
+}
+
+/**
+ * Convert a Set<number> of pitch classes to an int[12] array
+ * for the GPU shader. Default: major scale.
+ */
+function scaleSetToArray(scaleNotes?: Set<number>): number[] {
+    if (!scaleNotes || scaleNotes.size === 0) {
+        return [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1]; // Major
+    }
+    const arr = new Array(12).fill(0) as number[];
+    for (const pc of scaleNotes) {
+        if (pc >= 0 && pc < 12) arr[pc] = 1;
+    }
+    return arr;
 }
 
 /**
@@ -89,9 +111,7 @@ function packNotes(
     return data;
 }
 
-/**
- * Detect whether OffscreenCanvas + WebGL2 are available.
- */
+/** Detect whether OffscreenCanvas + WebGL2 are available. */
 function canUseGPU(): boolean {
     try {
         if (typeof OffscreenCanvas === 'undefined') return false;
@@ -102,6 +122,8 @@ function canUseGPU(): boolean {
         return false;
     }
 }
+
+// ── Hook ────────────────────────────────────────────────────────────────
 
 export function usePianoRollGPU({
     notes,
@@ -120,6 +142,7 @@ export function usePianoRollGPU({
     totalPitches,
     highlightScale,
     scaleRoot,
+    scaleNotes,
     playheadBeat,
     clipBeats,
 }: UsePianoRollGPUProps) {
@@ -192,34 +215,39 @@ export function usePianoRollGPU({
         );
     }, [notes, ghostNotes, selectedNotes]);
 
-    // ── View updates ──
+    // ── View updates (CSS pixels — shaders apply DPR internally) ──
     useEffect(() => {
         const worker = workerRef.current;
         if (!worker) return;
+
+        const dpr = window.devicePixelRatio || 1;
         const playheadX = playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats
             ? playheadBeat * pixelsPerBeat
             : -1;
+
         worker.postMessage({
             type: 'updateView',
             view: {
+                dpr,
                 pixelsPerBeat,
                 noteHeight,
                 scrollX,
                 scrollY,
-                canvasWidth: Math.ceil(canvasWidth * (window.devicePixelRatio || 1)),
-                canvasHeight: Math.ceil(canvasHeight * (window.devicePixelRatio || 1)),
+                canvasWidth: Math.ceil(canvasWidth * dpr),
+                canvasHeight: Math.ceil(canvasHeight * dpr),
                 beatsPerBar,
                 gridInterval,
                 totalBeats,
                 totalPitches,
                 highlightScale,
                 scaleRoot,
+                scaleNotes: scaleSetToArray(scaleNotes),
                 playheadX,
             },
         } satisfies WorkerInMessage);
     }, [pixelsPerBeat, noteHeight, scrollX, scrollY, canvasWidth, canvasHeight,
         beatsPerBar, gridInterval, totalBeats, totalPitches,
-        highlightScale, scaleRoot, playheadBeat, clipBeats]);
+        highlightScale, scaleRoot, scaleNotes, playheadBeat, clipBeats]);
 
     // ── Style (color) updates ──
     useEffect(() => {
@@ -232,9 +260,18 @@ export function usePianoRollGPU({
             noteColor[1] * 0.12 + 0.08,
             noteColor[2] * 0.12 + 0.10,
         ];
+        // Scale row tint: mix accent color at 5% opacity
+        const scaleRowColor: [number, number, number] = [
+            noteColor[0] * 0.05 + 0.09,
+            noteColor[1] * 0.05 + 0.09,
+            noteColor[2] * 0.05 + 0.11,
+        ];
+        // Out-of-scale: very dim
+        const outScaleRowColor: [number, number, number] = [0.065, 0.065, 0.07];
+
         worker.postMessage({
             type: 'updateStyle',
-            style: { noteColor, rootRowColor },
+            style: { noteColor, rootRowColor, scaleRowColor, outScaleRowColor },
         } satisfies WorkerInMessage);
     }, [color]);
 

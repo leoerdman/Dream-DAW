@@ -145,6 +145,11 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         return () => el.removeEventListener('scroll', handleGridScroll);
     }, [handleGridScroll, scrollRef]);
 
+    // Convert full-pitch scaleSet to pitch-class Set<0-11> for GPU shader
+    const scalePitchClasses = scaleSet
+        ? new Set<number>(Array.from(scaleSet).map(p => p % 12))
+        : undefined;
+
     const { gpuCanvasRef, gpuAvailable } = usePianoRollGPU({
         notes,
         ghostNotes,
@@ -162,6 +167,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         totalPitches: TOTAL_KEYS,
         highlightScale,
         scaleRoot: ROOT_NOTES.indexOf(rootNote),
+        scaleNotes: scalePitchClasses,
         playheadBeat,
         clipBeats,
     });

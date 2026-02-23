@@ -2,18 +2,17 @@ import { memo, type MouseEvent, type MutableRefObject, type RefObject } from 're
 import {
     RULER_HEIGHT,
     VELOCITY_LANE_HEIGHT,
-    TOTAL_KEYS,
     ROOT_NOTES,
     isBlackKey,
     type MidiNote,
-    type GridLine,
-    type PianoKey,
-    type RulerLabel,
     type PianoLaneType,
+    type RootNote,
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { PianoControlLane } from '@/widgets/PianoRoll/ui/PianoControlLane';
 
 type SelectionRect = { x1: number; y1: number; x2: number; y2: number } | null;
+type GridLine = { x: number; isBar: boolean; isMainBeat: boolean; label?: string };
+type RulerLabel = { x: number; text: string; isBarStart: boolean };
 
 interface PianoRollGridViewportProps {
     scrollRef: MutableRefObject<HTMLDivElement | null>;
@@ -32,7 +31,7 @@ interface PianoRollGridViewportProps {
     noteHeight: number;
     scaleSet: Set<number> | null;
     highlightScale: boolean;
-    rootNote: string;
+    rootNote: RootNote;
     notes: MidiNote[];
     selectedNotes: Set<string>;
     tool: 'draw' | 'paint';
@@ -42,7 +41,7 @@ interface PianoRollGridViewportProps {
     playheadBeat?: number;
     stepInputCursorBeat: number;
     activeLane: PianoLaneType;
-    readLaneValue: (noteId: string) => number;
+    readLaneValue: (note: MidiNote, lane: PianoLaneType) => number;
     onLaneMouseDown: (noteId: string, event: MouseEvent) => void;
     onGridScroll: () => void;
     handleGridClick: (event: MouseEvent) => void;

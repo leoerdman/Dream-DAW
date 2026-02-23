@@ -28,7 +28,6 @@ ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
 # Widgets — DeviceRack
 # Widgets — ExportModal
 # Widgets — PianoRoll
-ts frontend/ui_app/src/widgets/PianoRoll/model/usePianoRollLogic.ts 1400
 # Widgets — SettingsPanel
 # Widgets — StatusBar
 # Widgets — Timeline

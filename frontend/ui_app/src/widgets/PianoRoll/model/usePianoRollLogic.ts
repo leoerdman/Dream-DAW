@@ -14,7 +14,7 @@ import { usePianoRollViewport } from './usePianoRollViewport';
 import { usePianoRollNoteMath } from './usePianoRollNoteMath';
 import { usePianoRollEditorPipeline } from './usePianoRollEditorPipeline';
 import { usePianoRollState } from './usePianoRollState';
-
+import { composePianoRollLogicResult } from './pianoRollLogicResult';
 const isMac: boolean = (() => {
     const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
     if (uad?.platform) return uad.platform === 'macOS';
@@ -75,12 +75,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
     } = pianoState;
     const { auditionNote } = usePianoRollAudition(trackIndex);
 
-    const {
-        laneValuesByNote,
-        setLaneValuesByNote,
-        readLaneValue,
-        handleVelocityMouseDown,
-    } = usePianoRollLaneValues({
+    const { laneValuesByNote, setLaneValuesByNote, readLaneValue, handleVelocityMouseDown } = usePianoRollLaneValues({
         midiEnvelopes,
         notes,
         onSetMidiEnvelopes,
@@ -116,7 +111,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
     const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
 
     const { enforceNoOverlap, snapToCellStart } = usePianoRollNoteMath(clipBeats, currentGridInterval);
-
     const { copySelection, pasteClipboard } = usePianoRollClipboard({
         notes,
         selectedNotes,
@@ -265,101 +259,36 @@ export function usePianoRollLogic(props: PianoRollProps) {
         copySelection,
         pasteClipboard,
     });
-    return {
-        scrollRef,
-        noteCanvasRef,
-        gridViewportRef,
-        keyboardScrollRef,
-        editorRootRef,
-        isDragInProgressRef,
-        tool,
-        setTool,
-        selectedNotes,
-        setSelectedNotes,
-        selectionRect,
-        setSelectionRect,
-        containerWidth,
-        noteHeight,
-        setNoteHeight,
-        isEditorFocused,
-        setIsEditorFocused,
-        highlightScale,
-        setHighlightScale,
-        rootNote,
-        setRootNote,
-        scaleName,
-        setScaleName,
-        clipTranspose,
-        setClipTranspose,
-        quantizeAmount,
-        setQuantizeAmount,
-        foldToUsedNotes,
-        setFoldToUsedNotes,
-        stepInputOctave,
-        setStepInputOctave,
-        stepInputCursorBeat,
-        setStepInputCursorBeat,
-        drumMode,
-        setDrumMode,
-        activeLane,
-        setActiveLane,
-        ratchetCount,
-        setRatchetCount,
-        laneValuesByNote,
-        setLaneValuesByNote,
-        hoveredNoteEdge,
-        setHoveredNoteEdge,
-        zoomOverrideH,
-        setZoomOverrideH,
-        playheadBeat,
-        pixelsPerBeat,
-        totalBeats,
-        clipBeats,
-        canvasWidth,
-        canvasHeight,
-        visiblePitches,
-        pitchRowIndex,
-        scaleSet,
-        gridLines,
-        rulerBeatLabels,
-        pianoKeys,
-        currentGridInterval,
-        beatsPerBar,
-        clipDurationLabel,
-        pitchToY,
-        yToPitch,
-        handleGridClick,
-        handleGridDoubleClick,
-        handleGridMouseDown,
-        handleNoteClick,
-        handleNoteDrag,
-        handleNoteMouseMove,
-        handleVelocityMouseDown: handleVelocityMouseDownWithFocus,
-        transposeNotes,
-        quantizeAllNotesToGrid,
-        duplicateSelection,
-        humanizeSelection,
-        applyLegato,
-        applyRatchet,
-        selectSamePitch,
-        copySelection,
-        pasteClipboard,
-        readLaneValue,
-        auditionNote,
-        notes,
-        ghostNotes,
-        color,
-        timeSignature,
-        onNotesChange,
-        onGenerateVariation,
-        aiVariationBusy,
-        trackIndex,
-        clipStartBeat,
-        snapBeat,
-        pianoPencilMode,
-        snapEnabled,
-        gridDivision,
-        gridTriplet,
-        setGridDivision,
-    };
+    return composePianoRollLogicResult({
+        refs: { scrollRef, noteCanvasRef, gridViewportRef, keyboardScrollRef, editorRootRef, isDragInProgressRef },
+        state: {
+            tool, setTool, selectedNotes, setSelectedNotes, selectionRect, setSelectionRect,
+            containerWidth, noteHeight, setNoteHeight, isEditorFocused, setIsEditorFocused,
+            highlightScale, setHighlightScale, rootNote, setRootNote, scaleName, setScaleName,
+            clipTranspose, setClipTranspose, quantizeAmount, setQuantizeAmount,
+            foldToUsedNotes, setFoldToUsedNotes, stepInputOctave, setStepInputOctave,
+            stepInputCursorBeat, setStepInputCursorBeat, drumMode, setDrumMode,
+            activeLane, setActiveLane, ratchetCount, setRatchetCount,
+            laneValuesByNote, setLaneValuesByNote, hoveredNoteEdge, setHoveredNoteEdge,
+            zoomOverrideH, setZoomOverrideH,
+        },
+        computed: {
+            playheadBeat, pixelsPerBeat, totalBeats, clipBeats, canvasWidth, canvasHeight,
+            visiblePitches, pitchRowIndex, scaleSet, gridLines, rulerBeatLabels, pianoKeys,
+            currentGridInterval, beatsPerBar, clipDurationLabel,
+        },
+        callbacks: {
+            pitchToY, yToPitch, handleGridClick, handleGridDoubleClick, handleGridMouseDown,
+            handleNoteClick, handleNoteDrag, handleNoteMouseMove,
+            handleVelocityMouseDown: handleVelocityMouseDownWithFocus,
+            transposeNotes, quantizeAllNotesToGrid, duplicateSelection, humanizeSelection,
+            applyLegato, applyRatchet, selectSamePitch, copySelection, pasteClipboard,
+            readLaneValue, auditionNote,
+        },
+        passthrough: {
+            notes, ghostNotes, color, timeSignature, onNotesChange, onGenerateVariation,
+            aiVariationBusy, trackIndex, clipStartBeat, snapBeat, pianoPencilMode,
+            snapEnabled, gridDivision, gridTriplet, setGridDivision,
+        },
+    });
 }

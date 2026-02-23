@@ -19,9 +19,9 @@ interface DawShellMainViewProps {
     selectedTrackId: string;
     selectedTrackIds: string[];
     onSelectTrack: (trackId: string) => void;
-    onSelectTracks: (trackIds: string[]) => void;
+    onSelectTracks: (trackIds: string[], primaryId: string) => void;
     trackHeightBase: number;
-    collapsedGroups: Record<string, boolean>;
+    collapsedGroups: Set<string>;
     onToggleGroupCollapse: (trackId: string) => void;
     timelineProps: React.ComponentProps<typeof Timeline>;
 }
@@ -87,7 +87,7 @@ export function DawShellMainView({
                                     trackHeight={trackHeightBase}
                                     rulerHeight={28}
                                     mixerFocusMode={false}
-                                    collapsedGroups={new Set(Object.keys(collapsedGroups).filter((id) => collapsedGroups[id]))}
+                                    collapsedGroups={collapsedGroups}
                                     onToggleGroupCollapse={onToggleGroupCollapse}
                                 />
                             </Suspense>

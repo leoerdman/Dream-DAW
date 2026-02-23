@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
@@ -27,6 +27,7 @@ import {
 } from './model/useDawShellEffects';
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
+import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
 import { DawShellMainView } from './DawShellMainView';
 import { DawShellStatusArea } from './DawShellStatusArea';
 import { DawShellOverlays } from './DawShellOverlays';
@@ -430,6 +431,52 @@ export const DawShell = () => {
         applyProjectDeltas,
     });
 
+    const timelineProps = useDawShellTimelineProps({
+        bpm: projectBpm || transportBpm || 120,
+        clips: timelineClipsForView,
+        editCursorBeat,
+        editCursorTrackIndex,
+        editCursorTrackIndexEnd,
+        selectedTrackIndex,
+        selectedTrackIndices,
+        isPlaying: transportIsPlaying,
+        recordingActive: recordingState.active,
+        recordingTrackIndex: recordingState.trackIndex,
+        trackIds,
+        loopStart: loopStartBeat,
+        loopEnd: loopEndBeat,
+        loopEnabled: transportLoopEnabled,
+        trackCount,
+        trackHeight: TRACK_HEIGHT_BASE,
+        trackHeights: timelineTrackHeights,
+        onPlayheadChange: handlePlayheadChange,
+        onEditCursorChange: handleEditCursorChange,
+        onMarqueeSelectionStart: handleMarqueeSelectionStart,
+        onMarqueeSelectionChange: setMarqueeSelection,
+        onClipSelect: handleClipSelect,
+        selectedClipIds,
+        onClipSelectionChange: handleTimelineClipSelectionChange,
+        onClipMove: handleClipMove,
+        onClipResize: handleClipResize,
+        onClipFades: handleClipFades,
+        onClipFadeCurves: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => {
+            setClipFadeCurves((prev) => ({
+                ...prev,
+                [clipId]: {
+                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                },
+            }));
+        },
+        onDropBrowserItem: handleBrowserDrop,
+        onDoubleClickTrack: handleDoubleClickTrack,
+        onOpenMidiClip: handleOpenMidiClip,
+        onTrackSelect: handleTimelineTrackSelect,
+        followPlayhead,
+        automationVisible,
+        fitHorizontalToken: fitTimelineToken,
+    });
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
 
@@ -471,51 +518,7 @@ export const DawShell = () => {
                     trackHeightBase={TRACK_HEIGHT_BASE}
                     collapsedGroups={collapsedGroups}
                     onToggleGroupCollapse={toggleGroupCollapse}
-                    timelineProps={{
-                        bpm: projectBpm || transportBpm || 120,
-                        clips: timelineClipsForView,
-                        editCursorBeat,
-                        editCursorTrackIndex,
-                        editCursorTrackIndexEnd,
-                        selectedTrackIndex,
-                        selectedTrackIndices,
-                        isPlaying: transportIsPlaying,
-                        recordingActive: recordingState.active,
-                        recordingTrackIndex: recordingState.trackIndex,
-                        trackIds,
-                        loopStart: loopStartBeat,
-                        loopEnd: loopEndBeat,
-                        loopEnabled: transportLoopEnabled,
-                        trackCount,
-                        trackHeight: TRACK_HEIGHT_BASE,
-                        trackHeights: timelineTrackHeights,
-                        onPlayheadChange: handlePlayheadChange,
-                        onEditCursorChange: handleEditCursorChange,
-                        onMarqueeSelectionStart: handleMarqueeSelectionStart,
-                        onMarqueeSelectionChange: setMarqueeSelection,
-                        onClipSelect: handleClipSelect,
-                        selectedClipIds,
-                        onClipSelectionChange: handleTimelineClipSelectionChange,
-                        onClipMove: handleClipMove,
-                        onClipResize: handleClipResize,
-                        onClipFades: handleClipFades,
-                        onClipFadeCurves: (clipId, fadeInCurve, fadeOutCurve) => {
-                            setClipFadeCurves((prev) => ({
-                                ...prev,
-                                [clipId]: {
-                                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
-                                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
-                                },
-                            }));
-                        },
-                        onDropBrowserItem: handleBrowserDrop,
-                        onDoubleClickTrack: handleDoubleClickTrack,
-                        onOpenMidiClip: handleOpenMidiClip,
-                        onTrackSelect: handleTimelineTrackSelect,
-                        followPlayhead,
-                        automationVisible,
-                        fitHorizontalToken: fitTimelineToken,
-                    }}
+                    timelineProps={timelineProps}
                 />
 
                 {/* ── BOTTOM: Rack / Clip Editor (Shift+Tab) ── */}
@@ -545,9 +548,7 @@ export const DawShell = () => {
                     onPanelModeChange={setBottomPanelModeForActiveTrack}
                     panelInfo={panelInfo}
                 />
-
             </div>
-
             <DawShellOverlays
                 settingsOpen={settingsOpen}
                 onCloseSettings={() => setSettingsOpen(false)}
@@ -575,7 +576,6 @@ export const DawShell = () => {
                 loopEndBeat={loopEndBeat}
                 marqueeSelection={marqueeSelection}
             />
-
         </div>
     );
 };

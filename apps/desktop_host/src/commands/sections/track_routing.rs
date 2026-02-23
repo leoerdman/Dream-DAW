@@ -257,22 +257,6 @@ async fn ungroup_track_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let group_uuid = Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group_id: {e}"))?;
-    let (child_ids_before, parent_of_group_before) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let parent = project
-            .tracks
-            .iter()
-            .find(|t| t.id == group_uuid)
-            .and_then(|t| t.parent_track_id);
-        let children = project
-            .tracks
-            .iter()
-            .filter(|t| t.parent_track_id == Some(group_uuid))
-            .map(|t| t.id)
-            .collect::<Vec<_>>();
-        (children, parent)
-    };
-
     let cmd = dream_orchestrator::commands::UngroupTrackCommand::from_str_group_id(&group_id)
         .map_err(|e| e.to_string())?;
     push_undo(&project_state)?;
@@ -290,18 +274,11 @@ async fn ungroup_track_with_deltas_cmd(
         track_id: group_uuid,
         track_index: result.removed_index,
     }];
-    for child_id in child_ids_before {
-        let current_parent = project
-            .tracks
-            .iter()
-            .find(|t| t.id == child_id)
-            .and_then(|t| t.parent_track_id);
-        if current_parent != Some(group_uuid) {
-            deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
-                track_id: child_id,
-                parent_track_id: current_parent.or(parent_of_group_before),
-            });
-        }
+    for child_id in result.reparented_child_ids {
+        deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
+            track_id: child_id,
+            parent_track_id: result.parent_of_group_before,
+        });
     }
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -364,15 +341,10 @@ async fn move_track_block_to_index_with_deltas_cmd(
         target_index,
     )
     .map_err(|e| e.to_string())?;
-    let before_order = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        project.tracks.iter().map(|t| t.id).collect::<Vec<_>>()
-    };
     push_undo(&project_state)?;
-    execute_orchestrator_command(&project_state, &cmd)?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let after_order = project.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -383,18 +355,15 @@ async fn move_track_block_to_index_with_deltas_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    let mut deltas = Vec::new();
-    for (new_index, track_id) in after_order.iter().enumerate() {
-        if let Some(old_index) = before_order.iter().position(|id| id == track_id)
-            && old_index != new_index
-        {
-            deltas.push(dream_models::delta::ProjectDelta::TrackMoved {
-                track_id: *track_id,
-                old_index,
-                new_index,
-            });
-        }
-    }
+    let deltas = result
+        .moved_tracks
+        .into_iter()
+        .map(|moved| dream_models::delta::ProjectDelta::TrackMoved {
+            track_id: moved.track_id,
+            old_index: moved.old_index,
+            new_index: moved.new_index,
+        })
+        .collect::<Vec<_>>();
     Ok(DeltaMutationResponse {
         deltas,
     })

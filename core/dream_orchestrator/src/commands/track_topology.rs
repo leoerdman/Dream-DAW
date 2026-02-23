@@ -4,26 +4,36 @@ use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
 use dream_models::project::{DeviceNode, Project, Track, TrackType};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct UngroupTrackResult {
     pub removed_index: usize,
     pub reassigned_children: usize,
+    pub parent_of_group_before: Option<Uuid>,
+    pub reparented_child_ids: Vec<Uuid>,
 }
 
 pub struct UngroupTrackCommand {
     pub group_id: Uuid,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MoveTrackBlockToIndexResult {
     pub old_first_index: usize,
     pub new_first_index: usize,
     pub block_len: usize,
+    pub moved_tracks: Vec<MovedTrackDelta>,
 }
 
 pub struct MoveTrackBlockToIndexCommand {
     pub root_track_id: Uuid,
     pub target_index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MovedTrackDelta {
+    pub track_id: Uuid,
+    pub old_index: usize,
+    pub new_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -110,11 +120,13 @@ impl Command for UngroupTrackCommand {
         }
 
         let mut reassigned_children = 0usize;
+        let mut reparented_child_ids = Vec::new();
         for track in &mut project.tracks {
             if track.parent_track_id == Some(self.group_id) {
                 track.parent_track_id = parent_of_group;
                 track.output_destination_id = parent_of_group;
                 reassigned_children += 1;
+                reparented_child_ids.push(track.id);
             }
         }
 
@@ -123,6 +135,8 @@ impl Command for UngroupTrackCommand {
         Ok(UngroupTrackResult {
             removed_index: group_index,
             reassigned_children,
+            parent_of_group_before: parent_of_group,
+            reparented_child_ids,
         })
     }
 }
@@ -156,6 +170,7 @@ impl Command for MoveTrackBlockToIndexCommand {
 
         let old_first_index = block_indices[0];
         let block_len = block_indices.len();
+        let before_order = project.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
 
         let mut block_tracks: Vec<Track> = Vec::with_capacity(block_len);
         for idx in block_indices.iter().rev() {
@@ -176,10 +191,25 @@ impl Command for MoveTrackBlockToIndexCommand {
             project.tracks.insert(adjusted_target + offset, track);
         }
 
+        let after_order = project.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+        let mut moved_tracks = Vec::new();
+        for (new_index, track_id) in after_order.iter().enumerate() {
+            if let Some(old_index) = before_order.iter().position(|id| id == track_id)
+                && old_index != new_index
+            {
+                moved_tracks.push(MovedTrackDelta {
+                    track_id: *track_id,
+                    old_index,
+                    new_index,
+                });
+            }
+        }
+
         Ok(MoveTrackBlockToIndexResult {
             old_first_index,
             new_first_index: adjusted_target,
             block_len,
+            moved_tracks,
         })
     }
 }

@@ -61,7 +61,8 @@ export function useAssetBrowserUiEffects({
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+            if (e.defaultPrevented || e.isComposing) return;
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyF') {
                 e.preventDefault();
                 searchRef.current?.focus();
                 searchRef.current?.select();

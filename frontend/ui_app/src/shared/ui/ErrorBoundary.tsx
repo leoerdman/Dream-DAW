@@ -156,7 +156,7 @@ const iconStyle: React.CSSProperties = {
 const titleStyle: React.CSSProperties = {
     fontSize: 'var(--font-size-md)',
     fontWeight: 700,
-    color: 'var(--token-color-hex-e53e3e)',
+    color: 'var(--color-status-error)', // BUG-48 FIX
     letterSpacing: '0.03em',
 };
 

@@ -74,7 +74,7 @@ export function renderStandardDistNoiseSurface(
         const isErosion = title === 'Erosion';
         const isBit = title === 'Bitcrusher';
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-distortion)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d6c1a5)' }}>{title}</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
@@ -115,8 +115,8 @@ export function renderStandardDistNoiseSurface(
                         <span>Mix {mix.toFixed(2)}</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 4).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -137,7 +137,7 @@ export function renderStandardDistNoiseSurface(
         const stereo = device.params.find((p) => p.name.toLowerCase() === 'stereo')?.value ?? 0.5;
         const typeLabel = type <= 0 ? 'Vinyl' : type === 1 ? 'Air' : 'Storm';
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-noise)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a5d6b0)' }}>Noise Machine</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
@@ -150,8 +150,8 @@ export function renderStandardDistNoiseSurface(
                         <span>Stereo {(stereo * 100).toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, device.params.length)}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 6).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

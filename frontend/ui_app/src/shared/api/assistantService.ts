@@ -151,14 +151,15 @@ export async function streamChat(
 
                     if (delta.content) {
                         assistantContent += delta.content;
-                        // If we're in a tool loop (depth > 1), this is intermediate thinking.
-                        // If depth === 1 and no tool calls yet, could be thinking OR final response.
-                        // Emit as 'thinking' during tool loops, 'delta' for final response.
-                        if (depth > 1 || toolCalls.length > 0) {
+                        // Content that arrives WITH tool_calls (in same response) is thinking.
+                        // Content in the FINAL response (no tool_calls) is the user-facing answer.
+                        // We can't know for sure during streaming, but tool_calls almost always
+                        // appear before content stops. We'll emit as 'delta' and let the
+                        // tool-start event signal the UI to reclassify if needed.
+                        if (toolCalls.length > 0) {
+                            // Already have tool_calls in this chunk — this is thinking
                             onEvent({ type: 'thinking', text: delta.content });
                         } else {
-                            // Might become thinking if tool_calls appear later.
-                            // Buffer and re-emit correctly at the end.
                             if (!hasEmittedContent) {
                                 hasEmittedContent = true;
                             }

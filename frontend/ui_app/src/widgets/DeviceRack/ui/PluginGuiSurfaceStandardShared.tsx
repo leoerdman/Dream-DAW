@@ -1,4 +1,5 @@
 import React from 'react';
+import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 
 export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
@@ -39,3 +40,13 @@ export type SurfaceHandlers = {
     onParamGestureEnd?: (paramName: string) => void;
     onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
 };
+
+export function getParamValue(
+    device: DeviceSlot,
+    aliases: string[],
+    fallback: number,
+): number {
+    const normalizedAliases = aliases.map((alias) => alias.toLowerCase());
+    const found = device.params.find((param) => normalizedAliases.includes(param.name.toLowerCase()));
+    return found?.value ?? fallback;
+}

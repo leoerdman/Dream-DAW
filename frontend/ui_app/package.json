@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "sync:bindings": "bash ../../scripts/sync_bindings.sh",
+    "check:plugin-ssot": "node scripts/check-plugin-ssot.mjs",
     "predev": "pnpm run sync:bindings",
     "prebuild": "pnpm run sync:bindings",
     "dev": "vite",

@@ -125,9 +125,11 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     // ⌘, shortcut
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (e.metaKey && e.key === ',') {
+            if (e.defaultPrevented || e.isComposing) return;
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'Comma') {
                 e.preventDefault();
                 // toggle handled externally
+                return;
             }
             if (e.key === 'Escape' && isOpen) {
                 onClose();

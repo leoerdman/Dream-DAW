@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BrowserItem, PluginGroupedRow } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
 import { EmptyAssetState, ScanStatus, VirtualListHeader } from './AssetBrowserVirtualMeta';
 import { AssetListItemRow } from './AssetBrowserRows';
@@ -117,25 +117,39 @@ export const VirtualFileList = memo(function VirtualFileList({
         return () => ro.disconnect();
     }, [fileListRef]);
 
+    // ── Robust scroll-reset guard ──────────────────────────────────────
+    // A monotonic counter tracks "reset epochs". When items change, the
+    // epoch bumps and the DOM scrollTop is zeroed in a layout effect
+    // (before paint, so no stale scroll events can fire).  The scroll
+    // handler skips exactly ONE event per epoch transition, then resumes
+    // normal operation — no rAF race, no stuck guard.
+    const resetEpochRef = useRef(0);
+    const lastHandledEpochRef = useRef(0);
+    const prevItemsRef = useRef(items);
+
     const handleFileListScroll = useCallback(() => {
-        if (scrollResetRef.current) return; // Guard: don't override reset
+        const epoch = resetEpochRef.current;
+        if (lastHandledEpochRef.current !== epoch) {
+            // First scroll event after a reset — absorb it (may carry stale position)
+            lastHandledEpochRef.current = epoch;
+            return;
+        }
         const el = fileListRef.current;
         if (el) setScrollTop(el.scrollTop);
     }, [fileListRef]);
 
-    // Reset scroll when items change (e.g. search filter narrows results)
-    const prevItemsRef = useRef(items);
-    const scrollResetRef = useRef(false);
-    useEffect(() => {
+    // Reset scroll when items change (e.g. search filter narrows results).
+    // useLayoutEffect fires synchronously after DOM mutations and BEFORE
+    // the browser paints, so the scrollTop=0 is applied before any scroll
+    // events can fire — preventing stale-position ghosts.
+    useLayoutEffect(() => {
         if (prevItemsRef.current !== items) {
             prevItemsRef.current = items;
-            scrollResetRef.current = true;
+            resetEpochRef.current++;
             setScrollTop(0);
             if (fileListRef.current) {
                 fileListRef.current.scrollTop = 0;
             }
-            // Clear guard after frame to allow normal scroll again
-            requestAnimationFrame(() => { scrollResetRef.current = false; });
         }
     }, [items, fileListRef]);
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
     VB_W, VB_H, MARGIN_L, MARGIN_R,
     freqToX, xToFreq, gainToY, bandDotY, isFilterOnlyType,
@@ -65,11 +65,20 @@ export function PluginGuiSurfaceEq({
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const eqTitle = normalizedInternalId === 'internal://effect/eq-three' ? 'Band EQ' : 'EQ';
 
-    const bands = parseBandsFromParams(device.params, eqBandFilterTypes);
+    const bands = useMemo(
+        () => parseBandsFromParams(device.params, eqBandFilterTypes),
+        [device.params, eqBandFilterTypes],
+    );
     const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
-    const { curvePath, fillPath } = buildEqCurvePaths(bands, projectSampleRate);
-    const spectrumPath = buildSpectrumPath(spectrumData);
+    const { curvePath, fillPath } = useMemo(
+        () => buildEqCurvePaths(bands, projectSampleRate),
+        [bands, projectSampleRate],
+    );
+    const spectrumPath = useMemo(
+        () => (eqSpectrumEnabled ? buildSpectrumPath(spectrumData) : null),
+        [eqSpectrumEnabled, spectrumData],
+    );
 
     const bi = activeBandIdx;
     const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);
@@ -95,7 +104,17 @@ export function PluginGuiSurfaceEq({
             />
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-eq)', overflow: 'visible', padding: 0, position: 'relative', flex: 1 }}>
+                <div
+                    data-no-drag
+                    style={{
+                        ...pluginPanelCardBaseStyle,
+                        background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-bg-panel) 86%, var(--color-bg-header) 14%) 0%, color-mix(in srgb, var(--color-bg-panel) 78%, var(--color-bg-header) 22%) 100%)',
+                        overflow: 'hidden',
+                        padding: 0,
+                        position: 'relative',
+                        flex: 1,
+                    }}
+                >
                     <svg
                         ref={eqSurfaceRef}
                         width="100%"
@@ -104,6 +123,8 @@ export function PluginGuiSurfaceEq({
                         preserveAspectRatio="none"
                         style={{ cursor: 'crosshair', display: 'block' }}
                         onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             if (e.button === 2) return;
                             const svg = eqSurfaceRef.current;
                             if (!svg) return;
@@ -126,6 +147,8 @@ export function PluginGuiSurfaceEq({
                             }
                         }}
                         onDoubleClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             const svg = eqSurfaceRef.current;
                             if (!svg) return;
                             const rect = svg.getBoundingClientRect();
@@ -171,6 +194,7 @@ export function PluginGuiSurfaceEq({
                         }}
                         onContextMenu={(e) => {
                             e.preventDefault();
+                            e.stopPropagation();
                             const svg = eqSurfaceRef.current;
                             if (!svg) return;
                             const rect = svg.getBoundingClientRect();
@@ -192,30 +216,50 @@ export function PluginGuiSurfaceEq({
                     >
                         <defs>
                             <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="var(--token-color-hex-5ab2ff)" stopOpacity="0.3" />
-                                <stop offset="100%" stopColor="var(--token-color-hex-5ab2ff)" stopOpacity="0" />
+                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 32%, transparent)" stopOpacity="0.24" />
+                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 12%, transparent)" stopOpacity="0" />
                             </linearGradient>
+                            <filter id={`eqCurveGlow-${device.id}`} x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="1.2" result="blur" />
+                                <feMerge>
+                                    <feMergeNode in="blur" />
+                                    <feMergeNode in="SourceGraphic" />
+                                </feMerge>
+                            </filter>
                         </defs>
+                        <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, var(--color-bg-panel) 88%, var(--color-bg-header) 12%)" />
                         {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
-                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'var(--token-color-rgba-80-160-255-0d35)' : 'var(--token-color-rgba-60-130-220-0d08)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
+                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 46%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 14%, transparent)'} strokeWidth={db === 0 ? 1.1 : 0.5} />
                         ))}
                         {EQ_FREQ_LABELS.map((fl) => (
-                            <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="var(--token-color-rgba-60-130-220-0d12)" strokeWidth="0.5" />
+                            <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="0.5" />
                         ))}
                         {EQ_FREQ_SUB_LINES.map((f) => (
-                            <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="var(--token-color-rgba-60-130-220-0d05)" strokeWidth="0.3" />
+                            <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="var(--token-color-rgba-255-255-255-0d06)" strokeWidth="0.3" />
                         ))}
                         <defs>
                             <linearGradient id={`specGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="var(--token-color-rgba-0-220-200-0d35)" />
-                                <stop offset="100%" stopColor="var(--token-color-rgba-0-220-200-0)" />
+                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 18%, transparent)" />
+                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
                             </linearGradient>
                         </defs>
-                        {spectrumPath && <path d={spectrumPath} fill={`url(#specGrad-${device.id})`} opacity="0.6" />}
-                        <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.5" />
-                        <path d={curvePath} fill="none" stroke="var(--token-color-rgba-90-178-255-0d7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        {eqSpectrumEnabled && spectrumPath && (
+                            <path d={spectrumPath} fill={`url(#specGrad-${device.id})`} opacity="0.36" />
+                        )}
+                        <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
+                        <path
+                            d={curvePath}
+                            fill="none"
+                            stroke="color-mix(in srgb, var(--color-text-primary) 82%, var(--color-bg-panel) 18%)"
+                            strokeWidth="2.15"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            filter={`url(#eqCurveGlow-${device.id})`}
+                            vectorEffect="non-scaling-stroke"
+                            shapeRendering="geometricPrecision"
+                        />
                         {enabledBands.length === 0 && (
-                            <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-160-190-220-0d25)" fontSize="10" fontFamily="Inter, sans-serif">
+                            <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d32)" fontSize="10" fontFamily="Inter, sans-serif">
                                 Double-click to add EQ point
                             </text>
                         )}
@@ -224,15 +268,15 @@ export function PluginGuiSurfaceEq({
                         style={{
                             position: 'absolute', top: 4, right: 6, zIndex: 10, cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d15)' : 'var(--token-color-rgba-90-178-255-0d06)',
-                            border: `var(--space-px) solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d4)' : 'var(--token-color-rgba-90-178-255-0d1)'}`,
+                            background: eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d12)' : 'var(--token-color-rgba-255-255-255-0d07)',
+                            border: `var(--space-px) solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-255-255-255-0d34)' : 'var(--token-color-rgba-255-255-255-0d18)'}`,
                             transition: 'all 0.2s ease',
                         }}
                         title={eqSpectrumEnabled ? 'Hide Spectrum' : 'Show Spectrum'}
                         onClick={() => setEqSpectrumEnabled(!eqSpectrumEnabled)}
                     >
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                            <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d9)' : 'var(--token-color-rgba-160-190-220-0d4)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'var(--token-color-rgba-245-245-245-0d92)' : 'var(--token-color-rgba-220-220-220-0d6)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                     </div>
                     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -240,7 +284,7 @@ export function PluginGuiSurfaceEq({
                             <div key={`dblabel-${db}`} style={{
                                 position: 'absolute', left: `${((MARGIN_L + 2) / VB_W) * 100}%`, top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
                                 fontSize: 8, fontFamily: 'Inter, sans-serif',
-                                color: db === 0 ? 'var(--token-color-rgba-160-200-255-0d55)' : 'var(--token-color-rgba-160-200-255-0d3)',
+                                color: db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 86%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 62%, transparent)',
                                 whiteSpace: 'nowrap', lineHeight: 1,
                             }}>
                                 {db > 0 ? '+' : ''}{db}dB
@@ -251,7 +295,7 @@ export function PluginGuiSurfaceEq({
                         {EQ_FREQ_LABELS.map((fl) => (
                             <div key={`flabel-${fl.freq}`} style={{
                                 position: 'absolute', left: `${(freqToX(fl.freq) / VB_W) * 100}%`, bottom: 2, transform: 'translateX(-50%)',
-                                fontSize: 8, fontFamily: 'Inter, sans-serif', color: 'var(--token-color-rgba-160-200-255-0d5)', whiteSpace: 'nowrap', lineHeight: 1,
+                                fontSize: 8, fontFamily: 'Inter, sans-serif', color: 'color-mix(in srgb, var(--color-text-primary) 66%, transparent)', whiteSpace: 'nowrap', lineHeight: 1,
                             }}>
                                 {fl.label}
                             </div>

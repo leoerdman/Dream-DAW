@@ -73,39 +73,42 @@ export function DawShellContent(props: DawShellContentProps) {
                 </ErrorBoundary>
             </header>
 
-            <DawShellMainView
-                mainSplitRef={props.mainSplitRef}
-                timelineRef={props.timelineRef}
-                browserWidth={props.browserWidth}
-                beginBrowserResize={props.beginBrowserResize}
-                mainViewMode={props.mainViewMode}
-                tracksEntity={props.tracksEntity}
-                selectedTrackId={props.selectedTrackId}
-                selectedTrackIds={props.selectedTrackIds}
-                onSelectTrack={props.handleSelectTrack}
-                onSelectTracks={props.handleSelectTracks}
-                trackHeightBase={props.trackHeightBase}
-                collapsedGroups={props.collapsedGroups}
-                onToggleGroupCollapse={props.toggleGroupCollapse}
-                timelineProps={props.timelineProps}
-            />
-
-            <DawShellBottomPanel
-                selectedTrackId={props.selectedTrackId}
-                bottomPanelMode={props.bottomPanelMode}
-                hasResizableClipEditor={props.hasResizableClipEditor}
-                bottomPanelHeightPx={props.bottomPanelHeightPx}
-                beginBottomPanelResize={props.beginBottomPanelResize}
-                selectedTimelineClip={props.selectedTimelineClip ?? undefined}
-                clipColor={props.clipColor}
-                midiNotes={props.midiNotes}
-                aiVariationBusy={props.aiVariationBusy}
-                selectedMidiTotalBars={props.selectedMidiTotalBars}
-                onDropPluginToTrack={(item, trackId) => props.dropPluginOnTrack(item, trackId)}
-                onMidiNotesChange={(notes) => props.handlePianoRollNotesChange(props.selectedTimelineClip ?? undefined, notes)}
-                onMidiEnvelopesChange={(envelopes) => props.handlePianoRollEnvelopesChange(props.selectedTimelineClip ?? undefined, envelopes)}
-                onGenerateVariation={() => props.handleGenerateMidiVariation(props.selectedTimelineClip ?? undefined)}
-            />
+            <ErrorBoundary module="Arrangement">
+                <DawShellMainView
+                    mainSplitRef={props.mainSplitRef}
+                    timelineRef={props.timelineRef}
+                    browserWidth={props.browserWidth}
+                    beginBrowserResize={props.beginBrowserResize}
+                    mainViewMode={props.mainViewMode}
+                    tracksEntity={props.tracksEntity}
+                    selectedTrackId={props.selectedTrackId}
+                    selectedTrackIds={props.selectedTrackIds}
+                    onSelectTrack={props.handleSelectTrack}
+                    onSelectTracks={props.handleSelectTracks}
+                    trackHeightBase={props.trackHeightBase}
+                    collapsedGroups={props.collapsedGroups}
+                    onToggleGroupCollapse={props.toggleGroupCollapse}
+                    timelineProps={props.timelineProps}
+                />
+            </ErrorBoundary>
+            <ErrorBoundary module="Bottom Panel">
+                <DawShellBottomPanel
+                    selectedTrackId={props.selectedTrackId}
+                    bottomPanelMode={props.bottomPanelMode}
+                    hasResizableClipEditor={props.hasResizableClipEditor}
+                    bottomPanelHeightPx={props.bottomPanelHeightPx}
+                    beginBottomPanelResize={props.beginBottomPanelResize}
+                    selectedTimelineClip={props.selectedTimelineClip ?? undefined}
+                    clipColor={props.clipColor}
+                    midiNotes={props.midiNotes}
+                    aiVariationBusy={props.aiVariationBusy}
+                    selectedMidiTotalBars={props.selectedMidiTotalBars}
+                    onDropPluginToTrack={(item, trackId) => props.dropPluginOnTrack(item, trackId)}
+                    onMidiNotesChange={(notes) => props.handlePianoRollNotesChange(props.selectedTimelineClip ?? undefined, notes)}
+                    onMidiEnvelopesChange={(envelopes) => props.handlePianoRollEnvelopesChange(props.selectedTimelineClip ?? undefined, envelopes)}
+                    onGenerateVariation={() => props.handleGenerateMidiVariation(props.selectedTimelineClip ?? undefined)}
+                />
+            </ErrorBoundary>
 
             <DawShellStatusArea
                 missingAssetsOpen={props.missingAssetsOpen}

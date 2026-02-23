@@ -95,9 +95,14 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
 
     useEffect(() => {
         if (!open) return;
+        // FIX: Never reload history while streaming — agent actions can change projectId
+        // mid-stream (e.g. adding tracks changes track count), which would trigger this
+        // effect and overwrite the live message list with stale/empty persisted history.
+        if (isStreaming) return;
+
         let cancelled = false;
         const shouldResetLiveAgent =
-            historyLoadedForId !== null && historyLoadedForId !== projectId && !isStreaming;
+            historyLoadedForId !== null && historyLoadedForId !== projectId;
 
         if (shouldResetLiveAgent) {
             abortRef.current?.abort();

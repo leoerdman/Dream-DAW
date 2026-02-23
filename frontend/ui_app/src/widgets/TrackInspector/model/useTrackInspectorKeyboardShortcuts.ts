@@ -26,12 +26,13 @@ export function useTrackInspectorKeyboardShortcuts({
 }: UseTrackInspectorKeyboardShortcutsArgs): void {
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
+            if (e.defaultPrevented || e.isComposing) return;
             const target = e.target as HTMLElement | null;
             const tag = target?.tagName?.toLowerCase();
             const isTextInput = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
             if (isTextInput || renamingTrackId !== null) return;
 
-            if ((e.metaKey || e.ctrlKey) && e.key === 'r' && selectedTrackId && selectedTrackId !== 'master') {
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyR' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
                 handleRenameStart(selectedTrackId);
             }

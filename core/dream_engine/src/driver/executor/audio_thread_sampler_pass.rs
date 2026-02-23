@@ -23,6 +23,18 @@ pub(super) fn render_sampler_sources(
         }
 
         if track_idx < render_ctx.track_slots.len()
+            && !render_ctx.track_slots[track_idx].strip.is_output_enabled()
+        {
+            sampler_engines[track_idx].all_notes_off();
+            sample_rack_engines[track_idx].all_notes_off();
+            midi_note_states[track_idx].active_notes.clear();
+            if track_idx < vst3_rt_midi_queue.len() {
+                vst3_rt_midi_queue[track_idx].clear();
+            }
+            continue;
+        }
+
+        if track_idx < render_ctx.track_slots.len()
             && render_ctx.track_slots[track_idx].instrument_bypassed
         {
             continue;

@@ -148,7 +148,7 @@ export function useTrackHeightControls({
         };
 
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!e.altKey || e.key !== '0') return;
+            if (!e.altKey || (e.code !== 'Digit0' && e.code !== 'Numpad0')) return;
             const target = e.target as HTMLElement | null;
             const tag = target?.tagName?.toLowerCase();
             const isTextInput = tag === 'input' || tag === 'textarea' || target?.isContentEditable;

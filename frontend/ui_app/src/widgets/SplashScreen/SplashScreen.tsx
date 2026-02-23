@@ -27,76 +27,89 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     const [progress, setProgress] = useState(0)
     // BUG-5 fix: stale flag to cancel in-flight async work on unmount
     const cancelledRef = useRef(false)
+    const finalizedRef = useRef(false)
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas)
 
-    const dismiss = useCallback(async () => {
-        console.log('[Splash] dismiss() START')
-        // 1. Load user settings from disk BEFORE expanding to workspace
-        try {
-            console.log('[Splash] step 1: loadSettings...')
-            await useSettingsStore.getState().loadSettings()
-            console.log('[Splash] step 1: loadSettings DONE')
-        } catch (e) {
-            console.warn('[Splash] Failed to load settings:', e)
-        }
-        if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
-
-        const settings = useSettingsStore.getState().settings
-        const shouldOpenLastProject = settings.startupBehavior === 'last'
-        console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject)
-
-        if (shouldOpenLastProject) {
-            try {
-                console.log('[Splash] step 2: getRecentProjects...')
-                const recent = await engineApi.getRecentProjects()
-                console.log('[Splash] step 2: getRecentProjects DONE, count=', recent.length)
-                if (cancelledRef.current) { console.log('[Splash] cancelled after getRecentProjects'); return }
-                const lastProject = recent[0]
-                if (lastProject?.path) {
-                    console.log('[Splash] step 2b: openProject...', lastProject.path)
-                    const response = await engineApi.openProject(lastProject.path)
-                    await applyProjectDeltas(response.deltas, 'splash:open-last-project')
-                    console.log('[Splash] step 2b: openProject DONE')
-                    if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
-                    // Eagerly activate external VST3 plugins and restore their saved state
-                    engineApi.eagerActivateExternalPlugins().catch((err) =>
-                        console.warn('[Splash] Eager plugin activation (non-fatal):', err)
-                    )
-                    console.info('[Splash] Opened last project on startup:', lastProject.path)
-                } else {
-                    console.info('[Splash] startupBehavior=last but recent list is empty')
-                }
-            } catch (e) {
-                console.warn('[Splash] Failed to open last project on startup:', e)
-            }
-        }
-        if (cancelledRef.current) { console.log('[Splash] cancelled before telemetry'); return }
-
-        // 2. Start telemetry loop — the DAW comes alive
-        console.log('[Splash] step 3: startTelemetryLoop...')
-        startTelemetryLoop()
-        console.log('[Splash] step 3: startTelemetryLoop DONE')
-
-        // 4. Now fade out the splash overlay
-        console.log('[Splash] step 5: FADING OUT')
+    const finalizeSplash = useCallback((reason: string) => {
+        if (cancelledRef.current || finalizedRef.current) return
+        finalizedRef.current = true
+        console.log(`[Splash] finalize (${reason})`)
         setProgress(100)
         setPhase('fading')
-
-        // 5. After fade completes - mount Workspace
-        setTimeout(() => {
+        window.setTimeout(() => {
             if (cancelledRef.current) return
-            console.log('[Splash] step 6: onComplete — mounting Workspace')
-            onComplete?.()
-            setPhase('done')
-        }, 400) // fade animation is 400ms
-    }, [onComplete, startTelemetryLoop, applyProjectDeltas])
+            try {
+                onComplete?.()
+            } catch (e) {
+                console.warn('[Splash] onComplete failed:', e)
+            } finally {
+                setPhase('done')
+            }
+        }, 400)
+    }, [onComplete])
+
+    const dismiss = useCallback(async () => {
+        console.log('[Splash] dismiss() START')
+        try {
+            // 1. Load user settings from disk BEFORE expanding to workspace
+            try {
+                console.log('[Splash] step 1: loadSettings...')
+                await useSettingsStore.getState().loadSettings()
+                console.log('[Splash] step 1: loadSettings DONE')
+            } catch (e) {
+                console.warn('[Splash] Failed to load settings:', e)
+            }
+            if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
+
+            const settings = useSettingsStore.getState().settings
+            const shouldOpenLastProject = settings.startupBehavior === 'last'
+            console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject)
+
+            if (shouldOpenLastProject) {
+                try {
+                    console.log('[Splash] step 2: getRecentProjects...')
+                    const recent = await engineApi.getRecentProjects()
+                    console.log('[Splash] step 2: getRecentProjects DONE, count=', recent.length)
+                    if (cancelledRef.current) { console.log('[Splash] cancelled after getRecentProjects'); return }
+                    const lastProject = recent[0]
+                    if (lastProject?.path) {
+                        console.log('[Splash] step 2b: openProject...', lastProject.path)
+                        const response = await engineApi.openProject(lastProject.path)
+                        await applyProjectDeltas(response.deltas, 'splash:open-last-project')
+                        console.log('[Splash] step 2b: openProject DONE')
+                        if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
+                        // Eagerly activate external VST3 plugins and restore their saved state
+                        engineApi.eagerActivateExternalPlugins().catch((err) =>
+                            console.warn('[Splash] Eager plugin activation (non-fatal):', err)
+                        )
+                        console.info('[Splash] Opened last project on startup:', lastProject.path)
+                    } else {
+                        console.info('[Splash] startupBehavior=last but recent list is empty')
+                    }
+                } catch (e) {
+                    console.warn('[Splash] Failed to open last project on startup:', e)
+                }
+            }
+            if (cancelledRef.current) { console.log('[Splash] cancelled before telemetry'); return }
+
+            // 2. Start telemetry loop — the DAW comes alive
+            console.log('[Splash] step 3: startTelemetryLoop...')
+            startTelemetryLoop()
+            console.log('[Splash] step 3: startTelemetryLoop DONE')
+        } catch (e) {
+            console.warn('[Splash] Unexpected startup error:', e)
+        } finally {
+            finalizeSplash('dismiss-finished')
+        }
+    }, [startTelemetryLoop, applyProjectDeltas, finalizeSplash])
 
     useEffect(() => {
         // Reset cancellation flag on (re-)mount — required for React StrictMode
-        // which unmounts → remounts in dev, leaving the ref stale at `true`.
+        // which unmounts → remounts in dev, leaving the refs stale at `true`.
         cancelledRef.current = false
+        finalizedRef.current = false
 
         const steps = [
             { text: 'Loading Core Modules...', delay: 500, pct: 20 },
@@ -112,13 +125,20 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
 
         // Dismiss after minimum duration
         const dismissTimer = setTimeout(dismiss, minDuration)
+        // Hard fail-safe: splash must never block UI indefinitely.
+        const watchdogTimer = setTimeout(
+            () => finalizeSplash('watchdog-timeout'),
+            Math.max(minDuration + 6000, 9000),
+        )
 
         return () => {
             cancelledRef.current = true // cancel in-flight dismiss() work
+            finalizedRef.current = true
             timers.forEach(clearTimeout)
             clearTimeout(dismissTimer)
+            clearTimeout(watchdogTimer)
         }
-    }, [minDuration, dismiss])
+    }, [minDuration, dismiss, finalizeSplash])
 
     if (phase === 'done') return null
 

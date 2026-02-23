@@ -94,7 +94,6 @@ export function DawShellBottomPanel({
                     {selectedTimelineClip?.type === 'midi' ? (
                         <Suspense fallback={null}>
                             <PianoRoll
-                                key={selectedTimelineClip.id}
                                 notes={midiNotes}
                                 ghostNotes={[]}
                                 midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
@@ -111,7 +110,6 @@ export function DawShellBottomPanel({
                         </Suspense>
                     ) : selectedTimelineClip?.type === 'audio' ? (
                         <SampleClipEditor
-                            key={selectedTimelineClip.id}
                             clip={selectedTimelineClip}
                         />
                     ) : (

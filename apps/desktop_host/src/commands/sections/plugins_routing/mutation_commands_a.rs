@@ -32,9 +32,11 @@ fn add_plugin_to_track_impl(
     
     let mut external_audio_inputs = None;
     let mut external_supports_sidechain_input = None;
+    let mut external_plugin_format: Option<PluginFormat> = None;
     if !effective_plugin_id.starts_with("internal://")
         && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
     {
+        external_plugin_format = Some(desc.format);
         external_audio_inputs = Some(desc.audio_inputs);
         if desc.format != PluginFormat::VST3 {
             external_supports_sidechain_input = Some(desc.audio_inputs > 2);
@@ -110,7 +112,24 @@ fn add_plugin_to_track_impl(
     )?;
     
     if let Some(err_msg) = plugin_load_error {
-        return Err(err_msg);
+        // AU/CLAP/VST2 descriptors are still allowed to be inserted into the
+        // project graph even when runtime loading is unavailable in this build.
+        // This prevents DnD from silently failing and keeps the device chain
+        // state visible/editable instead of rolling back the mutation.
+        let runtime_unsupported = matches!(
+            external_plugin_format,
+            Some(PluginFormat::AudioUnit | PluginFormat::CLAP | PluginFormat::VST2)
+        );
+        if runtime_unsupported {
+            log::warn!(
+                "[IPC] add_plugin_to_track_cmd: inserted unsupported runtime plugin '{}' (id='{}'): {}",
+                effective_plugin_name,
+                effective_plugin_id,
+                err_msg
+            );
+        } else {
+            return Err(err_msg);
+        }
     }
 
     Ok(AddedPluginOutcome {
@@ -416,8 +435,7 @@ fn set_internal_plugin_param_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let slot_uuid = Uuid::parse_str(&payload.slot_id)
-        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id).ok();
     let param_id = payload.param_id.clone();
     let value = payload.value;
 
@@ -430,12 +448,16 @@ fn set_internal_plugin_param_with_deltas_cmd(
         app,
     )?;
 
-    Ok(PluginMutationDeltaResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::InternalPluginParamChanged {
+    let deltas = if let Some(slot_id) = slot_uuid {
+        vec![dream_models::delta::ProjectDelta::InternalPluginParamChanged {
             track_id: track_uuid,
-            slot_id: slot_uuid,
+            slot_id,
             param_id,
             value,
-        }],
-    })
+        }]
+    } else {
+        Vec::new()
+    };
+
+    Ok(PluginMutationDeltaResponse { deltas })
 }

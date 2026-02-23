@@ -143,11 +143,8 @@ export function usePianoRollTransforms({
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const next = notes.map((n) => {
             if (!targets.has(n.id)) return n;
-            const hashSeed = n.id.split('').reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 0);
-            const pseudoRand1 = ((hashSeed & 0x7fffffff) % 997) / 997;
-            const pseudoRand2 = (((hashSeed * 127) & 0x7fffffff) % 991) / 991;
-            const timing = (pseudoRand1 - 0.5) * step * 0.35;
-            const velocity = Math.round((pseudoRand2 - 0.5) * 10);
+            const timing = (Math.random() - 0.5) * step * 0.35;
+            const velocity = Math.round((Math.random() - 0.5) * 10);
             return {
                 ...n,
                 startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + timing)),

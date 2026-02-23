@@ -118,7 +118,7 @@ export function usePianoRollHotkeys({
                 return;
             }
 
-            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyA') {
                 e.preventDefault();
                 e.stopPropagation();
                 setSelectedNotes(new Set(notes.map((n) => n.id)));
@@ -160,19 +160,19 @@ export function usePianoRollHotkeys({
                 return;
             }
 
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === '[') {
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'BracketLeft') {
                 e.preventDefault();
                 setStepInputOctave((prev) => Math.max(0, prev - 1));
                 return;
             }
 
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === ']') {
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'BracketRight') {
                 e.preventDefault();
                 setStepInputOctave((prev) => Math.min(9, prev + 1));
                 return;
             }
 
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement === editorRootRef.current) {
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && !hasSelected && document.activeElement === editorRootRef.current) {
                 const keyToSemitone: Record<string, number> = {
                     KeyA: 0,
                     KeyW: 1,
@@ -218,18 +218,21 @@ export function usePianoRollHotkeys({
             e.stopPropagation();
 
             const beatStep = stepBeat;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                const pitchStep = e.shiftKey ? 12 : 1;
+                const direction = e.key === 'ArrowUp' ? 1 : -1;
+                const delta = pitchStep * direction;
+                const moved = notes.map((n) => {
+                    if (!selectedNotes.has(n.id)) return n;
+                    return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
+                });
+                setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
+                onNotesChange(enforceNoOverlap(moved, selectedNotes));
+                return;
+            }
+
             const moved = notes.map((n) => {
                 if (!selectedNotes.has(n.id)) return n;
-                if (e.key === 'ArrowUp') {
-                    const pitchStep = e.shiftKey ? 12 : 1;
-                    setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + pitchStep)));
-                    return { ...n, pitch: Math.min(HIGHEST_PITCH, n.pitch + pitchStep) };
-                }
-                if (e.key === 'ArrowDown') {
-                    const pitchStep = e.shiftKey ? 12 : 1;
-                    setClipTranspose((prev) => Math.max(-24, Math.min(24, prev - pitchStep)));
-                    return { ...n, pitch: Math.max(LOWEST_PITCH, n.pitch - pitchStep) };
-                }
                 if (e.shiftKey && e.key === 'ArrowLeft') {
                     return { ...n, durationBeats: Math.max(MIN_NOTE_BEATS, n.durationBeats - beatStep) };
                 }

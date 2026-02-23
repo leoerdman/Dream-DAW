@@ -28,7 +28,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     item,
     absIdx,
     ROW_HEIGHT,
-    HEADER_HEIGHT,
+    HEADER_HEIGHT: _HEADER_HEIGHT,
     isSelected,
     debouncedQuery,
     showTypeColumn,
@@ -47,6 +47,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     HEADER_HEIGHT: number;
     navigateInto: (path: string) => void;
 }) {
+    void _HEADER_HEIGHT;
     const isAudio = item.type === 'audio';
     const isPlugin = item.type === 'plugin';
     const isDraggable = isAudio || isPlugin;

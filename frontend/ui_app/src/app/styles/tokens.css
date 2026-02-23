@@ -204,7 +204,7 @@
    --plugin-title-color: #d2e2ff;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff);
 
-   --plugin-bg-eq: linear-gradient(180deg, #0f2240 0%, #0a1530 100%);
+   --plugin-bg-eq: linear-gradient(180deg, #23262c 0%, #171a20 100%);
    --plugin-bg-utility: linear-gradient(180deg, #1f232b 0%, #13171f 100%);
    --plugin-bg-compressor: linear-gradient(180deg, #171f2a 0%, #10161f 100%);
    --plugin-bg-delay: linear-gradient(180deg, #1a2230 0%, #0f1520 100%);
@@ -283,8 +283,6 @@
    --color-meter-mid-midi: #ffd34d;
    --color-meter-green-start: #2fa64a;
    --color-meter-green-end: #46d165;
-}
-
 
 
 /* AUTO-GENERATED TOKENIZED RAW COLORS — DO NOT EDIT MANUALLY */
@@ -601,7 +599,7 @@
    --token-color-rgba-255-255-255-0d9: rgba(255, 255, 255, 0.9);
    --token-color-rgba-255-255-255-0d95: rgba(255, 255, 255, 0.95);
    --token-color-rgba-255-255-255-0d98: rgba(255,255,255,0.98);
-   --token-color-rgba-255-255-255-blinkdtofixed-3: rgba(255, 255, 255, ${blink.toFixed(3);
+   /* REMOVED: 1 broken JS-expression token (blink.toFixed) that was invalid CSS */
    --token-color-rgba-255-59-48-0d4: rgba(255, 59, 48, 0.4);
    --token-color-rgba-255-80-80-0d3: rgba(255, 80, 80, 0.3);
    --token-color-rgba-255-92-92-0d2: rgba(255,92,92,0.2);
@@ -653,10 +651,7 @@
    --token-color-rgba-92-224-166-0d3: rgba(92, 224, 166, 0.3);
    --token-color-rgba-92-224-166-0d6: rgba(92, 224, 166, 0.6);
    --token-color-rgba-96-165-250-0d25: rgba(96, 165, 250, 0.25);
-   --token-color-rgba-bodyr-bodyg-bodyb-0d92: rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.92);
-   --token-color-rgba-dividerr-dividerg-dividerb-0d62: rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.62);
-   --token-color-rgba-headerr-headerg-headerb-1: rgba(${headerR}, ${headerG}, ${headerB}, 1);
-   --token-color-rgba-mathdmin-255-rgbdr-60: rgba(${Math.min(255, rgb.r + 60);
+   /* REMOVED: 4 broken JS-expression tokens (bodyR/dividerR/headerR/Math.min) that were invalid CSS */
 /* END AUTO-GENERATED TOKENIZED RAW COLORS */
 
 
@@ -698,6 +693,7 @@
    --token-size-px-540: 540px;
    --token-size-px-680: 680px;
 /* END AUTO-GENERATED TOKENIZED PX SIZES */
+}
 
 /* ═══════════════════════════════════════════════════════════════
    DARK THEME (DEFAULT)

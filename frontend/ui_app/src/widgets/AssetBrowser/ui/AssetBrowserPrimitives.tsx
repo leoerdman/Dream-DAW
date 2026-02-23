@@ -243,13 +243,13 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         ctx.scale(dpr, dpr);
 
         ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'var(--token-color-rgba-0-0-0-0d3)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, 4);
         ctx.fill();
 
         const mid = h / 2;
-        ctx.strokeStyle = 'var(--token-color-rgba-255-255-255-0d06)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(0, mid);
@@ -259,10 +259,10 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         const peakCount = peaks.length;
         const barWidth = w / peakCount;
         const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        gradient.addColorStop(0, 'var(--token-color-rgba-74-158-255-0d9)');
-        gradient.addColorStop(0.45, 'var(--token-color-rgba-74-158-255-0d6)');
-        gradient.addColorStop(0.55, 'var(--token-color-rgba-74-158-255-0d6)');
-        gradient.addColorStop(1, 'var(--token-color-rgba-74-158-255-0d9)');
+        gradient.addColorStop(0, 'rgba(74, 158, 255, 0.9)');
+        gradient.addColorStop(0.45, 'rgba(74, 158, 255, 0.6)');
+        gradient.addColorStop(0.55, 'rgba(74, 158, 255, 0.6)');
+        gradient.addColorStop(1, 'rgba(74, 158, 255, 0.9)');
         ctx.fillStyle = gradient;
 
         for (let i = 0; i < peakCount; i++) {

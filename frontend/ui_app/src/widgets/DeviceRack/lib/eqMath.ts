@@ -41,8 +41,14 @@ export const PLOT_W = VB_W - MARGIN_L - MARGIN_R;
 
 /** Default 8-band color palette (matches Dream EQ GUI) */
 export const EQ_BAND_COLORS = [
-    'var(--token-color-hex-e06cf5)', 'var(--token-color-hex-5ab2ff)', 'var(--token-color-hex-5cf5e0)', 'var(--token-color-hex-d9a625)',
-    'var(--token-color-hex-ff8b5b)', 'var(--token-color-hex-7ceb8a)', 'var(--token-color-hex-ff5c5c)', 'var(--token-color-hex-f0c430)',
+    'color-mix(in srgb, var(--color-text-primary) 58%, var(--color-bg-panel) 42%)',
+    'color-mix(in srgb, var(--color-text-primary) 64%, var(--color-bg-panel) 36%)',
+    'color-mix(in srgb, var(--color-text-primary) 70%, var(--color-bg-panel) 30%)',
+    'color-mix(in srgb, var(--color-text-primary) 76%, var(--color-bg-panel) 24%)',
+    'color-mix(in srgb, var(--color-text-primary) 82%, var(--color-bg-panel) 18%)',
+    'color-mix(in srgb, var(--color-text-primary) 88%, var(--color-bg-panel) 12%)',
+    'color-mix(in srgb, var(--color-text-primary) 68%, var(--color-bg-panel) 32%)',
+    'color-mix(in srgb, var(--color-text-primary) 74%, var(--color-bg-panel) 26%)',
 ] as const;
 
 /** Default EQ band center frequencies (Hz) */
@@ -53,6 +59,36 @@ export const EQ_FILTER_LABELS: Readonly<Record<string, string>> = {
     highpass: 'HP', lowshelf: 'L.Shelf', peaking: 'Bell',
     highshelf: 'H.Shelf', lowpass: 'LP', notch: 'Notch',
 };
+
+export const EQ_FILTER_TYPE_TO_INDEX: Readonly<Record<string, number>> = {
+    highpass: 0,
+    lowpass: 1,
+    lowshelf: 2,
+    highshelf: 3,
+    peaking: 4,
+    notch: 5,
+};
+
+const EQ_FILTER_INDEX_TO_TYPE = ['highpass', 'lowpass', 'lowshelf', 'highshelf', 'peaking', 'notch'] as const;
+
+export function eqFilterTypeFromIndex(raw: number | undefined, fallback: string): string {
+    if (!Number.isFinite(raw)) return fallback;
+    const rounded = Math.round(raw as number);
+    return EQ_FILTER_INDEX_TO_TYPE[rounded] ?? fallback;
+}
+
+export function deriveEqBandFilterTypes(
+    params: Array<{ name: string; value: number }>,
+    fallback: string[],
+): string[] {
+    const next: string[] = [];
+    for (let i = 0; i < 8; i++) {
+        const fallbackType = fallback[i] ?? 'peaking';
+        const typeRaw = params.find((p) => p.name.toLowerCase() === `b${i}type`)?.value;
+        next.push(eqFilterTypeFromIndex(typeRaw, fallbackType));
+    }
+    return next;
+}
 
 /** Filter type SVG icon paths — 12×12 mini-icons */
 export const EQ_FILTER_ICONS: Readonly<Record<string, string>> = {
@@ -131,10 +167,14 @@ export function bandDotY(band: EqBand8): number {
 export function computeBiquadCoeffs(
     filterType: string, freq: number, q: number, gainDb: number, sr: number,
 ): BiquadCoeffs {
-    const clampedFreq = Math.max(20, Math.min(20000, freq));
+    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : 44100;
+    const nyquist = safeSampleRate * 0.5;
+    // Keep some guard below Nyquist to avoid numeric instability at the edge.
+    const maxFreq = Math.max(40, Math.min(20000, nyquist * 0.98));
+    const clampedFreq = Math.max(20, Math.min(maxFreq, freq));
     const clampedQ = Math.max(0.1, Math.min(18, q));
     const clampedGain = Math.max(-24, Math.min(24, gainDb));
-    const omega = 2 * Math.PI * clampedFreq / sr;
+    const omega = 2 * Math.PI * clampedFreq / safeSampleRate;
     const cosW = Math.cos(omega);
     const sinW = Math.sin(omega);
     const alpha = sinW / (2 * clampedQ);
@@ -191,7 +231,10 @@ export function computeBiquadCoeffs(
  * Evaluates H(z) = (b0 + b1·z⁻¹ + b2·z⁻²) / (1 + a1·z⁻¹ + a2·z⁻²)
  */
 export function biquadMagnitudeDb(c: BiquadCoeffs, freq: number, sr: number): number {
-    const w = 2 * Math.PI * freq / sr;
+    const safeSampleRate = Number.isFinite(sr) ? Math.max(8000, sr) : 44100;
+    const nyquist = safeSampleRate * 0.5;
+    const clampedFreq = Math.max(20, Math.min(Math.max(40, nyquist * 0.98), freq));
+    const w = 2 * Math.PI * clampedFreq / safeSampleRate;
     const cosW = Math.cos(w);
     const cos2W = Math.cos(2 * w);
     const sinW = Math.sin(w);
@@ -220,10 +263,11 @@ export function buildEqCurvePaths(
     sampleRate: number,
     steps = 200,
 ): { curvePath: string; fillPath: string } {
+    const safeSampleRate = Number.isFinite(sampleRate) ? Math.max(8000, sampleRate) : 44100;
     // Pre-compute coefficients for all enabled bands
     const bandCoeffs: (BiquadCoeffs | null)[] = bands.map((band) =>
         band.enabled
-            ? computeBiquadCoeffs(band.filterType, band.freq, band.q, band.gain, sampleRate)
+            ? computeBiquadCoeffs(band.filterType, band.freq, band.q, band.gain, safeSampleRate)
             : null,
     );
 
@@ -235,7 +279,7 @@ export function buildEqCurvePaths(
         for (let bi = 0; bi < bands.length; bi++) {
             const c = bandCoeffs[bi];
             if (!c) continue;
-            totalGainDb += biquadMagnitudeDb(c, freq, sampleRate);
+            totalGainDb += biquadMagnitudeDb(c, freq, safeSampleRate);
         }
         const y = gainToY(totalGainDb);
         curvePoints.push(`${x.toFixed(2)},${y.toFixed(2)}`);
@@ -256,16 +300,24 @@ export function buildSpectrumPath(spectrumData: Float32Array | number[] | null):
     const specBins = spectrumData.length;
     const specPoints: string[] = [];
 
+    // Spectrum range: -80dB (bottom) to +24dB (top, matching EQ grid).
+    // Using the same coordinate space as gainToY for the positive portion
+    // ensures the spectrum stays within the SVG viewbox and doesn't cause
+    // layout shifts that make band dots jump.
+    const DB_FLOOR = -80;
+    const DB_CEIL = 24;
+    const DB_RANGE = DB_CEIL - DB_FLOOR; // 104
+
     for (let i = 0; i < specBins; i++) {
-        // Frequency for this bin — logarithmic mapping matching EQ grid
         const t = i / (specBins - 1);
         const freq = Math.pow(10, Math.log10(20) + t * (Math.log10(20000) - Math.log10(20)));
         const x = MARGIN_L + ((Math.log10(freq) - MIN_F) / (MAX_F - MIN_F)) * PLOT_W;
-        // Map dB to viewBox Y: -80dB = bottom, +6dB = top-ish
         const dbValue = spectrumData[i];
-        const clampedDb = Math.max(-80, Math.min(6, dbValue));
-        const normDb = (clampedDb + 80) / 86; // 0..1 from -80dB to +6dB
-        const y = VB_H - normDb * (VB_H - 10);
+        const clampedDb = Math.max(DB_FLOOR, Math.min(DB_CEIL, dbValue));
+        const normDb = (clampedDb - DB_FLOOR) / DB_RANGE; // 0..1
+        // Clamp Y to valid viewbox range [2, VB_H - 2] to prevent SVG overflow.
+        const rawY = VB_H - normDb * (VB_H - 10);
+        const y = Math.max(2, Math.min(VB_H - 2, rawY));
         specPoints.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     }
 
@@ -279,19 +331,24 @@ export function parseBandsFromParams(
     params: Array<{ name: string; value: number }>,
     eqBandFilterTypes: string[],
 ): EqBand8[] {
+    const resolvedTypes = deriveEqBandFilterTypes(params, eqBandFilterTypes);
     const bands: EqBand8[] = [];
     for (let i = 0; i < 8; i++) {
-        const freq = params.find((p) => p.name.toLowerCase() === `b${i}freq`)?.value ?? DEFAULT_BAND_FREQS[i];
-        const gain = params.find((p) => p.name.toLowerCase() === `b${i}gain`)?.value ?? 0;
-        const q = params.find((p) => p.name.toLowerCase() === `b${i}q`)?.value ?? 0.71;
-        const en = params.find((p) => p.name.toLowerCase() === `b${i}en`)?.value ?? 0;
+        const rawFreq = params.find((p) => p.name.toLowerCase() === `b${i}freq`)?.value;
+        const rawGain = params.find((p) => p.name.toLowerCase() === `b${i}gain`)?.value;
+        const rawQ = params.find((p) => p.name.toLowerCase() === `b${i}q`)?.value;
+        const rawEn = params.find((p) => p.name.toLowerCase() === `b${i}en`)?.value;
+        const freq = Number.isFinite(rawFreq) ? Math.max(20, Math.min(20000, rawFreq as number)) : DEFAULT_BAND_FREQS[i];
+        const gain = Number.isFinite(rawGain) ? Math.max(-24, Math.min(24, rawGain as number)) : 0;
+        const q = Number.isFinite(rawQ) ? Math.max(0.1, Math.min(18, rawQ as number)) : 0.71;
+        const en = Number.isFinite(rawEn) ? (rawEn as number) : 0;
         bands.push({
             idx: i,
             freq,
             gain,
             q,
             enabled: en > 0.5,
-            filterType: eqBandFilterTypes[i] ?? 'peaking',
+            filterType: resolvedTypes[i] ?? 'peaking',
             color: EQ_BAND_COLORS[i],
         });
     }

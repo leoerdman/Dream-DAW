@@ -18,11 +18,12 @@ export function useDeviceKeyboardShortcuts(
 ) {
     useEffect(() => {
         const onKeyDown = async (e: KeyboardEvent) => {
+            if (e.defaultPrevented || e.isComposing) return;
             const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
             if (!selectedTrack) return;
 
-            if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedDeviceIds.length > 0) {
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyC' && selectedDeviceIds.length > 0) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 try {
@@ -36,7 +37,7 @@ export function useDeviceKeyboardShortcuts(
                 return;
             }
 
-            if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyV') {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 try {

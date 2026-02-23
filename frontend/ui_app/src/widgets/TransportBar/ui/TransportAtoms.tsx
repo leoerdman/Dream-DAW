@@ -73,30 +73,33 @@ export const TransportBtn = ({
     activeBackground?: boolean;
     onClick: () => void;
     className?: string;
-}) => (
-    <button
-        onClick={onClick}
-        title={title}
-        className={className}
-        style={{
-            width: TRANSPORT_UI.controlHeight,
-            height: TRANSPORT_UI.controlHeight,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: TRANSPORT_UI.controlBg,
-            border: TRANSPORT_UI.controlBorder,
-            borderRadius: TRANSPORT_UI.controlRadius,
-            padding: 0,
-            lineHeight: 1,
-            verticalAlign: 'middle',
-            margin: 0,
-            appearance: 'none',
-            color: isActive ? activeColor : 'var(--color-text-primary)',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)',
-        }}
-    >
-        {icon}
-    </button>
-);
+}) => {
+    void activeBackground;
+    return (
+        <button
+            onClick={onClick}
+            title={title}
+            className={className}
+            style={{
+                width: TRANSPORT_UI.controlHeight,
+                height: TRANSPORT_UI.controlHeight,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: TRANSPORT_UI.controlBg,
+                border: TRANSPORT_UI.controlBorder,
+                borderRadius: TRANSPORT_UI.controlRadius,
+                padding: 0,
+                lineHeight: 1,
+                verticalAlign: 'middle',
+                margin: 0,
+                appearance: 'none',
+                color: isActive ? activeColor : 'var(--color-text-primary)',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+            }}
+        >
+            {icon}
+        </button>
+    );
+};

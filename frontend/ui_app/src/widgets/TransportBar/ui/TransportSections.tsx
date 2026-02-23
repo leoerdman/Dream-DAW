@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Bot, Circle, Eye, EyeOff, Music, Pencil, Play, Rewind, RotateCcw, Settings, Square } from 'lucide-react';
+import { ArrowRight, Bot, Circle, Download, Eye, EyeOff, Music, Pencil, Play, Rewind, RotateCcw, Settings, Square } from 'lucide-react';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import { ALL_DIVISIONS, type GridDivision } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
@@ -279,7 +279,8 @@ export function TransportCenterSection(props: {
     loopEndFrames: number;
     sampleRate: number;
     bpm: number;
-    posBeats: number;
+    /** Imperative reader for position_beats (avoids re-render subscription). */
+    readPosBeats: () => number;
     timeSigNum: number;
     engineSetLoop: (enabled: boolean, start: number, end: number) => Promise<void>;
     followPlayhead: boolean;
@@ -290,7 +291,8 @@ export function TransportCenterSection(props: {
     onAutomationToggle?: () => void;
     onFitTimelineHorizontally?: () => void;
     onResetTrackHeights?: () => void;
-    posString: string;
+    /** Ref-based position display — updated via direct DOM mutation. */
+    posRef: React.RefObject<HTMLSpanElement | null>;
     valueChipStyle: React.CSSProperties;
 }) {
     const p = props;
@@ -302,12 +304,12 @@ export function TransportCenterSection(props: {
                     <TransportBtn icon={<Play size={13} fill="currentColor" />} title="Play" isActive={p.isPlaying} activeColor="var(--color-status-success)" activeBackground={false} onClick={() => { void engineApi.stopPreview().catch((err) => console.warn('[TransportBar] stopPreview before play failed:', err)); p.togglePlay(); }} />
                     <TransportBtn icon={<Square size={13} fill="currentColor" />} title="Stop" onClick={() => { p.engineStop(); void p.stopRecordingIfNeeded(); }} />
                     <TransportBtn icon={<Circle size={12} fill="currentColor" />} title="Record" isActive={p.isRecording} activeColor="var(--color-status-record)" className={p.isRecording ? 'animate-pulse-record' : ''} onClick={() => { void p.handleRecordToggle(); }} />
-                    <TransportBtn icon={<RotateCcw size={13} />} title="Toggle Loop" isActive={p.isLooping} activeColor="var(--color-accent-primary)" onClick={() => { const next = !p.isLooping; if (next && p.loopStartFrames === 0 && p.loopEndFrames === 0) { const sr = resolveSampleRate(p.sampleRate); const currentBpm = p.bpm || 120; void p.engineSetLoop(true, beatToFrame(p.posBeats, currentBpm, sr), beatToFrame(p.posBeats + p.timeSigNum, currentBpm, sr)); } else { void p.engineSetLoop(next, p.loopStartFrames, p.loopEndFrames); } }} />
+                    <TransportBtn icon={<RotateCcw size={13} />} title="Toggle Loop" isActive={p.isLooping} activeColor="var(--color-accent-primary)" onClick={() => { const next = !p.isLooping; if (next && p.loopStartFrames === 0 && p.loopEndFrames === 0) { const sr = resolveSampleRate(p.sampleRate); const currentBpm = p.bpm || 120; const posBeats = p.readPosBeats(); void p.engineSetLoop(true, beatToFrame(posBeats, currentBpm, sr), beatToFrame(posBeats + p.timeSigNum, currentBpm, sr)); } else { void p.engineSetLoop(next, p.loopStartFrames, p.loopEndFrames); } }} />
                     <TransportBtn icon={<ArrowRight size={13} strokeWidth={p.followPlayhead ? 3 : 2} />} title="Follow Playhead" isActive={p.followPlayhead} activeColor="var(--color-accent-primary)" onClick={() => p.onFollowPlayheadChange?.(!p.followPlayhead)} />
                 </PillSection>
 
                 <PillSection>
-                    <span style={{ ...p.valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>{p.posString}</span>
+                    <span ref={p.posRef} style={{ ...p.valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>1.1.00</span>
                 </PillSection>
 
                 <PillSection>
@@ -324,12 +326,13 @@ export function TransportCenterSection(props: {
 export function TransportRightSection(props: {
     midiLedRef: React.RefObject<HTMLSpanElement | null>;
     pdcOpen: boolean;
-    setPdcOpen: (next: boolean | ((prev: boolean) => boolean) ) => void;
+    setPdcOpen: (next: boolean | ((prev: boolean) => boolean)) => void;
     assistantOpen: boolean;
     onAssistantToggle?: () => void;
+    onOpenExport?: () => void;
     onSettingsClick?: () => void;
 }) {
-    const { midiLedRef, pdcOpen, setPdcOpen, assistantOpen, onAssistantToggle, onSettingsClick } = props;
+    const { midiLedRef, pdcOpen, setPdcOpen, assistantOpen, onAssistantToggle, onOpenExport, onSettingsClick } = props;
     return (
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
             <PillSection>
@@ -337,6 +340,7 @@ export function TransportRightSection(props: {
                 <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-midi-indicator)' }}>MIDI</span>
                 <button onClick={() => setPdcOpen((v) => !v)} title="Debug Panel" style={iconBtnStyle(pdcOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', pdcOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}>{pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 <button onClick={() => onAssistantToggle?.()} title="AI Assistant" style={iconBtnStyle(assistantOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', assistantOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}><Bot size={15} /></button>
+                <button onClick={() => onOpenExport?.()} title="Export Audio (⇧⌘R)" style={iconBtnStyle('var(--color-text-secondary)', 'transparent')}><Download size={15} /></button>
                 <button onClick={onSettingsClick} title="Settings (⌘,)" style={iconBtnStyle('var(--color-text-secondary)', 'transparent')}><Settings size={15} /></button>
             </PillSection>
         </div>

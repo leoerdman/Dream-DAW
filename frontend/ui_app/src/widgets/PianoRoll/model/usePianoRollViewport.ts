@@ -10,11 +10,11 @@ import {
 
 const scrollTopByTrack = new Map<number, number>();
 
+
 interface UsePianoRollViewportArgs {
     trackIndex?: number;
     notes: MidiNote[];
     clipLengthBeats?: number;
-    totalBars: number;
     noteHeight: number;
     setNoteHeight: React.Dispatch<React.SetStateAction<number>>;
     setZoomOverrideH: React.Dispatch<React.SetStateAction<number | null>>;
@@ -31,7 +31,6 @@ export function usePianoRollViewport({
     trackIndex,
     notes,
     clipLengthBeats,
-    totalBars,
     noteHeight,
     setNoteHeight,
     setZoomOverrideH,
@@ -58,9 +57,18 @@ export function usePianoRollViewport({
         return () => observer.disconnect();
     }, [gridViewportRef, setContainerWidth]);
 
+    // Bug #2 fix: Only reset zoom when switching to a genuinely different clip,
+    // not when the current clip is trimmed/extended.
+    const clipKeyRef = useRef(`${trackIndex ?? -1}`);
     useEffect(() => {
-        Promise.resolve().then(() => setZoomOverrideH(null));
-    }, [clipLengthBeats, setZoomOverrideH, totalBars]);
+        const key = `${trackIndex ?? -1}`;
+        const prev = clipKeyRef.current;
+        clipKeyRef.current = key;
+        if (prev !== key) {
+            // Different track/clip → reset zoom to auto-fit
+            Promise.resolve().then(() => setZoomOverrideH(null));
+        }
+    }, [trackIndex, setZoomOverrideH]);
 
     useEffect(() => {
         const grid = scrollRef.current;
@@ -77,6 +85,8 @@ export function usePianoRollViewport({
         };
     }, [keyboardScrollRef, scrollRef, trackIndex]);
 
+    // Bug #20 fix: Accumulate Alt+scroll deltas instead of dropping during RAF.
+    const pendingNoteHeightDeltaRef = useRef(0);
     const noteHeightRafRef = useRef<number | null>(null);
     useEffect(() => {
         const element = scrollRef.current;
@@ -84,34 +94,44 @@ export function usePianoRollViewport({
         const onWheel = (event: WheelEvent) => {
             if (event.altKey) {
                 event.preventDefault();
-                const delta = event.deltaY > 0 ? -1 : 1;
+                pendingNoteHeightDeltaRef.current += event.deltaY > 0 ? -1 : 1;
                 if (noteHeightRafRef.current == null) {
                     noteHeightRafRef.current = requestAnimationFrame(() => {
+                        const accumulated = pendingNoteHeightDeltaRef.current;
+                        pendingNoteHeightDeltaRef.current = 0;
                         noteHeightRafRef.current = null;
+                        if (accumulated !== 0) {
+                            setNoteHeight((prev) => Math.max(MIN_NOTE_HEIGHT, Math.min(MAX_NOTE_HEIGHT, prev + accumulated)));
+                        }
                     });
-                    setNoteHeight((prev) => Math.max(MIN_NOTE_HEIGHT, Math.min(MAX_NOTE_HEIGHT, prev + delta)));
                 }
             } else if (event.ctrlKey || event.metaKey) {
                 event.preventDefault();
-                const delta = event.deltaY > 0 ? -2 : 2;
+                const factor = event.deltaY > 0 ? 0.9 : 1.1;
                 setZoomOverrideH((prev) => {
                     const current = prev ?? pixelsPerBeatRef.current;
-                    return Math.max(MIN_PPB, Math.min(MAX_PPB, current + delta));
+                    return Math.max(MIN_PPB, Math.min(MAX_PPB, Math.round(current * factor)));
                 });
             }
         };
         element.addEventListener('wheel', onWheel, { passive: false });
         return () => element.removeEventListener('wheel', onWheel);
-    }, [noteHeight, pixelsPerBeatRef, scrollRef, setNoteHeight, setZoomOverrideH]);
+    }, [pixelsPerBeatRef, scrollRef, setNoteHeight, setZoomOverrideH]);
 
     const noteHeightRef = useRef(noteHeight);
     useEffect(() => { noteHeightRef.current = noteHeight; }, [noteHeight]);
+
+    // Bug #1 fix: Use a ref for notes to avoid resetting scroll on every note edit.
+    // Only recalculate scroll position on clip switch (clipLengthBeats + trackIndex change).
+    const notesSnapshotRef = useRef(notes);
+    useEffect(() => { notesSnapshotRef.current = notes; }, [notes]);
 
     useEffect(() => {
         const grid = scrollRef.current;
         const keyboard = keyboardScrollRef.current;
         if (!grid) return;
         const nh = noteHeightRef.current;
+        const currentNotes = notesSnapshotRef.current;
         requestAnimationFrame(() => {
             const saved = trackIndex != null ? scrollTopByTrack.get(trackIndex) : undefined;
             if (saved != null) {
@@ -119,8 +139,8 @@ export function usePianoRollViewport({
                 if (keyboard) keyboard.scrollTop = saved;
             } else {
                 let focusPitch: number;
-                if (notes.length > 0) {
-                    const sorted = notes.map((n) => n.pitch).sort((a, b) => a - b);
+                if (currentNotes.length > 0) {
+                    const sorted = currentNotes.map((n) => n.pitch).sort((a, b) => a - b);
                     const mid = Math.floor(sorted.length / 2);
                     focusPitch = sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
                 } else {
@@ -136,5 +156,6 @@ export function usePianoRollViewport({
                 if (keyboard) keyboard.scrollTop = centered;
             }
         });
-    }, [clipLengthBeats, keyboardScrollRef, notes, pitchToY, scrollRef, trackIndex, visiblePitches]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clipLengthBeats, keyboardScrollRef, pitchToY, scrollRef, trackIndex, visiblePitches]);
 }

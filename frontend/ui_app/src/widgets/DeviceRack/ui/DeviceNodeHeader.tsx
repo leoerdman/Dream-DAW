@@ -7,6 +7,7 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 interface DeviceNodeHeaderProps {
     device: DeviceSlot;
     deviceIndex: number;
+    canReorder: boolean;
     showSettings: boolean;
     supportsSettingsToggle: boolean;
     showUiButton: boolean;
@@ -24,7 +25,8 @@ interface DeviceNodeHeaderProps {
 
 export function DeviceNodeHeader({
     device,
-    deviceIndex,
+    deviceIndex: _deviceIndex,
+    canReorder,
     showSettings,
     supportsSettingsToggle,
     showUiButton,
@@ -39,32 +41,24 @@ export function DeviceNodeHeader({
     onOpenSettings,
     onSelect,
 }: DeviceNodeHeaderProps) {
+    void _deviceIndex;
     const resolvedPluginFormat: PluginFormat = (
         pluginFormat === 'INT' || pluginFormat === 'VST2' || pluginFormat === 'VST3' || pluginFormat === 'AU'
     ) ? pluginFormat : 'INT';
 
     return (
         <div
-            draggable
+            data-device-drag-handle="true"
+            draggable={false}
             onDragStart={(e) => {
-                const target = e.target as HTMLElement;
-                if (target.closest('button, input, select, [data-no-drag]')) {
-                    e.preventDefault();
-                    return;
-                }
-                e.dataTransfer.setData('application/x-dream-device-id', device.id);
-                e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
-                e.dataTransfer.effectAllowed = 'move';
-                const slot = (e.currentTarget as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
-                if (slot) slot.style.opacity = '0.4';
+                // Reorder drag is owned by DeviceNode root.
+                // Keep header non-draggable to avoid nested drag-source conflicts.
+                e.preventDefault();
+                return;
             }}
-            onDragEnd={() => {
-                const slot = document.querySelector('.dream-device-drop-indicator[style*="opacity"]') as HTMLElement | null;
-                if (slot) slot.style.opacity = '1';
-                document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
-                    (el as HTMLElement).style.borderLeft = '';
-                    (el as HTMLElement).style.borderRight = '';
-                });
+            onDragEnd={(e) => {
+                e.preventDefault();
+                return;
             }}
             style={{
                 display: 'flex',
@@ -74,7 +68,7 @@ export function DeviceNodeHeader({
                 padding: 'var(--space-2) 0',
                 borderRight: 'var(--space-px) solid var(--color-divider)',
                 background: 'var(--surface-tab-inactive)',
-                cursor: 'grab',
+                cursor: canReorder ? 'grab' : 'default',
                 width: 32,
                 minWidth: 32,
                 flexShrink: 0,

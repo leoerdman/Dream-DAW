@@ -18,7 +18,7 @@ export function PluginGuiSurfaceFallback({
     onParamContextMenu,
 }: PluginGuiSurfaceFallbackProps) {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        <div data-no-drag style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {device.params.map((p) => (
                 <PluginKnob
                     key={p.name}

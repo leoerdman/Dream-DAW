@@ -33,7 +33,81 @@ pub fn rebuild_runtime_device_chains_from_project(
     ) -> Result<(), String> {
         let pid = plugin_id.to_ascii_lowercase();
 
-        if pid == "internal://effect/utility" {
+        let is_utility = matches!(
+            pid.as_str(),
+            "internal://effect/utility"
+                | "internal://effect/tuner"
+                | "internal://effect/external-audio-effect"
+                | "internal://effect/auto-shift"
+                | "internal://effect/shifter"
+        );
+        let is_eq = matches!(
+            pid.as_str(),
+            "internal://effect/eq-eight" | "internal://effect/channel-eq" | "internal://effect/eq-three"
+        );
+        let is_auto_filter = matches!(
+            pid.as_str(),
+            "internal://effect/auto-filter" | "internal://effect/vocoder"
+        );
+        let is_compressor = matches!(
+            pid.as_str(),
+            "internal://effect/compressor"
+                | "internal://effect/glue-compressor"
+                | "internal://effect/multiband-dynamics"
+                | "internal://effect/transient-shaper"
+        );
+        let is_reverb = matches!(
+            pid.as_str(),
+            "internal://effect/reverb"
+                | "internal://effect/hybrid-reverb"
+                | "internal://effect/corpus"
+                | "internal://effect/resonators"
+                | "internal://effect/spectral-resonator"
+        );
+        let is_delay = matches!(
+            pid.as_str(),
+            "internal://effect/delay"
+                | "internal://effect/echo"
+                | "internal://effect/simple-delay"
+                | "internal://effect/filter-delay"
+                | "internal://effect/grain-delay"
+                | "internal://effect/beat-repeat"
+                | "internal://effect/looper"
+                | "internal://effect/spectral-time"
+        );
+        let is_chorus = pid == "internal://effect/chorus";
+        let is_saturator = matches!(
+            pid.as_str(),
+            "internal://effect/saturator"
+                | "internal://effect/drum-buss"
+                | "internal://effect/dynamic-tube"
+        );
+        let is_limiter = pid == "internal://effect/limiter";
+        let is_gate = pid == "internal://effect/gate";
+        let is_auto_pan = pid == "internal://effect/auto-pan";
+        let is_phaser = matches!(
+            pid.as_str(),
+            "internal://effect/phaser" | "internal://effect/phaser-flanger"
+        );
+        let is_flanger = pid == "internal://effect/flanger";
+        let is_distortion = matches!(
+            pid.as_str(),
+            "internal://effect/distortion"
+                | "internal://effect/amp"
+                | "internal://effect/cabinet"
+                | "internal://effect/overdrive"
+                | "internal://effect/pedal"
+                | "internal://effect/roar"
+                | "internal://effect/erosion"
+        );
+        let is_bitcrusher = pid == "internal://effect/bitcrusher";
+        let is_noise_machine = pid == "internal://effect/noise-machine";
+        let is_analyzer = matches!(
+            pid.as_str(),
+            "internal://effect/analyzer" | "internal://effect/spectrum"
+        );
+
+        if is_utility {
             if let Some(gain_lin) = first_lane_value(track, &["plugin.gain"]) {
                 let gain_db = if gain_lin <= 0.00001 {
                     -60.0
@@ -86,7 +160,7 @@ pub fn rebuild_runtime_device_chains_from_project(
             return Ok(());
         }
 
-        if pid == "internal://effect/eq-eight" {
+        if is_eq {
             if let Some(out_gain) = first_lane_value(track, &["effect.eq.global_gain"]) {
                 push_command(
                     handle,
@@ -147,7 +221,7 @@ pub fn rebuild_runtime_device_chains_from_project(
             return Ok(());
         }
 
-        if pid == "internal://effect/auto-filter" {
+        if is_auto_filter {
             if let Some(cutoff) = first_lane_value(track, &["effect.auto_filter.cutoff"]) {
                 push_command(
                     handle,
@@ -261,7 +335,7 @@ pub fn rebuild_runtime_device_chains_from_project(
             return Ok(());
         }
 
-        if pid == "internal://effect/compressor" {
+        if is_compressor {
             if let Some(v) = first_lane_value(track, &["effect.compressor.threshold"]) {
                 push_command(
                     handle,
@@ -342,7 +416,7 @@ pub fn rebuild_runtime_device_chains_from_project(
             return Ok(());
         }
 
-        if pid == "internal://effect/reverb" {
+        if is_reverb {
             if let Some(v) = first_lane_value(track, &["effect.reverb.size"]) {
                 push_command(
                     handle,
@@ -412,7 +486,7 @@ pub fn rebuild_runtime_device_chains_from_project(
             return Ok(());
         }
 
-        if pid == "internal://effect/delay" {
+        if is_delay {
             if let Some(v) = first_lane_value(track, &["effect.delay.time"]) {
                 let ms = v.clamp(1.0, 2000.0);
                 push_command(
@@ -453,6 +527,486 @@ pub fn rebuild_runtime_device_chains_from_project(
                         slot_index,
                         param_index: 3,
                         value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_chorus {
+            if let Some(v) = first_lane_value(track, &["effect.chorus.rate"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(0.1, 10.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.chorus.depth"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.chorus.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_saturator {
+            if let Some(v) = first_lane_value(track, &["effect.saturator.drive"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(0.0, 24.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.saturator.tone"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.saturator.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_limiter {
+            if let Some(v) = first_lane_value(track, &["effect.limiter.threshold"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(-30.0, 0.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.limiter.release"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: v.clamp(1.0, 1000.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.limiter.ceiling"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: v.clamp(-30.0, 0.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_gate {
+            if let Some(v) = first_lane_value(track, &["effect.gate.threshold"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(-80.0, 0.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.gate.attack"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: v.clamp(0.01, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.gate.hold"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: v.clamp(0.0, 500.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.gate.release"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.clamp(1.0, 2000.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.gate.range"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 4,
+                        value: v.clamp(-80.0, 0.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_auto_pan {
+            if let Some(v) = first_lane_value(track, &["effect.auto_pan.rate"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(0.01, 20.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_pan.depth"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_pan.phase"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: v.clamp(0.0, 360.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_pan.shape"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.round().clamp(0.0, 4.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_pan.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 4,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_phaser || is_flanger {
+            let (is_flanger_device, index_center_or_delay, index_mix) = if is_flanger {
+                (true, 3u8, 4u8)
+            } else {
+                (false, 4u8, 5u8)
+            };
+            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.rate" } else { "effect.phaser.rate" }]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(0.01, 10.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.depth" } else { "effect.phaser.depth" }]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.feedback" } else { "effect.phaser.feedback" }]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(-95.0, 95.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.delay" } else { "effect.phaser.center" }]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: index_center_or_delay,
+                        value: if is_flanger_device {
+                            v.clamp(0.1, 10.0)
+                        } else {
+                            v.clamp(100.0, 5000.0)
+                        },
+                    },
+                )?;
+            }
+            if !is_flanger_device
+                && let Some(v) = first_lane_value(track, &["effect.phaser.stages"])
+            {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.round().clamp(2.0, 8.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.mix" } else { "effect.phaser.mix" }]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: index_mix,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_distortion {
+            if let Some(v) = first_lane_value(track, &["effect.distortion.drive"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.distortion.tone"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.distortion.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.distortion.mode"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.round().clamp(0.0, 4.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_bitcrusher {
+            if let Some(v) = first_lane_value(track, &["effect.bitcrusher.bits"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(1.0, 32.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.bitcrusher.downsample"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: v.clamp(1.0, 64.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.bitcrusher.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_noise_machine {
+            if let Some(v) = first_lane_value(track, &["effect.noise.type"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.round().clamp(0.0, 5.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.noise.level"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: v.clamp(-60.0, 0.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.noise.stereo"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.noise.lpfreq"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.clamp(200.0, 20_000.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.noise.hpfreq"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 4,
+                        value: v.clamp(20.0, 5_000.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.noise.pan"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 5,
+                        value: v.clamp(-100.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        if is_analyzer {
+            if let Some(v) = first_lane_value(track, &["effect.analyzer.reset"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: if v >= 0.5 { 1.0 } else { 0.0 },
                     },
                 )?;
             }

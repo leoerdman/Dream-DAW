@@ -146,27 +146,27 @@ impl Command for SetInternalPluginParamCommand {
                         if self.value >= 0.5 { 1.0 } else { 0.0 },
                     );
                 }
-                "sampler.volume" | "volume" => {
+                "sampler.volume" | "sampler.gain" | "volume" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     cfg.volume = self.value.clamp(0.0, 2.0);
                     sampler_command_needed = true;
                 }
-                "sampler.attack" | "attack" => {
+                "sampler.attack" | "sampler.atk" | "attack" | "atk" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     cfg.attack = self.value.clamp(0.001, 10.0);
                     sampler_command_needed = true;
                 }
-                "sampler.decay" | "decay" => {
+                "sampler.decay" | "sampler.dec" | "decay" | "dec" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     cfg.decay = self.value.clamp(0.001, 10.0);
                     sampler_command_needed = true;
                 }
-                "sampler.sustain" | "sustain" => {
+                "sampler.sustain" | "sampler.sus" | "sustain" | "sus" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     cfg.sustain = self.value.clamp(0.0, 1.0);
                     sampler_command_needed = true;
                 }
-                "sampler.release" | "release" => {
+                "sampler.release" | "sampler.rel" | "release" | "rel" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     cfg.release = self.value.clamp(0.001, 20.0);
                     sampler_command_needed = true;
@@ -179,6 +179,8 @@ impl Command for SetInternalPluginParamCommand {
                 "synth.waveform"
                 | "waveform"
                 | "sampler.waveform"
+                | "sampler.osc1wave"
+                | "sampler.osc1_wave"
                 | "synth.osc1.waveform"
                 | "synth.osc1.wave" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
@@ -186,67 +188,71 @@ impl Command for SetInternalPluginParamCommand {
                     cfg.sample_path = token.to_string();
                     sampler_waveform = Some(code);
                 }
-                "synth.osc2.waveform" | "synth.osc2.wave" => {
+                "synth.osc2.waveform" | "synth.osc2.wave" | "sampler.osc2wave" | "sampler.osc2_wave" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let (_, code) = waveform_token_and_code(self.value);
                     cfg.osc2_waveform = code;
                     sampler_waveform2 = Some(code);
                 }
-                "synth.osc.mix" | "synth.oscmix" => {
+                "synth.osc.mix" | "synth.oscmix" | "sampler.mix" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let mix = self.value.clamp(0.0, 1.0) as f32;
                     cfg.osc_mix = mix as f64;
                     sampler_osc_mix = Some(mix);
                 }
-                "synth.detune" | "synth.detunecents" | "synth.osc2.detune" => {
+                "synth.detune" | "synth.detunecents" | "synth.osc2.detune" | "sampler.detune" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let cents = self.value.clamp(-50.0, 50.0) as f32;
                     cfg.detune_cents = cents as f64;
                     sampler_detune_cents = Some(cents);
                 }
-                "synth.sub" | "synth.sublevel" => {
+                "synth.sub" | "synth.sublevel" | "sampler.sub" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let level = self.value.clamp(0.0, 1.0) as f32;
                     cfg.sub_level = level as f64;
                     sampler_sub_level = Some(level);
                 }
-                "synth.filter.cutoff" | "synth.filtercutoff" => {
+                "synth.filter.cutoff" | "synth.filtercutoff" | "sampler.cutoff" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let cutoff = self.value.clamp(20.0, 20000.0) as f32;
                     cfg.filter_cutoff = cutoff as f64;
                     sampler_filter_cutoff = Some(cutoff);
                 }
-                "synth.filter.resonance" | "synth.filterresonance" | "synth.filter.res" => {
+                "synth.filter.resonance"
+                | "synth.filterresonance"
+                | "synth.filter.res"
+                | "sampler.res"
+                | "sampler.resonance" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let res = self.value.clamp(0.0, 0.99) as f32;
                     cfg.filter_resonance = res as f64;
                     sampler_filter_resonance = Some(res);
                 }
-                "synth.filter.type" | "synth.filtertype" => {
+                "synth.filter.type" | "synth.filtertype" | "sampler.filttype" | "sampler.filtertype" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let ft = self.value.round().clamp(0.0, 3.0) as u8;
                     cfg.filter_type = ft;
                     sampler_filter_type = Some(ft);
                 }
-                "synth.lfo.rate" | "synth.lforate" => {
+                "synth.lfo.rate" | "synth.lforate" | "sampler.lforate" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let rate = self.value.clamp(0.01, 20.0) as f32;
                     cfg.lfo_rate = rate as f64;
                     sampler_lfo_rate = Some(rate);
                 }
-                "synth.lfo.depth" | "synth.lfodepth" => {
+                "synth.lfo.depth" | "synth.lfodepth" | "sampler.lfodepth" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let depth = self.value.clamp(0.0, 1.0) as f32;
                     cfg.lfo_depth = depth as f64;
                     sampler_lfo_depth = Some(depth);
                 }
-                "synth.lfo.target" | "synth.lfotarget" => {
+                "synth.lfo.target" | "synth.lfotarget" | "sampler.lfotarget" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let target = self.value.round().clamp(0.0, 2.0) as u8;
                     cfg.lfo_target = target;
                     sampler_lfo_target = Some(target);
                 }
-                "synth.pulse_width" | "synth.pulsewidth" | "synth.pw" => {
+                "synth.pulse_width" | "synth.pulsewidth" | "synth.pw" | "sampler.pulsewidth" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let pw = self.value.clamp(0.05, 0.95) as f32;
                     cfg.pulse_width = pw as f64;

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { resolvePlugin } from '@/shared/config/pluginManifest';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import type * as engineApi from '@/shared/api/engine';
@@ -9,6 +10,7 @@ import { DeviceNodeHeader } from '@/widgets/DeviceRack/ui/DeviceNodeHeader';
 interface DeviceNodeProps {
     device: DeviceSlot;
     deviceIndex: number;
+    canReorder: boolean;
     onToggle: () => void;
     isSelected: boolean;
     showSettings: boolean;
@@ -42,6 +44,7 @@ interface DeviceNodeProps {
 export const DeviceNode = ({
     device,
     deviceIndex,
+    canReorder,
     onToggle,
     onOpenGUI,
     isSelected,
@@ -71,6 +74,7 @@ export const DeviceNode = ({
     onSidechainSourceChange,
     onEnsureActive,
 }: DeviceNodeProps) => {
+    const lastPointerTargetRef = useRef<HTMLElement | null>(null);
     const isInstrumentSlot = device.effectType === 'instrument' || device.effectType === 'sampler' || device.effectType === 'waveSynth';
     const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
     const baseWidth =
@@ -92,6 +96,41 @@ export const DeviceNode = ({
         <div
             className="device-node"
             data-effect={device.effectType}
+            draggable={canReorder}
+            onMouseDownCapture={(e) => {
+                lastPointerTargetRef.current = e.target as HTMLElement;
+            }}
+            onDragStart={(e) => {
+                if (!canReorder) {
+                    e.preventDefault();
+                    return;
+                }
+                const target = e.target as HTMLElement;
+                const downTarget = lastPointerTargetRef.current;
+                // Allow reordering from any non-interactive part of the card/header
+                // and never hijack controls (knobs, buttons, selects, text inputs).
+                if (
+                    target.closest('button, input, select, textarea, [data-no-drag], canvas, svg')
+                    || downTarget?.closest('button, input, select, textarea, [data-no-drag], canvas, svg')
+                ) {
+                    e.preventDefault();
+                    return;
+                }
+                e.dataTransfer.setData('application/x-dream-device-id', device.id);
+                e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
+                e.dataTransfer.effectAllowed = 'move';
+                const slot = (e.currentTarget as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
+                if (slot) slot.style.opacity = '0.4';
+            }}
+            onDragEnd={() => {
+                lastPointerTargetRef.current = null;
+                const slot = document.querySelector('.dream-device-drop-indicator[style*="opacity"]') as HTMLElement | null;
+                if (slot) slot.style.opacity = '1';
+                document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
+                    (el as HTMLElement).style.borderLeft = '';
+                    (el as HTMLElement).style.borderRight = '';
+                });
+            }}
             style={{
                 minWidth: rackWidth,
                 width: rackWidth,
@@ -108,6 +147,7 @@ export const DeviceNode = ({
                 minHeight: '100%',
                 position: 'relative',
                 boxShadow: 'none',
+                cursor: canReorder ? 'grab' : 'default',
             }}
             onMouseUp={() => {
                 const dragging = useDragStore.getState().draggingItem;
@@ -125,6 +165,7 @@ export const DeviceNode = ({
             <DeviceNodeHeader
                 device={device}
                 deviceIndex={deviceIndex}
+                canReorder={canReorder}
                 showSettings={showSettings}
                 supportsSettingsToggle={supportsSettingsToggle}
                 showUiButton={showUiButton}

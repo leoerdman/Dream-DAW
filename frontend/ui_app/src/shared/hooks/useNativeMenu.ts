@@ -36,7 +36,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
     const syncArrangementViewport = async () => {
         const timeline = useTimelineStore.getState();
         try {
-            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save hotkeys/menu must remain functional even if viewport sync fails.
             console.warn('[NativeMenu] setArrangementViewport failed (non-fatal):', err);
@@ -142,6 +142,15 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: handleSaveAs,
     });
 
+    const exportAudioItem = await MenuItem.new({
+        id: 'file_export_audio',
+        text: 'Export Audio…',
+        accelerator: 'CmdOrCtrl+Shift+R',
+        action: () => {
+            window.dispatchEvent(new CustomEvent('dream:open-export'));
+        },
+    });
+
     const fileSubmenu = await Submenu.new({
         text: 'File',
         items: [
@@ -152,6 +161,8 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             await PredefinedMenuItem.new({ item: 'Separator' }),
             saveItem,
             saveAsItem,
+            await PredefinedMenuItem.new({ item: 'Separator' }),
+            exportAudioItem,
         ],
     });
 
@@ -227,7 +238,7 @@ async function handleSaveAs() {
         if (typeof flush === 'function') await flush();
         const timeline = useTimelineStore.getState();
         try {
-            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             console.warn('[NativeMenu] setArrangementViewport failed before Save As (non-fatal):', err);
         }

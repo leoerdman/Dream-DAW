@@ -22,11 +22,12 @@ export function PluginGuiSurfaceSampler({
     onDropSample,
     onLoadSample,
 }: PluginGuiSurfaceSamplerProps) {
-    const otherSamplerParams = device.params.slice(0, 12);
+    const otherSamplerParams = device.params;
     const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
 
     return (
         <div
+            data-no-drag
             style={{
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',
@@ -38,6 +39,7 @@ export function PluginGuiSurfaceSampler({
             }}
         >
             <div
+                data-no-drag
                 style={{
                     position: 'relative',
                     overflow: 'hidden',
@@ -147,9 +149,10 @@ export function PluginGuiSurfaceSampler({
                 </button>
             </div>
             <div
+                data-no-drag
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+                    gridTemplateColumns: `repeat(${Math.min(8, Math.max(4, otherSamplerParams.length))}, minmax(0, 1fr))`,
                     gap: 8,
                     alignItems: 'center',
                     padding: 'var(--space-1) var(--space-2) var(--space-2) var(--space-2)',

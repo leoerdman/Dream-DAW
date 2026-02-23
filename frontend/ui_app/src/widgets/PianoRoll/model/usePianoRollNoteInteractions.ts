@@ -97,7 +97,8 @@ export function usePianoRollNoteInteractions({
         const target = event.currentTarget as HTMLElement;
         const targetRect = target.getBoundingClientRect();
         const localX = event.clientX - targetRect.left;
-        const mode = localX >= targetRect.width - 6 ? 'resize-right' : localX <= 6 ? 'resize-left' : 'move';
+        const edgeThreshold = Math.max(4, Math.min(6, targetRect.width * 0.25));
+        const mode = localX >= targetRect.width - edgeThreshold ? 'resize-right' : localX <= edgeThreshold ? 'resize-left' : 'move';
         const selectedIds = selectedNotes.has(noteId) ? new Set(selectedNotes) : new Set([noteId]);
         if (!selectedNotes.has(noteId)) setSelectedNotes(new Set([noteId]));
         const startStates = new Map(
@@ -118,14 +119,12 @@ export function usePianoRollNoteInteractions({
                 const original = startStates.get(n.id);
                 if (!original) return n;
                 if (mode === 'resize-right') {
-                    if (n.id !== noteId) return n;
                     const maxDur = Math.max(MIN_NOTE_BEATS, clipBeats - original.startBeat);
                     const rawDur = original.durationBeats + beatDelta;
                     const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeatRef.current) : rawDur;
                     return { ...n, durationBeats: Math.min(maxDur, Math.max(MIN_NOTE_BEATS, finalDur)) };
                 }
                 if (mode === 'resize-left') {
-                    if (n.id !== noteId) return n;
                     const rawStart = original.startBeat + beatDelta;
                     const noteEnd = original.startBeat + original.durationBeats;
                     const maxStart = noteEnd - MIN_NOTE_BEATS;
@@ -170,7 +169,8 @@ export function usePianoRollNoteInteractions({
         const noteDiv = event.currentTarget as HTMLElement;
         const rect = noteDiv.getBoundingClientRect();
         const localX = event.clientX - rect.left;
-        const isEdge = localX >= rect.width - 6 || localX <= 6;
+        const threshold = Math.max(4, Math.min(6, rect.width * 0.25));
+        const isEdge = localX >= rect.width - threshold || localX <= threshold;
         setHoveredNoteEdge(isEdge ? noteId : null);
     }, []);
 

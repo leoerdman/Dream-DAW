@@ -107,7 +107,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         return true;
     }
 
-    if ((e.key === '0' || e.code === 'Numpad0') && !isModKey(e) && !e.shiftKey) {
+    if ((e.code === 'Digit0' || e.code === 'Numpad0') && !isModKey(e) && !e.shiftKey) {
         if (inPianoRoll || inDeviceRack) return true;
         e.preventDefault();
         e.stopPropagation();

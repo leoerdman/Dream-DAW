@@ -3,6 +3,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { DeviceSlot } from '../model/types';
 import { getInternalPluginById, normalizeInternalPluginId, waveformIndexFromSamplePath } from '@/shared/lib/internalPlugins';
+import { getEffectTypeByPluginId } from '@/shared/config/pluginManifest';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
 import type { PluginParam } from '../model/types';
@@ -165,7 +166,11 @@ export function useDeviceRackCore(selectedTrackId: string) {
             const normalizedId = normalizeInternalPluginId(pluginId);
             const internalPlugin = normalizedId ? getInternalPluginById(normalizedId) : null;
             const isInternalEffect = !!internalPlugin;
-            const effectType = (INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[normalizedId ?? pluginId] ?? 'vst') as DeviceSlot['effectType'];
+            const effectType = (
+                getEffectTypeByPluginId(normalizedId ?? pluginId)
+                ?? INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[normalizedId ?? pluginId]
+                ?? 'vst'
+            ) as DeviceSlot['effectType'];
 
             let params: PluginParam[] = [];
             let source: 'internal' | 'vst' | 'missing' = 'internal';
@@ -190,9 +195,12 @@ export function useDeviceRackCore(selectedTrackId: string) {
                         const paramId = internalParamIdForControl(effectType, paramDef.name);
                         const scopedParamId = `slot:${id}:${paramId}`;
                         const staticValue = staticLaneValueByParamId.get(scopedParamId.toLowerCase());
+                        const fallbackValue = Number.isFinite(paramDef.value)
+                            ? paramDef.value
+                            : (Number.isFinite(paramDef.defaultValue) ? paramDef.defaultValue : paramDef.min);
                         return {
                             ...paramDef,
-                            value: localValue ?? staticValue ?? paramDef.defaultValue,
+                            value: localValue ?? staticValue ?? fallbackValue,
                         };
                     });
                 }

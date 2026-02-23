@@ -48,6 +48,14 @@ impl Query for ResolvePluginSlotStateQuery {
             self.track_id,
             self.slot_id,
         )
+        .or_else(|| {
+            // UI can transiently hold a stale track_id during fast slot reorders.
+            // Fall back to global slot-id lookup to keep runtime activation/status robust.
+            dream_importers::routing_helpers::find_project_plugin_slot_by_slot_id(
+                &project,
+                self.slot_id,
+            )
+        })
         .ok_or_else(|| OrchestratorError::NotFound {
             entity: "PluginSlot",
             id: self.slot_id.to_string(),

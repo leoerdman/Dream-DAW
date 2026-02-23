@@ -16,9 +16,18 @@ export function DeviceSlot({
     logic: DeviceRackLogicOutput;
 }) {
     const { selectedTrack } = logic;
+    const effectIds = (selectedTrack?.effects ?? [])
+        .map((effect) => effect?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const effectIdSet = new Set(effectIds);
+    const canReorderThisDevice = effectIdSet.has(device.id);
     return (
         <div
             onDragOver={(e) => {
+                const draggedId = e.dataTransfer.getData('application/x-dream-device-id');
+                if (!draggedId || !canReorderThisDevice || !effectIdSet.has(draggedId)) {
+                    return;
+                }
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -36,13 +45,20 @@ export function DeviceSlot({
                 (e.currentTarget as HTMLElement).style.borderLeft = '';
                 (e.currentTarget as HTMLElement).style.borderRight = '';
                 const draggedId = e.dataTransfer.getData('application/x-dream-device-id');
-                const fromIndex = parseInt(e.dataTransfer.getData('application/x-dream-device-index'), 10);
-                if (!draggedId || Number.isNaN(fromIndex) || fromIndex === deviceIndex || !selectedTrack) return;
+                if (!draggedId || !selectedTrack) return;
+                if (!canReorderThisDevice || !effectIdSet.has(draggedId)) return;
+
+                const fromEffectIndex = effectIds.findIndex((id) => id === draggedId);
+                const targetEffectIndex = effectIds.findIndex((id) => id === device.id);
+                if (fromEffectIndex < 0 || targetEffectIndex < 0 || fromEffectIndex === targetEffectIndex) return;
+
                 const rect = e.currentTarget.getBoundingClientRect();
                 const midX = rect.left + rect.width / 2;
                 const isLeftHalf = e.clientX < midX;
-                let targetIdx = isLeftHalf ? deviceIndex : deviceIndex + 1;
-                if (fromIndex < targetIdx) targetIdx = Math.max(0, targetIdx - 1);
+                let targetIdx = isLeftHalf ? targetEffectIndex : targetEffectIndex + 1;
+                if (fromEffectIndex < targetIdx) targetIdx = Math.max(0, targetIdx - 1);
+                targetIdx = Math.max(0, Math.min(targetIdx, effectIds.length - 1));
+
                 void engineApi
                     .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, targetIdx)
                     .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot'))
@@ -54,6 +70,7 @@ export function DeviceSlot({
             <DeviceNode
                 device={device}
                 deviceIndex={deviceIndex}
+                canReorder={canReorderThisDevice}
                 isSelected={logic.selectedDeviceIds.includes(device.id)}
                 editorSupported={logic.pluginCapability[device.id]?.supported ?? true}
                 editorReason={logic.pluginCapability[device.id]?.reason}
@@ -65,11 +82,6 @@ export function DeviceSlot({
                     logic.statusClear();
                 }}
                 onOpenSettings={() => {
-                    if (device.source === 'internal' && device.effectType === 'utility') {
-                        logic.selectDevice(device.id, false);
-                        logic.statusClear();
-                        return;
-                    }
                     logic.selectDevice(device.id, false);
                     logic.setInlineSettingsOpen((prev) => ({ ...prev, [device.id]: !prev[device.id] }));
                     logic.statusClear();
@@ -81,7 +93,7 @@ export function DeviceSlot({
                         gestureKey: gestureKey && logic.activeParamGesturesRef.current.has(gestureKey) ? gestureKey : undefined,
                     });
                 }}
-                onParamGestureStart={(paramName) => logic.beginParamGesture(device.id, paramName)}
+                onParamGestureStart={(paramName, gestureGroupId) => logic.beginParamGesture(device.id, paramName, gestureGroupId)}
                 onParamGestureEnd={(paramName) => logic.endParamGesture(device.id, paramName)}
                 onApplyQuickPreset={(preset) => logic.applyQuickPreset(device, preset)}
                 onRandomize={() => logic.randomizeInternalPluginParams(device)}
@@ -92,7 +104,7 @@ export function DeviceSlot({
                 snapshotState={logic.paramSnapshotsByDevice[device.id]}
                 onApplyUtilityScene={(scene) => logic.applyQuickUtilityScene(device, scene)}
                 onParamContextMenu={(e, paramName) => logic.handleParamContextMenu(e, paramName, device.id)}
-                showSettings={device.effectType === 'utility' ? false : !!logic.inlineSettingsOpen[device.id]}
+                showSettings={!!logic.inlineSettingsOpen[device.id]}
                 sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
                 sidechainOptions={logic.sidechainOptions}
                 onSidechainSourceChange={(sourceTrackId) => {

@@ -4,6 +4,7 @@ import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
+    getParamValue,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
@@ -29,18 +30,17 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const isExternalFx = normalizedInternalId === 'internal://effect/external-audio-effect';
         const isAutoShift = normalizedInternalId === 'internal://effect/auto-shift';
         const isShifter = normalizedInternalId === 'internal://effect/shifter';
-        const gain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 0;
-        const pan = device.params.find((p) => p.name.toLowerCase() === 'pan')?.value ?? 0;
-        const width = device.params.find((p) => p.name.toLowerCase() === 'width')?.value ?? 100;
-        const mono = (device.params.find((p) => p.name.toLowerCase() === 'mono')?.value ?? 0) > 0.5;
+        const isUtilityVariant = isTuner || isExternalFx || isAutoShift || isShifter;
+        const gain = getParamValue(device, ['gain', 'output', 'level'], 0);
+        const pan = getParamValue(device, ['pan'], 0);
+        const width = getParamValue(device, ['width', 'stereo'], 100);
+        const mono = getParamValue(device, ['mono'], 0) > 0.5;
         const panPct = Math.max(-1, Math.min(1, pan / 100));
         const widthPct = Math.max(0, Math.min(1, width / 200));
-        const shiftAmount = device.params.find((p) => p.name.toLowerCase().includes('shift'))?.value
-            ?? device.params.find((p) => p.name.toLowerCase().includes('semitone'))?.value
-            ?? 0;
         const hasUtilityCoreParams = device.params.some((p) => ['gain', 'pan', 'width', 'mono'].includes(p.name.toLowerCase()));
+        const showCoreUtilityPanel = hasUtilityCoreParams && !isUtilityVariant;
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-utility)',
@@ -49,7 +49,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     gap: 10,
                     alignItems: 'center',
                 }}>
-                    {hasUtilityCoreParams ? (
+                    {showCoreUtilityPanel ? (
                         <>
                             <div>
                                 <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-9fa7b5)', marginBottom: 4 }}>Pan</div>
@@ -114,8 +114,10 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             )}
                             {(isAutoShift || isShifter) && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
-                                    <div style={{ fontSize: 'var(--font-size-2xl)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mode</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-mono)' }}>
+                                        Compatibility alias (Utility DSP)
+                                    </div>
                                 </div>
                             )}
                             {isExternalFx && (
@@ -126,8 +128,8 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         </>
                     )}
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 4).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -156,7 +158,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const attackNorm = Math.max(0, Math.min(1, Math.log10(Math.max(0.1, atkMs)) / Math.log10(200)));
         const releaseNorm = Math.max(0, Math.min(1, Math.log10(Math.max(1, relMs)) / Math.log10(1000)));
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-compressor)',
@@ -199,8 +201,8 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         </div>
                     )}
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.max(1, Math.min(4, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 4).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

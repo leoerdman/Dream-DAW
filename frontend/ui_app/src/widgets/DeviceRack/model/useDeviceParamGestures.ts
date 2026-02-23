@@ -21,6 +21,16 @@ export function useDeviceParamGestures(
 ) {
     const throttledParamSendsRef = useRef<Map<string, AdaptiveSender>>(new Map());
     const throttledExternalParamSendsRef = useRef<Map<string, AdaptiveSender>>(new Map());
+    const throttledExternalRuntimeSendsRef = useRef<Map<string, AdaptiveSender>>(new Map());
+    const throttledRuntimeSlotSendsRef = useRef<
+        Map<
+            string,
+            {
+                queue: (paramIndex: number, value: number) => void;
+                cancel: () => void;
+            }
+        >
+    >(new Map());
     const adaptiveParamIntervalMsRef = useRef<number>(24);
     const pendingGestureCommitsRef = useRef<Map<string, Map<string, PendingGestureCommit>>>(new Map());
     const activeParamGesturesRef = useRef<Set<string>>(new Set());
@@ -47,7 +57,9 @@ export function useDeviceParamGestures(
                     const startedAt = performance.now();
                     lastSentAt = startedAt;
                     void Promise.resolve(emit(payload.value, payload.pushUndoStep))
-                        .catch(() => { /* Errors are handled by caller. */ })
+                        .catch((err) => {
+                            console.error('[DeviceRack] parameter send failed:', err);
+                        })
                         .finally(() => {
                             const elapsed = Math.max(1, performance.now() - startedAt);
                             const target = Math.max(16, Math.min(48, elapsed * 1.25));
@@ -66,7 +78,9 @@ export function useDeviceParamGestures(
                         const startedAt = performance.now();
                         lastSentAt = startedAt;
                         void Promise.resolve(emit(value, true))
-                            .catch(() => { /* Errors are handled by caller. */ })
+                            .catch((err) => {
+                                console.error('[DeviceRack] parameter send failed:', err);
+                            })
                             .finally(() => {
                                 const elapsed = Math.max(1, performance.now() - startedAt);
                                 const target = Math.max(16, Math.min(48, elapsed * 1.25));
@@ -81,6 +95,57 @@ export function useDeviceParamGestures(
                 cancel: () => {
                     if (timer != null) { window.clearTimeout(timer); timer = null; }
                     pending = null;
+                },
+            };
+        },
+        [],
+    );
+
+    const createAdaptiveRuntimeBatchSender = useCallback(
+        (
+            emit: (updates: Array<{ paramIndex: number; value: number }>) => Promise<void> | void,
+        ): { queue: (paramIndex: number, value: number) => void; cancel: () => void } => {
+            let timer: number | null = null;
+            const pendingByParam = new Map<number, number>();
+            let lastSentAt = 0;
+
+            const schedule = () => {
+                if (timer != null || pendingByParam.size === 0) return;
+                const now = performance.now();
+                const delay = Math.max(0, adaptiveParamIntervalMsRef.current - (now - lastSentAt));
+                timer = window.setTimeout(() => {
+                    timer = null;
+                    if (pendingByParam.size === 0) return;
+                    const payload = Array.from(pendingByParam.entries()).map(([paramIndex, value]) => ({
+                        paramIndex,
+                        value,
+                    }));
+                    pendingByParam.clear();
+                    const startedAt = performance.now();
+                    lastSentAt = startedAt;
+                    void Promise.resolve(emit(payload))
+                        .catch(() => { /* Errors are handled by caller. */ })
+                        .finally(() => {
+                            const elapsed = Math.max(1, performance.now() - startedAt);
+                            const target = Math.max(16, Math.min(48, elapsed * 1.25));
+                            adaptiveParamIntervalMsRef.current =
+                                adaptiveParamIntervalMsRef.current * 0.7 + target * 0.3;
+                            if (pendingByParam.size > 0) schedule();
+                        });
+                }, delay);
+            };
+
+            return {
+                queue: (paramIndex: number, value: number) => {
+                    pendingByParam.set(paramIndex, value);
+                    schedule();
+                },
+                cancel: () => {
+                    if (timer != null) {
+                        window.clearTimeout(timer);
+                        timer = null;
+                    }
+                    pendingByParam.clear();
                 },
             };
         },
@@ -117,18 +182,30 @@ export function useDeviceParamGestures(
                 const clamped = Math.min(1, Math.max(0, normalized));
 
                 const key = `${selectedTrack.id}:${device.id}:${paramIndex}`;
-                let sender = throttledExternalParamSendsRef.current.get(key);
-                if (!sender) {
-                    sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
-                        const response = await engineApi.setExternalPluginParamForSlotWithDeltas(selectedTrack.id, device.id, paramIndex, v, {
-                            pushUndoStep: pushUndo,
+                if (effectiveGestureKey) {
+                    let runtimeSender = throttledExternalRuntimeSendsRef.current.get(key);
+                    if (!runtimeSender) {
+                        runtimeSender = createAdaptiveParamSender(async (v: number) => {
+                            await engineApi.setExternalPluginParamForSlot(selectedTrack.id, device.id, paramIndex, v, {
+                                pushUndoStep: false,
+                            });
                         });
-                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-gesture');
-                    });
-                    throttledExternalParamSendsRef.current.set(key, sender);
+                        throttledExternalRuntimeSendsRef.current.set(key, runtimeSender);
+                    }
+                    runtimeSender.send(clamped, false);
+                } else {
+                    let sender = throttledExternalParamSendsRef.current.get(key);
+                    if (!sender) {
+                        sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
+                            const response = await engineApi.setExternalPluginParamForSlotWithDeltas(selectedTrack.id, device.id, paramIndex, v, {
+                                pushUndoStep: pushUndo,
+                            });
+                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-gesture');
+                        });
+                        throttledExternalParamSendsRef.current.set(key, sender);
+                    }
+                    sender.send(clamped, pushUndoStep);
                 }
-
-                sender.send(clamped, pushUndoStep);
                 if (effectiveGestureKey) {
                     const bucket = pendingGestureCommitsRef.current.get(effectiveGestureKey) ?? new Map();
                     bucket.set(`${device.id}:${paramIndex}`, {
@@ -149,20 +226,29 @@ export function useDeviceParamGestures(
                 ? MASTER_TRACK_INDEX
                 : (trackIndexById.get(selectedTrack.id) ?? -1);
             const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
-            const pushPluginParam = (paramIndex: number, paramValue: number) => {
-                if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return;
-                void engineApi.setDeviceParam(trackIdx, effectSlotIdx, paramIndex, paramValue).catch((err) => {
-                    console.error('[DeviceRack] setDeviceParam failed:', err);
-                });
+            const pushPluginParam = (paramIndex: number, paramValue: number): boolean => {
+                if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return false;
+                const runtimeKey = `${selectedTrack.id}:${device.id}:runtime-slot`;
+                let sender = throttledRuntimeSlotSendsRef.current.get(runtimeKey);
+                if (!sender) {
+                    sender = createAdaptiveRuntimeBatchSender(async (updates) => {
+                        await engineApi.setDeviceParamsRuntime(trackIdx, effectSlotIdx, updates);
+                    });
+                    throttledRuntimeSlotSendsRef.current.set(runtimeKey, sender);
+                }
+                // Runtime path should be smooth but rate-limited to avoid audio thread contention.
+                sender.queue(paramIndex, paramValue);
+                return true;
             };
 
+            let runtimePushed = false;
             if (device.source === 'internal') {
                 const effectMap = RUNTIME_PARAM_INDEX_BY_EFFECT[device.effectType];
                 if (effectMap) {
                     const key = paramName.toLowerCase();
                     const index = effectMap[key];
                     if (index != null) {
-                        pushPluginParam(index, value);
+                        runtimePushed = pushPluginParam(index, value);
                     }
                 }
             }
@@ -170,22 +256,6 @@ export function useDeviceParamGestures(
             const paramId = internalParamIdForControl(device.effectType, paramName);
             const scopedParamId = `slot:${device.id}:${paramId}`;
             const key = `${selectedTrack.id}:${device.id}:${scopedParamId}`;
-
-            let sender = throttledParamSendsRef.current.get(key);
-            if (!sender) {
-                sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
-                    const response = await engineApi.setInternalPluginParamWithDeltas(
-                        selectedTrack.id,
-                        device.id,
-                        scopedParamId,
-                        v,
-                        { pushUndoStep: pushUndo },
-                    );
-                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-gesture');
-                });
-                throttledParamSendsRef.current.set(key, sender);
-            }
-            sender.send(value, pushUndoStep);
             if (effectiveGestureKey) {
                 const bucket = pendingGestureCommitsRef.current.get(effectiveGestureKey) ?? new Map();
                 bucket.set(`${device.id}:${scopedParamId}`, {
@@ -196,9 +266,59 @@ export function useDeviceParamGestures(
                     value,
                 });
                 pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
+                // For devices/params without a runtime slot path (e.g. instrument/sampler),
+                // keep audio responsive during drag by sending non-undo live updates.
+                if (!runtimePushed) {
+                    const liveKey = `${selectedTrack.id}:${device.id}:${scopedParamId}:live`;
+                    let liveSender = throttledParamSendsRef.current.get(liveKey);
+                    if (!liveSender) {
+                        liveSender = createAdaptiveParamSender(async (v: number) => {
+                            await engineApi.setInternalPluginParam(
+                                selectedTrack.id,
+                                device.id,
+                                scopedParamId,
+                                v,
+                                { pushUndoStep: false },
+                            );
+                        });
+                        throttledParamSendsRef.current.set(liveKey, liveSender);
+                    }
+                    liveSender.send(value, false);
+                }
+                return;
             }
+
+            let sender = throttledParamSendsRef.current.get(key);
+            if (!sender) {
+                sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
+                    try {
+                        const response = await engineApi.setInternalPluginParamWithDeltas(
+                            selectedTrack.id,
+                            device.id,
+                            scopedParamId,
+                            v,
+                            { pushUndoStep: pushUndo },
+                        );
+                        if (response.deltas.length > 0) {
+                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-gesture');
+                        }
+                    } catch (err) {
+                        // Fallback: apply command even when delta envelope cannot be produced.
+                        console.warn('[DeviceRack] setInternalPluginParamWithDeltas failed, falling back:', err);
+                        await engineApi.setInternalPluginParam(
+                            selectedTrack.id,
+                            device.id,
+                            scopedParamId,
+                            v,
+                            { pushUndoStep: pushUndo },
+                        );
+                    }
+                });
+                throttledParamSendsRef.current.set(key, sender);
+            }
+            sender.send(value, pushUndoStep);
         },
-        [selectedTrack, isMaster, createAdaptiveParamSender, trackIndexById],
+        [selectedTrack, isMaster, createAdaptiveParamSender, createAdaptiveRuntimeBatchSender, trackIndexById],
     );
 
     const beginParamGesture = useCallback((deviceId: string, paramName: string, gestureGroupId?: string) => {
@@ -241,8 +361,23 @@ export function useDeviceParamGestures(
                 void engineApi.setInternalPluginParamWithDeltas(
                     entry.trackId, entry.deviceId, scopedParamId, entry.value,
                     { pushUndoStep: index === 0 },
-                ).then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit')).catch((err) => {
-                    console.error('[DeviceRack] setInternalPluginParam(commit) failed:', err);
+                ).then(async (response) => {
+                    if (response.deltas.length > 0) {
+                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-commit');
+                    }
+                }).catch(async (err) => {
+                    console.warn('[DeviceRack] setInternalPluginParamWithDeltas(commit) failed, falling back:', err);
+                    try {
+                        await engineApi.setInternalPluginParam(
+                            entry.trackId,
+                            entry.deviceId,
+                            scopedParamId,
+                            entry.value,
+                            { pushUndoStep: index === 0 },
+                        );
+                    } catch (fallbackErr) {
+                        console.error('[DeviceRack] setInternalPluginParam(commit) fallback failed:', fallbackErr);
+                    }
                 });
             });
         }
@@ -283,8 +418,12 @@ export function useDeviceParamGestures(
     const cleanupGestures = useCallback(() => {
         throttledParamSendsRef.current.forEach((s) => s.cancel());
         throttledExternalParamSendsRef.current.forEach((s) => s.cancel());
+        throttledExternalRuntimeSendsRef.current.forEach((s) => s.cancel());
+        throttledRuntimeSlotSendsRef.current.forEach((s) => s.cancel());
         throttledParamSendsRef.current.clear();
         throttledExternalParamSendsRef.current.clear();
+        throttledExternalRuntimeSendsRef.current.clear();
+        throttledRuntimeSlotSendsRef.current.clear();
         pendingGestureCommitsRef.current.clear();
         activeParamGesturesRef.current.clear();
         pushedUndoForGestureRef.current.clear();

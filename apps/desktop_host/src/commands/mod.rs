@@ -296,6 +296,8 @@ pub(crate) fn invoke_handler()
         remove_device_cmd,
         bypass_device_cmd,
         set_device_param_cmd,
+        set_device_param_runtime_cmd,
+        set_device_params_runtime_cmd,
         // Device Rack
         create_rack_from_devices_cmd,
         add_chain_to_rack_cmd,

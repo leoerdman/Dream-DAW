@@ -54,12 +54,16 @@ export function extractSnapshotProjectMeta(
         project.view_scroll_position ?? project.sequencer_navigator_scroll_x ?? Number.NaN,
         Number.NaN,
     );
-    const hasViewport = Number.isFinite(rawViewZoom) || Number.isFinite(rawViewScroll);
+    const rawViewScrollTop = toFiniteNumber(project.sequencer_navigator_scroll_y ?? Number.NaN, Number.NaN);
+    const hasViewport = Number.isFinite(rawViewZoom) || Number.isFinite(rawViewScroll) || Number.isFinite(rawViewScrollTop);
     const viewportPixelsPerBeat = Number.isFinite(rawViewZoom)
         ? Math.max(0.5, Math.min(2000, rawViewZoom))
         : undefined;
     const viewportScrollLeft = Number.isFinite(rawViewScroll)
         ? Math.max(0, rawViewScroll)
+        : undefined;
+    const viewportScrollTop = Number.isFinite(rawViewScrollTop)
+        ? Math.max(0, rawViewScrollTop)
         : undefined;
 
     return {
@@ -82,6 +86,7 @@ export function extractSnapshotProjectMeta(
             ? {
                 pixelsPerBeat: viewportPixelsPerBeat,
                 scrollLeft: viewportScrollLeft,
+                scrollTop: viewportScrollTop,
             }
             : undefined,
     };

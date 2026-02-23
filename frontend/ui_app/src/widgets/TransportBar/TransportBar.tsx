@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useClickOutside } from '@/shared/hooks/useClickOutside';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
-import { useTransportEngineSlice } from './model/useTransportEngineSlice';
+import { useTransportEngineSlice, usePositionRef } from './model/useTransportEngineSlice';
 import {
-    computeTransportPosition,
     KEY_MODES,
     KEY_TONICS,
     resolveKeyModeIndex,
@@ -17,6 +17,26 @@ import { useMidiActivityLed } from './model/useMidiActivityLed';
 import { useTransportRecording } from './model/useTransportRecording';
 import { TransportCenterSection, TransportLeftSection, TransportRightSection } from './ui/TransportSections';
 import { TRANSPORT_UI } from './ui/TransportAtoms';
+
+// BUG-15 FIX: Module-level const — no longer recreated every render.
+const valueChipStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 600,
+    color: 'var(--color-text-primary)',
+    background: TRANSPORT_UI.controlBg,
+    borderRadius: TRANSPORT_UI.controlRadius,
+    padding: '0 8px',
+    minWidth: 56,
+    height: TRANSPORT_UI.controlHeight,
+    lineHeight: `${TRANSPORT_UI.controlHeight}px`,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+    border: TRANSPORT_UI.controlBorder,
+    cursor: 'pointer',
+};
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -34,6 +54,7 @@ interface TransportBarProps {
 
 export const TransportBar = ({
     onSettingsClick,
+    onOpenExport,
     onRecordingStateChange,
     followPlayhead = false,
     onFollowPlayheadChange,
@@ -51,7 +72,6 @@ export const TransportBar = ({
         loopStartFrames,
         loopEndFrames,
         sampleRate,
-        posBeats,
         togglePlay,
         engineStop,
         engineSetBpm,
@@ -77,6 +97,13 @@ export const TransportBar = ({
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
 
+    // BUG-7 FIX: Sync bpmText when engine BPM changes externally (automation, MIDI controller).
+    useEffect(() => {
+        if (!bpmEditing) {
+            setBpmText(bpm.toFixed(2));
+        }
+    }, [bpm, bpmEditing]);
+
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
     const [keyMenuOpen, setKeyMenuOpen] = useState(false);
@@ -88,7 +115,10 @@ export const TransportBar = ({
     const keyTonic = resolveKeyTonicIndex(storeKeySigTonic);
     const keyMode = resolveKeyModeIndex(storeKeySigMode);
 
-    const position = computeTransportPosition(posBeats, timeSigNum);
+    // PERF-FIX: Position display is now ref-based (zero React re-renders).
+    // posRef is attached to the position <span> in TransportCenterSection.
+    // readPosBeats() provides imperative access for loop toggle.
+    const { posRef, posBeatsRef, readPosBeats } = usePositionRef(timeSigNum);
 
     const tapTimestamps = useRef<number[]>([]);
     const { midiLedRef } = useMidiActivityLed();
@@ -132,78 +162,59 @@ export const TransportBar = ({
         }
     }, [engineSetBpm]);
 
-    const commitBpm = () => {
-        const val = parseFloat(bpmText);
-        if (!isNaN(val) && val >= 20 && val <= 999) {
-            const rounded = Math.round(val * 100) / 100;
-            engineSetBpm(rounded);
-            setBpmText(rounded.toFixed(2));
-        } else {
-            setBpmText(bpm.toFixed(2));
-        }
+    // BUG-13 FIX: Wrapped in useCallback to prevent unnecessary re-renders of TransportLeftSection.
+    const commitBpm = useCallback(() => {
+        setBpmText((prev) => {
+            const val = parseFloat(prev);
+            if (!isNaN(val) && val >= 20 && val <= 999) {
+                const rounded = Math.round(val * 100) / 100;
+                engineSetBpm(rounded);
+                return rounded.toFixed(2);
+            }
+            return bpm.toFixed(2);
+        });
         setBpmEditing(false);
-    };
+    }, [bpm, engineSetBpm]);
 
-    const setKeyTonicAt = (index: number) => {
+    // BUG-14 FIX: All 4 handlers wrapped in useCallback.
+    const setKeyTonicAt = useCallback((index: number) => {
         const next = Math.max(0, Math.min(KEY_TONICS.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'));
-    };
-    const setKeyModeAt = (index: number) => {
+    }, [keyEnabled, keyMode]);
+    const setKeyModeAt = useCallback((index: number) => {
         const next = Math.max(0, Math.min(KEY_MODES.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'));
-    };
-    const toggleKeyEnabled = () => {
+    }, [keyEnabled, keyTonic]);
+    const toggleKeyEnabled = useCallback(() => {
         const next = !keyEnabled;
         void engineApi
             .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
-    };
-    const cycleTimeSignature = () => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length);
-    const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
-    const valueChipStyle: React.CSSProperties = {
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--font-size-xs)',
-        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-        color: 'var(--color-text-primary)',
-        background: TRANSPORT_UI.controlBg,
-        borderRadius: TRANSPORT_UI.controlRadius,
-        padding: '0 var(--space-2)',
-        minWidth: 56,
-        height: TRANSPORT_UI.controlHeight,
-        lineHeight: `${TRANSPORT_UI.controlHeight}px`,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-        border: TRANSPORT_UI.controlBorder,
-        cursor: 'pointer',
-    };
+    }, [keyEnabled, keyTonic, keyMode]);
+    const cycleTimeSignature = useCallback(() => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length), []);
 
+    // BUG-11 FIX: Replaced 2 inline click-outside effects with shared useClickOutside hook.
+    const closeKeyMenu = useCallback(() => setKeyMenuOpen(false), []);
+    const closeGridMenu = useCallback(() => setGridOpen(false), []);
+    useClickOutside(keyMenuRef, closeKeyMenu, keyMenuOpen);
+    useClickOutside(gridRef, closeGridMenu, gridOpen);
+
+    // BUG-42 FIX: Escape key closes open menus.
     useEffect(() => {
-        if (!keyMenuOpen) return;
-        const onDown = (e: MouseEvent) => {
-            if (keyMenuRef.current && !keyMenuRef.current.contains(e.target as Node)) {
-                setKeyMenuOpen(false);
+        if (!keyMenuOpen && !gridOpen) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (keyMenuOpen) setKeyMenuOpen(false);
+                if (gridOpen) setGridOpen(false);
             }
         };
-        document.addEventListener('mousedown', onDown);
-        return () => document.removeEventListener('mousedown', onDown);
-    }, [keyMenuOpen]);
-
-    useEffect(() => {
-        if (!gridOpen) return;
-        const onDown = (e: MouseEvent) => {
-            if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
-                setGridOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', onDown);
-        return () => document.removeEventListener('mousedown', onDown);
-    }, [gridOpen]);
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [keyMenuOpen, gridOpen]);
 
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
@@ -250,7 +261,7 @@ export const TransportBar = ({
                     loopEndFrames={loopEndFrames}
                     sampleRate={sampleRate}
                     bpm={bpm}
-                    posBeats={posBeats}
+                    readPosBeats={readPosBeats}
                     timeSigNum={timeSigNum}
                     engineSetLoop={engineSetLoop}
                     followPlayhead={followPlayhead}
@@ -261,7 +272,7 @@ export const TransportBar = ({
                     onAutomationToggle={onAutomationToggle}
                     onFitTimelineHorizontally={onFitTimelineHorizontally}
                     onResetTrackHeights={onResetTrackHeights}
-                    posString={posString}
+                    posRef={posRef}
                     valueChipStyle={valueChipStyle}
                 />
 
@@ -271,6 +282,7 @@ export const TransportBar = ({
                     setPdcOpen={setPdcOpen}
                     assistantOpen={assistantOpen}
                     onAssistantToggle={onAssistantToggle}
+                    onOpenExport={onOpenExport}
                     onSettingsClick={onSettingsClick}
                 />
                 {pdcOpen && (
@@ -291,7 +303,7 @@ export const TransportBar = ({
                         telemetryRunning={telemetryRunning}
                         isPlaying={isPlaying}
                         bpm={bpm}
-                        posString={posString}
+                        posString={`${posBeatsRef.current.toFixed(2)}`}
                         sampleRate={sampleRate}
                         trackCount={trackCount}
                         engineLastError={engineLastError ?? ''}

@@ -152,7 +152,6 @@ export function usePianoRollLogic(props: PianoRollProps) {
         trackIndex,
         notes,
         clipLengthBeats,
-        totalBars,
         noteHeight,
         setNoteHeight,
         setZoomOverrideH,

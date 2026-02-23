@@ -1,7 +1,7 @@
 import React from 'react';
 import {
-    EQ_FILTER_ICONS,
     EQ_FILTER_LABELS,
+    EQ_FILTER_TYPE_TO_INDEX,
     bandDotY,
     freqToX,
     type EqBand8,
@@ -42,8 +42,8 @@ export function EqBandOverlays({
                 const leftPct = (bx / vbW) * 100;
                 const topPct = (by / vbH) * 100;
                 const isActive = dragEqBand === band.idx || selectedEqBand === band.idx;
-                const iconPath = EQ_FILTER_ICONS[band.filterType] ?? EQ_FILTER_ICONS.peaking;
-                const DOT_SIZE = 18;
+                const DOT_SIZE = isActive ? 16 : 14;
+                const bandColor = band.color;
                 return (
                     <div
                         key={band.idx}
@@ -57,6 +57,7 @@ export function EqBandOverlays({
                         }}
                         onMouseDown={(e) => {
                             if (e.button === 2) return;
+                            e.preventDefault();
                             e.stopPropagation();
                             setSelectedEqBand(band.idx);
                             beginEqBandGesture(band.idx);
@@ -68,6 +69,7 @@ export function EqBandOverlays({
                             setEqContextMenu({ x: e.clientX, y: e.clientY, bandIdx: band.idx });
                         }}
                         onDoubleClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             onParamChange(`B${band.idx}En`, 0);
                         }}
@@ -78,12 +80,12 @@ export function EqBandOverlays({
                                     position: 'absolute',
                                     left: '50%',
                                     top: '50%',
-                                    width: 32,
-                                    height: 32,
+                                    width: 28,
+                                    height: 28,
                                     transform: 'translate(-50%, -50%)',
                                     borderRadius: '50%',
-                                    border: `var(--space-px) solid ${band.color}`,
-                                    opacity: 0.5,
+                                    background: `color-mix(in srgb, ${bandColor} 18%, transparent)`,
+                                    border: `1.5px solid color-mix(in srgb, ${bandColor} 50%, transparent)`,
                                 }}
                             />
                         )}
@@ -92,24 +94,13 @@ export function EqBandOverlays({
                                 width: DOT_SIZE,
                                 height: DOT_SIZE,
                                 borderRadius: '50%',
-                                background: 'var(--token-color-rgba-0-0-0-0d75)',
-                                border: `var(--space-0-5) solid ${band.color}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                background: bandColor,
+                                boxShadow: isActive
+                                    ? `0 0 8px color-mix(in srgb, ${bandColor} 60%, transparent)`
+                                    : `0 0 4px color-mix(in srgb, ${bandColor} 30%, transparent)`,
+                                transition: 'width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease',
                             }}
-                        >
-                            <svg width={12} height={12} viewBox="0 0 10 10" style={{ overflow: 'visible' }}>
-                                <path
-                                    d={iconPath}
-                                    fill="none"
-                                    stroke={band.color}
-                                    strokeWidth="1.4"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                />
-                            </svg>
-                        </div>
+                        />
                         {isActive && (
                             <div
                                 style={{
@@ -118,7 +109,7 @@ export function EqBandOverlays({
                                     left: '50%',
                                     transform: 'translateX(-50%)',
                                     marginBottom: 4,
-                                    color: band.color,
+                                    color: bandColor,
                                     fontSize: 10,
                                     fontWeight: 600,
                                     fontFamily: 'Inter, sans-serif',
@@ -165,8 +156,8 @@ export function EqBandContextMenu({
                     ? { bottom: window.innerHeight - eqContextMenu.y }
                     : { top: eqContextMenu.y }),
                 zIndex: 9999,
-                background: 'var(--color-bg-elevated, var(--token-color-hex-1e2128))',
-                border: 'var(--space-px) solid var(--token-color-rgba-90-178-255-0d2)',
+                background: 'var(--color-bg-elevated)',
+                border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 16%, transparent)',
                 borderRadius: 6,
                 padding: 'var(--space-1) 0',
                 boxShadow: '0 var(--space-2) var(--space-8) var(--token-color-rgba-0-0-0-0d6)',
@@ -182,32 +173,24 @@ export function EqBandContextMenu({
                         fontSize: 12,
                         color:
                             bands[eqContextMenu.bandIdx].filterType === type
-                                ? 'var(--token-color-hex-5ab2ff)'
-                                : 'var(--token-color-rgba-220-230-240-0d85)',
+                                ? 'var(--color-text-primary)'
+                                : 'color-mix(in srgb, var(--color-text-primary) 72%, transparent)',
                         cursor: 'pointer',
                         fontWeight: bands[eqContextMenu.bandIdx].filterType === type ? 700 : 400,
                     }}
                     onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = 'var(--token-color-rgba-90-178-255-0d12)';
+                        (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';
                     }}
                     onMouseLeave={(e) => {
                         (e.currentTarget as HTMLElement).style.background = 'transparent';
                     }}
                     onClick={() => {
-                        const FILTER_TYPE_MAP: Record<string, number> = {
-                            highpass: 0,
-                            lowpass: 1,
-                            lowshelf: 2,
-                            highshelf: 3,
-                            peaking: 4,
-                            notch: 5,
-                        };
                         setEqBandFilterTypes((prev) => {
                             const next = [...prev];
                             next[eqContextMenu.bandIdx] = type;
                             return next;
                         });
-                        const typeValue = FILTER_TYPE_MAP[type] ?? 4;
+                        const typeValue = EQ_FILTER_TYPE_TO_INDEX[type] ?? 4;
                         onParamChange(`B${eqContextMenu.bandIdx}Type`, typeValue);
                         setEqContextMenu(null);
                     }}

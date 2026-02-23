@@ -172,13 +172,18 @@ export const ExportModal = ({
         }
     }, [exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate]);
 
-    if (!isOpen) return null;
+    // BUG-51 FIX: Memoize rangeOptions to avoid re-creating array every render.
+    // MUST be before the early-return to satisfy Rules of Hooks (constant hook count).
+    const rangeOptions = useMemo(() => {
+        const opts: { value: ExportRange; label: string }[] = [
+            { value: 'full', label: 'Full Project' },
+            { value: 'loop', label: 'Loop Region' },
+        ];
+        if (hasSelection) opts.push({ value: 'selected', label: 'Selected' });
+        return opts;
+    }, [hasSelection]);
 
-    const rangeOptions: { value: ExportRange; label: string }[] = [
-        { value: 'full', label: 'Full Project' },
-        { value: 'loop', label: 'Loop Region' },
-    ];
-    if (hasSelection) rangeOptions.push({ value: 'selected', label: 'Selected' });
+    if (!isOpen) return null;
 
     return (
         <>

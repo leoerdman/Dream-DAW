@@ -16,45 +16,59 @@ export function useDawShellGlobalShortcuts(args: {
 }): void {
     const { setSettingsOpen, setExportOpen, setMainViewMode, setBottomPanelModeForActiveTrack } = args;
     useEffect(() => {
+        const openExportPanel = () => {
+            setExportOpen(true);
+            window.dispatchEvent(new CustomEvent('dream:open-export'));
+        };
+
+        const isEditableTarget = (target: EventTarget | null): boolean => {
+            const el = target as HTMLElement | null;
+            if (!el) return false;
+            const tag = el.tagName?.toLowerCase();
+            return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+        };
+
+        const isMod = (e: KeyboardEvent): boolean => e.metaKey || e.ctrlKey;
+
         const handler = (e: KeyboardEvent) => {
-            if (e.metaKey && e.key === ',') {
+            if (e.defaultPrevented || e.isComposing) return;
+
+            if (isMod(e) && !e.shiftKey && !e.altKey && e.code === 'Comma') {
                 e.preventDefault();
                 setSettingsOpen((prev) => !prev);
-            }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyR') {
-                e.preventDefault();
-                setExportOpen(true);
                 return;
             }
+
+            if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyR') {
+                e.preventDefault();
+                e.stopPropagation();
+                openExportPanel();
+                return;
+            }
+
             if (e.key === 'Tab' && !e.shiftKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
+                if (isEditableTarget(e.target)) return;
                 e.preventDefault();
                 setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
                 return;
             }
+
             if (e.key === 'Tab' && e.shiftKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
+                if (isEditableTarget(e.target)) return;
                 e.preventDefault();
                 setBottomPanelModeForActiveTrack((prev) => (prev === 'rack' ? 'clip' : 'rack'));
                 return;
             }
-            if (e.key === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                const target = e.target as HTMLElement | null;
-                const tag = target?.tagName?.toLowerCase();
-                const isTextInput = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
-                if (isTextInput) return;
+
+            if (e.code === 'KeyA' && !isMod(e) && !e.altKey && !e.shiftKey) {
+                if (isEditableTarget(e.target)) return;
                 e.preventDefault();
                 useAutomationStore.getState().toggleGlobalVisible();
             }
         };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
+
+        window.addEventListener('keydown', handler, { capture: true });
+        return () => window.removeEventListener('keydown', handler, { capture: true } as EventListenerOptions);
     }, [setBottomPanelModeForActiveTrack, setSettingsOpen, setExportOpen, setMainViewMode]);
 }
 

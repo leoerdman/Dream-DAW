@@ -543,10 +543,15 @@ impl OfflineBouncer {
         // Phase 1: Fill source track slots with audio clips
         render_ctx.read_audio_clips_into_tracks(frame_count, ctx.clips_per_track, ctx.clip_pool);
 
-        // CRITICAL FIX: Advance the playhead after reading clips.
+        // ── CRITICAL: Capture playhead BEFORE advancing for MIDI scheduling.
+        // MIDI events need to be scheduled at the CURRENT buffer's position,
+        // not the next buffer's. The real-time driver also reads the playhead
+        // before advancing.
+        let playhead_pos = render_ctx.playhead.position();
+
+        // Advance the playhead AFTER capturing for scheduling.
         render_ctx.advance_playhead_by_frames(frame_count);
 
-        let playhead_pos = render_ctx.playhead.position();
         let sample_rate = render_ctx.sample_rate;
         let track_slots_len = render_ctx.track_slots.len();
 

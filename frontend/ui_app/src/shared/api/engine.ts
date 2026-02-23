@@ -173,6 +173,20 @@ export const moveEffectSlotWithDeltas = (trackId: string, slotId: string, target
 export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
     invoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });
 
+export const setDeviceParamRuntime = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
+    invoke<void>('set_device_param_runtime_cmd', { trackIndex, slotIndex, paramIndex, value });
+
+export type RuntimeDeviceParamUpdate = {
+    paramIndex: number;
+    value: number;
+};
+
+export const setDeviceParamsRuntime = (
+    trackIndex: number,
+    slotIndex: number,
+    updates: RuntimeDeviceParamUpdate[],
+) => invoke<void>('set_device_params_runtime_cmd', { trackIndex, slotIndex, updates });
+
 export const updateTrack = (update: TrackStateUpdate) =>
     invoke<void>('update_track', { update });
 
@@ -562,15 +576,18 @@ export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status'
 export interface ArrangementViewportState {
     pixels_per_beat: number | null;
     scroll_left: number | null;
+    scroll_top?: number | null;
 }
 
-export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number) =>
+export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number, scrollTop?: number) =>
     invoke<void>('set_arrangement_viewport_cmd', {
         // Keep both casings for cross-version compatibility of Tauri arg mapping.
         pixelsPerBeat,
         scrollLeft,
+        scrollTop,
         pixels_per_beat: pixelsPerBeat,
         scroll_left: scrollLeft,
+        scroll_top: scrollTop,
     });
 
 export const getArrangementViewport = () =>

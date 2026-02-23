@@ -45,7 +45,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const syncArrangementViewport = useCallback(async () => {
         const timeline = useTimelineStore.getState();
         try {
-            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save must not fail just because viewport persistence failed.
             console.warn('[ProjectManager] setArrangementViewport failed (non-fatal):', err);
@@ -227,26 +227,29 @@ export function useProjectManager(onProjectLoaded?: () => void) {
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
+            if (e.isComposing) return;
             const mod = e.metaKey || e.ctrlKey;
-            const key = e.key.toLowerCase();
+            if (!mod || e.altKey) return;
 
             // Cmd+S — Save
-            if (mod && key === 's' && !e.shiftKey) {
+            if (e.code === 'KeyS' && !e.shiftKey) {
                 e.preventDefault();
+                e.stopPropagation();
                 handleSave();
                 return;
             }
 
             // Cmd+Shift+S — Save As
-            if (mod && key === 's' && e.shiftKey) {
+            if (e.code === 'KeyS' && e.shiftKey) {
                 e.preventDefault();
+                e.stopPropagation();
                 handleSaveAs();
                 return;
             }
         };
 
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', onKeyDown, { capture: true });
+        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
     }, [handleSave, handleSaveAs]);
 
     // ── Auto-Backup Timer ─────────────────────────────────────────────

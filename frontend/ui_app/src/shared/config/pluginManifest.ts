@@ -31,6 +31,7 @@ export type DeviceEffectType =
     | 'distortion'
     | 'bitcrusher'
     | 'noiseMachine'
+    | 'analyzer'
     | 'spectrum'
     | 'midiPitch'
     | 'midiScale'
@@ -139,6 +140,17 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSidechain: true,
     },
     {
+        id: 'internal://effect/glue-compressor',
+        name: 'Glue Compressor',
+        category: 'effect',
+        effectType: 'compressor',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 520,
+        supportsSettings: true,
+        supportsSidechain: true,
+    },
+    {
         id: 'internal://effect/multiband-dynamics',
         name: 'Multiband Dynamics',
         category: 'effect',
@@ -187,6 +199,28 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
     {
         id: 'internal://effect/delay',
         name: 'Delay',
+        category: 'effect',
+        effectType: 'delay',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 520,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
+    {
+        id: 'internal://effect/simple-delay',
+        name: 'Simple Delay',
+        category: 'effect',
+        effectType: 'delay',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 520,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
+    {
+        id: 'internal://effect/filter-delay',
+        name: 'Filter Delay',
         category: 'effect',
         effectType: 'delay',
         format: 'INT',
@@ -365,6 +399,17 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSidechain: false,
     },
     {
+        id: 'internal://effect/phaser-flanger',
+        name: 'Phaser-Flanger',
+        category: 'effect',
+        effectType: 'phaser',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 360,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
+    {
         id: 'internal://effect/flanger',
         name: 'Flanger',
         category: 'effect',
@@ -508,7 +553,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         format: 'INT',
         hasEditor: false,
         cardWidth: 360,
-        supportsSettings: false,
+        supportsSettings: true,
         supportsSidechain: false,
     },
     {
@@ -583,7 +628,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://effect/analyzer',
         name: 'Analyzer',
         category: 'effect',
-        effectType: 'spectrum',
+        effectType: 'analyzer',
         format: 'INT',
         hasEditor: false,
         cardWidth: 520,
@@ -801,8 +846,9 @@ export function resolvePlugin(
     source: 'internal' | 'vst' | 'missing' | 'unknown',
     isInstrumentSlot = false,
 ): ResolvedPlugin {
-    // 1. Try exact internal lookup
-    const internal = INTERNAL_INDEX.get(pluginId);
+    // 1. Try normalized internal lookup (supports alias IDs from importers/legacy projects).
+    const normalizedInternalId = normalizeInternalPluginId(pluginId);
+    const internal = INTERNAL_INDEX.get(normalizedInternalId) ?? INTERNAL_INDEX.get(pluginId);
     if (internal) {
         return {
             effectType: internal.effectType,
@@ -843,7 +889,8 @@ export function resolvePlugin(
  * Use `resolvePlugin()` for new code.
  */
 export function getEffectTypeByPluginId(pluginId: string): DeviceEffectType | undefined {
-    return INTERNAL_INDEX.get(pluginId)?.effectType;
+    const normalizedInternalId = normalizeInternalPluginId(pluginId);
+    return INTERNAL_INDEX.get(normalizedInternalId)?.effectType ?? INTERNAL_INDEX.get(pluginId)?.effectType;
 }
 
 /**
@@ -857,3 +904,4 @@ export function formatBadgeColor(format: PluginFormat): string {
         case 'INT': return 'var(--color-text-tertiary)';
     }
 }
+import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';

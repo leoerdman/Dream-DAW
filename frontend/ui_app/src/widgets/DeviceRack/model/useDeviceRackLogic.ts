@@ -131,6 +131,7 @@ export function useDeviceRackLogic(
                         {
                             id: trackId,
                             name: track?.name ?? 'Track',
+                            instrumentId: track?.instrument?.id,
                             effects: track?.effects ?? [],
                         },
                     ] as const;
@@ -196,6 +197,7 @@ export function useDeviceRackLogic(
             ? {
                 id: core.selectedTrack.id,
                 name: core.selectedTrack.name ?? 'Track',
+                instrumentId: core.selectedTrack.instrument?.id,
                 effects: trackEffectRefs,
             }
             : null,
@@ -220,7 +222,11 @@ export function useDeviceRackLogic(
     }, [setSelectedDeviceIds]);
 
     const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {
-        setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
+        const key = `${deviceId}:${paramName}`;
+        setLocalParams((prev) => {
+            if (prev[key] === value) return prev;
+            return { ...prev, [key]: value };
+        });
     }, [setLocalParams]);
 
     const toggleDeviceSafe = useCallback((device: DeviceSlot) => {

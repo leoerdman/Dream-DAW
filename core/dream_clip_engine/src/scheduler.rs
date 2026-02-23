@@ -66,6 +66,11 @@ impl ClipScheduler {
         out.clear();
 
         for (clip_index, clip) in clips.iter().enumerate() {
+            // Skip muted/disabled clips — they stay on timeline but produce no audio
+            if clip.is_muted {
+                continue;
+            }
+
             let clip_start = clip.position.sample_frame;
             let clip_end = clip.end_position().sample_frame;
 
@@ -120,17 +125,26 @@ impl ClipScheduler {
         };
 
         let buffer_end = playhead_pos.saturating_add(buffer_size as i64);
-        // If the cursor is already at or past the loop end, play freely
-        // without wrapping — the user has seeked outside the loop region.
-        if playhead_pos >= loop_region.end || buffer_end <= loop_region.end {
+        // If the entire buffer fits within the loop region (no wrap needed),
+        // use standard scheduling — no split required.
+        if buffer_end <= loop_region.end && playhead_pos >= loop_region.start {
             Self::fill_active(clips, playhead_pos, buffer_size, out);
             return;
         }
 
+        // If the playhead is past the loop end (e.g. seek beyond loop or
+        // transport tick hasn't wrapped yet), wrap it back into the loop
+        // region so clips outside the loop never play.
+        let effective_playhead = if playhead_pos >= loop_region.end {
+            loop_region.wrap_position(playhead_pos)
+        } else {
+            playhead_pos
+        };
+
         out.clear();
         tmp.clear();
 
-        let mut current_playhead = playhead_pos;
+        let mut current_playhead = effective_playhead;
         let mut frames_remaining = buffer_size;
         let mut current_buffer_offset = 0;
 

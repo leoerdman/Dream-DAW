@@ -65,7 +65,9 @@ const ChannelBar: React.FC<{
     chWidth: number;
     fillBg: string;
 }> = React.memo(({ level, align, chWidth, fillBg }) => {
-    const h = Math.max(0, Math.min(100, level * 100));
+    // BUG-95 FIX: NaN guard — prevents clip-path: inset(NaN% 0 0 0).
+    const safeLevel = Number.isNaN(level) ? 0 : level;
+    const h = Math.max(0, Math.min(100, safeLevel * 100));
 
     return (
         <div

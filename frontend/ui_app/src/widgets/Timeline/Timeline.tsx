@@ -122,6 +122,7 @@ export const Timeline = (props: TimelineProps) => {
     const restoreSeq = useTimelineStore((s) => s.restoreSeq);
     const restorePixelsPerBeat = useTimelineStore((s) => s.restorePixelsPerBeat);
     const restoreScrollLeft = useTimelineStore((s) => s.restoreScrollLeft);
+    const restoreScrollTop = useTimelineStore((s) => s.restoreScrollTop);
     const setTimelineLayout = useTimelineStore((s) => s.setLayout);
     const clearViewportRestore = useTimelineStore((s) => s.clearViewportRestore);
     const snapBeatsValue = useMemo(
@@ -389,10 +390,10 @@ export const Timeline = (props: TimelineProps) => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.viewport.setZoom(restorePixelsPerBeat);
-        engine.viewport.scrollTo(restoreScrollLeft, engine.viewport.scrollY);
+        engine.viewport.scrollTo(restoreScrollLeft, restoreScrollTop ?? engine.viewport.scrollY);
         clearViewportRestore();
         // restoreSeq ensures one-shot apply even if values repeat.
-    }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, engineRef, clearViewportRestore]);
+    }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, restoreScrollTop, engineRef, clearViewportRestore]);
 
     // ── Feed selected track highlight ─────────────────────────────────
     useEffect(() => {

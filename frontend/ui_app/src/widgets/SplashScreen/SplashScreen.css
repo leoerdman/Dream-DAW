@@ -64,7 +64,7 @@
 
 .splash-logo-glow {
   position: absolute;
-  inset: -var(--token-size-px-20);
+  inset: calc(-1 * var(--token-size-px-20));
   border-radius: 50%;
   background: radial-gradient(circle,
       var(--color-accent-primary-glow, var(--token-color-rgba-74-158-255-0d3)) 0%,
@@ -107,7 +107,7 @@
   }
 
   50% {
-    transform: translateY(-var(--token-size-px-6));
+    transform: translateY(calc(-1 * var(--token-size-px-6)));
   }
 }
 

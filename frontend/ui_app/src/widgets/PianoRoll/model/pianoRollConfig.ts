@@ -1,3 +1,5 @@
+import type { GridDivision } from '@/shared/lib/gridSnap';
+
 export interface MidiNote {
     id: string;
     pitch: number;
@@ -65,7 +67,7 @@ export const MAX_PPB = 200;
 export const MIN_NOTE_BEATS = 0.125;
 export const EPS = 1e-6;
 
-export const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+export const KEY_NAMES: readonly string[] = ROOT_NOTES;
 export const OCTAVE_LABEL_OFFSET = -2;
 export const DEFAULT_FOCUS_PITCH = 60;
 
@@ -99,4 +101,4 @@ export const isBlackKey = (pitch: number): boolean => {
 };
 
 export const genNoteId = (): string => crypto.randomUUID();
-import type { GridDivision } from '@/shared/lib/gridSnap';
+

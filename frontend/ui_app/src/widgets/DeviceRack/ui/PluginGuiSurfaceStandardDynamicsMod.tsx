@@ -21,7 +21,7 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
         const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
         const limGr = Math.max(0, Math.abs(thr) * 0.8);
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-limiter)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a4d9d3)' }}>Lookahead Limiter</div>
                     <div style={{ height: 10, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
@@ -33,8 +33,8 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                         <span>GR ~{limGr.toFixed(1)} dB</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 3).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -56,7 +56,7 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
         const gateRel = device.params.find((p) => p.name.toLowerCase() === 'rel')?.value ?? device.params.find((p) => p.name.toLowerCase().includes('release'))?.value ?? 50;
         const openness = Math.max(0, Math.min(1, (80 + thr) / 80));
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-gate)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8dfad)' }}>Noise Gate</div>
                     <div style={{ height: 34, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', position: 'relative' }}>
@@ -69,8 +69,8 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                         <span>Rel {gateRel.toFixed(0)} ms</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(5, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 5).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -90,8 +90,16 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
         const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
         const modRate = params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 0;
         const modDepth = params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 0;
-        const modMix = params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? params.find((p) => p.name.toLowerCase() === 'amount')?.value ?? 50;
-        const modFreq = params.find((p) => p.name.toLowerCase() === 'freq' || p.name.toLowerCase() === 'frequency')?.value ?? 0;
+        const modMix = params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value
+            ?? params.find((p) => p.name.toLowerCase() === 'mix')?.value
+            ?? params.find((p) => p.name.toLowerCase() === 'amount')?.value
+            ?? 50;
+        const modFreq = params.find((p) => (
+            p.name.toLowerCase() === 'freq'
+            || p.name.toLowerCase() === 'frequency'
+            || p.name.toLowerCase() === 'cutoff'
+            || p.name.toLowerCase() === 'center'
+        ))?.value ?? 0;
         const title = isVocoder
             ? 'Vocoder'
             : device.effectType === 'autoFilter'
@@ -109,7 +117,7 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                     ? 'var(--token-color-hex-998bff)'
                     : 'var(--token-color-hex-66b3ff)';
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-mod)',
@@ -133,8 +141,8 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                         <span>Mix {modMix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, params.length))}, minmax(0, 1fr))`)}>
-                    {params.slice(0, 6).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, params.length))}, minmax(0, 1fr))`)}>
+                    {params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

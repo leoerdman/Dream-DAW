@@ -87,6 +87,7 @@ export function DeviceNodeBody({
     if (device.source === 'internal') {
         return (
             <div
+                data-no-drag
                 style={{
                     padding: 4,
                     flex: 1,

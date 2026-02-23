@@ -83,9 +83,150 @@ async fn export_mix_cmd(
         bpm: export_bpm,
     };
 
+    // ── Ensure external plugin runtime bindings are ready for export ──
+    // Export uses lock-free runtime snapshots; if a slot is not currently bound
+    // to a plugin instance, VST instruments/FX can render as silence.
+    // Re-bind missing external slots before snapshotting.
+    let mut ensure_loaded_count = 0usize;
+    let mut slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    let mut ensure_loaded_slot = |slot: &dream_models::project::PluginSlot| {
+        let plugin_id = slot.plugin_id.as_str();
+        if plugin_id.starts_with("internal://") || plugin_id.starts_with("missing://") {
+            return;
+        }
+        if slot_instance_map.contains_key(&slot.id) {
+            return;
+        }
+        match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, plugin_id) {
+            Ok(_) => {
+                ensure_loaded_count = ensure_loaded_count.saturating_add(1);
+                slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            }
+            Err(err) => {
+                log::warn!(
+                    "[Export] Failed to ensure plugin instance for slot '{}' ({}): {}",
+                    slot.name,
+                    plugin_id,
+                    err
+                );
+            }
+        }
+    };
+
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            for slot in inst.collect_plugin_slots() {
+                ensure_loaded_slot(slot);
+            }
+        }
+        for node in &track.effects {
+            for slot in node.collect_plugin_slots() {
+                ensure_loaded_slot(slot);
+            }
+        }
+    }
+    if let Some(inst) = &project.master_track.instrument {
+        for slot in inst.collect_plugin_slots() {
+            ensure_loaded_slot(slot);
+        }
+    }
+    for node in &project.master_track.effects {
+        for slot in node.collect_plugin_slots() {
+            ensure_loaded_slot(slot);
+        }
+    }
+    if ensure_loaded_count > 0 {
+        log::info!(
+            "[Export] Ensured {} previously-unbound external plugin slot(s) before bounce",
+            ensure_loaded_count
+        );
+    }
+
+    // Preflight: fail fast if a MIDI track uses an external instrument slot
+    // that still has no runtime instance binding. This prevents silent exports.
+    let mut unresolved_vst_instruments: Vec<String> = Vec::new();
+    for track in &project.tracks {
+        if track.midi_clips.is_empty() {
+            continue;
+        }
+        let Some(inst_node) = &track.instrument else {
+            continue;
+        };
+        let mut track_has_external_instrument = false;
+        let mut track_has_bound_external_instrument = false;
+        for slot in inst_node.collect_plugin_slots() {
+            let plugin_id = slot.plugin_id.as_str();
+            if plugin_id.starts_with("internal://") || plugin_id.starts_with("missing://") {
+                continue;
+            }
+            track_has_external_instrument = true;
+            if slot_instance_map.contains_key(&slot.id) {
+                track_has_bound_external_instrument = true;
+                break;
+            }
+        }
+        if track_has_external_instrument && !track_has_bound_external_instrument {
+            unresolved_vst_instruments.push(format!("track='{}' id={}", track.name, track.id));
+        }
+    }
+    if !unresolved_vst_instruments.is_empty() {
+        return Err(format!(
+            "Export aborted: unresolved external instrument runtime binding(s): {}",
+            unresolved_vst_instruments.join("; ")
+        ));
+    }
+
+    // Refresh runtime snapshots used by OfflineBouncer.
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    let external_fx_snapshot_for_preflight = (*handle.external_fx_snapshot.load()).clone();
+    let mut unresolved_runtime_tracks: Vec<String> = Vec::new();
+    for (track_idx, track) in project.tracks.iter().enumerate() {
+        if track.midi_clips.is_empty() {
+            continue;
+        }
+        let Some(inst_node) = &track.instrument else {
+            continue;
+        };
+        let has_external_inst_declared = inst_node
+            .collect_plugin_slots()
+            .iter()
+            .any(|slot| {
+                let pid = slot.plugin_id.as_str();
+                !pid.starts_with("internal://") && !pid.starts_with("missing://")
+            });
+        if !has_external_inst_declared {
+            continue;
+        }
+        let runtime_slots = external_fx_snapshot_for_preflight
+            .get(track_idx)
+            .map(|slots| slots.as_slice())
+            .unwrap_or(&[]);
+        let has_runtime_external_slot = runtime_slots
+            .iter()
+            .any(|slot| slot.instance_id.is_some() && slot.internal_slot_index.is_none());
+        if !has_runtime_external_slot {
+            unresolved_runtime_tracks.push(format!(
+                "track='{}' index={} id={}",
+                track.name, track_idx, track.id
+            ));
+        }
+    }
+    if !unresolved_runtime_tracks.is_empty() {
+        return Err(format!(
+            "Export aborted: external FX runtime snapshot missing instrument slot(s): {}",
+            unresolved_runtime_tracks.join("; ")
+        ));
+    }
+
+    // Ensure plugins are reactivated for the current export processing format.
+    // This avoids silent passthrough when a plugin stayed in a stale inactive state.
+    plugin_host_state
+        .reactivate_all(project.sample_rate.max(1.0), 512)
+        .map_err(|e| format!("Export aborted: failed to reactivate plugin runtime: {e}"))?;
+
     // ── VST3 instrument pre-render: clone host + slot map for spawn_blocking ──
     let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
 
     // ── ENTERPRISE FIX: Stop playback before VST pre-render ────────────
     // The RT audio thread shares PluginInstanceArc with this export thread.
@@ -120,6 +261,25 @@ async fn export_mix_cmd(
     // This keeps offline export timing aligned with realtime graph processing.
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
     let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
+    let mut missing_registry_instances: Vec<String> = Vec::new();
+    for (track_idx, slots) in external_fx_snapshot.iter().enumerate() {
+        for slot in slots {
+            if let Some(instance_id) = slot.instance_id
+                && !plugin_registry_snapshot.contains_key(&instance_id)
+            {
+                missing_registry_instances.push(format!(
+                    "track_index={} slot_id={:?} instance_id={}",
+                    track_idx, slot.slot_id, instance_id
+                ));
+            }
+        }
+    }
+    if !missing_registry_instances.is_empty() {
+        return Err(format!(
+            "Export aborted: plugin registry missing external runtime instance(s): {}",
+            missing_registry_instances.join("; ")
+        ));
+    }
     // Store the handle's producer as a Send-safe wrapper for the blocking task.
     // We'll use the AppHandle to send an IPC command to resume playback.
     let app_for_resume = app.clone();

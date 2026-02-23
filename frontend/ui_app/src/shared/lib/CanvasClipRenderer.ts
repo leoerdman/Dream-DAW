@@ -78,7 +78,6 @@ export interface GhostClipData {
 
 const HEADER_HEIGHT = 20;
 const CLIP_RADIUS = 4;
-const CLIP_BODY_ALPHA = 0.85;
 const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';

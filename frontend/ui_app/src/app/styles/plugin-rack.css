@@ -254,13 +254,13 @@
 }
 
 .device-port.input {
-    left: -var(--token-size-px-4);
+    left: calc(-1 * var(--token-size-px-4));
     top: 50%;
     transform: translateY(-50%);
 }
 
 .device-port.output {
-    right: -var(--token-size-px-4);
+    right: calc(-1 * var(--token-size-px-4));
     top: 50%;
     transform: translateY(-50%);
 }
@@ -288,7 +288,7 @@
     content: '';
     position: absolute;
     right: 0;
-    top: -var(--token-size-px-2);
+    top: calc(-1 * var(--token-size-px-2));
     width: 0;
     height: 0;
     border-left: var(--space-1) solid var(--color-divider-light);

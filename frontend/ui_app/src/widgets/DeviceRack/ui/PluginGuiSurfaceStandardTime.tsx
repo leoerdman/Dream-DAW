@@ -13,6 +13,11 @@ import {
 export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
+    const readMix = (params: DeviceSlot['params'], fallback: number) =>
+        params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value
+        ?? params.find((p) => p.name.toLowerCase() === 'mix')?.value
+        ?? params.find((p) => p.name.toLowerCase() === 'amount')?.value
+        ?? fallback;
 
     if (device.effectType === 'delay') {
         const delayTitle = normalizedInternalId === 'internal://effect/echo'
@@ -31,9 +36,9 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
         const isSpectralTime = delayTitle === 'Spectral Time';
         const time = device.params.find((p) => p.name.toLowerCase() === 'time')?.value ?? 280;
         const fb = device.params.find((p) => p.name.toLowerCase() === 'fb')?.value ?? 30;
-        const mix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 35;
+        const mix = readMix(device.params, 35);
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-delay)',
@@ -69,8 +74,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                         <span>Mix {mix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 6).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -97,10 +102,10 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                         : 'Reverb';
         const decay = device.params.find((p) => p.name.toLowerCase() === 'decay')?.value ?? 45;
         const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
-        const reverbMix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 50;
+        const reverbMix = readMix(device.params, 50);
         const reverbSize = device.params.find((p) => p.name.toLowerCase() === 'size')?.value ?? 40;
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-reverb)',
@@ -130,8 +135,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                         <span>Mix {reverbMix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 6).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -149,9 +154,9 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     if (device.effectType === 'chorus') {
         const rate = device.params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 1.2;
         const depth = device.params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 40;
-        const chorusMix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 50;
+        const chorusMix = readMix(device.params, 50);
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-chorus)',
@@ -167,8 +172,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                         <span>Mix {chorusMix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(5, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 5).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}
@@ -191,11 +196,11 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                 : 'Saturator';
         const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 3;
         const satTone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
-        const satMix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 100;
+        const satMix = readMix(device.params, 100);
         const driveClamp = Math.max(0, Math.min(24, drive));
         const knee = Math.max(12, 80 - driveClamp * 2.8);
         return (
-            <div style={pluginPanelLayoutStyle}>
+            <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-saturator)',
@@ -212,8 +217,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                         <span>Mix {satMix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.slice(0, 4).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

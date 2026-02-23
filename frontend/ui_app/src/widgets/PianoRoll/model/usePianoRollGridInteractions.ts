@@ -59,9 +59,10 @@ export function usePianoRollGridInteractions({
         const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const duration = Math.max(MIN_NOTE_BEATS, Math.min(gridStep, clipBeats - beat));
         const newNote: MidiNote = { id: genNoteId(), pitch, startBeat: beat, durationBeats: duration, velocity: 100 };
-        onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
+        const currentNotes = notesRef.current;
+        onNotesChange(enforceNoOverlap([...currentNotes, newNote], new Set([newNote.id])));
         auditionNote(pitch, 100, 160);
-    }, [clipBeats, currentGridInterval, notes, onNotesChange, pixelsPerBeat, snapToCellStart, yToPitch, enforceNoOverlap, auditionNote]);
+    }, [clipBeats, currentGridInterval, notesRef, onNotesChange, pixelsPerBeat, snapToCellStart, yToPitch, enforceNoOverlap, auditionNote]);
 
     const handleGridClick = useCallback((event: React.MouseEvent) => {
         editorRootRef.current?.focus();
@@ -93,7 +94,8 @@ export function usePianoRollGridInteractions({
         const duration = Math.max(MIN_NOTE_BEATS, step);
         const beatKey = (beat: number) => Math.round(beat * 10000);
         let workingNotes = notesRef.current;
-        const occupied = new Set(workingNotes.filter((note) => note.pitch === yToPitch(event.clientY - rect.top)).map((note) => `${note.pitch}:${beatKey(note.startBeat)}`));
+        // Bug #8 fix: Build occupied set from ALL pitches, not just the initial click pitch.
+        const occupied = new Set(workingNotes.map((note) => `${note.pitch}:${beatKey(note.startBeat)}`));
         const paintAt = (clientX: number, clientY: number) => {
             const x = clientX - rect.left;
             const y = clientY - rect.top;

@@ -33,9 +33,9 @@ export function PluginGuiSurfaceEqControls({
                 flexDirection: 'column',
                 gap: 2,
                 padding: 'var(--space-1-5) var(--space-1)',
-                background: 'var(--color-bg-secondary)',
+                background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
                 borderRadius: 'var(--plugin-card-radius)',
-                border: 'var(--space-px) solid var(--plugin-card-border)',
+                border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 14%, transparent)',
                 justifyContent: 'center',
             }}
         >
@@ -44,6 +44,7 @@ export function PluginGuiSurfaceEqControls({
                     key={`freq-${freqParam.name}`}
                     param={freqParam}
                     label="FREQ"
+                    scale="log"
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
@@ -66,6 +67,7 @@ export function PluginGuiSurfaceEqControls({
                     key={`q-${qParam.name}`}
                     param={qParam}
                     label="RES"
+                    scale="log"
                     onChange={onParamChange}
                     onGestureStart={onParamGestureStart}
                     onGestureEnd={onParamGestureEnd}
@@ -85,7 +87,7 @@ export function PluginGuiSurfaceEqControls({
             <div
                 style={{
                     fontSize: 9,
-                    color: 'var(--token-color-rgba-160-190-220-0d4)',
+                    color: 'color-mix(in srgb, var(--color-text-primary) 78%, transparent)',
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
                     marginTop: 2,

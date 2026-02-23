@@ -254,10 +254,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const timeline = useTimelineStore.getState();
             const requestedPixelsPerBeat = snapshotMeta.viewport.pixelsPerBeat ?? timeline.pixelsPerBeat;
             const requestedScrollLeft = snapshotMeta.viewport.scrollLeft ?? timeline.scrollLeft;
+            const requestedScrollTop = snapshotMeta.viewport.scrollTop ?? timeline.scrollTop;
             const viewportDeltaPx = Math.abs((timeline.scrollLeft ?? 0) - requestedScrollLeft);
             const viewportDeltaZoom = Math.abs((timeline.pixelsPerBeat ?? 20) - requestedPixelsPerBeat);
-            if (viewportDeltaPx > 0.5 || viewportDeltaZoom > 0.0001) {
-                timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft);
+            const viewportDeltaY = Math.abs((timeline.scrollTop ?? 0) - requestedScrollTop);
+            if (viewportDeltaPx > 0.5 || viewportDeltaY > 0.5 || viewportDeltaZoom > 0.0001) {
+                timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft, requestedScrollTop);
             }
         }
     },

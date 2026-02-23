@@ -10,14 +10,18 @@ export {
 export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlot['effectType']>> = {
     'internal://instrument/wave-synth': 'waveSynth',
     'internal://instrument/sampler': 'sampler',
+    'internal://instrument/sample-rack': 'sampler',
     'internal://effect/eq-eight': 'eq',
     'internal://effect/channel-eq': 'eq',
     'internal://effect/eq-three': 'eq',
     'internal://effect/compressor': 'compressor',
+    'internal://effect/glue-compressor': 'compressor',
     'internal://effect/multiband-dynamics': 'compressor',
     'internal://effect/transient-shaper': 'compressor',
     'internal://effect/delay': 'delay',
     'internal://effect/echo': 'delay',
+    'internal://effect/simple-delay': 'delay',
+    'internal://effect/filter-delay': 'delay',
     'internal://effect/grain-delay': 'delay',
     'internal://effect/beat-repeat': 'delay',
     'internal://effect/looper': 'delay',
@@ -42,6 +46,7 @@ export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlo
     'internal://effect/vocoder': 'autoFilter',
     'internal://effect/auto-pan': 'autoPan',
     'internal://effect/phaser': 'phaser',
+    'internal://effect/phaser-flanger': 'phaser',
     'internal://effect/flanger': 'flanger',
 
     'internal://effect/distortion': 'distortion',
@@ -54,7 +59,7 @@ export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlo
     'internal://effect/bitcrusher': 'bitcrusher',
 
     'internal://effect/noise-machine': 'noiseMachine',
-    'internal://effect/spectrum': 'analyzer',
+    'internal://effect/spectrum': 'spectrum',
     'internal://effect/analyzer': 'analyzer',
 
     'internal://midi-fx/pitch': 'midiPitch',
@@ -107,6 +112,7 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     bitcrusher: { bits: 0, down: 1, mix: 2 },
     noiseMachine: { level: 0, type: 1, stereo: 2, lpfreq: 3, hpfreq: 4, pan: 5 },
     analyzer: { reset: 0 },
+    spectrum: { reset: 0 },
     midiPitch: { semitones: 0 },
     midiScale: { root: 0, mask: 1 },
     midiVelocity: { gain: 0, offset: 1 },
@@ -159,11 +165,11 @@ export function internalParamIdForControl(effectType: DeviceSlot['effectType'], 
         return `utility.${normalizedName}`;
     }
     if (effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') {
-        if (normalizedName === 'vol') return 'sampler.volume';
-        if (normalizedName === 'attack') return 'sampler.attack';
-        if (normalizedName === 'decay') return 'sampler.decay';
-        if (normalizedName === 'sustain') return 'sampler.sustain';
-        if (normalizedName === 'release') return 'sampler.release';
+        if (normalizedName === 'vol' || normalizedName === 'gain') return 'sampler.volume';
+        if (normalizedName === 'attack' || normalizedName === 'atk') return 'sampler.attack';
+        if (normalizedName === 'decay' || normalizedName === 'dec') return 'sampler.decay';
+        if (normalizedName === 'sustain' || normalizedName === 'sus') return 'sampler.sustain';
+        if (normalizedName === 'release' || normalizedName === 'rel') return 'sampler.release';
         if (normalizedName === 'root') return 'sampler.rootNote';
         return `sampler.${normalizedName}`;
     }

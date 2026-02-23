@@ -55,7 +55,7 @@ export function renderStandardAnalyzerMidiSurface(
     }
 
     const title = device.effectType === 'analyzer' || device.effectType === 'spectrum'
-        ? 'Analyzer'
+        ? (normalizedInternalId === 'internal://effect/spectrum' ? 'Spectrum' : 'Analyzer')
         : device.effectType === 'midiPitch'
             ? 'MIDI Pitch'
             : device.effectType === 'midiScale'
@@ -81,7 +81,7 @@ export function renderStandardAnalyzerMidiSurface(
     const activeRoot = Math.max(0, Math.min(11, Math.round(root) % 12));
 
     return (
-        <div style={pluginPanelLayoutStyle}>
+        <div data-no-drag style={pluginPanelLayoutStyle}>
             <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
                 <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8c8e8)' }}>{title}</div>
                 {device.effectType === 'spectrum' && (
@@ -165,7 +165,13 @@ export function renderStandardAnalyzerMidiSurface(
                     </div>
                 )}
                 <div style={pluginPanelMetaStyle}>
-                    <span>{device.effectType === 'analyzer' || device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
+                    <span>
+                        {device.effectType === 'spectrum'
+                            ? 'Spectrum (native)'
+                            : device.effectType === 'analyzer'
+                                ? 'Analyzer (native)'
+                                : 'MIDI FX (import-compatible)'}
+                    </span>
                 </div>
             </div>
             {device.params.length > 0 && (

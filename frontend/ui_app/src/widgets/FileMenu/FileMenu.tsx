@@ -49,7 +49,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const syncArrangementViewport = useCallback(async () => {
         const timeline = useTimelineStore.getState();
         try {
-            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft, timeline.scrollTop);
         } catch (err) {
             // Save should proceed even if viewport persistence fails.
             console.warn('[FileMenu] setArrangementViewport failed (non-fatal):', err);

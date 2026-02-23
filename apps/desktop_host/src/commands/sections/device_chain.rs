@@ -1,4 +1,83 @@
 // ═══════════════════════════════════════════════════════════════════════
+const MASTER_TRACK_INDEX: u16 = u16::MAX;
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeParamUpdate {
+    param_index: u8,
+    value: f32,
+}
+
+fn selected_runtime_chain(
+    rack: &dream_models::project::DeviceRack,
+) -> Option<&dream_models::project::RackChain> {
+    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+    if has_solo {
+        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+    } else {
+        rack.chains.iter().find(|c| !c.is_mute)
+    }
+}
+
+fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
+    match node {
+        DeviceNode::Single(slot) => usize::from(slot.plugin_id.starts_with("internal://effect/")),
+        DeviceNode::Rack(rack) => selected_runtime_chain(rack)
+            .map(|chain| chain.devices.iter().map(count_runtime_internal_effects).sum())
+            .unwrap_or(0),
+    }
+}
+
+fn raw_slot_to_internal_device_index_track(
+    track: &dream_models::project::Track,
+    raw_slot_index: u8,
+) -> Option<u8> {
+    let raw = raw_slot_index as usize;
+    let target = track.effects.get(raw)?;
+    let preceding_internal = track.effects[..raw]
+        .iter()
+        .map(count_runtime_internal_effects)
+        .sum::<usize>();
+    match target {
+        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+            Some(preceding_internal as u8)
+        }
+        _ => None,
+    }
+}
+
+fn raw_slot_to_internal_device_index_master(
+    master_track: &dream_models::project::Track,
+    raw_slot_index: u8,
+) -> Option<u8> {
+    let raw = raw_slot_index as usize;
+    let target = master_track.effects.get(raw)?;
+    let preceding_internal = master_track.effects[..raw]
+        .iter()
+        .map(count_runtime_internal_effects)
+        .sum::<usize>();
+    match target {
+        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+            Some(preceding_internal as u8)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_internal_runtime_slot(
+    project: &dream_models::project::Project,
+    track_index: u16,
+    slot_index: u8,
+) -> Option<u8> {
+    if track_index == MASTER_TRACK_INDEX {
+        raw_slot_to_internal_device_index_master(&project.master_track, slot_index)
+    } else {
+        project
+            .tracks
+            .get(track_index as usize)
+            .and_then(|track| raw_slot_to_internal_device_index_track(track, slot_index))
+    }
+}
 
 
 /// Adds a built-in DSP device to a track's insert chain.
@@ -127,6 +206,74 @@ fn set_device_param_cmd(
         log::debug!("[IPC] set_device_param(track={track_index}, raw_slot={slot_index}, engine_slot={resolved_slot}, param={param_index}, val={})", result.value);
     } else {
         log::debug!("[IPC] set_device_param(track={track_index}, slot={slot_index}) — skipped (not an internal effect)");
+    }
+    Ok(())
+}
+
+/// Sets a device parameter for realtime monitoring only (no project mutation).
+///
+/// This command is used during high-frequency UI gestures (e.g. EQ drag) to
+/// avoid project lock/dirty churn per mouse event. Persistence/undo is handled
+/// separately by with_deltas commit commands at gesture end.
+#[tauri::command]
+fn set_device_param_runtime_cmd(
+    track_index: u16,
+    slot_index: u8,
+    param_index: u8,
+    value: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let resolved_slot = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        resolve_internal_runtime_slot(&project, track_index, slot_index)
+    };
+
+    if let Some(resolved_slot) = resolved_slot {
+        push_command(
+            &handle,
+            EngineCommand::SetDeviceParam {
+                track_index,
+                slot_index: resolved_slot,
+                param_index,
+                value,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// Sets multiple device parameters for realtime monitoring only (no project mutation).
+///
+/// Batched variant of `set_device_param_runtime_cmd` used to coalesce frequent
+/// UI gesture updates (e.g. EQ Freq+Q drag) into a single IPC round-trip.
+#[tauri::command]
+fn set_device_params_runtime_cmd(
+    track_index: u16,
+    slot_index: u8,
+    updates: Vec<RuntimeParamUpdate>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let resolved_slot = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        resolve_internal_runtime_slot(&project, track_index, slot_index)
+    };
+    if let Some(resolved_slot) = resolved_slot {
+        for update in updates {
+            push_command(
+                &handle,
+                EngineCommand::SetDeviceParam {
+                    track_index,
+                    slot_index: resolved_slot,
+                    param_index: update.param_index,
+                    value: update.value,
+                },
+            )?;
+        }
     }
     Ok(())
 }

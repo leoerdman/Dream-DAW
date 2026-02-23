@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     knobDialStyle,
     knobDragValueBadgeStyle,
@@ -80,6 +80,7 @@ export const PluginKnob = ({
     onContextMenu,
     onGestureStart,
     onGestureEnd,
+    scale = 'linear',
 }: {
     param: PluginParam;
     compact?: boolean;
@@ -89,8 +90,25 @@ export const PluginKnob = ({
     onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     onGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onGestureEnd?: (paramName: string) => void;
+    scale?: 'linear' | 'log';
 }) => {
-    const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
+    const useLogScale = scale === 'log' && param.min > 0 && param.max > param.min;
+    const valueToUnit = useCallback((value: number): number => {
+        if (!useLogScale) return (value - param.min) / Math.max(1e-9, param.max - param.min);
+        const lo = Math.log(param.min);
+        const hi = Math.log(param.max);
+        return (Math.log(Math.max(param.min, Math.min(param.max, value))) - lo) / Math.max(1e-9, hi - lo);
+    }, [param.max, param.min, useLogScale]);
+    const unitToValue = useCallback((unit: number): number => {
+        const clampedUnit = Math.max(0, Math.min(1, unit));
+        if (!useLogScale) return param.min + clampedUnit * (param.max - param.min);
+        const ratio = Math.log(param.max / param.min);
+        return param.min * Math.exp(clampedUnit * ratio);
+    }, [param.max, param.min, useLogScale]);
+    const safeValue = Number.isFinite(param.value)
+        ? param.value
+        : (Number.isFinite(param.defaultValue) ? (param.defaultValue as number) : param.min);
+    const pct = Math.max(0, Math.min(1, valueToUnit(safeValue)));
     const angle = -135 + pct * 270;
     // const size = compact ? 30 : 38;
     // const markerHeight = compact ? 9 : 12;
@@ -99,8 +117,9 @@ export const PluginKnob = ({
     const [isEditingValue, setIsEditingValue] = useState(false);
     const [editValueText, setEditValueText] = useState('');
     const dragPointerIdRef = useRef<number | null>(null);
+    const mouseDragActiveRef = useRef(false);
     const dragStartYRef = useRef(0);
-    const dragStartValueRef = useRef(0);
+    const dragStartUnitRef = useRef(0);
     const dialRef = useRef<HTMLDivElement | null>(null);
 
     const quantizeValue = useCallback((raw: number): number => {
@@ -116,32 +135,44 @@ export const PluginKnob = ({
         e.preventDefault();
         e.stopPropagation();
         dragPointerIdRef.current = e.pointerId;
+        mouseDragActiveRef.current = false;
         dragStartYRef.current = e.clientY;
-        dragStartValueRef.current = param.value;
-        dialRef.current?.setPointerCapture(e.pointerId);
+        dragStartUnitRef.current = valueToUnit(safeValue);
+        try {
+            dialRef.current?.setPointerCapture(e.pointerId);
+        } catch {
+            // Some WebView builds may throw on pointer capture; mouse fallback handles drag.
+        }
         setIsDragging(true);
         onGestureStart?.(param.name);
-    }, [onGestureStart, param.name, param.value]);
+    }, [onGestureStart, param.name, safeValue, valueToUnit]);
 
     const onKnobPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (dragPointerIdRef.current !== e.pointerId) return;
         e.preventDefault();
-        const valueRange = Math.max(1e-9, param.max - param.min);
         const dy = e.clientY - dragStartYRef.current;
         const dragScalePx = e.shiftKey ? 130 : e.altKey ? 760 : 220;
-        const nextRaw = dragStartValueRef.current + (((-dy) / dragScalePx) * valueRange);
+        const nextUnit = dragStartUnitRef.current + ((-dy) / dragScalePx);
+        const nextRaw = unitToValue(nextUnit);
         onChange(param.name, quantizeValue(nextRaw));
-    }, [onChange, param.max, param.min, param.name, quantizeValue]);
+    }, [onChange, param.name, quantizeValue, unitToValue]);
 
     const onKnobWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const valueRange = Math.max(1e-9, param.max - param.min);
-        const step = param.step && param.step > 0 ? param.step : valueRange / 160;
+        const linearStep = param.step && param.step > 0 ? param.step : valueRange / 160;
+        const unitStep = 1 / 160;
         const wheelMul = e.shiftKey ? 4.0 : e.altKey ? 0.2 : 1.0;
-        const delta = (e.deltaY < 0 ? 1 : -1) * step * wheelMul;
+        if (useLogScale) {
+            const unitDelta = (e.deltaY < 0 ? 1 : -1) * unitStep * wheelMul;
+            const nextUnit = valueToUnit(param.value) + unitDelta;
+            onChange(param.name, quantizeValue(unitToValue(nextUnit)));
+            return;
+        }
+        const delta = (e.deltaY < 0 ? 1 : -1) * linearStep * wheelMul;
         onChange(param.name, quantizeValue(param.value + delta));
-    }, [onChange, param.max, param.min, param.name, param.step, param.value, quantizeValue]);
+    }, [onChange, param.max, param.min, param.name, param.step, param.value, quantizeValue, unitToValue, useLogScale, valueToUnit]);
 
     const onKnobDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -152,17 +183,85 @@ export const PluginKnob = ({
     const endKnobDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (dragPointerIdRef.current !== e.pointerId) return;
         dragPointerIdRef.current = null;
-        dialRef.current?.releasePointerCapture(e.pointerId);
+        try {
+            dialRef.current?.releasePointerCapture(e.pointerId);
+        } catch {
+            // Ignore release failures from unsupported pointer capture implementations.
+        }
         setIsDragging(false);
         onGestureEnd?.(param.name);
     }, [onGestureEnd, param.name]);
 
+    useEffect(() => {
+        const onWindowPointerMove = (e: PointerEvent) => {
+            if (dragPointerIdRef.current !== e.pointerId) return;
+            const dy = e.clientY - dragStartYRef.current;
+            const dragScalePx = e.shiftKey ? 130 : e.altKey ? 760 : 220;
+            const nextUnit = dragStartUnitRef.current + ((-dy) / dragScalePx);
+            const nextRaw = unitToValue(nextUnit);
+            onChange(param.name, quantizeValue(nextRaw));
+        };
+
+        const onWindowPointerUp = (e: PointerEvent) => {
+            if (dragPointerIdRef.current !== e.pointerId) return;
+            dragPointerIdRef.current = null;
+            setIsDragging(false);
+            onGestureEnd?.(param.name);
+        };
+
+        window.addEventListener('pointermove', onWindowPointerMove);
+        window.addEventListener('pointerup', onWindowPointerUp);
+        window.addEventListener('pointercancel', onWindowPointerUp);
+        return () => {
+            window.removeEventListener('pointermove', onWindowPointerMove);
+            window.removeEventListener('pointerup', onWindowPointerUp);
+            window.removeEventListener('pointercancel', onWindowPointerUp);
+        };
+    }, [onChange, onGestureEnd, param.name, quantizeValue, unitToValue]);
+
+    const beginMouseDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.button !== 0 || dragPointerIdRef.current !== null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        mouseDragActiveRef.current = true;
+        dragStartYRef.current = e.clientY;
+        dragStartUnitRef.current = valueToUnit(safeValue);
+        setIsDragging(true);
+        onGestureStart?.(param.name);
+    }, [onGestureStart, param.name, safeValue, valueToUnit]);
+
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent) => {
+            if (!mouseDragActiveRef.current) return;
+            e.preventDefault();
+            const dy = e.clientY - dragStartYRef.current;
+            const dragScalePx = e.shiftKey ? 130 : e.altKey ? 760 : 220;
+            const nextUnit = dragStartUnitRef.current + ((-dy) / dragScalePx);
+            const nextRaw = unitToValue(nextUnit);
+            onChange(param.name, quantizeValue(nextRaw));
+        };
+
+        const onMouseUp = () => {
+            if (!mouseDragActiveRef.current) return;
+            mouseDragActiveRef.current = false;
+            setIsDragging(false);
+            onGestureEnd?.(param.name);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+    }, [onChange, onGestureEnd, param.name, quantizeValue, unitToValue]);
+
     const beginValueEdit = useCallback((e: React.MouseEvent<HTMLSpanElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        setEditValueText(String(param.value));
+        setEditValueText(String(safeValue));
         setIsEditingValue(true);
-    }, [param.value]);
+    }, [safeValue]);
 
     const commitValueEdit = useCallback(() => {
         const normalized = editValueText.replace(',', '.').trim();
@@ -175,8 +274,8 @@ export const PluginKnob = ({
 
     const cancelValueEdit = useCallback(() => {
         setIsEditingValue(false);
-        setEditValueText(String(param.value));
-    }, [param.value]);
+        setEditValueText(String(safeValue));
+    }, [safeValue]);
 
     const arcRadius = 14;
     const svgSize = compact ? 30 : 38;
@@ -197,6 +296,7 @@ export const PluginKnob = ({
                     onPointerMove={onKnobPointerMove}
                     onPointerUp={endKnobDrag}
                     onPointerCancel={endKnobDrag}
+                    onMouseDown={beginMouseDrag}
                     onWheel={onKnobWheel}
                     onDoubleClick={onKnobDoubleClick}
                 >

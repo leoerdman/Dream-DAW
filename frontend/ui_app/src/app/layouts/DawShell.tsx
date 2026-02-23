@@ -29,9 +29,13 @@ import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
+
+// BUG-50 FIX: Type aliases moved to module level (were inside function body).
+type BottomPanelMode = 'rack' | 'clip';
+type MainViewMode = 'arrangement' | 'session';
+
 export const DawShell = () => {
-    type BottomPanelMode = 'rack' | 'clip';
-    type MainViewMode = 'arrangement' | 'session';
+
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -57,11 +61,11 @@ export const DawShell = () => {
         active: false,
         trackIndex: 0,
     });
-    const [followPlayhead, setFollowPlayhead] = useState(false);
+    const [followPlayhead, setFollowPlayhead] = useState(true); // BUG-26 FIX: default true (match Ableton/Logic)
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
-    const [browserWidth, setBrowserWidth] = useState(320);
+    const [browserWidth, setBrowserWidth] = useState(() => Math.max(180, Math.min(600, 320))); // BUG-25 FIX: clamped [180, 600]
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
-    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
+    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(() => Math.max(100, Math.min(500, DEFAULT_BOTTOM_PANEL_HEIGHT))); // BUG-39 FIX: clamped [100, 500]
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
     const importFile = useEngineStore(s => s.importFile);
@@ -148,7 +152,7 @@ export const DawShell = () => {
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
-    const handleRecordingStateChange = useCallback((state: { active: boolean; trackIndex: number }) => setRecordingState(state), []);
+    // BUG-55 FIX: Removed unnecessary wrapper — setRecordingState is already a stable reference.
     const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => {
         const next = !v;
         try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
@@ -157,6 +161,13 @@ export const DawShell = () => {
     // selectedClipId is now a useMemo derived from selectedClipIds — no useEffect needed.
 
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
+
+    useEffect(() => {
+        const onOpenExport = () => setExportOpen(true);
+        window.addEventListener('dream:open-export', onOpenExport as EventListener);
+        return () => window.removeEventListener('dream:open-export', onOpenExport as EventListener);
+    }, []);
+
     useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });
     const { beginBrowserResize, beginBottomPanelResize } = usePaneResizeHandlers({
         mainSplitRef,
@@ -236,21 +247,6 @@ export const DawShell = () => {
             queueMicrotask(() => setSelectedTrackId(tracksEntity.allIds[0]));
         }
     }, [tracksEntity, selectedTrackId]);
-
-    useEffect(() => {
-        const key = selectedTrackId && selectedTrackId.length > 0 ? selectedTrackId : 'master';
-        const saved = bottomPanelModeByTrack[key] ?? 'rack';
-        queueMicrotask(() => setBottomPanelMode((prev) => (prev === saved ? prev : saved)));
-    }, [selectedTrackId, bottomPanelModeByTrack]);
-
-    useEffect(() => {
-        window.__dreamSelectedTrackId = selectedTrackId;
-        return () => {
-            if (window.__dreamSelectedTrackId === selectedTrackId) {
-                delete window.__dreamSelectedTrackId;
-            }
-        };
-    }, [selectedTrackId]);
 
     const {
         panelInfo,
@@ -484,7 +480,7 @@ export const DawShell = () => {
             <DawShellContent
                 openSettings={openSettings}
                 handleOpenExport={handleOpenExport}
-                handleRecordingStateChange={handleRecordingStateChange}
+                handleRecordingStateChange={setRecordingState}
                 followPlayhead={followPlayhead}
                 setFollowPlayhead={setFollowPlayhead}
                 automationVisible={automationVisible}

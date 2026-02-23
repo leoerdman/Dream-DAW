@@ -16,6 +16,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
     }, [config]);
 
     const handleKeyDown = useCallback(async (e: KeyboardEvent) => {
+        if (e.defaultPrevented || e.isComposing) return;
         if (shouldIgnoreKeyboardShortcut(e)) return;
         const ctx = buildRuntimeContext(configRef.current, e);
         const env = { e, ctx, clipboardRef };
@@ -31,4 +32,3 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
         };
     }, [handleKeyDown]);
 }
-

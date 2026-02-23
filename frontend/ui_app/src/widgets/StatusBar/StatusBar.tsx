@@ -14,16 +14,18 @@
 
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { secondsToBeat } from '@/shared/lib/audioMath';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
 import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
 import { panelModeBtnStyle } from './ui/statusBarStyles';
 import { HistorySection, InlineMessage } from './ui/statusBarSections';
 
+
 interface StatusBarProps {
     projectEnd?: string;
     duration?: string;
-    trackCount?: number;
+    /** BUG-32 FIX: Accept time signature numerator (default 4). */
+    timeSigNum?: number;
     panelMode?: 'rack' | 'clip';
     onPanelModeChange?: (mode: 'rack' | 'clip') => void;
     panelInfo?: string;
@@ -32,6 +34,7 @@ interface StatusBarProps {
 export const StatusBar = ({
     projectEnd = '48.1.00',
     duration = '2:28.430',
+    timeSigNum = 4, // BUG-32 FIX
     panelMode,
     onPanelModeChange,
     panelInfo,
@@ -52,10 +55,11 @@ export const StatusBar = ({
     const [historyOpen, setHistoryOpen] = useState(false);
     const historyRef = useRef<HTMLDivElement | null>(null);
 
-    // Compute bar.beat.sub from live playhead
+    // BUG-32 FIX: Use prop timeSigNum instead of hardcoded 4.
     const totalBeats = secondsToBeat(positionSeconds, bpm);
-    const bar = Math.floor(totalBeats / 4) + 1;
-    const beat = Math.floor(totalBeats % 4) + 1;
+    const beatsPerBar = Math.max(1, timeSigNum);
+    const bar = Math.floor(totalBeats / beatsPerBar) + 1;
+    const beat = Math.floor(totalBeats % beatsPerBar) + 1;
     const sub = Math.floor((totalBeats % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
     useEffect(() => {
@@ -69,7 +73,8 @@ export const StatusBar = ({
         return () => document.removeEventListener('mousedown', onDown);
     }, [historyOpen]);
 
-    const historyItems = projectHistory.slice(-10).reverse();
+    // BUG-99 FIX: Memoize historyItems to avoid creating new array every render.
+    const historyItems = useMemo(() => projectHistory.slice(-10).reverse(), [projectHistory]);
 
     return (
         <div style={{ flexShrink: 0 }}>

@@ -38,6 +38,7 @@ export interface SnapshotProjectMeta {
     viewport?: {
         pixelsPerBeat?: number;
         scrollLeft?: number;
+        scrollTop?: number;
     };
 }
 

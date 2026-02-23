@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -32,9 +32,24 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const [draftWarpMode, setDraftWarpMode] = useState<number>((clip.warpMode ?? 0) > 0 ? 1 : 0);
     const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
     const [draftPitch, setDraftPitch] = useState<number>(clip.pitchShiftSemitones ?? 0);
+    const isPreviewingRef = useRef(false);
     const [isPreviewing, setIsPreviewing] = useState(false);
+    const commitInFlightRef = useRef(false);
+
+    // Bug #55 fix: Sync draft state when clip changes.
+    const prevClipIdRef = useRef(clip.id);
+    useEffect(() => {
+        if (prevClipIdRef.current !== clip.id) {
+            prevClipIdRef.current = clip.id;
+            setDraftWarpEnabled(Boolean(clip.isWarped));
+            setDraftWarpMode((clip.warpMode ?? 0) > 0 ? 1 : 0);
+            setDraftWarpBaseBpm(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
+            setDraftPitch(clip.pitchShiftSemitones ?? 0);
+        }
+    }, [clip.id, clip.isWarped, clip.warpMode, clip.warpBaseBpm, clip.pitchShiftSemitones, bpm]);
 
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
+    // TODO(#9): Expose project timeSignature from engine store. Until then, default to 4/4.
     const beatsPerBar = 4;
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
@@ -79,7 +94,10 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         }
     }, [clip.id, bpm, sampleRate]);
 
+    // Bug #10 fix: Serialization guard for async commits.
     const commitWarp = useCallback(async (next: { enabled: boolean; mode: number; baseBpm: number }) => {
+        if (commitInFlightRef.current) return;
+        commitInFlightRef.current = true;
         const base = Math.max(20, Math.min(300, Math.round(next.baseBpm)));
         const store = useEngineStore.getState();
         const sr = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
@@ -127,6 +145,8 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 ...toClipEntityState(previousClips),
             });
             console.error('[SampleClipEditor] setClipWarp failed:', err);
+        } finally {
+            commitInFlightRef.current = false;
         }
     }, [clip.id]);
 
@@ -136,20 +156,24 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
             if (isPreviewing) {
                 await engineApi.stopPreview();
                 setIsPreviewing(false);
+                isPreviewingRef.current = false;
                 return;
             }
             await engineApi.previewAudioFile(clip.filePath);
             setIsPreviewing(true);
+            isPreviewingRef.current = true;
         } catch (err) {
             console.error('[SampleClipEditor] preview failed:', err);
         }
     }, [clip.filePath, isPreviewing]);
 
+    // Bug #28 fix: Use ref-based cleanup that always stops preview on unmount.
     useEffect(() => () => {
-        if (isPreviewing) {
+        if (isPreviewingRef.current) {
             void engineApi.stopPreview();
+            isPreviewingRef.current = false;
         }
-    }, [isPreviewing]);
+    }, []);
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)' }}>

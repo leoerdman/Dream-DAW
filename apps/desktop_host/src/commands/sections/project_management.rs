@@ -347,6 +347,7 @@ fn get_project_status(
 struct ArrangementViewportPayload {
     pixels_per_beat: Option<f64>,
     scroll_left: Option<f64>,
+    scroll_top: Option<f64>,
 }
 
 /// Stores arrangement viewport metadata in the project model so it persists in `.ddpj`.
@@ -354,16 +355,19 @@ struct ArrangementViewportPayload {
 fn set_arrangement_viewport_cmd(
     pixels_per_beat: f64,
     scroll_left: f64,
+    scroll_top: Option<f64>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let ppb = pixels_per_beat.clamp(0.5, 2000.0);
     let scroll = scroll_left.max(0.0);
+    let scroll_top = scroll_top.map(|v| v.max(0.0)).unwrap_or(0.0);
 
     project.view_zoom_scale = Some(ppb);
     project.view_scroll_position = Some(scroll);
     project.sequencer_navigator_zoom = Some(ppb);
     project.sequencer_navigator_scroll_x = Some(scroll.round() as i32);
+    project.sequencer_navigator_scroll_y = Some(scroll_top.round() as i32);
     Ok(())
 }
 
@@ -377,9 +381,11 @@ fn get_arrangement_viewport_cmd(
     let scroll_left = project
         .view_scroll_position
         .or(project.sequencer_navigator_scroll_x.map(f64::from));
+    let scroll_top = project.sequencer_navigator_scroll_y.map(f64::from);
     Ok(ArrangementViewportPayload {
         pixels_per_beat,
         scroll_left,
+        scroll_top,
     })
 }
 

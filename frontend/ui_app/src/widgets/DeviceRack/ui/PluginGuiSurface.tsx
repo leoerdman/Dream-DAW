@@ -8,11 +8,13 @@ import { renderStandardPluginGuiSurface } from '@/widgets/DeviceRack/ui/PluginGu
 import { PluginGuiSurfaceSampler } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceSampler';
 import { PluginGuiSurfaceFallback } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceFallback';
 import { PluginGuiSurfaceEq } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceEq';
+import { deriveEqBandFilterTypes } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 
 /* ── Module-level EQ filter type cache (persists across component remounts) ── */
 const eqFilterTypeCache = new Map<string, string[]>();
+const EQ_DEFAULT_TYPES = ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
 
 export const PluginGuiSurface = ({
     device,
@@ -41,9 +43,23 @@ export const PluginGuiSurface = ({
     // Persist EQ filter types across component remounts via module-level cache
     const [eqBandFilterTypes, setEqBandFilterTypes] = useState<string[]>(() => {
         const cached = eqFilterTypeCache.get(device.id);
-        return cached ?? ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
+        return cached ?? EQ_DEFAULT_TYPES;
     });
-    useEffect(() => { eqFilterTypeCache.set(device.id, eqBandFilterTypes); }, [device.id, eqBandFilterTypes]);
+    const resolvedEqBandFilterTypes = useMemo(
+        () => deriveEqBandFilterTypes(device.params, eqBandFilterTypes),
+        [device.params, eqBandFilterTypes],
+    );
+    useEffect(() => {
+        const cached = eqFilterTypeCache.get(device.id);
+        const next = resolvedEqBandFilterTypes;
+        if (!cached || cached.length !== next.length || cached.some((v, i) => v !== next[i])) {
+            eqFilterTypeCache.set(device.id, next);
+        }
+        setEqBandFilterTypes((prev) => {
+            if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
+            return next;
+        });
+    }, [device.id, resolvedEqBandFilterTypes]);
 
     // ── Spectrum analyzer state ──
     const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
@@ -145,17 +161,29 @@ export const PluginGuiSurface = ({
         const gestureGroupId = `${device.id}:eq-band:${bandIdx}:${Date.now()}`;
         onParamGestureStart?.(`B${bandIdx}Freq`, gestureGroupId);
         onParamGestureStart?.(`B${bandIdx}Gain`, gestureGroupId);
+        onParamGestureStart?.(`B${bandIdx}Q`, gestureGroupId);
     }, [device.id, onParamGestureStart]);
 
     const endEqBandGesture = useCallback((bandIdx: number) => {
         onParamGestureEnd?.(`B${bandIdx}Freq`);
         onParamGestureEnd?.(`B${bandIdx}Gain`);
+        onParamGestureEnd?.(`B${bandIdx}Q`);
     }, [onParamGestureEnd]);
 
     useEffect(() => {
         if (dragEqBand === null) return;
         const bandIdx = dragEqBand;
-        const onMove = (e: MouseEvent) => {
+        let lastFreq = Number.NaN;
+        let lastGain = Number.NaN;
+        let lastQ = Number.NaN;
+        let lastQSentAt = 0;
+        let rafId: number | null = null;
+        let latestEvent: MouseEvent | null = null;
+
+        const flushMove = () => {
+            rafId = null;
+            const e = latestEvent;
+            if (!e) return;
             const surface = eqSurfaceRef.current;
             if (!surface) return;
             const rect = surface.getBoundingClientRect();
@@ -175,34 +203,67 @@ export const PluginGuiSurface = ({
             const minF = Math.log10(20);
             const maxF = Math.log10(20000);
             const freq = Math.pow(10, minF + freqNorm * (maxF - minF));
-            onParamChange(`B${bandIdx}Freq`, Math.round(freq));
+            const roundedFreq = Math.round(freq);
+            if (roundedFreq !== lastFreq) {
+                lastFreq = roundedFreq;
+                onParamChange(`B${bandIdx}Freq`, roundedFreq);
+            }
 
             // ── Y axis: Q for filter-only (LP/HP/Notch), Gain for peaking/shelf ──
-            const filterType = eqBandFilterTypes[bandIdx] ?? 'peaking';
+            const filterType = resolvedEqBandFilterTypes[bandIdx] ?? 'peaking';
             const filterOnly = filterType === 'lowpass' || filterType === 'highpass' || filterType === 'notch';
             if (filterOnly) {
                 // Invert qToY: norm = ((VB_H-10) - svgY) / (VB_H-20)
                 const qNorm = ((VB_H_DRAG - 10) - svgY) / (VB_H_DRAG - 20);
                 const clampedQNorm = Math.max(0, Math.min(1, qNorm));
                 const q = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
-                onParamChange(`B${bandIdx}Q`, Math.round(q * 100) / 100);
+                // HP/LP/Notch are most expensive during drag because both Freq and Q update.
+                // Gate Q updates to lower UI/backend pressure while preserving final value on mouseup.
+                const roundedQ = Math.round(q * 10) / 10;
+                const now = performance.now();
+                const qChangedEnough = Number.isNaN(lastQ) || Math.abs(roundedQ - lastQ) >= 0.2;
+                const qSendWindowOpen = now - lastQSentAt >= 80;
+                if (roundedQ !== lastQ && (qChangedEnough || qSendWindowOpen)) {
+                    lastQ = roundedQ;
+                    lastQSentAt = now;
+                    onParamChange(`B${bandIdx}Q`, roundedQ);
+                }
             } else {
                 const gainValue = ((VB_H_DRAG / 2 - svgY) / (VB_H_DRAG / 2 - 10)) * 24;
                 const roundedGain = Math.max(-24, Math.min(24, gainValue));
-                onParamChange(`B${bandIdx}Gain`, roundedGain);
+                const quantizedGain = Math.round(roundedGain * 10) / 10;
+                if (quantizedGain !== lastGain) {
+                    lastGain = quantizedGain;
+                    onParamChange(`B${bandIdx}Gain`, quantizedGain);
+                }
             }
         };
+        const onMove = (e: MouseEvent) => {
+            latestEvent = e;
+            if (rafId != null) return;
+            rafId = window.requestAnimationFrame(flushMove);
+        };
         const onUp = () => {
+            if (rafId != null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            // Commit latest cursor point before ending gesture.
+            flushMove();
             endEqBandGesture(bandIdx);
             setDragEqBand(null);
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
         return () => {
+            if (rafId != null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
-    }, [dragEqBand, onParamChange, endEqBandGesture, eqBandFilterTypes]);
+    }, [dragEqBand, onParamChange, endEqBandGesture, resolvedEqBandFilterTypes]);
 
     // Close context menu on click outside
     useEffect(() => {
@@ -251,7 +312,7 @@ export const PluginGuiSurface = ({
             <PluginGuiSurfaceEq
                 device={device}
                 projectSampleRate={projectSampleRate}
-                eqBandFilterTypes={eqBandFilterTypes}
+                eqBandFilterTypes={resolvedEqBandFilterTypes}
                 setEqBandFilterTypes={setEqBandFilterTypes}
                 eqSurfaceRef={eqSurfaceRef}
                 dragEqBand={dragEqBand}

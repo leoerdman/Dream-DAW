@@ -139,6 +139,13 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
         tags: ['internal', 'effect', 'analyzer'],
     },
     {
+        id: 'internal://effect/analyzer',
+        name: 'Analyzer',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'analyzer', 'meter'],
+    },
+    {
         id: 'internal://effect/channel-eq',
         name: 'Channel EQ',
         kind: 'effect',
@@ -394,6 +401,11 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
 
 export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'internal://instrument/simple-sine-synth': 'internal://instrument/wave-synth',
+    'internal://instrument/sample-rack': 'internal://instrument/sampler',
+    'internal://effect/glue-compressor': 'internal://effect/compressor',
+    'internal://effect/simple-delay': 'internal://effect/delay',
+    'internal://effect/filter-delay': 'internal://effect/delay',
+    'internal://effect/phaser-flanger': 'internal://effect/phaser',
     // Ableton-style aliases (import compatibility)
     'ableton://device/operator': 'internal://instrument/wave-synth',
     'ableton://device/analog': 'internal://instrument/wave-synth',

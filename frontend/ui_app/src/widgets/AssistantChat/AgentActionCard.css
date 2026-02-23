@@ -99,7 +99,7 @@
 @keyframes agent-details-in {
     from {
         opacity: 0;
-        transform: translateY(-var(--token-size-px-4));
+        transform: translateY(calc(-1 * var(--token-size-px-4)));
     }
 
     to {
@@ -194,7 +194,7 @@
 @keyframes agent-step-in {
     from {
         opacity: 0;
-        transform: translateX(-var(--token-size-px-8));
+        transform: translateX(calc(-1 * var(--token-size-px-8)));
     }
 
     to {

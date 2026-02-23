@@ -4,17 +4,11 @@ import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
-import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
-import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
-import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentActionIndicator';
-import { StatusBar } from '@/widgets/StatusBar/StatusBar';
-import { Timeline } from '@/widgets/Timeline/Timeline';
-import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
-import { EmptyClipEditor, SampleClipEditor, SessionWorkspace } from './DawShellPanels';
+import { DawShellBottomPanel } from './DawShellBottomPanel';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
 import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
@@ -33,23 +27,9 @@ import {
 } from './model/useDawShellEffects';
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
-
-const TrackInspector = lazy(async () => ({
-    default: (await import('@/widgets/TrackInspector/TrackInspector')).TrackInspector,
-}));
-const SettingsPanel = lazy(async () => ({
-    default: (await import('@/widgets/SettingsPanel/SettingsPanel')).SettingsPanel,
-}));
-const ExportModal = lazy(async () => ({
-    default: (await import('@/widgets/ExportModal/ExportModal')).ExportModal,
-}));
-const BlockingJobPopup = lazy(async () => ({
-    default: (await import('@/widgets/BlockingJobPopup/BlockingJobPopup')).BlockingJobPopup,
-}));
-const MissingAssetsPanel = lazy(async () => ({
-    default: (await import('@/widgets/MissingAssetsPanel/MissingAssetsPanel')).MissingAssetsPanel,
-}));
-import { DawShellBottomPanel } from './DawShellBottomPanel';
+import { DawShellMainView } from './DawShellMainView';
+import { DawShellStatusArea } from './DawShellStatusArea';
+import { DawShellOverlays } from './DawShellOverlays';
 
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
 
@@ -60,9 +40,8 @@ export const DawShell = () => {
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
     const selectedTrackIdRef = useRef(selectedTrackId);
-    selectedTrackIdRef.current = selectedTrackId;
     const selectedTrackIdsRef = useRef(selectedTrackIds);
-    selectedTrackIdsRef.current = selectedTrackIds;
+    useEffect(() => { selectedTrackIdRef.current = selectedTrackId; selectedTrackIdsRef.current = selectedTrackIds; }, [selectedTrackId, selectedTrackIds]);
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     const selectedClipId = useMemo(
         () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
@@ -247,19 +226,19 @@ export const DawShell = () => {
     // Keep a valid selected track at all times.
     useEffect(() => {
         if (projectTracks.length === 0) {
-            if (selectedTrackId !== 'master') setSelectedTrackId('master');
+            if (selectedTrackId !== 'master') queueMicrotask(() => setSelectedTrackId('master'));
             return;
         }
         const exists = projectTracks.some((t) => t.id === selectedTrackId);
         if (!exists) {
-            setSelectedTrackId(projectTracks[0].id);
+            queueMicrotask(() => setSelectedTrackId(projectTracks[0].id));
         }
     }, [projectTracks, selectedTrackId]);
 
     useEffect(() => {
         const key = selectedTrackId && selectedTrackId.length > 0 ? selectedTrackId : 'master';
         const saved = bottomPanelModeByTrack[key] ?? 'rack';
-        setBottomPanelMode((prev) => (prev === saved ? prev : saved));
+        queueMicrotask(() => setBottomPanelMode((prev) => (prev === saved ? prev : saved)));
     }, [selectedTrackId, bottomPanelModeByTrack]);
 
     useEffect(() => {
@@ -349,7 +328,7 @@ export const DawShell = () => {
         const prev = prevMissingTotalRef.current;
         prevMissingTotalRef.current = missingMediaSummary.total;
         if (missingMediaSummary.total > 0 && prev === 0) {
-            setMissingAssetsOpen(true);
+            queueMicrotask(() => setMissingAssetsOpen(true));
         }
     }, [missingMediaSummary.total]);
     const selectedMidiTotalBars = useMemo(() => {
@@ -478,314 +457,124 @@ export const DawShell = () => {
                     </ErrorBoundary>
                 </header>
 
-                {/* ── CENTER: Split Layout (Browser | Timeline | TrackList) ── */}
-                <main ref={mainSplitRef} className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
-
-                    {/* Left Sidebar (Asset Browser) */}
-                    <aside
-                        className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
-                        style={{
-                            width: browserWidth,
-                            background: 'var(--color-bg-panel)',
-                            borderRight: '1px solid var(--color-divider)',
-                        }}
-                    >
-                        <ErrorBoundary module="Asset Browser">
-                            <AssetBrowser />
-                        </ErrorBoundary>
-                    </aside>
-                    <div
-                        onMouseDown={beginBrowserResize}
-                        style={{
-                            width: 6,
-                            cursor: 'ew-resize',
-                            background: 'transparent',
-                            flexShrink: 0,
-                        }}
-                    />
-
-                    {mainViewMode === 'arrangement' ? (
-                        <>
-                            {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
-                            <div
-                                ref={timelineRef}
-                                className="flex-1 overflow-hidden"
-                                style={{
-                                    background: 'var(--color-bg-canvas)',
-                                }}
-                            >
-                                <ErrorBoundary module="Timeline">
-                                    <Timeline
-                                        bpm={projectBpm || transportBpm || 120}
-                                        clips={timelineClipsForView}
-                                        /* playheadBeat — now read from store directly by Timeline */
-                                        editCursorBeat={editCursorBeat}
-                                        editCursorTrackIndex={editCursorTrackIndex}
-                                        editCursorTrackIndexEnd={editCursorTrackIndexEnd}
-                                        selectedTrackIndex={selectedTrackIndex}
-                                        selectedTrackIndices={selectedTrackIndices}
-                                        isPlaying={transportIsPlaying}
-                                        recordingActive={recordingState.active}
-                                        recordingTrackIndex={recordingState.trackIndex}
-                                        trackIds={trackIds}
-                                        loopStart={loopStartBeat}
-                                        loopEnd={loopEndBeat}
-                                        loopEnabled={transportLoopEnabled}
-                                        trackCount={trackCount}
-                                        trackHeight={TRACK_HEIGHT_BASE}
-                                        trackHeights={timelineTrackHeights}
-                                        onPlayheadChange={handlePlayheadChange}
-                                        onEditCursorChange={handleEditCursorChange}
-                                        onMarqueeSelectionStart={handleMarqueeSelectionStart}
-                                        onMarqueeSelectionChange={setMarqueeSelection}
-                                        onClipSelect={handleClipSelect}
-                                        selectedClipIds={selectedClipIds}
-                                        onClipSelectionChange={handleTimelineClipSelectionChange}
-                                        onClipMove={handleClipMove}
-                                        onClipResize={handleClipResize}
-                                        onClipFades={handleClipFades}
-                                        onClipFadeCurves={(clipId, fadeInCurve, fadeOutCurve) => {
-                                            setClipFadeCurves((prev) => ({
-                                                ...prev,
-                                                [clipId]: {
-                                                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
-                                                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
-                                                },
-                                            }));
-                                        }}
-                                        onDropBrowserItem={handleBrowserDrop}
-                                        onDoubleClickTrack={handleDoubleClickTrack}
-                                        onOpenMidiClip={handleOpenMidiClip}
-                                        onTrackSelect={handleTimelineTrackSelect}
-
-                                        followPlayhead={followPlayhead}
-                                        automationVisible={automationVisible}
-                                        fitHorizontalToken={fitTimelineToken}
-                                    />
-                                </ErrorBoundary>
-                            </div>
-
-                            {/* Right Sidebar (Track Inspector / Track List) */}
-                            <aside
-                                className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
-                                style={{
-                                    width: 'var(--daw-inspector-width)',
-                                    background: 'var(--color-bg-panel)',
-                                    borderLeft: '1px solid var(--color-divider)',
-                                }}
-                            >
-                                <ErrorBoundary module="Track Inspector">
-                                    <Suspense fallback={null}>
-                                        <TrackInspector
-                                            selectedTrackId={selectedTrackId}
-                                            selectedTrackIds={selectedTrackIds}
-                                            onSelectTracks={handleSelectTracks}
-                                            onSelectTrack={handleSelectTrack}
-                                            trackHeight={TRACK_HEIGHT_BASE}
-                                            rulerHeight={28}
-
-                                            mixerFocusMode={false}
-                                            collapsedGroups={collapsedGroups}
-                                            onToggleGroupCollapse={toggleGroupCollapse}
-                                        />
-                                    </Suspense>
-                                </ErrorBoundary>
-                            </aside>
-                        </>
-                    ) : (
-                        <SessionWorkspace
-                            tracks={projectTracks}
-                            selectedTrackId={selectedTrackId}
-                            onSelectTrack={handleSelectTrack}
-                        />
-                    )}
-                </main>
+                <DawShellMainView
+                    mainSplitRef={mainSplitRef}
+                    timelineRef={timelineRef}
+                    browserWidth={browserWidth}
+                    beginBrowserResize={beginBrowserResize}
+                    mainViewMode={mainViewMode}
+                    projectTracks={projectTracks}
+                    selectedTrackId={selectedTrackId}
+                    selectedTrackIds={selectedTrackIds}
+                    onSelectTrack={handleSelectTrack}
+                    onSelectTracks={handleSelectTracks}
+                    trackHeightBase={TRACK_HEIGHT_BASE}
+                    collapsedGroups={collapsedGroups}
+                    onToggleGroupCollapse={toggleGroupCollapse}
+                    timelineProps={{
+                        bpm: projectBpm || transportBpm || 120,
+                        clips: timelineClipsForView,
+                        editCursorBeat,
+                        editCursorTrackIndex,
+                        editCursorTrackIndexEnd,
+                        selectedTrackIndex,
+                        selectedTrackIndices,
+                        isPlaying: transportIsPlaying,
+                        recordingActive: recordingState.active,
+                        recordingTrackIndex: recordingState.trackIndex,
+                        trackIds,
+                        loopStart: loopStartBeat,
+                        loopEnd: loopEndBeat,
+                        loopEnabled: transportLoopEnabled,
+                        trackCount,
+                        trackHeight: TRACK_HEIGHT_BASE,
+                        trackHeights: timelineTrackHeights,
+                        onPlayheadChange: handlePlayheadChange,
+                        onEditCursorChange: handleEditCursorChange,
+                        onMarqueeSelectionStart: handleMarqueeSelectionStart,
+                        onMarqueeSelectionChange: setMarqueeSelection,
+                        onClipSelect: handleClipSelect,
+                        selectedClipIds,
+                        onClipSelectionChange: handleTimelineClipSelectionChange,
+                        onClipMove: handleClipMove,
+                        onClipResize: handleClipResize,
+                        onClipFades: handleClipFades,
+                        onClipFadeCurves: (clipId, fadeInCurve, fadeOutCurve) => {
+                            setClipFadeCurves((prev) => ({
+                                ...prev,
+                                [clipId]: {
+                                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                                },
+                            }));
+                        },
+                        onDropBrowserItem: handleBrowserDrop,
+                        onDoubleClickTrack: handleDoubleClickTrack,
+                        onOpenMidiClip: handleOpenMidiClip,
+                        onTrackSelect: handleTimelineTrackSelect,
+                        followPlayhead,
+                        automationVisible,
+                        fitHorizontalToken: fitTimelineToken,
+                    }}
+                />
 
                 {/* ── BOTTOM: Rack / Clip Editor (Shift+Tab) ── */}
-                <footer
-                    className="shrink-0 z-40 overflow-hidden"
-                    style={{
-                        height: hasResizableClipEditor ? `${bottomPanelHeightPx}px` : 'var(--daw-device-rack-height)',
-                        minHeight: hasResizableClipEditor ? 'var(--daw-device-rack-height)' : 'var(--daw-device-rack-min-height)',
-                        borderTop: '1px solid var(--color-divider)',
-                        position: 'relative',
-                    }}
-                >
-                    {hasResizableClipEditor && (
-                        <div
-                            onMouseDown={beginBottomPanelResize}
-                            title="Resize Clip Editor"
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                height: 8,
-                                cursor: 'ns-resize',
-                                zIndex: 'var(--z-modal)' as unknown as number,
-                                background: 'transparent',
-                            }}
-                        >
-                            <div
-                                style={{
-                                    width: 56,
-                                    height: 2,
-                                    borderRadius: 'var(--radius-xs)',
-                                    background: 'color-mix(in srgb, var(--color-text-secondary) 45%, transparent)',
-                                    margin: '2px auto 0',
-                                }}
-                            />
-                        </div>
-                    )}
-                    {bottomPanelMode === 'rack' ? (
-                        <ErrorBoundary module="Device Rack">
-                            <Suspense fallback={null}>
-                                <DeviceRack
-                                    selectedTrackId={selectedTrackId}
-                                    onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
-                                />
-                            </Suspense>
-                        </ErrorBoundary>
-                    ) : (
-                        <ErrorBoundary module="Clip Editor">
-                            {selectedTimelineClip?.type === 'midi' ? (
-                                <Suspense fallback={null}>
-                                    <PianoRoll
-                                        // Audit #97 fix: removed fade params from key to prevent
-                                        // full remount (losing selection, scroll, zoom) on fade changes.
-                                        key={selectedTimelineClip.id}
-                                        notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
-                                        ghostNotes={[]} // TODO: wire up ghost notes from adjacent clips
-                                        midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
-                                        trackIndex={selectedTimelineClip.trackIndex}
-                                        onNotesChange={(notes) => handlePianoRollNotesChange(selectedTimelineClip, notes)}
-                                        onSetMidiEnvelopes={(envelopes) => handlePianoRollEnvelopesChange(selectedTimelineClip, envelopes)}
-                                        onGenerateVariation={() => handleGenerateMidiVariation(selectedTimelineClip)}
-                                        aiVariationBusy={aiVariationBusy}
-                                        clipStartBeat={selectedTimelineClip.startBeat}
-                                        totalBars={selectedMidiTotalBars}
-                                        clipLengthBeats={selectedTimelineClip.durationBeats}
-                                        color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || 'var(--color-accent-primary)'}
-                                    />
-                                </Suspense>
-                            ) : selectedTimelineClip?.type === 'audio' ? (
-                                <SampleClipEditor
-                                    key={`${selectedTimelineClip.id}:${selectedTimelineClip.pitchShiftSemitones ?? 0}:${selectedTimelineClip.isWarped ? 1 : 0}:${selectedTimelineClip.warpMode ?? 0}:${Math.round(selectedTimelineClip.warpBaseBpm ?? 0)}`}
-                                    clip={selectedTimelineClip}
-                                />
-                            ) : (
-                                <EmptyClipEditor />
-                            )}
-                        </ErrorBoundary>
-                    )}
-                </footer>
+                <DawShellBottomPanel
+                    selectedTrackId={selectedTrackId}
+                    bottomPanelMode={bottomPanelMode}
+                    hasResizableClipEditor={hasResizableClipEditor}
+                    bottomPanelHeightPx={bottomPanelHeightPx}
+                    beginBottomPanelResize={beginBottomPanelResize}
+                    selectedTimelineClip={selectedTimelineClip ?? undefined}
+                    clipColor={selectedTimelineClip?.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || 'var(--color-accent-primary)'}
+                    midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? []) : []}
+                    aiVariationBusy={aiVariationBusy}
+                    selectedMidiTotalBars={selectedMidiTotalBars}
+                    onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
+                    onMidiNotesChange={(notes) => handlePianoRollNotesChange(selectedTimelineClip ?? undefined, notes)}
+                    onMidiEnvelopesChange={(envelopes) => handlePianoRollEnvelopesChange(selectedTimelineClip ?? undefined, envelopes)}
+                    onGenerateVariation={() => handleGenerateMidiVariation(selectedTimelineClip ?? undefined)}
+                />
 
                 {/* ── VERY BOTTOM: Status Bar ── */}
-                {missingMediaSummary.total > 0 && (
-                    <div
-                        className="z-50"
-                        style={{
-                            borderTop: '1px solid color-mix(in srgb, var(--color-status-error) 55%, transparent)',
-                            borderBottom: '1px solid color-mix(in srgb, var(--color-status-error) 35%, transparent)',
-                            background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-status-error) 18%, var(--color-bg-panel)) 0%, color-mix(in srgb, var(--color-status-error) 8%, var(--color-bg-panel)) 100%)',
-                            minHeight: 24,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '3px 10px',
-                            gap: 10,
-                        }}
-                    >
-                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-status-error)', letterSpacing: '0.02em' }}>
-                            Missing media detected: {missingMediaSummary.offlineClipCount} files, {missingMediaSummary.missingPluginCount} plugins
-                        </span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                            <button
-                                onClick={() => setMissingAssetsOpen((v) => !v)}
-                                style={{
-                                    border: '1px solid color-mix(in srgb, var(--color-status-error) 45%, transparent)',
-                                    background: 'color-mix(in srgb, var(--color-status-error) 20%, transparent)',
-                                    color: 'color-mix(in srgb, var(--color-status-error) 30%, var(--color-text-primary))',
-                                    borderRadius: 'var(--radius-lg)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                    padding: '3px 8px',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                {missingAssetsOpen ? 'Hide Resolver' : 'Open Resolver'}
-                            </button>
-                        </div>
-                    </div>
-                )}
-                <div className="z-50">
-                    <StatusBar
-                        panelMode={bottomPanelMode}
-                        onPanelModeChange={setBottomPanelModeForActiveTrack}
-                        panelInfo={panelInfo}
-                    />
-                </div>
+                <DawShellStatusArea
+                    missingAssetsOpen={missingAssetsOpen}
+                    missingMediaSummary={missingMediaSummary}
+                    onToggleMissingAssets={() => setMissingAssetsOpen((v) => !v)}
+                    panelMode={bottomPanelMode}
+                    onPanelModeChange={setBottomPanelModeForActiveTrack}
+                    panelInfo={panelInfo}
+                />
 
             </div>
 
-            {/* ═══ SETTINGS MODAL ═══ */}
-            <ErrorBoundary module="Settings">
-                <Suspense fallback={null}>
-                    <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-                </Suspense>
-            </ErrorBoundary>
-
-            {/* ═══ AI ASSISTANT CHAT ═══ */}
-            <AssistantChat
-                open={assistantOpen}
-                onClose={() => {
+            <DawShellOverlays
+                settingsOpen={settingsOpen}
+                onCloseSettings={() => setSettingsOpen(false)}
+                assistantOpen={assistantOpen}
+                onAssistantClose={() => {
                     setAssistantOpen(false);
                     try { localStorage.setItem('dream-daw:assistant-open', '0'); } catch { /* quota */ }
                 }}
-                onOpen={() => {
+                onAssistantOpen={() => {
                     setAssistantOpen(true);
                     try { localStorage.setItem('dream-daw:assistant-open', '1'); } catch { /* quota */ }
                 }}
                 onSelectClips={setSelectedClipIds}
+                missingAssetsOpen={missingAssetsOpen}
+                missingTotal={missingMediaSummary.total}
+                onCloseMissingAssets={() => setMissingAssetsOpen(false)}
+                exportOpen={exportOpen}
+                onCloseExport={() => setExportOpen(false)}
+                projectName={projectFilePath ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
+                selectedClipIds={selectedClipIds}
+                timelineClipsForView={timelineClipsForView}
+                bpm={projectBpm || transportBpm || 120}
+                sampleRate={projectSampleRate}
+                loopStartBeat={loopStartBeat}
+                loopEndBeat={loopEndBeat}
+                marqueeSelection={marqueeSelection}
             />
-
-            {/* ═══ AGENT ACTION INDICATORS ═══ */}
-            <AgentActionIndicator />
-
-            <ErrorBoundary module="Resolver">
-                <Suspense fallback={null}>
-                    <MissingAssetsPanel isOpen={missingAssetsOpen && missingMediaSummary.total > 0} onClose={() => setMissingAssetsOpen(false)} />
-                </Suspense>
-            </ErrorBoundary>
-
-            {/* Drop overlay removed — asset drops handled directly by Timeline/AssetBrowser */}
-            {/* ── Export Modal ── */}
-            <ErrorBoundary module="Export">
-                <Suspense fallback={null}>
-                    <ExportModal
-                        isOpen={exportOpen}
-                        onClose={() => setExportOpen(false)}
-                        projectName={
-                            projectFilePath
-                                ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled'
-                                : 'Untitled'
-                        }
-                        selectedClipIds={selectedClipIds}
-                        allClips={timelineClipsForView}
-                        bpm={projectBpm || transportBpm || 120}
-                        sampleRate={projectSampleRate}
-                        loopStartBeat={loopStartBeat}
-                        loopEndBeat={loopEndBeat}
-                        marqueeSelection={marqueeSelection}
-                    />
-                </Suspense>
-            </ErrorBoundary>
-
-            <Suspense fallback={null}>
-                <BlockingJobPopup />
-            </Suspense>
-
-            <DragOverlay />
 
         </div>
     );

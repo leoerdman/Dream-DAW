@@ -396,6 +396,9 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
 }
 
 include!("plugins_routing/window_open_commands.rs");
-include!("plugins_routing/window_param_commands.rs");
+include!("plugins_routing/window_open_capability_commands.rs");
+include!("plugins_routing/window_param_close_commands.rs");
+include!("plugins_routing/window_param_set_commands.rs");
+include!("plugins_routing/window_param_query_commands.rs");
 include!("plugins_routing/mutation_commands_a.rs");
 include!("plugins_routing/mutation_commands_b.rs");

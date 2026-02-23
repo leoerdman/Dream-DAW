@@ -182,7 +182,7 @@ export function useDawShellMidiPersistence({
         } finally {
             setAiVariationBusy(false);
         }
-    }, [selectedTimelineClip, midiNotesByClip, projectTracks, projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
+    }, [midiNotesByClip, projectTracks, projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
 
     const handlePianoRollNotesChange = useCallback((selectedTimelineClip: TimelineClip | undefined, notes: MidiNote[]) => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
@@ -206,7 +206,7 @@ export function useDawShellMidiPersistence({
             midiSaveThrottlesRef.current.set(clipId, send);
         }
         send(notes);
-    }, [selectedTimelineClip, serializeMidiNotesToFrames, applyProjectDeltas]);
+    }, [serializeMidiNotesToFrames, applyProjectDeltas]);
 
     const handlePianoRollEnvelopesChange = useCallback((selectedTimelineClip: TimelineClip | undefined, envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
@@ -224,7 +224,7 @@ export function useDawShellMidiPersistence({
         }
         dirtyMidiEnvelopeClipIdsRef.current.add(clipId);
         send(envelopes);
-    }, [selectedTimelineClip]);
+    }, []);
 
     return {
         midiNotesByClip,

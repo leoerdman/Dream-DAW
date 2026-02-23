@@ -1,15 +1,14 @@
 import * as engine from '@/shared/api/engine';
 import type { AppSettings } from '@/shared/api/engine';
+import { FolderRow, SettingRow } from './settingsPanelParts';
 import {
     actionBtnStyle,
     chipStyle,
     dividerStyle,
-    FolderRow,
     inputStyle,
-    SettingRow,
     titleStyle,
     valueStyle,
-} from './settingsPanelParts';
+} from './settingsPanelStyles';
 
 interface FoldersTabProps {
     settings: AppSettings;

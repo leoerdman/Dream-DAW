@@ -77,5 +77,6 @@ include!("clip_mutators/advanced_commands.rs");
 include!("clip_mutators/recording_commands.rs");
 
 include!("clip_mutators/export_commands.rs");
+include!("clip_mutators/export_job_commands.rs");
 include!("clip_mutators/bounce_commands.rs");
 include!("clip_mutators/split_stems_commands.rs");

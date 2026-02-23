@@ -8,8 +8,7 @@ import {
     overlayStyle,
     sidebarStyle,
     tabBtnStyle,
-    titleStyle,
-} from './settingsPanelParts';
+} from './settingsPanelStyles';
 import { AboutTab, FoldersTab, MidiTab } from './settingsPanelTabs';
 import { AudioTab, AppearanceTab, GeneralTab } from './settingsPanelMainTabs';
 

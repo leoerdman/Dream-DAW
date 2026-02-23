@@ -1,5 +1,6 @@
 import type { AppSettings, AudioDevices, PluginSandboxSnapshot } from '@/shared/api/engine';
-import { actionBtnSmStyle, chipStyle, dividerStyle, inputStyle, Select, SettingRow, titleStyle, Toggle, valueStyle } from './settingsPanelParts';
+import { Select, SettingRow, Toggle } from './settingsPanelParts';
+import { actionBtnSmStyle, chipStyle, dividerStyle, inputStyle, titleStyle, valueStyle } from './settingsPanelStyles';
 import * as engine from '@/shared/api/engine';
 
 interface GeneralTabProps {

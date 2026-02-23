@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "desktop_host"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "dream_automation"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "log",
  "serde",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "dream_clip_engine"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "arc-swap",
  "crossbeam-utils",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "dream_dsp"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "log",
  "rubato",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "dream_engine"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "arc-swap",
  "cpal",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "dream_graph"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "arc-swap",
  "dream_ipc",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "dream_importers"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "base64 0.22.1",
  "dream_models",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "dream_io"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1085,14 +1085,14 @@ dependencies = [
 
 [[package]]
 name = "dream_ipc"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "rtrb",
 ]
 
 [[package]]
 name = "dream_mixer"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "log",
  "wide",
@@ -1100,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "dream_models"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "parking_lot",
  "serde",
@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "dream_mutators"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "dream_models",
  "uuid",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "dream_orchestrator"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "dream_clip_engine",
  "dream_graph",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "dream_plugins"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "bytemuck",
  "cocoa",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "dream_renderer"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "dream_transport"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "dream_models",
  "log",
@@ -3353,7 +3353,7 @@ dependencies = [
 
 [[package]]
 name = "plugin_host_daemon"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "base64 0.22.1",
  "bytemuck",
@@ -3964,7 +3964,7 @@ dependencies = [
 
 [[package]]
 name = "rubato_test_project"
-version = "1.0.129"
+version = "1.0.133"
 dependencies = [
  "rubato",
 ]

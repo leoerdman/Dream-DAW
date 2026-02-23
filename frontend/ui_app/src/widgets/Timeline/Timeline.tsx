@@ -4,10 +4,10 @@
  * Thin React shell around the TimelineEngine canvas.
  */
 
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import { beatToFrame, resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
+import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { scrollSync } from '@/shared/lib/useScrollSync';
@@ -15,10 +15,10 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
-import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { isTrackActive } from '@/shared/utils/routing';
 import { AutomationOverlay } from './AutomationOverlay';
+import { useTimelineDnD } from './model/useTimelineDnD';
 
 interface TimelineProps {
     bpm?: number;
@@ -555,180 +555,15 @@ export const Timeline = (props: TimelineProps) => {
     const dragCursorX = useDragStore(s => s.cursorX);
     const dragCursorY = useDragStore(s => s.cursorY);
 
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-
-        const engine = engineRef.current;
-        const canvas = canvasRef.current;
-        if (!engine || !canvas) return;
-
-        const rect = canvas.getBoundingClientRect();
-        if (e.clientY < rect.top || e.clientY > rect.bottom) {
-            engine.setDropTarget(null);
-            return;
-        }
-        const beat = engine.viewport.screenToBeats(e.clientX, rect);
-        const track = engine.viewport.screenToTrack(e.clientY, rect);
-
-        engine.setDropTarget({ track, beat: Math.max(0, Math.round(beat)) });
-    }, [engineRef, canvasRef]);
-
-    const handleDragLeave = useCallback(() => {
-        engineRef.current?.setDropTarget(null);
-    }, [engineRef]);
-
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        engineRef.current?.setDropTarget(null);
-
-        // Try store-based drag first
-        const storeDrag = useDragStore.getState().draggingItem;
-        const engine = engineRef.current;
-        const canvas = canvasRef.current;
-        if (!engine || !canvas) return;
-
-        const rect = canvas.getBoundingClientRect();
-        if (e.clientY < rect.top || e.clientY > rect.bottom) {
-            return;
-        }
-        const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
-        const track = engine.viewport.screenToTrack(e.clientY, rect);
-
-        if (storeDrag) {
-            const acceptance = canDropInZone(storeDrag, 'timeline-track');
-            if (!acceptance.allowed) {
-                useDragStore.getState().endDrag();
-                return;
-            }
-            const browserItem: BrowserDragItem = {
-                id: storeDrag.id,
-                name: storeDrag.name,
-                type: storeDrag.type ?? 'audio',
-                path: storeDrag.path ?? '',
-                slotHint: storeDrag.slotHint,
-            };
-            commandBusRef.current.emit({ type: 'drop', item: browserItem, trackIndex: track, beat });
-            useDragStore.getState().endDrag();
-            return;
-        }
-
-        // Try HTML5 DataTransfer
-        try {
-            const raw = e.dataTransfer.getData('application/json');
-            if (raw) {
-                const item = JSON.parse(raw) as BrowserDragItem;
-                commandBusRef.current.emit({ type: 'drop', item, trackIndex: track, beat });
-            }
-        } catch {
-            // Not a valid drop
-        }
-    }, [engineRef, canvasRef]);
-
-    // Store-based DnD (mouse-driven, non-HTML5):
-    // update drop target while dragging and commit on global mouseup.
-    useEffect(() => {
-        const engine = engineRef.current;
-        const canvas = canvasRef.current;
-        if (!engine || !canvas || !draggingItem) return;
-
-        const rect = canvas.getBoundingClientRect();
-        const inside =
-            dragCursorX >= rect.left &&
-            dragCursorX <= rect.right &&
-            dragCursorY >= rect.top &&
-            dragCursorY <= rect.bottom;
-
-        const acceptance = canDropInZone(draggingItem, 'timeline-track');
-        if (inside && acceptance.allowed && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
-            const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(dragCursorX, rect)));
-            const track = engine.viewport.screenToTrack(dragCursorY, rect);
-            engine.setDropTarget(null);
-            const widthBeats = draggingItem.durationSeconds
-                ? Math.max(0.25, secondsToBeat(draggingItem.durationSeconds, bpm))
-                : 4;
-            engine.setGhostClip({
-                trackIndex: track,
-                beat,
-                widthBeats,
-                name: draggingItem.name,
-                type: draggingItem.type === 'midi' ? 'midi' : 'audio',
-            });
-        } else {
-            engine.setDropTarget(null);
-            engine.setGhostClip(null);
-        }
-    }, [draggingItem, dragCursorX, dragCursorY, engineRef, canvasRef, bpm]);
-
-    useEffect(() => {
-        if (!draggingItem) return;
-        if (draggingItem.type !== 'audio' && draggingItem.type !== 'midi') return;
-
-        const onMouseUp = (e: MouseEvent) => {
-            const engine = engineRef.current;
-            const canvas = canvasRef.current;
-            if (!engine || !canvas) {
-                // BUG-1 FIX: Only end drag if no other zone will handle it.
-                // Use rAF so bubble-phase handlers run first.
-                requestAnimationFrame(() => {
-                    if (useDragStore.getState().draggingItem) {
-                        useDragStore.getState().endDrag();
-                    }
-                });
-                return;
-            }
-
-            const rect = canvas.getBoundingClientRect();
-            const inside =
-                e.clientX >= rect.left &&
-                e.clientX <= rect.right &&
-                e.clientY >= rect.top &&
-                e.clientY <= rect.bottom;
-
-            if (inside) {
-                // Drop happened inside the timeline canvas — handle it here.
-                const acceptance = canDropInZone(draggingItem, 'timeline-track');
-                if (acceptance.allowed) {
-                    const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
-                    const track = engine.viewport.screenToTrack(e.clientY, rect);
-                    commandBusRef.current.emit({
-                        type: 'drop',
-                        item: {
-                            id: draggingItem.id,
-                            name: draggingItem.name,
-                            type: draggingItem.type,
-                            path: draggingItem.path,
-                            durationSeconds: draggingItem.durationSeconds,
-                            slotHint: draggingItem.slotHint,
-                        },
-                        trackIndex: track,
-                        beat,
-                    });
-                }
-                engine.setDropTarget(null);
-                engine.setGhostClip(null);
-                useDragStore.getState().endDrag();
-            } else {
-                // BUG-1 FIX: Mouse is OUTSIDE the canvas — do NOT endDrag() here.
-                // Let other drop zones (sampler surface, device rack, track inspector)
-                // handle the drag in the bubble phase. Clean up the ghost clip only.
-                engine.setDropTarget(null);
-                engine.setGhostClip(null);
-                // Fallback: if no other zone consumed the drag after bubble phase,
-                // clean up the zombie drag state via rAF.
-                requestAnimationFrame(() => {
-                    if (useDragStore.getState().draggingItem) {
-                        useDragStore.getState().endDrag();
-                    }
-                });
-            }
-        };
-
-        window.addEventListener('mouseup', onMouseUp, { capture: true });
-        return () => {
-            window.removeEventListener('mouseup', onMouseUp, { capture: true });
-        };
-    }, [draggingItem, engineRef, canvasRef]);
+    const { handleDragOver, handleDragLeave, handleDrop } = useTimelineDnD({
+        engineRef,
+        canvasRef,
+        commandBusRef,
+        bpm,
+        draggingItem,
+        dragCursorX,
+        dragCursorY,
+    });
 
     // Ghost clip is handled together with cursor-tracked drop target effect above.
 

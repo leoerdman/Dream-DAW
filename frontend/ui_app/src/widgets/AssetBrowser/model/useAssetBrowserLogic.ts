@@ -3,7 +3,6 @@ import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import { STATIC_CATEGORIES } from './assetBrowserSchema';
 import type { BrowserCategory, BrowserItem, PluginGroupedRow } from './assetBrowserSchema';
 export type { BrowserCategory, BrowserItem, PluginGroupedRow } from './assetBrowserSchema';
@@ -17,12 +16,10 @@ export {
     SOURCE_FILTERS,
 } from './assetBrowserSchema';
 import {
-    fileTypeToItemType,
     loadCollectionLabels,
     loadCollections,
     saveCollectionLabels,
     saveCollections,
-    selectBestPeakLevel,
     type CollectionId,
 } from './assetBrowserUtils';
 import {
@@ -34,7 +31,8 @@ import {
     mapRealBrowserItems,
 } from './assetBrowserItemPipeline';
 import { useAssetBrowserEffects } from './useAssetBrowserEffects';
-
+import { useFolderTreeActions, useItemEnterAction } from './useAssetBrowserActions';
+import { useKeyboardInteractions, usePreviewSync, useSplitResize } from './useAssetBrowserInteractions';
 export function useAssetBrowserLogic() {
     const settings = useSettingsStore((s) => s.settings);
     const settingsLoaded = useSettingsStore((s) => s.loaded);
@@ -246,290 +244,47 @@ export function useAssetBrowserLogic() {
         }
     }, [settings, updateAllSettings, triggerPluginScan]);
 
-    const handleAddFolder = useCallback(() => {
-        engineApi.addBrowserFolder()
-            .then(folders => {
-                setUserFolders(folders);
-                const newIdx = folders.length - 1;
-                if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
-            })
-            .catch(err => {
-                if (!String(err).includes('Cancelled')) {
-                    console.error('[Browser] Add folder failed:', err);
-                }
-            });
-    }, []);
+    const { navigateInto, handleAddFolder, handleRemoveFolder } = useFolderTreeActions({
+        expandedFolders,
+        folderChildrenCache,
+        setExpandedFolders,
+        setLoadingFolders,
+        setFolderChildrenCache,
+        setUserFolders,
+        setSelectedCategoryId,
+    });
 
-    const handleRemoveFolder = useCallback((path: string) => {
-        engineApi.removeBrowserFolder(path)
-            .then(folders => {
-                setUserFolders(folders);
-                setSelectedCategoryId('samples');
-            })
-            .catch(err => console.error('[Browser] Remove folder failed:', err));
-    }, []);
+    const { handleItemEnter } = useItemEnterAction({ projectTracks, enterNonceRef });
 
-    const toggleFolderExpand = useCallback(async (path: string) => {
-        const isExpanded = expandedFolders.has(path);
-        setExpandedFolders(prev => {
-            const next = new Set(prev);
-            if (isExpanded) {
-                for (const p of next) {
-                    if (p.startsWith(path + '/') || p === path) next.delete(p);
-                }
-            } else {
-                next.add(path);
-            }
-            return next;
-        });
-        if (!isExpanded && !folderChildrenCache.has(path)) {
-            setLoadingFolders(prev => new Set(prev).add(path));
-            try {
-                const files = await engineApi.scanFolderAll(path);
-                const children: BrowserItem[] = files.map((f, i) => {
-                    const sizeKb = Math.round(f.size_bytes / 1024);
-                    const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
-                    const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
-                    return {
-                        id: `tree-${path}-${i}`, name: f.name,
-                        type: fileTypeToItemType(f.file_type), format: f.extension || undefined,
-                        meta: f.is_directory ? 'Folder' : sizeLabel,
-                        path: f.path, isDirectory: f.is_directory,
-                        durationSeconds: f.duration_seconds ?? undefined,
-                        sizeBytes: f.size_bytes,
-                    };
-                });
-                children.sort((a, b) => {
-                    const aDir = a.isDirectory ? 1 : 0;
-                    const bDir = b.isDirectory ? 1 : 0;
-                    if (aDir !== bDir) return bDir - aDir;
-                    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-                });
-                setFolderChildrenCache(prev => new Map(prev).set(path, children));
-            } catch (err) {
-                console.warn('[Browser] Tree scan failed for', path, err);
-            } finally {
-                setLoadingFolders(prev => {
-                    const n = new Set(prev);
-                    n.delete(path);
-                    return n;
-                });
-            }
-        }
-    }, [expandedFolders, folderChildrenCache]);
+    const syncPreviewForItem = usePreviewSync({
+        previewEnabled,
+        previewRequestToken,
+        audioDurationSecRef,
+        isPreviewPlayingRef,
+        setPreviewPeaks,
+    });
 
-    const navigateInto = useCallback((path: string) => {
-        void toggleFolderExpand(path);
-    }, [toggleFolderExpand]);
+    const { jumpToPluginLetter, focusResults, handleBrowserKeyDown } = useKeyboardInteractions({
+        items,
+        selectedItemId,
+        selectedCategoryId,
+        pluginLetterAnchors,
+        previewEnabled,
+        fileListRef,
+        searchRef,
+        itemRowRefs,
+        setSelectedItemId,
+        setDebouncedQuery,
+        syncPreviewForItem,
+        handleItemEnter,
+    });
 
-    const resolveSelectedTrack = useCallback(() => {
-        const selected = window.__dreamSelectedTrackId;
-        if (selected && selected !== 'master') {
-            const selectedTrack = projectTracks.find((t) => t.id === selected);
-            if (selectedTrack) return selectedTrack;
-        }
-        const firstUsable = projectTracks.find((t) => t.track_type !== 'Master');
-        return firstUsable ?? null;
-    }, [projectTracks]);
-
-    const handleItemEnter = useCallback(async (item: BrowserItem | null) => {
-        if (!item) return;
-        if (!item.path) return;
-        const nonce = ++enterNonceRef.current;
-        const track = resolveSelectedTrack();
-        if (!track) return;
-        try {
-            if (item.type === 'plugin') {
-                const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
-                const fallbackSlot: 'instrument' | 'effect' = primary === 'instrument' ? 'effect' : 'instrument';
-                let lastErr: unknown = null;
-                const attempts: Array<'instrument' | 'effect' | 'auto'> = [];
-                for (const slot of [primary, 'auto', fallbackSlot] as const) {
-                    if (!attempts.includes(slot)) attempts.push(slot);
-                }
-                for (const attempt of attempts) {
-                    try {
-                        const response = await engineApi.addPluginToTrackWithDeltas(track.id, item.path, item.name, attempt);
-                        await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-plugin');
-                        lastErr = null;
-                        break;
-                    } catch (err) { lastErr = err; }
-                }
-                if (lastErr) throw lastErr;
-                return;
-            }
-            if (item.type !== 'audio') return;
-            if (track.track_type === 'Midi') {
-                const hasSamplerInstrument = !!track.instrument && /sampler/i.test(
-                    `${track.instrument.plugin_id} ${track.instrument.name}`,
-                );
-                if (!hasSamplerInstrument) {
-                    const response = await engineApi.addPluginToTrackWithDeltas(
-                        track.id,
-                        'internal://instrument/sampler',
-                        'Sampler',
-                        'instrument',
-                    );
-                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-sampler');
-                }
-                {
-                    const response = await engineApi.setSamplerSampleWithDeltas(track.id, item.path);
-                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:set-sampler-sample');
-                }
-                return;
-            }
-            const trackIndex = projectTracks.findIndex((t) => t.id === track.id);
-            if (trackIndex < 0) return;
-            const store = useEngineStore.getState();
-            const bpm = store.projectBpm || store.transport.bpm || 120;
-            const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
-            const positionFrames = Math.max(0, beatToFrame(store.transport.position_beats ?? 0, bpm, sampleRate));
-            if (enterNonceRef.current !== nonce) return;
-            const response = await engineApi.importAudioFileWithDeltas(item.path, trackIndex, positionFrames);
-            if (enterNonceRef.current !== nonce) return;
-            await store.applyProjectDeltas(response.deltas, 'asset-browser:import-audio');
-        } catch (err) {
-            console.error('[AssetBrowser] Enter action failed:', err);
-        }
-    }, [resolveSelectedTrack, projectTracks]);
-
-    const syncPreviewForItem = useCallback((item: BrowserItem | null) => {
-        const token = ++previewRequestToken.current;
-        if (item?.type === 'audio' && item.path) {
-            engineApi.getWaveformPeaks(item.path)
-                .then(peaks => {
-                    if (previewRequestToken.current !== token) return;
-                    setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
-                    if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
-                        audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
-                    }
-                })
-                .catch(() => {
-                    if (previewRequestToken.current === token) setPreviewPeaks(null);
-                });
-            if (previewEnabled) {
-                isPreviewPlayingRef.current = true;
-                engineApi.previewAudioFile(item.path).catch(err => console.warn('[Preview]', err));
-            } else {
-                isPreviewPlayingRef.current = false;
-                engineApi.stopPreview().catch((err) => console.warn('[AssetBrowser] stopPreview failed:', err));
-            }
-            return;
-        }
-        engineApi.stopPreview().catch((err) => console.warn('[AssetBrowser] stopPreview(reset) failed:', err));
-        if (previewRequestToken.current === token) setPreviewPeaks(null);
-    }, [previewEnabled]);
-
-    const jumpToPluginLetter = useCallback((letter: string) => {
-        const targetId = pluginLetterAnchors.itemByLetter[letter];
-        if (!targetId) return;
-        const targetItem = items.find((it) => it.id === targetId) ?? null;
-        setSelectedItemId(targetId);
-        syncPreviewForItem(targetItem);
-        queueMicrotask(() => {
-            itemRowRefs.current[targetId]?.scrollIntoView({ block: 'nearest' });
-        });
-    }, [items, pluginLetterAnchors, syncPreviewForItem]);
-
-    const moveSelection = useCallback((delta: number) => {
-        if (items.length === 0) return;
-        const currentIndex = selectedItemId
-            ? items.findIndex((it) => it.id === selectedItemId) : -1;
-        const fallbackIndex = delta >= 0 ? 0 : items.length - 1;
-        const rawNextIndex = currentIndex < 0 ? fallbackIndex : currentIndex + delta;
-        const nextIndex = Math.max(0, Math.min(items.length - 1, rawNextIndex));
-        const next = items[nextIndex];
-        if (!next) return;
-        setSelectedItemId(next.id);
-        if (previewEnabled) syncPreviewForItem(next);
-        if (selectedCategoryId === 'plugins') {
-            queueMicrotask(() => {
-                itemRowRefs.current[next.id]?.scrollIntoView({ block: 'nearest' });
-            });
-            return;
-        }
-        const ROW_HEIGHT = 28;
-        const el = fileListRef.current;
-        if (el) {
-            const itemTop = nextIndex * ROW_HEIGHT;
-            const itemBottom = itemTop + ROW_HEIGHT;
-            const headerOffset = 24;
-            if (itemTop < el.scrollTop + headerOffset) el.scrollTop = itemTop - headerOffset;
-            else if (itemBottom > el.scrollTop + el.clientHeight) el.scrollTop = itemBottom - el.clientHeight;
-        }
-    }, [items, selectedItemId, selectedCategoryId, syncPreviewForItem, previewEnabled]);
-
-    const focusResults = useCallback(() => { fileListRef.current?.focus(); }, []);
-
-    const handleBrowserKeyDown = useCallback((e: React.KeyboardEvent) => {
-        const activeEl = document.activeElement;
-        if (e.key === 'Escape') {
-            if (activeEl === searchRef.current && (searchRef.current?.value.length ?? 0) > 0) {
-                e.preventDefault();
-                e.stopPropagation();
-                setDebouncedQuery('');
-                if (searchRef.current) searchRef.current.value = '';
-                if (fileListRef.current) fileListRef.current.scrollTop = 0;
-            }
-            return;
-        }
-        if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1); focusResults(); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1); focusResults(); return; }
-        if (selectedCategoryId === 'plugins' && activeEl !== searchRef.current && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            const upper = e.key.toUpperCase();
-            const isLetter = /^[A-Z]$/.test(upper);
-            const isHash = e.key === '#';
-            if (isLetter || isHash) {
-                const target = isHash ? '#' : upper;
-                if (pluginLetterAnchors.itemByLetter[target]) {
-                    e.preventDefault();
-                    jumpToPluginLetter(target);
-                    focusResults();
-                    return;
-                }
-            }
-        }
-        if (e.key !== 'Enter') return;
-        e.preventDefault();
-        const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;
-        if (!selected) return;
-        if (activeEl === searchRef.current) {
-            if (!selectedItemId) setSelectedItemId(selected.id);
-            focusResults();
-            return;
-        }
-        void handleItemEnter(selected);
-    }, [focusResults, handleItemEnter, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, selectedCategoryId, selectedItemId]);
-
-    const beginSplitResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        const root = splitRootRef.current;
-        if (!root) return;
-        const rootRect = root.getBoundingClientRect();
-        let rafId: number | null = null;
-        let pendingWidth: number | null = null;
-        const flushWidth = () => {
-            rafId = null;
-            if (pendingWidth === null) return;
-            const nextWidth = pendingWidth;
-            setLeftPaneWidth((prev) => (prev === nextWidth ? prev : nextWidth));
-        };
-        const onMove = (me: MouseEvent) => {
-            const nextWidth = Math.max(84, Math.min(180, Math.round(me.clientX - rootRect.left)));
-            pendingWidth = nextWidth;
-            if (rafId === null) rafId = window.requestAnimationFrame(flushWidth);
-        };
-        const onUp = () => {
-            if (rafId !== null) { window.cancelAnimationFrame(rafId); rafId = null; }
-            flushWidth();
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-            const finalWidth = Math.max(84, Math.min(180, leftPaneWidthRef.current));
-            persistBrowserPrefs({ browserLeftPaneWidth: finalWidth });
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-    }, [persistBrowserPrefs]);
+    const beginSplitResize = useSplitResize({
+        splitRootRef,
+        leftPaneWidthRef,
+        setLeftPaneWidth,
+        persistBrowserPrefs,
+    });
 
     const setItemRowRef = useCallback((id: string, element: HTMLDivElement | null) => {
         itemRowRefs.current[id] = element;

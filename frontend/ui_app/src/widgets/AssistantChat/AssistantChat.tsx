@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Square, Mic, MicOff } from 'lucide-react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import { streamChat, type ChatMessage } from '@/shared/api/assistantService';
+import type { ChatMessage } from '@/shared/api/assistantService';
 import { loadChatHistory, saveChatHistory, clearChatHistory } from '@/shared/api/chatHistoryService';
 import { groupMessagesIntoActions } from './AgentActionGrouping';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { useAgentBridge, sendBridgeResponse } from '@/shared/hooks/useAgentBridge';
+import { useAgentBridge } from '@/shared/hooks/useAgentBridge';
 import { useAssistantVoiceInput, type SpeechRecognitionInstance } from './useAssistantVoiceInput';
 import { AssistantChatHeader } from './AssistantChatHeader';
 import { AssistantChatMessages } from './AssistantChatMessages';
+import { AssistantChatComposer } from './AssistantChatComposer';
+import { buildHistoryText } from './assistantHistory';
+import { useAssistantSendMessage } from './useAssistantSendMessage';
 import './AgentActionCard.css';
 import './AssistantChat.css';
 
@@ -37,8 +39,6 @@ interface AssistantChatProps {
     onOpen: () => void;
     onSelectClips?: (ids: string[]) => void;
 }
-
-let isSendingLocked = false;
 
 export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: AssistantChatProps) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -96,16 +96,17 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     useEffect(() => {
         if (!open) return;
         let cancelled = false;
+        const shouldResetLiveAgent =
+            historyLoadedForId !== null && historyLoadedForId !== projectId && !isStreaming;
 
-        if (historyLoadedForId !== null && historyLoadedForId !== projectId && !isStreaming) {
+        if (shouldResetLiveAgent) {
             abortRef.current?.abort();
             abortRef.current = null;
-            setIsStreaming(false);
-            setLiveAgent(null);
         }
 
         void loadChatHistory().then((history) => {
             if (cancelled) return;
+            if (shouldResetLiveAgent) setLiveAgent(null);
             if (history.length > 0) setMessages(history);
             else if (historyLoadedForId !== projectId) setMessages([]);
             setHistoryLoadedForId(projectId);
@@ -146,110 +147,18 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
         };
     }, []);
 
-    const handleStop = useCallback(() => {
-        abortRef.current?.abort();
-        abortRef.current = null;
-        setIsStreaming(false);
-        isSendingLocked = false;
-    }, []);
-
-    const sendMessage = useCallback(async (text: string) => {
-        if (!text.trim() || isStreaming || isSendingLocked) return;
-        isSendingLocked = true;
-
-        if (!apiKey) {
-            setMessages((prev) => [
-                ...prev,
-                { role: 'user', content: text },
-                { role: 'assistant', content: '⚠️ No API key configured. Go to **Settings → AI** and enter your OpenRouter API key.' },
-            ]);
-            sendBridgeResponse({ type: 'error', message: 'No API key configured' });
-            isSendingLocked = false;
-            return;
-        }
-
-        const userMsg: ChatMessage = { role: 'user', content: text.trim() };
-        const newMessages = [...messages, userMsg];
-        setMessages(newMessages);
-        setInput('');
-        setIsStreaming(true);
-
-        const liveRef = { thinking: '', actions: [] as LiveAction[], finalText: '' };
-        setLiveAgent({ thinking: '', actions: [], finalText: '' });
-
-        const controller = new AbortController();
-        abortRef.current = controller;
-
-        try {
-            const result = await streamChat(
-                newMessages,
-                apiKey,
-                model,
-                (event) => {
-                    sendBridgeResponse(event as unknown as Record<string, unknown>);
-                    switch (event.type) {
-                        case 'thinking':
-                            liveRef.thinking += event.text;
-                            setLiveAgent((prev) => (prev ? { ...prev, thinking: liveRef.thinking } : prev));
-                            break;
-                        case 'tool-start':
-                            liveRef.actions.push({ toolName: event.toolName, args: event.args, result: null, index: event.index });
-                            setLiveAgent((prev) => (prev ? { ...prev, actions: [...liveRef.actions] } : prev));
-                            break;
-                        case 'tool-end':
-                            liveRef.actions = liveRef.actions.map((a) => (a.index === event.index ? { ...a, result: event.result } : a));
-                            setLiveAgent((prev) => (prev ? { ...prev, actions: [...liveRef.actions] } : prev));
-                            break;
-                        case 'delta':
-                            liveRef.finalText += event.text;
-                            setLiveAgent((prev) => (prev ? { ...prev, finalText: liveRef.finalText } : prev));
-                            break;
-                        default:
-                            break;
-                    }
-                },
-                onSelectClips,
-                controller.signal,
-            );
-
-            const finalMsg = result[result.length - 1];
-            if (finalMsg && finalMsg.role === 'assistant') {
-                finalMsg.thinking = liveRef.thinking || undefined;
-                finalMsg.actions = liveRef.actions.length > 0 ? liveRef.actions : undefined;
-            }
-            setMessages(result);
-            sendBridgeResponse({ type: 'done', finalText: finalMsg?.content ?? '' });
-        } catch (err: unknown) {
-            const abortContent = liveRef.thinking
-                ? `💭 ${liveRef.thinking.slice(0, 500)}${liveRef.thinking.length > 500 ? '...' : ''}\n\n(stopped by user)`
-                : '(stopped by user)';
-
-            if ((err as Error).name === 'AbortError') {
-                setMessages((prev) => [
-                    ...prev,
-                    { role: 'assistant', content: abortContent, actions: liveRef.actions.length > 0 ? liveRef.actions : undefined } as ChatMessage,
-                ]);
-                sendBridgeResponse({ type: 'error', message: 'Aborted' });
-            } else {
-                const errMsg = (err as Error).message;
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        role: 'assistant',
-                        content: `❌ Error: ${errMsg}`,
-                        thinking: liveRef.thinking || undefined,
-                        actions: liveRef.actions.length > 0 ? liveRef.actions : undefined,
-                    } as ChatMessage,
-                ]);
-                sendBridgeResponse({ type: 'error', message: errMsg });
-            }
-        } finally {
-            setIsStreaming(false);
-            setLiveAgent(null);
-            abortRef.current = null;
-            isSendingLocked = false;
-        }
-    }, [isStreaming, apiKey, messages, model, onSelectClips]);
+    const { sendMessage, handleStop } = useAssistantSendMessage({
+        apiKey,
+        model,
+        messages,
+        isStreaming,
+        onSelectClips,
+        setMessages,
+        setInput,
+        setIsStreaming,
+        setLiveAgent,
+        abortRef,
+    });
 
     const handleSend = useCallback(() => {
         if (!input.trim()) return;
@@ -284,24 +193,9 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     }, [handleSend]);
 
     const groupedItems = groupMessagesIntoActions(messages);
-    const voiceIcon = isListening ? MicOff : Mic;
-    const voiceTitle = isListening ? 'Click to stop' : 'Voice input';
-    const voiceClass = `assistant-voice-btn${isListening ? ' listening' : ''}`;
 
     const copyHistory = useCallback(() => {
-        const historyText = messages.map((m) => {
-            let text = `[${m.role.toUpperCase()}${m.role === 'tool' && m.name ? `: ${m.name}` : ''}]\n`;
-            if (m.content) text += `${m.content}\n`;
-            if (m.thinking) text += `[THINKING]\n${m.thinking}\n`;
-            if (m.actions && m.actions.length > 0) {
-                text += '[ACTIONS]\n';
-                m.actions.forEach((a) => {
-                    text += ` - ${a.toolName}(${JSON.stringify(a.args)})\n   Result: ${a.result}\n`;
-                });
-            }
-            return `${text}\n============================\n`;
-        }).join('\n');
-        navigator.clipboard.writeText(historyText);
+        navigator.clipboard.writeText(buildHistoryText(messages));
     }, [messages]);
 
     const clearHistoryClick = useCallback(() => {
@@ -339,45 +233,19 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
                 messagesEndRef={messagesEndRef}
             />
 
-            <div className="assistant-input-area">
-                <button className={voiceClass} onClick={toggleVoice} title={voiceTitle}>
-                    {voiceIcon({ size: 14 })}
-                </button>
-
-                <textarea
-                    ref={inputRef}
-                    className="assistant-input"
-                    placeholder=""
-                    value={input}
-                    onChange={(e) => {
-                        setInput(e.target.value);
-                        const el = e.target;
-                        el.style.height = 'auto';
-                        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-                    }}
-                    onKeyDown={handleKeyDown}
-                    rows={1}
-                    disabled={isStreaming}
-                />
-
-                {isStreaming ? (
-                    <button className="assistant-stop-btn" onClick={handleStop} title="Stop generation">
-                        <Square size={14} fill="currentColor" />
-                    </button>
-                ) : (
-                    <button className="assistant-send-btn" onClick={handleSend} disabled={!input.trim()} title="Send (Ctrl+Enter)">
-                        <Send size={14} />
-                    </button>
-                )}
-            </div>
-
-            <div className="assistant-status">
-                <span>
-                    <span className={`dot ${apiKey ? 'connected' : 'disconnected'}`} />
-                    {apiKey ? 'Connected' : 'No API key'}
-                </span>
-                <span>{messages.filter((m) => m.role === 'user').length} messages</span>
-            </div>
+            <AssistantChatComposer
+                input={input}
+                isStreaming={isStreaming}
+                isListening={isListening}
+                apiKey={apiKey}
+                userMessageCount={messages.filter((m) => m.role === 'user').length}
+                inputRef={inputRef}
+                setInput={setInput}
+                onKeyDown={handleKeyDown}
+                onToggleVoice={toggleVoice}
+                onStop={handleStop}
+                onSend={handleSend}
+            />
         </div>
     );
 };

@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
-import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import type { TimelineClip, BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { EmptyClipEditor, SampleClipEditor } from './DawShellPanels';
 
@@ -22,7 +22,7 @@ interface DawShellBottomPanelProps {
     midiNotes: MidiNote[];
     aiVariationBusy: boolean;
     selectedMidiTotalBars: number;
-    onDropPluginToTrack: (item: { path: string; name: string; slotHint?: 'instrument' | 'effect' | 'auto' }, trackId: string) => Promise<void>;
+    onDropPluginToTrack: (item: BrowserDragItem, trackId: string) => Promise<void>;
     onMidiNotesChange: (notes: MidiNote[]) => void;
     onMidiEnvelopesChange: (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void;
     onGenerateVariation: () => void;

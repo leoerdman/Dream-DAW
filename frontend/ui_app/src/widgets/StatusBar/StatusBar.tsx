@@ -80,8 +80,8 @@ export const StatusBar = ({
                 justifyContent: 'space-between',
                 height: 26,
                 background: 'var(--color-bg-header)',
-                borderTop: '1px solid var(--color-divider)',
-                padding: '0 10px',
+                borderTop: 'var(--space-px) solid var(--color-divider)',
+                padding: '0 var(--space-2-5)',
                 fontSize: 'var(--font-size-2xs)',
                 zIndex: 'var(--z-transport)',
             }}>
@@ -98,12 +98,12 @@ export const StatusBar = ({
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 2,
-                            border: '1px solid var(--color-control-border)',
+                            border: 'var(--space-px) solid var(--color-control-border)',
                             borderRadius: 'var(--radius-md)',
                             padding: 2,
                             height: 24,
                             background: 'var(--color-control-bg)',
-                            boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
+                            boxShadow: 'inset 0 var(--space-px) 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
                             marginRight: 2,
                         }}>
                             <button

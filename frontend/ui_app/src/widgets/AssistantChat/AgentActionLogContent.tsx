@@ -32,7 +32,7 @@ export function AgentActionLogContent({ thinking, actions, isLive }: ActionLogCo
                                 setCopied(true);
                                 setTimeout(() => setCopied(false), 2000);
                             }}
-                            style={{ padding: '2px 4px', marginLeft: 4 }}
+                            style={{ padding: 'var(--space-0-5) var(--space-1)', marginLeft: 4 }}
                         >
                             {copied ? <Check size={10} style={{ color: 'var(--color-status-success)' }} /> : <Copy size={10} />}
                         </button>

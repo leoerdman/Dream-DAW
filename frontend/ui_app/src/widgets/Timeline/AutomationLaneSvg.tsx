@@ -150,7 +150,7 @@ export function AutomationLaneSvg({
                         style={{
                             cursor: 'grab',
                             transition: 'r var(--transition-micro)',
-                            filter: isHover ? `drop-shadow(0 0 4px ${lane.color})` : undefined,
+                            filter: isHover ? `drop-shadow(0 0 var(--space-1) ${lane.color})` : undefined,
                             opacity: curveDragBp === bp.id ? 0.9 : 1,
                         }}
                         onMouseDown={(e) => onBpMouseDown(e, bp.id)}

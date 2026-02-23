@@ -31,7 +31,7 @@ export function PluginGuiSurfaceEqBandStrip({
                     style={{
                         color: band.color,
                         cursor: 'pointer',
-                        padding: '1px 5px',
+                        padding: 'var(--space-px) var(--token-size-px-5)',
                         borderRadius: 3,
                         background: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 'var(--token-color-rgba-255-255-255-0d08)' : 'transparent',
                         fontSize: 10,

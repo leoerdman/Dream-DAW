@@ -228,7 +228,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     cursor: 'ew-resize',
                     pointerEvents: showHandles ? 'all' : 'none',
                     background: hoveredHandle === 'resizeL' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
-                    borderLeft: hoveredHandle === 'resizeL' ? `2px solid ${color}` : 'none',
+                    borderLeft: hoveredHandle === 'resizeL' ? `var(--space-0-5) solid ${color}` : 'none',
                     transition: `all var(--transition-micro)`,
                 }}
             />
@@ -246,7 +246,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     cursor: 'ew-resize',
                     pointerEvents: showHandles ? 'all' : 'none',
                     background: hoveredHandle === 'resizeR' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
-                    borderRight: hoveredHandle === 'resizeR' ? `2px solid ${color}` : 'none',
+                    borderRight: hoveredHandle === 'resizeR' ? `var(--space-0-5) solid ${color}` : 'none',
                     transition: `all var(--transition-micro)`,
                 }}
             />

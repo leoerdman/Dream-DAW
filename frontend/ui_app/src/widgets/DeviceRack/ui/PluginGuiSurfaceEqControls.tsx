@@ -32,10 +32,10 @@ export function PluginGuiSurfaceEqControls({
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 2,
-                padding: '6px 4px',
+                padding: 'var(--space-1-5) var(--space-1)',
                 background: 'var(--color-bg-secondary)',
                 borderRadius: 'var(--plugin-card-radius)',
-                border: '1px solid var(--plugin-card-border)',
+                border: 'var(--space-px) solid var(--plugin-card-border)',
                 justifyContent: 'center',
             }}
         >

@@ -130,7 +130,7 @@ export const MeterStrip: React.FC<MeterStripProps> = React.memo(({
                     width,
                     flex: 1,
                     background: COLOR_METER_BG,
-                    borderRadius: 'var(--radius-2xs, 2px)',
+                    borderRadius: 'var(--radius-2xs, var(--space-0-5))',
                     position: 'relative',
                     overflow: 'hidden',
                 }}

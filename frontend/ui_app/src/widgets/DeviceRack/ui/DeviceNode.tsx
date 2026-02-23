@@ -99,7 +99,7 @@ export const DeviceNode = ({
                 flexDirection: 'row',
                 background: 'var(--token-color-hex-3a3a3a)',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? '1px solid var(--token-color-rgba-255-255-255-0d7)' : '1px solid var(--token-color-hex-3a3a3a)',
+                border: isSelected ? 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d7)' : 'var(--space-px) solid var(--token-color-hex-3a3a3a)',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',

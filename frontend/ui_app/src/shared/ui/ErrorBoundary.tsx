@@ -127,8 +127,8 @@ const containerStyle: React.CSSProperties = {
     minHeight: 120,
     background: 'color-mix(in srgb, var(--color-status-error) 4%, transparent)',
     borderRadius: 'var(--radius-xl)',
-    border: '1px solid color-mix(in srgb, var(--color-status-error) 15%, transparent)',
-    padding: '24px 16px',
+    border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 15%, transparent)',
+    padding: 'var(--space-6) var(--space-4)',
     gap: 8,
     position: 'relative',
     overflow: 'hidden',
@@ -150,7 +150,7 @@ const iconStyle: React.CSSProperties = {
     fontSize: 'var(--font-size-3xl)',
     lineHeight: 1,
     opacity: 0.7,
-    filter: 'drop-shadow(0 0 8px color-mix(in srgb, var(--color-status-error) 30%, transparent))',
+    filter: 'drop-shadow(0 0 var(--space-2) color-mix(in srgb, var(--color-status-error) 30%, transparent))',
 };
 
 const titleStyle: React.CSSProperties = {
@@ -180,14 +180,14 @@ const errorMsgStyle: React.CSSProperties = {
 
 const retryBtnStyle: React.CSSProperties = {
     marginTop: 8,
-    padding: '6px 16px',
+    padding: 'var(--space-1-5) var(--space-4)',
     borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--color-border-subtle)',
+    border: 'var(--space-px) solid var(--color-border-subtle)',
     background: 'var(--color-border-subtle)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-sm)',
     fontWeight: 600,
     cursor: 'pointer',
     transition: `all var(--transition-normal)`,
-    backdropFilter: 'blur(4px)',
+    backdropFilter: 'blur(var(--space-1))',
 };

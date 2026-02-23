@@ -71,7 +71,7 @@ export const knobValueStyle = (compact: boolean): CSSProperties => ({
     cursor: 'text',
     userSelect: 'none',
     background: 'transparent',
-    padding: '0 2px',
+    padding: '0 var(--space-0-5)',
     borderRadius: 'var(--radius-xs)',
 });
 
@@ -86,7 +86,7 @@ export const knobValueInputStyle = (compact: boolean): CSSProperties => ({
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     textAlign: 'center',
     padding: '0 var(--space-1)',
-    outline: '1px solid var(--color-accent-primary)',
+    outline: 'var(--space-px) solid var(--color-accent-primary)',
 });
 
 export const knobDragValueBadgeStyle: CSSProperties = {

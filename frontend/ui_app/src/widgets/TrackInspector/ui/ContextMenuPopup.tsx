@@ -66,7 +66,7 @@ export const ContextMenuPopup = ({
     const clampedY = Math.min(y, window.innerHeight - menuHeight);
 
     const itemStyle: React.CSSProperties = {
-        width: '100%', padding: '6px 12px',
+        width: '100%', padding: 'var(--space-1-5) var(--space-3)',
         background: 'none', border: 'none',
         color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-regular)' as unknown as number,
         textAlign: 'left', cursor: 'pointer', borderRadius: 'var(--radius-md)',
@@ -76,7 +76,7 @@ export const ContextMenuPopup = ({
     const node = (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 188,
-            background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
+            background: 'var(--surface-2)', border: 'var(--space-px) solid var(--color-border-subtle)',
             borderRadius: 'var(--radius-xl)', padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
             boxShadow: 'var(--shadow-panel)',
         }}>
@@ -93,7 +93,7 @@ export const ContextMenuPopup = ({
             {!showTrackActions && null}
             {showTrackActions && (
                 <>
-                    <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
+                    <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-0-5) var(--space-2)' }} />
                     <button style={itemStyle} onClick={onRename}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
@@ -150,7 +150,7 @@ export const ContextMenuPopup = ({
                             <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>↗</span> Move To Top Level
                         </button>
                     )}
-                    <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
+                    <div style={{ height: 1, background: 'var(--color-divider)', margin: 'var(--space-0-5) var(--space-2)' }} />
                     <button style={{ ...itemStyle, color: 'var(--color-status-error)' }} onClick={onDelete}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>

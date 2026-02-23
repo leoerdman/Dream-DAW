@@ -109,7 +109,7 @@ const sidebarStyle: React.CSSProperties = {
     width: '100%',
     height: '100%',
     overflowY: 'auto',
-    borderRight: '1px solid var(--color-divider)',
+    borderRight: 'var(--space-px) solid var(--color-divider)',
     background: 'var(--color-bg-panel)',
 };
 
@@ -118,7 +118,7 @@ const sectionButtonStyle: React.CSSProperties = {
     alignItems: 'center',
     gap: 4,
     width: '100%',
-    padding: '3px 6px 3px 12px',
+    padding: 'var(--token-size-px-3) var(--space-1-5) var(--token-size-px-3) var(--space-3)',
     background: 'none',
     border: 'none',
     color: 'var(--token-color-hex-ffffff)',
@@ -147,7 +147,7 @@ const addFolderButtonStyle: React.CSSProperties = {
     alignItems: 'center',
     gap: 4,
     width: '100%',
-    padding: '2px 4px 2px 12px',
+    padding: 'var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-3)',
     background: 'transparent',
     border: 'none',
     color: 'var(--token-color-hex-ffffff)',
@@ -165,7 +165,7 @@ const categoryButtonStyle: React.CSSProperties = {
     alignItems: 'center',
     gap: 4,
     width: '100%',
-    padding: '2px 4px 2px 12px',
+    padding: 'var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-3)',
     border: 'none',
     color: 'var(--token-color-hex-ffffff)',
     fontSize: 'var(--font-size-base)',
@@ -195,5 +195,5 @@ const markerDotStyle = (markerColor: string): React.CSSProperties => ({
     height: 7,
     borderRadius: '50%',
     background: markerColor,
-    boxShadow: '0 0 0 1px var(--token-color-rgba-0-0-0-0d28)',
+    boxShadow: '0 0 0 var(--space-px) var(--token-color-rgba-0-0-0-0d28)',
 });

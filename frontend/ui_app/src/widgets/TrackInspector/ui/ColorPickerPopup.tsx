@@ -40,9 +40,9 @@ export const ColorPickerPopup = ({
     const node = (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
-            background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-subtle)',
+            background: 'var(--color-bg-elevated)', border: 'var(--space-px) solid var(--color-border-subtle)',
             borderRadius: 'var(--radius-xl)', padding: 8, zIndex: 'var(--z-menu)' as unknown as number,
-            boxShadow: '0 8px 32px var(--color-overlay-dark)',
+            boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
         }}>
             <div style={{
                 fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
@@ -64,10 +64,10 @@ export const ColorPickerPopup = ({
                             style={{
                                 width: 28, height: 28, borderRadius: 'var(--radius-lg)',
                                 background: c.hex,
-                                border: isActive ? '2px solid var(--color-text-bright)' : '2px solid transparent',
+                                border: isActive ? 'var(--space-0-5) solid var(--color-text-bright)' : 'var(--space-0-5) solid transparent',
                                 cursor: 'pointer',
                                 transition: `transform var(--transition-micro), border-color var(--transition-fast)`,
-                                boxShadow: isActive ? `0 0 6px ${c.hex}80` : 'none',
+                                boxShadow: isActive ? `0 0 var(--space-1-5) ${c.hex}80` : 'none',
                             }}
                             onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; }}
                             onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}

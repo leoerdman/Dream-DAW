@@ -21,7 +21,7 @@ export const PianoRollToolbar = memo(function PianoRollToolbar(props: PianoRollT
                 padding: '0 var(--space-2)',
                 gap: 'var(--space-1)',
                 background: 'var(--color-bg-elevated)',
-                borderBottom: '1px solid var(--color-divider)',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
                 flexShrink: 0,
             }}
         >

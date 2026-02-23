@@ -132,7 +132,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                 background:
                                     'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
                                 borderBottom:
-                                    '1px solid var(--color-divider)',
+                                    'var(--space-px) solid var(--color-divider)',
                             }}
                         >
                             {/* Lane label */}

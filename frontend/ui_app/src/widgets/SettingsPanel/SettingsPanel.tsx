@@ -183,7 +183,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             <div style={modalStyle} onClick={e => e.stopPropagation()}>
                 {/* ── Sidebar ── */}
                 <div style={sidebarStyle}>
-                    <div style={{ padding: '16px 12px 8px', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, opacity: 0.5, letterSpacing: '0.05em' }}>
+                    <div style={{ padding: 'var(--space-4) var(--space-3) var(--space-2)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, opacity: 0.5, letterSpacing: '0.05em' }}>
                         SETTINGS
                     </div>
                     {TABS.map(t => (

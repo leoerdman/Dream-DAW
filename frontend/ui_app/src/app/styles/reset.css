@@ -68,8 +68,8 @@ textarea {
 
 /* ── Custom Scrollbars (Ultra Premium) ── */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: var(--space-1-5);
+    height: var(--space-1-5);
 }
 
 ::-webkit-scrollbar-track {
@@ -78,8 +78,8 @@ textarea {
 
 ::-webkit-scrollbar-thumb {
     background: var(--color-overlay-medium);
-    border-radius: 3px;
-    border: 1px solid transparent;
+    border-radius: var(--token-size-px-3);
+    border: var(--space-px) solid transparent;
     background-clip: content-box;
 }
 

@@ -59,7 +59,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                     <input type="checkbox" checked={draftWarpEnabled} onChange={(e) => onCommitWarp({ enabled: e.target.checked, mode: draftWarpMode, baseBpm: draftWarpBaseBpm })} />
                     Enabled
                 </label>
-                <select value={draftWarpMode > 0 ? 'pro' : 'standard'} disabled={!draftWarpEnabled} onChange={(e) => onCommitWarp({ enabled: draftWarpEnabled, mode: e.target.value === 'pro' ? 1 : 0, baseBpm: draftWarpBaseBpm })} style={{ ...editorButtonStyle, padding: '3px 6px' }}>
+                <select value={draftWarpMode > 0 ? 'pro' : 'standard'} disabled={!draftWarpEnabled} onChange={(e) => onCommitWarp({ enabled: draftWarpEnabled, mode: e.target.value === 'pro' ? 1 : 0, baseBpm: draftWarpBaseBpm })} style={{ ...editorButtonStyle, padding: 'var(--token-size-px-3) var(--space-1-5)' }}>
                     <option value="standard">Standard</option>
                     <option value="pro">Pro</option>
                 </select>
@@ -73,7 +73,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         disabled={!draftWarpEnabled}
                         onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || 120)}
                         onBlur={() => onCommitWarp({ enabled: draftWarpEnabled, mode: draftWarpMode, baseBpm: draftWarpBaseBpm })}
-                        style={{ width: 68, ...editorButtonStyle, padding: '2px 6px' }}
+                        style={{ width: 68, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}
                     />
                 </div>
             </ClipEditorSection>
@@ -85,7 +85,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         <button
                             type="button"
                             onClick={() => nudgePitch(-12)}
-                            style={{ ...editorButtonStyle, minWidth: 40, padding: '3px 6px' }}
+                            style={{ ...editorButtonStyle, minWidth: 40, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                             title="Transpose down octave"
                         >
                             -12
@@ -93,7 +93,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         <button
                             type="button"
                             onClick={() => nudgePitch(-1)}
-                            style={{ ...editorButtonStyle, minWidth: 34, padding: '3px 6px' }}
+                            style={{ ...editorButtonStyle, minWidth: 34, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                             title="Transpose down"
                         >
                             -1
@@ -117,7 +117,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         <button
                             type="button"
                             onClick={() => nudgePitch(1)}
-                            style={{ ...editorButtonStyle, minWidth: 34, padding: '3px 6px' }}
+                            style={{ ...editorButtonStyle, minWidth: 34, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                             title="Transpose up"
                         >
                             +1
@@ -125,7 +125,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                         <button
                             type="button"
                             onClick={() => nudgePitch(12)}
-                            style={{ ...editorButtonStyle, minWidth: 40, padding: '3px 6px' }}
+                            style={{ ...editorButtonStyle, minWidth: 40, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                             title="Transpose up octave"
                         >
                             +12
@@ -143,7 +143,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                                     onCommitPitch(clampPitch(draftPitch));
                                 }
                             }}
-                            style={{ width: 58, ...editorButtonStyle, padding: '2px 6px', textAlign: 'right' }}
+                            style={{ width: 58, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)', textAlign: 'right' }}
                             title="Exact transpose in semitones"
                         />
                         <button
@@ -152,7 +152,7 @@ export const SampleClipEditorSidebar = (props: Props) => {
                                 setDraftPitch(0);
                                 onCommitPitch(0);
                             }}
-                            style={{ ...editorButtonStyle, minWidth: 52, padding: '3px 6px' }}
+                            style={{ ...editorButtonStyle, minWidth: 52, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                             title="Reset transpose"
                         >
                             Reset
@@ -181,13 +181,13 @@ export const SampleClipEditorSidebar = (props: Props) => {
 };
 
 const editorButtonStyle: CSSProperties = {
-    border: '1px solid var(--color-divider)',
+    border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-header)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
     fontWeight: 600,
-    padding: '4px 8px',
+    padding: 'var(--space-1) var(--space-2)',
     cursor: 'pointer',
 };
 

@@ -126,7 +126,7 @@ export function pixelToSnappedBeat(
  * Determines the finest sub-division to render as grid lines based on zoom.
  *
  * Only renders sub-lines when there's enough pixel density to see them
- * (minimum 6px between lines). Returns an array of beat positions to draw.
+ * (minimum var(--space-1-5) between lines). Returns an array of beat positions to draw.
  *
  * @param totalBeats - Total beats in the visible range
  * @param beatsPerBar - Beats per bar
@@ -153,7 +153,7 @@ export function computeGridLines(
 ): GridLine[] {
     const lines: GridLine[] = [];
 
-    // Find the finest subdivision where lines are >6px apart
+    // Find the finest subdivision where lines are >var(--space-1-5) apart
     let finestSubPerBeat = 1;
     for (const sub of SUB_DIVISIONS) {
         const spacing = pixelsPerBeat / sub;

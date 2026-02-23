@@ -502,7 +502,7 @@ export const Timeline = (props: TimelineProps) => {
                     height: trackHeight,
                     flexShrink: 0,
                     borderTop: 'none',
-                    boxShadow: 'inset 0 1px 0 var(--color-border-subtle)',
+                    boxShadow: 'inset 0 var(--space-px) 0 var(--color-border-subtle)',
                     background: 'transparent',
                     pointerEvents: 'none',
                     position: 'relative',

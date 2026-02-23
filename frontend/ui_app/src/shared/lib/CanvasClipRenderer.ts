@@ -81,11 +81,11 @@ const CLIP_RADIUS = 4;
 const CLIP_BODY_ALPHA = 0.85;
 const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
-const SELECTION_GLOW_COLOR = 'var(--token-color-rgba-255-255-255-0d9)';
-const DROP_TARGET_COLOR = 'var(--token-color-rgba-255-255-255-0d2)';
-const DROP_TARGET_BORDER = 'var(--token-color-rgba-255-255-255-0d6)';
+const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
+const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
+const DROP_TARGET_BORDER = 'rgba(255, 255, 255, 0.6)';
 const GHOST_CLIP_ALPHA = 0.45;
-const OFFLINE_STRIPE_COLOR = 'var(--token-color-rgba-255-80-80-0d3)';
+const OFFLINE_STRIPE_COLOR = 'rgba(255, 80, 80, 0.3)';
 
 interface TimelineTheme {
     bg: string;
@@ -127,19 +127,19 @@ export class CanvasClipRenderer {
 
         const s = getComputedStyle(document.documentElement);
         this._theme = {
-            bg: s.getPropertyValue('--color-timeline-bg').trim() || 'var(--token-color-hex-0d0d1a)',
-            rulerBg: s.getPropertyValue('--color-timeline-ruler-bg').trim() || 'var(--token-color-hex-12121e)',
-            gridLine: s.getPropertyValue('--color-timeline-grid-line').trim() || 'var(--token-color-rgba-255-255-255-0d06)',
-            gridBar: s.getPropertyValue('--color-timeline-grid-bar').trim() || 'var(--token-color-rgba-74-158-255-0d18)',
-            trackDefault: s.getPropertyValue('--color-timeline-track-default').trim() || 'var(--token-color-hex-191919)',
-            trackSelected: s.getPropertyValue('--color-timeline-track-selected').trim() || 'var(--token-color-hex-262626)',
-            playhead: s.getPropertyValue('--color-timeline-playhead').trim() || 'var(--token-color-hex-ff3b30)',
-            playheadGlow: s.getPropertyValue('--color-timeline-playhead-glow').trim() || 'var(--token-color-rgba-255-59-48-0d4)',
-            editCursor: s.getPropertyValue('--color-timeline-edit-cursor').trim() || 'var(--token-color-rgba-255-255-255-0d75)',
-            loopFill: s.getPropertyValue('--color-timeline-loop-fill').trim() || 'var(--token-color-rgba-74-158-255-0d08)',
-            loopBorder: s.getPropertyValue('--color-timeline-loop-border').trim() || 'var(--token-color-rgba-74-158-255-0d5)',
-            rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || 'var(--token-color-rgba-255-255-255-0d5)',
-            trackDivider: s.getPropertyValue('--color-border-subtle').trim() || 'var(--token-color-rgba-255-255-255-0d08)',
+            bg: s.getPropertyValue('--color-timeline-bg').trim() || '#0d0d1a',
+            rulerBg: s.getPropertyValue('--color-timeline-ruler-bg').trim() || '#12121e',
+            gridLine: s.getPropertyValue('--color-timeline-grid-line').trim() || 'rgba(255, 255, 255, 0.06)',
+            gridBar: s.getPropertyValue('--color-timeline-grid-bar').trim() || 'rgba(74, 158, 255, 0.18)',
+            trackDefault: s.getPropertyValue('--color-timeline-track-default').trim() || '#191919',
+            trackSelected: s.getPropertyValue('--color-timeline-track-selected').trim() || '#262626',
+            playhead: s.getPropertyValue('--color-timeline-playhead').trim() || '#ff3b30',
+            playheadGlow: s.getPropertyValue('--color-timeline-playhead-glow').trim() || 'rgba(255, 59, 48, 0.4)',
+            editCursor: s.getPropertyValue('--color-timeline-edit-cursor').trim() || 'rgba(255, 255, 255, 0.75)',
+            loopFill: s.getPropertyValue('--color-timeline-loop-fill').trim() || 'rgba(74, 158, 255, 0.08)',
+            loopBorder: s.getPropertyValue('--color-timeline-loop-border').trim() || 'rgba(74, 158, 255, 0.5)',
+            rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || 'rgba(255, 255, 255, 0.5)',
+            trackDivider: s.getPropertyValue('--color-border-subtle').trim() || 'rgba(255, 255, 255, 0.08)',
         };
         this._lastThemeSync = now;
     }
@@ -540,12 +540,12 @@ export class CanvasClipRenderer {
         // ── 3. Header band ────────────────────────────────────────────
         const headerH = Math.min(HEADER_HEIGHT, h);
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
-        ctx.fillStyle = `var(--token-color-rgba-headerr-headerg-headerb-1)`;
+        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 1)`;
         ctx.fillRect(x, y + 1, w, headerH);
 
         // Header divider
         const dividerR = Math.max(0, Math.round(rgb.r * 0.72)), dividerG = Math.max(0, Math.round(rgb.g * 0.72)), dividerB = Math.max(0, Math.round(rgb.b * 0.72));
-        ctx.strokeStyle = `var(--token-color-rgba-dividerr-dividerg-dividerb-0d62)`;
+        ctx.strokeStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.62)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, y + 1 + headerH);
@@ -555,13 +555,13 @@ export class CanvasClipRenderer {
         // ── 4. Body ───────────────────────────────────────────────────
         if (h > headerH) {
             const bodyR = Math.max(0, Math.round(rgb.r * 0.88)), bodyG = Math.max(0, Math.round(rgb.g * 0.88)), bodyB = Math.max(0, Math.round(rgb.b * 0.88));
-            ctx.fillStyle = `var(--token-color-rgba-bodyr-bodyg-bodyb-0d92)`;
+            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.92)`;
             ctx.fillRect(x, y + 1 + headerH, w, h - headerH);
         }
 
         // ── 5. Muted state ────────────────────────────────────────────
         if (clip.muted) {
-            ctx.fillStyle = 'var(--token-color-rgba-116-122-132-0d42)';
+            ctx.fillStyle = 'rgba(116, 122, 132, 0.42)';
             ctx.fillRect(x, y + 1, w, h);
         }
 
@@ -615,8 +615,8 @@ export class CanvasClipRenderer {
             const contrastColor = getContrastColor(clip.color);
             const isMutedVisual = clip.muted || isTrackMuted;
             ctx.fillStyle = isMutedVisual
-                ? 'var(--token-color-rgba-210-215-223-0d95)'
-                : (contrastColor === 'black' ? 'var(--token-color-rgba-0-0-0-0d85)' : 'var(--token-color-rgba-255-255-255-0d9)');
+                ? 'rgba(210, 215, 223, 0.95)'
+                : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)');
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
             const maxTextW = w - 6;
@@ -632,8 +632,8 @@ export class CanvasClipRenderer {
 
         // ── 10. Top highlight (Liquid Glass) ──────────────────────────
         const gradient = ctx.createLinearGradient(x, y + 1, x, y + 4);
-        gradient.addColorStop(0, 'var(--token-color-rgba-255-255-255-0d25)');
-        gradient.addColorStop(1, 'var(--token-color-rgba-255-255-255-0d0)');
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y + 1, w, 3);
 
@@ -645,7 +645,7 @@ export class CanvasClipRenderer {
             if (isTrackMuted) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
             ctx.lineWidth = SELECTION_BORDER_WIDTH;
-            ctx.shadowColor = 'var(--token-color-rgba-255-255-255-0d5)';
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
             ctx.shadowBlur = 6;
             this._roundRect(ctx, x, y + 1, w, h, r);
             ctx.stroke();
@@ -656,7 +656,7 @@ export class CanvasClipRenderer {
         if (!clip.selected) {
             ctx.save();
             if (isTrackMuted) ctx.globalAlpha = 0.25;
-            ctx.strokeStyle = `var(--token-color-rgba-mathdmin-255-rgbdr-60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;
+            ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;
             ctx.lineWidth = 1;
             this._roundRect(ctx, x, y + 1, w, h, r);
             ctx.stroke();
@@ -673,8 +673,8 @@ export class CanvasClipRenderer {
 
             ctx.save();
             if (isTrackMuted) ctx.globalAlpha = 0.25;
-            ctx.fillStyle = clip.selected ? 'var(--token-color-rgba-255-255-255-0d98)' : 'var(--token-color-rgba-238-245-255-0d9)';
-            ctx.strokeStyle = 'var(--token-color-rgba-0-0-0-0d65)';
+            ctx.fillStyle = clip.selected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(238, 245, 255, 0.9)';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
             ctx.lineWidth = 1;
 
             ctx.beginPath();
@@ -696,9 +696,9 @@ export class CanvasClipRenderer {
                 const pY = bodyBottom - (bodyH * curveIn);
                 ctx.beginPath();
                 ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'var(--token-color-rgba-255-196-96-0d98)';
+                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
                 ctx.fill();
-                ctx.strokeStyle = 'var(--token-color-rgba-0-0-0-0d75)';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
                 ctx.stroke();
             }
 
@@ -707,9 +707,9 @@ export class CanvasClipRenderer {
                 const pY = bodyY + bodyH * curveOut;
                 ctx.beginPath();
                 ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'var(--token-color-rgba-255-196-96-0d98)';
+                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
                 ctx.fill();
-                ctx.strokeStyle = 'var(--token-color-rgba-0-0-0-0d75)';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
                 ctx.stroke();
             }
             ctx.restore();
@@ -760,12 +760,12 @@ export class CanvasClipRenderer {
         const contrastColor = getContrastColor(clip.color);
         if (muted) {
             ctx.fillStyle = clip.selected
-                ? 'var(--token-color-rgba-186-192-202-0d72)'
-                : 'var(--token-color-rgba-162-168-178-0d62)';
+                ? 'rgba(186, 192, 202, 0.72)'
+                : 'rgba(162, 168, 178, 0.62)';
         } else {
             ctx.fillStyle = contrastColor === 'black'
-                ? (clip.selected ? 'var(--token-color-rgba-0-0-0-0d76)' : 'var(--token-color-rgba-0-0-0-0d62)')
-                : (clip.selected ? 'var(--token-color-rgba-255-255-255-0d9)' : 'var(--token-color-rgba-255-255-255-0d72)');
+                ? (clip.selected ? 'rgba(0, 0, 0, 0.76)' : 'rgba(0, 0, 0, 0.62)')
+                : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
         }
 
         // Map peaks to clip pixel range
@@ -808,8 +808,8 @@ export class CanvasClipRenderer {
 
         // Center line
         ctx.strokeStyle = muted
-            ? 'var(--token-color-rgba-132-138-148-0d36)'
-            : (contrastColor === 'black' ? 'var(--token-color-rgba-0-0-0-0d2)' : 'var(--token-color-rgba-255-255-255-0d15)');
+            ? 'rgba(132, 138, 148, 0.36)'
+            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)');
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(clipX, centerY);
@@ -852,8 +852,8 @@ export class CanvasClipRenderer {
 
         const contrastColor = getContrastColor(clip.color);
         ctx.fillStyle = muted
-            ? 'var(--token-color-rgba-156-163-173-0d62)'
-            : (contrastColor === 'black' ? 'var(--token-color-rgba-0-0-0-0d5)' : 'var(--token-color-rgba-255-255-255-0d5)');
+            ? 'rgba(156, 163, 173, 0.62)'
+            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)');
 
         for (const note of clip.midiNotes) {
             // Clamp pitch to track range to avoid rendering outside clip body
@@ -939,9 +939,9 @@ export class CanvasClipRenderer {
         ctx.save();
         ctx.setLineDash([]);
         ctx.globalCompositeOperation = 'screen';
-        ctx.shadowColor = 'var(--token-color-rgba-255-255-255-0d7)';
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
         ctx.shadowBlur = 3;
-        ctx.strokeStyle = `var(--token-color-rgba-255-255-255-blinkdtofixed-3)})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(cursorX, Math.max(vp.rulerHeight, yStart));
@@ -1026,7 +1026,7 @@ export class CanvasClipRenderer {
         const y2 = vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY;
 
         // Fill
-        ctx.fillStyle = 'var(--token-color-rgba-255-255-255-0d06)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
         // Solid white border (force non-dashed + pixel aligned).
@@ -1036,7 +1036,7 @@ export class CanvasClipRenderer {
         const sy2 = Math.round(y2) + 0.5;
         ctx.save();
         ctx.setLineDash([]);
-        ctx.strokeStyle = 'var(--token-color-rgba-255-255-255-0d78)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(sx1, sy1);
@@ -1068,16 +1068,16 @@ export class CanvasClipRenderer {
         ctx.save();
         ctx.globalAlpha = GHOST_CLIP_ALPHA;
         ctx.fillStyle = ghost.type === 'audio'
-            ? 'var(--token-color-rgba-100-200-255-0d6)'
-            : 'var(--token-color-rgba-100-255-150-0d6)';
+            ? 'rgba(100, 200, 255, 0.6)'
+            : 'rgba(100, 255, 150, 0.6)';
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.fill();
 
         // Ghost name
         if (w > 30) {
-            const ghostColor = ghost.type === 'audio' ? 'var(--token-color-hex-64c8ff)' : 'var(--token-color-hex-64ff96)';
+            const ghostColor = ghost.type === 'audio' ? '#64c8ff' : '#64ff96';
             const contrastColor = getContrastColor(ghostColor);
-            ctx.fillStyle = contrastColor === 'black' ? 'var(--token-color-rgba-0-0-0-0d7)' : 'var(--token-color-rgba-255-255-255-0d7)';
+            ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)';
             ctx.font = '11px Inter, -apple-system, sans-serif';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
@@ -1170,13 +1170,13 @@ export class CanvasClipRenderer {
         ctx.save();
         const gradient = ctx.createLinearGradient(x, y, x + w, y);
         if (direction === 'in') {
-            gradient.addColorStop(0, 'var(--token-color-rgba-0-0-0-0d58)');
-            gradient.addColorStop(0.55, 'var(--token-color-rgba-0-0-0-0d22)');
-            gradient.addColorStop(1, 'var(--token-color-rgba-0-0-0-0d0)');
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.58)');
+            gradient.addColorStop(0.55, 'rgba(0, 0, 0, 0.22)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
         } else {
-            gradient.addColorStop(0, 'var(--token-color-rgba-0-0-0-0d0)');
-            gradient.addColorStop(0.45, 'var(--token-color-rgba-0-0-0-0d22)');
-            gradient.addColorStop(1, 'var(--token-color-rgba-0-0-0-0d58)');
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.0)');
+            gradient.addColorStop(0.45, 'rgba(0, 0, 0, 0.22)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.58)');
         }
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
@@ -1187,8 +1187,8 @@ export class CanvasClipRenderer {
         const endY = direction === 'in' ? y : y + h;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
         const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
-        ctx.strokeStyle = 'var(--token-color-rgba-255-193-92-0d96)';
-        ctx.shadowColor = 'var(--token-color-rgba-255-190-85-0d32)';
+        ctx.strokeStyle = 'rgba(255, 193, 92, 0.96)';
+        ctx.shadowColor = 'rgba(255, 190, 85, 0.32)';
         ctx.shadowBlur = 3;
         ctx.lineWidth = 1.5;
         ctx.beginPath();

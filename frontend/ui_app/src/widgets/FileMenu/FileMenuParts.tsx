@@ -16,7 +16,7 @@ export const MenuItem = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             width: '100%',
-            padding: '6px 12px',
+            padding: 'var(--space-1-5) var(--space-3)',
             background: 'transparent',
             border: 'none',
             color: 'var(--color-text-primary)',
@@ -61,7 +61,7 @@ export const MenuSeparator = () => (
         style={{
             height: 1,
             background: 'var(--color-border-subtle)',
-            margin: '4px 8px',
+            margin: 'var(--space-1) var(--space-2)',
         }}
     />
 );

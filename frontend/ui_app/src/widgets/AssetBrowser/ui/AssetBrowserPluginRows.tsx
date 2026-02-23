@@ -11,9 +11,9 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
     return (
         <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 8, padding: '4px 8px',
+            gap: 8, padding: 'var(--space-1) var(--space-2)',
             background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
-            borderBottom: '1px solid var(--color-divider-light)', borderTop: '1px solid var(--color-divider-light)',
+            borderBottom: 'var(--space-px) solid var(--color-divider-light)', borderTop: 'var(--space-px) solid var(--color-divider-light)',
             position: 'sticky', top: 24, zIndex: 'var(--z-local)' as unknown as number,
         }}>
             <span style={{
@@ -100,9 +100,9 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                 document.addEventListener('visibilitychange', cleanup);
             }}
             style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', cursor: isDraggable ? 'grab' : 'default',
+                display: 'flex', alignItems: 'center', gap: 8, padding: 'var(--space-1) var(--space-2)', cursor: isDraggable ? 'grab' : 'default',
                 background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                borderBottom: '1px solid var(--color-divider-light)', height: ROW_HEIGHT, boxSizing: 'border-box',
+                borderBottom: 'var(--space-px) solid var(--color-divider-light)', height: ROW_HEIGHT, boxSizing: 'border-box',
             }}
         >
             <TypeIcon type={item.type} item={item} />

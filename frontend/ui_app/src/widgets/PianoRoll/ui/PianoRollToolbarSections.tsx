@@ -68,10 +68,10 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                         key={nextTool}
                         onClick={() => setTool(nextTool)}
                         style={{
-                            padding: '3px 8px',
+                            padding: 'var(--token-size-px-3) var(--space-2)',
                             background: isActive ? color : 'var(--color-bg-secondary)',
                             color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            border: isActive ? 'none' : '1px solid var(--color-control-border)',
+                            border: isActive ? 'none' : 'var(--space-px) solid var(--color-control-border)',
                             borderRadius: 'var(--radius-sm)',
                             fontSize: 'var(--font-size-2xs)',
                             fontFamily: 'var(--font-family)',
@@ -96,10 +96,10 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                     key={preset.division}
                     onClick={() => setGridDivision(preset.division)}
                     style={{
-                        padding: '2px 8px',
+                        padding: 'var(--space-0-5) var(--space-2)',
                         background: gridDivision === preset.division ? color : 'var(--color-bg-secondary)',
                         color: gridDivision === preset.division ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                        border: gridDivision === preset.division ? 'none' : '1px solid var(--color-control-border)',
+                        border: gridDivision === preset.division ? 'none' : 'var(--space-px) solid var(--color-control-border)',
                         borderRadius: 'var(--radius-sm)',
                         fontSize: 'var(--font-size-2xs)',
                         fontFamily: 'var(--font-mono)',
@@ -115,10 +115,10 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             <button
                 onClick={() => setHighlightScale(!highlightScale)}
                 style={{
-                    padding: '3px 10px',
+                    padding: 'var(--token-size-px-3) var(--space-2-5)',
                     background: highlightScale ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-secondary)',
                     color: highlightScale ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                    border: highlightScale ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-control-border)',
+                    border: highlightScale ? 'var(--space-px) solid var(--color-accent-primary)' : 'var(--space-px) solid var(--color-control-border)',
                     borderRadius: 'var(--radius-sm)',
                     fontSize: 'var(--font-size-2xs)',
                     display: 'flex',
@@ -141,7 +141,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             )}
 
             <div style={dividerStyle} />
-            <div style={{ padding: '2px 8px', background: `${color}1a`, border: `1px solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)' as unknown as number, fontFamily: 'var(--font-mono)', letterSpacing: '0.3px' }}>{clipDurationLabel}</div>
+            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)' as unknown as number, fontFamily: 'var(--font-mono)', letterSpacing: '0.var(--token-size-px-3)' }}>{clipDurationLabel}</div>
 
             <div style={dividerStyle} />
             <button onClick={duplicateSelection} style={actionBtnStyle}>Duplicate</button>
@@ -149,7 +149,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             <button onClick={selectSamePitch} style={actionBtnStyle}>Same Pitch</button>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                 <span>Amt</span>
-                <select value={quantizeAmount} onChange={(e) => setQuantizeAmount(Number(e.target.value))} style={{ ...selectStyle, width: 58, padding: '2px 3px' }}>
+                <select value={quantizeAmount} onChange={(e) => setQuantizeAmount(Number(e.target.value))} style={{ ...selectStyle, width: 58, padding: 'var(--space-0-5) var(--token-size-px-3)' }}>
                     <option value={100}>100%</option><option value={75}>75%</option><option value={50}>50%</option><option value={25}>25%</option>
                 </select>
             </label>
@@ -157,22 +157,22 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             <button onClick={humanizeSelection} style={actionBtnStyle}>Humanize</button>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                 <span>Ratchet</span>
-                <select value={ratchetCount} onChange={(e) => setRatchetCount(Number(e.target.value))} style={{ ...selectStyle, width: 52, padding: '2px 3px' }}>
+                <select value={ratchetCount} onChange={(e) => setRatchetCount(Number(e.target.value))} style={{ ...selectStyle, width: 52, padding: 'var(--space-0-5) var(--token-size-px-3)' }}>
                     <option value={2}>x2</option><option value={3}>x3</option><option value={4}>x4</option><option value={6}>x6</option><option value={8}>x8</option>
                 </select>
             </label>
             <button onClick={applyRatchet} style={actionBtnStyle}>Ratchet</button>
-            <button onClick={() => setFoldToUsedNotes(!foldToUsedNotes)} style={{ ...actionBtnStyle, background: foldToUsedNotes ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background, color: foldToUsedNotes ? 'var(--color-accent-primary)' : actionBtnStyle.color, border: foldToUsedNotes ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setFoldToUsedNotes(!foldToUsedNotes)} style={{ ...actionBtnStyle, background: foldToUsedNotes ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background, color: foldToUsedNotes ? 'var(--color-accent-primary)' : actionBtnStyle.color, border: foldToUsedNotes ? 'var(--space-px) solid var(--color-accent-primary)' : actionBtnStyle.border, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Filter size={12} /> Fold
             </button>
-            <button onClick={() => setDrumMode(!drumMode)} style={{ ...actionBtnStyle, background: drumMode ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background, color: drumMode ? 'var(--color-accent-primary)' : actionBtnStyle.color, border: drumMode ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border }}>Drum</button>
+            <button onClick={() => setDrumMode(!drumMode)} style={{ ...actionBtnStyle, background: drumMode ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background, color: drumMode ? 'var(--color-accent-primary)' : actionBtnStyle.color, border: drumMode ? 'var(--space-px) solid var(--color-accent-primary)' : actionBtnStyle.border }}>Drum</button>
             <button
                 onClick={() => setNoteAuditionEnabled(!noteAuditionEnabled)}
                 style={{
                     ...actionBtnStyle,
                     background: noteAuditionEnabled ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background,
                     color: noteAuditionEnabled ? 'var(--color-accent-primary)' : actionBtnStyle.color,
-                    border: noteAuditionEnabled ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border,
+                    border: noteAuditionEnabled ? 'var(--space-px) solid var(--color-accent-primary)' : actionBtnStyle.border,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
@@ -185,14 +185,14 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
 
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Step</span>
-            <button onClick={() => setStepInputOctave(Math.max(0, stepInputOctave - 1))} style={{ ...actionBtnStyle, padding: '2px 6px' }}><ChevronDown size={12} /></button>
+            <button onClick={() => setStepInputOctave(Math.max(0, stepInputOctave - 1))} style={{ ...actionBtnStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}><ChevronDown size={12} /></button>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', minWidth: 30, textAlign: 'center' }}>C{stepInputOctave}</span>
-            <button onClick={() => setStepInputOctave(Math.min(9, stepInputOctave + 1))} style={{ ...actionBtnStyle, padding: '2px 6px' }}><ChevronUp size={12} /></button>
+            <button onClick={() => setStepInputOctave(Math.min(9, stepInputOctave + 1))} style={{ ...actionBtnStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}><ChevronUp size={12} /></button>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>@{stepInputCursorBeat.toFixed(2)}</span>
 
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Lane</span>
-            <select value={activeLane} onChange={(e) => setActiveLane(e.target.value as PianoLaneType)} style={{ ...selectStyle, width: 96, padding: '2px 4px' }}>
+            <select value={activeLane} onChange={(e) => setActiveLane(e.target.value as PianoLaneType)} style={{ ...selectStyle, width: 96, padding: 'var(--space-0-5) var(--space-1)' }}>
                 <option value="velocity">Velocity</option>
                 <option value="modWheel">Mod Wheel (CC1)</option>
                 <option value="expression">Expression (CC11)</option>
@@ -221,10 +221,10 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                 onClick={() => { void onGenerateVariation?.(); }}
                 disabled={!onGenerateVariation || aiVariationBusy}
                 style={{
-                    padding: '3px 12px',
+                    padding: 'var(--token-size-px-3) var(--space-3)',
                     background: aiVariationBusy ? 'var(--color-bg-secondary)' : 'var(--color-accent-primary)',
                     color: aiVariationBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-on-accent)',
-                    border: aiVariationBusy ? '1px solid var(--color-control-border)' : 'none',
+                    border: aiVariationBusy ? 'var(--space-px) solid var(--color-control-border)' : 'none',
                     borderRadius: 'var(--radius-sm)',
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
@@ -233,7 +233,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6,
-                    boxShadow: aiVariationBusy ? 'none' : '0 2px 8px color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
+                    boxShadow: aiVariationBusy ? 'none' : '0 var(--space-0-5) var(--space-2) color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
                 }}
             >
                 <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />
@@ -243,7 +243,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
             {(zoomOverrideH || noteHeight !== DEFAULT_NOTE_HEIGHT) && (
                 <button
                     onClick={() => { setZoomOverrideH(null); setNoteHeight(DEFAULT_NOTE_HEIGHT); }}
-                    style={{ padding: '2px 8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-control-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-micro)', color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, transition: 'all var(--transition-fast)' }}
+                    style={{ padding: 'var(--space-0-5) var(--space-2)', background: 'var(--color-bg-secondary)', border: 'var(--space-px) solid var(--color-control-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-micro)', color: 'var(--color-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, transition: 'all var(--transition-fast)' }}
                 >
                     <RotateCw size={11} /><span style={{ marginTop: 1 }}>Fit</span>
                 </button>

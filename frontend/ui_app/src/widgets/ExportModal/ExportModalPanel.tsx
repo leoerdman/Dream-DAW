@@ -60,10 +60,10 @@ export function ExportModalPanel({
     onBounce,
 }: ExportModalPanelProps) {
     return (
-        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 'var(--z-modal-content)' as unknown as number, width: 440, background: 'var(--color-bg-panel)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 16px 64px var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 'var(--z-modal-content)' as unknown as number, width: 440, background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-lg)', cursor: 'pointer', padding: '2px 6px' }}>✕</button>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-lg)', cursor: 'pointer', padding: 'var(--space-0-5) var(--space-1-5)' }}>✕</button>
             </div>
 
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
@@ -89,7 +89,7 @@ export function ExportModalPanel({
             </SettingRow>
 
             {rangeInfo.durationBeats > 0 && (
-                <div style={{ padding: '8px 12px', background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-mono)' }}>
                     <span>Bar {rangeInfo.startBar}–{rangeInfo.endBar}</span>
                     <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{rangeInfo.durationFormatted}</span>
                 </div>
@@ -117,7 +117,7 @@ export function ExportModalPanel({
             </SettingRow>
 
             {bounceError && (
-                <div style={{ padding: '8px 12px', background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-status-error) 30%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', color: 'var(--color-status-error)' }}>
+                <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 30%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', color: 'var(--color-status-error)' }}>
                     {bounceError}
                 </div>
             )}
@@ -126,14 +126,14 @@ export function ExportModalPanel({
                 <button
                     onClick={onClose}
                     disabled={isSubmitting}
-                    style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-control-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 500, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1 }}
+                    style={{ padding: 'var(--space-2) var(--space-4)', borderRadius: 'var(--radius-md)', border: 'var(--space-px) solid var(--color-control-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 500, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1 }}
                 >
                     Cancel
                 </button>
                 <button
                     onClick={onBounce}
                     disabled={isSubmitting}
-                    style={{ padding: '8px 20px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1, transition: 'all var(--transition-fast)' }}
+                    style={{ padding: 'var(--space-2) var(--space-5)', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1, transition: 'all var(--transition-fast)' }}
                 >
                     {isSubmitting ? 'Starting...' : 'Bounce'}
                 </button>
@@ -167,9 +167,9 @@ function ChipGroup<T extends string | number>({
                         key={String(opt.value)}
                         onClick={() => onChange(opt.value)}
                         style={{
-                            padding: '4px 10px',
+                            padding: 'var(--space-1) var(--space-2-5)',
                             borderRadius: 'var(--radius-md)',
-                            border: isActive ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-control-border)',
+                            border: isActive ? 'var(--space-px) solid var(--color-accent-primary)' : 'var(--space-px) solid var(--color-control-border)',
                             background: isActive ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)' : 'transparent',
                             color: isActive ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
                             fontSize: 'var(--font-size-xs)',
@@ -216,7 +216,7 @@ const ToggleSwitch = ({
                 top: 3,
                 left: checked ? 19 : 3,
                 transition: 'left var(--transition-fast)',
-                boxShadow: '0 1px 3px var(--color-overlay-dark)',
+                boxShadow: '0 var(--space-px) var(--token-size-px-3) var(--color-overlay-dark)',
             }}
         />
     </button>

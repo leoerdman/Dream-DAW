@@ -19,11 +19,11 @@ export const EmptyClipEditor = () => (
 
 const cardStyle: CSSProperties = {
     textAlign: 'center',
-    padding: '18px 26px',
-    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
+    padding: 'var(--token-size-px-18) var(--token-size-px-26)',
+    border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
     borderRadius: 'var(--radius-xl)',
     background: 'color-mix(in srgb, var(--color-bg-header) 86%, var(--token-color-hex-0a111f))',
-    boxShadow: '0 10px 24px var(--color-overlay-dark)',
+    boxShadow: '0 var(--space-2-5) var(--space-6) var(--color-overlay-dark)',
     maxWidth: 520,
 };
 

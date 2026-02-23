@@ -39,7 +39,7 @@ export function TrackRowResizeHandle({ isResizing, onResizeStart }: TrackRowResi
                         bottom: 0,
                         height: 1,
                         background: 'color-mix(in srgb, var(--color-accent-primary) 76%, white)',
-                        boxShadow: '0 0 6px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)',
+                        boxShadow: '0 0 var(--space-1-5) color-mix(in srgb, var(--color-accent-primary) 35%, transparent)',
                         pointerEvents: 'none',
                         zIndex: 'var(--z-local)' as unknown as number,
                     }}

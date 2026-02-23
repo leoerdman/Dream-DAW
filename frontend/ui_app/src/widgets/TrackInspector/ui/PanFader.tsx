@@ -100,7 +100,7 @@ export const PanFader = ({
                     width: trackWidth,
                     height: trackHeight,
                     background: 'color-mix(in srgb, var(--surface-elevated) 84%, var(--token-color-hex-000000))',
-                    border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
+                    border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
                     borderRadius: 'var(--radius-xs)',
                     cursor: 'ew-resize',
                     overflow: 'hidden',

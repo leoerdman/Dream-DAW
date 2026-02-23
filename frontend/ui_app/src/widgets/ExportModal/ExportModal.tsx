@@ -189,8 +189,8 @@ export const ExportModal = ({
                     inset: 0,
                     zIndex: 'var(--z-modal)' as unknown as number,
                     background: 'var(--color-overlay-modal)',
-                    backdropFilter: 'blur(4px)',
-                    WebkitBackdropFilter: 'blur(4px)',
+                    backdropFilter: 'blur(var(--space-1))',
+                    WebkitBackdropFilter: 'blur(var(--space-1))',
                 }}
             />
 

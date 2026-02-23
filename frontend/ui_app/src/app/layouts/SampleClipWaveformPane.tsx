@@ -43,7 +43,7 @@ export const SampleClipWaveformPane = ({
         <div style={{
             flex: 1,
             minHeight: 120,
-            border: '1px solid var(--color-divider)',
+            border: 'var(--space-px) solid var(--color-divider)',
             borderRadius: 'var(--radius-md)',
             overflow: 'hidden',
             background: 'color-mix(in srgb, var(--color-bg-panel) 82%, transparent)',
@@ -57,7 +57,7 @@ export const SampleClipWaveformPane = ({
                         top: 0,
                         right: 0,
                         height: 20,
-                        borderBottom: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                        borderBottom: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
                         background: 'color-mix(in srgb, var(--color-bg-elevated) 86%, transparent)',
                     }}>
                         {Array.from({ length: gridLineCount }).map((_, i) => {

@@ -34,10 +34,10 @@
     height: 100%;
 }
 
-/* Thin 1px vertical divider between transport sections */
+/* Thin var(--space-px) vertical divider between transport sections */
 .glass-divider {
     width: var(--daw-divider-width);
-    height: 20px;
+    height: var(--space-5);
     background: var(--color-divider);
     flex-shrink: 0;
 }
@@ -58,15 +58,15 @@
 .panel-tab {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2-5);
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
     color: var(--color-text-tertiary);
     cursor: pointer;
     border: none;
     background: transparent;
-    border-bottom: 2px solid transparent;
+    border-bottom: var(--space-0-5) solid transparent;
     transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
@@ -87,7 +87,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px;
+    padding: var(--space-1);
     border: none;
     background: transparent;
     color: var(--color-text-tertiary);
@@ -110,7 +110,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 2px 6px;
+    padding: var(--space-0-5) var(--space-1-5);
     border: none;
     background: var(--color-control-bg);
     color: var(--color-text-secondary);
@@ -138,7 +138,7 @@
 @keyframes fade-in {
     from {
         opacity: 0;
-        transform: translateY(8px);
+        transform: translateY(var(--space-2));
     }
 
     to {
@@ -162,7 +162,7 @@
 @keyframes slide-in-right {
     from {
         opacity: 0;
-        transform: translateX(16px);
+        transform: translateX(var(--space-4));
     }
 
     to {
@@ -179,7 +179,7 @@
     }
 
     50% {
-        box-shadow: 0 0 16px 4px var(--token-color-rgba-217-64-64-0d25);
+        box-shadow: 0 0 var(--space-4) var(--space-1) var(--token-color-rgba-217-64-64-0d25);
     }
 }
 
@@ -274,15 +274,15 @@
 /* ── Glow Effects ────────────────────────────────────────────── */
 
 .glow-accent {
-    box-shadow: 0 0 16px var(--glow-accent);
+    box-shadow: 0 0 var(--space-4) var(--glow-accent);
 }
 
 .glow-success {
-    box-shadow: 0 0 16px var(--glow-success);
+    box-shadow: 0 0 var(--space-4) var(--glow-success);
 }
 
 .glow-record {
-    box-shadow: 0 0 16px var(--glow-record);
+    box-shadow: 0 0 var(--space-4) var(--glow-record);
 }
 
 /* ── Scrollbar Hide ──────────────────────────────────────────── */

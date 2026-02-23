@@ -96,7 +96,7 @@ export const PluginWindow = memo(function PluginWindow({
                 background: 'var(--color-bg-elevated)',
                 borderRadius: 'var(--radius-md)',
                 border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
-                boxShadow: '0 16px 64px var(--color-overlay-dark), 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
+                boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark), 0 0 0 var(--space-px) color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
                 overflow: 'hidden',
             }}
         >
@@ -120,7 +120,7 @@ export const PluginWindow = memo(function PluginWindow({
                     height: 8,
                     borderRadius: '50%',
                     background: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
-                    boxShadow: isBypassed ? 'none' : '0 0 6px var(--color-accent-primary)',
+                    boxShadow: isBypassed ? 'none' : '0 0 var(--space-1-5) var(--color-accent-primary)',
                     transition: 'all var(--transition-fast)',
                 }} />
 

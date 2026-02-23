@@ -94,7 +94,7 @@ export function TrackRowMixer({
                                 ? 'var(--color-accent-primary)'
                                 : 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-elevated))',
                             color: track.isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            border: track.isSoloed ? 'none' : '1px solid color-mix(in srgb, var(--text-primary) 18%, transparent)',
+                            border: track.isSoloed ? 'none' : 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 18%, transparent)',
                             borderRadius: 'var(--radius-xs)',
                             fontSize: 'var(--font-size-micro)',
                             fontWeight: 'var(--font-weight-bold)' as unknown as number,
@@ -152,7 +152,7 @@ export function TrackRowMixer({
                             width: layout.armColWidth,
                             height: layout.armColWidth,
                             borderRadius: 'var(--radius-xs)',
-                            border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                            border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                             background: track.isArmed ? 'color-mix(in srgb, var(--color-status-record) 55%, transparent)' : 'var(--surface-elevated)',
                             display: 'flex',
                             alignItems: 'center',
@@ -170,17 +170,17 @@ export function TrackRowMixer({
                                     ? 'var(--color-status-record)'
                                     : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
                                 boxShadow: track.isArmed
-                                    ? '0 0 6px color-mix(in srgb, var(--color-status-record) 80%, transparent)'
+                                    ? '0 0 var(--space-1-5) color-mix(in srgb, var(--color-status-record) 80%, transparent)'
                                     : 'none',
                             }}
                         />
                     </button>
-                    <div aria-hidden style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)', background: 'var(--surface-elevated)' }} />
+                    <div aria-hidden style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 10%, transparent)', background: 'var(--surface-elevated)' }} />
                 </div>
             ) : (
                 <div aria-hidden style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.armColWidth, minWidth: layout.armColWidth }}>
-                    <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: '1px solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
-                    <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: '1px solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
+                    <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
+                    <div style={{ width: layout.armColWidth, height: layout.armColWidth, borderRadius: 'var(--radius-xs)', border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 7%, transparent)', background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)', opacity: 0.45 }} />
                 </div>
             )}
 

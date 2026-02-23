@@ -197,7 +197,7 @@ export function PluginGuiSurfaceEqCanvas({
                     position: 'absolute', top: 4, right: 6, zIndex: 10, cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     background: eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d15)' : 'var(--token-color-rgba-90-178-255-0d06)',
-                    border: `1px solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d4)' : 'var(--token-color-rgba-90-178-255-0d1)'}`,
+                    border: `var(--space-px) solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d4)' : 'var(--token-color-rgba-90-178-255-0d1)'}`,
                     transition: 'all 0.2s ease',
                 }}
                 title={eqSpectrumEnabled ? 'Hide Spectrum' : 'Show Spectrum'}

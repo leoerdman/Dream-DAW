@@ -101,7 +101,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
             style={{ flex: 1, overflow: 'auto', position: 'relative' }}
         >
             <div style={{ width: canvasWidth, height: RULER_HEIGHT + canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
-                <div style={{ position: 'sticky', top: 0, left: 0, width: canvasWidth, height: RULER_HEIGHT, zIndex: 'var(--z-sticky)' as unknown as number, background: 'var(--color-bg-tertiary)', borderBottom: '1px solid var(--color-divider)', overflow: 'hidden' }}>
+                <div style={{ position: 'sticky', top: 0, left: 0, width: canvasWidth, height: RULER_HEIGHT, zIndex: 'var(--z-sticky)' as unknown as number, background: 'var(--color-bg-tertiary)', borderBottom: 'var(--space-px) solid var(--color-divider)', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 0, left: 0, width: clipBeats * pixelsPerBeat, height: 3, background: color, opacity: 0.65 }} />
                     {rulerBeatLabels.map((label, idx) => (
                         <span key={`ruler-${idx}`} style={{ position: 'absolute', left: label.x + 5, top: 6, fontSize: 'var(--font-size-2xs)', color: label.isBarStart ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: label.isBarStart ? 700 : 500, fontFamily: 'var(--font-mono)', pointerEvents: 'none', userSelect: 'none' }}>{label.text}</span>
@@ -171,11 +171,11 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     })}
 
                     {selectionRect && (
-                        <div style={{ position: 'absolute', left: Math.min(selectionRect.x1, selectionRect.x2), top: Math.min(selectionRect.y1, selectionRect.y2), width: Math.abs(selectionRect.x2 - selectionRect.x1), height: Math.abs(selectionRect.y2 - selectionRect.y1), background: 'var(--color-accent-primary-dim)', border: '1px solid color-mix(in srgb, var(--color-accent-primary) 85%, transparent)', borderRadius: 'var(--radius-xs)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)' as unknown as number }} />
+                        <div style={{ position: 'absolute', left: Math.min(selectionRect.x1, selectionRect.x2), top: Math.min(selectionRect.y1, selectionRect.y2), width: Math.abs(selectionRect.x2 - selectionRect.x1), height: Math.abs(selectionRect.y2 - selectionRect.y1), background: 'var(--color-accent-primary-dim)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 85%, transparent)', borderRadius: 'var(--radius-xs)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)' as unknown as number }} />
                     )}
 
                     {notes.length === 0 && (
-                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)' as unknown as number, textAlign: 'center', padding: '10px 14px', borderRadius: 'var(--radius-xl)', border: '1px solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))', background: 'color-mix(in srgb, var(--color-bg-header) 85%, var(--token-color-hex-0b1525))', boxShadow: 'var(--shadow-lg)' }}>
+                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)' as unknown as number, textAlign: 'center', padding: 'var(--space-2-5) var(--space-3-5)', borderRadius: 'var(--radius-xl)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))', background: 'color-mix(in srgb, var(--color-bg-header) 85%, var(--token-color-hex-0b1525))', boxShadow: 'var(--shadow-lg)' }}>
                             <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, marginBottom: 2 }}>Draw notes to start</div>
                             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Draw tool click adds notes. `Q` quantize, `H` humanize, `L` legato.</div>
                         </div>
@@ -183,7 +183,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                 </div>
 
                 {!gpuAvailable && playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
-                    <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)' as unknown as number, pointerEvents: 'none', boxShadow: '0 0 6px var(--token-color-rgba-255-255-255-0d45)' }} />
+                    <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)' as unknown as number, pointerEvents: 'none', boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-255-255-255-0d45)' }} />
                 )}
 
                 {stepInputCursorBeat > 0 && (

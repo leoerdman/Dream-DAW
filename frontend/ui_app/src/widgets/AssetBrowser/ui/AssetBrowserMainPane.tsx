@@ -156,16 +156,16 @@ const filtersToolbarStyle: React.CSSProperties = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 4,
-    padding: '4px 6px',
+    padding: 'var(--space-1) var(--space-1-5)',
     background: 'var(--color-bg-header)',
 };
 
 const pluginActionButtonStyle: React.CSSProperties = {
     background: 'var(--color-control-bg)',
     color: 'var(--color-text-secondary)',
-    border: '1px solid var(--color-divider)',
+    border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-xs)',
-    padding: '3px 7px',
+    padding: 'var(--token-size-px-3) var(--token-size-px-7)',
     fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
@@ -176,8 +176,8 @@ const pluginStatsRowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    padding: '2px 8px',
-    borderBottom: '1px solid var(--color-divider-light)',
+    padding: 'var(--space-0-5) var(--space-2)',
+    borderBottom: 'var(--space-px) solid var(--color-divider-light)',
     background: 'var(--color-bg-header)',
     fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-tertiary)',
@@ -204,9 +204,9 @@ const letterAnchorRowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: 2,
-    padding: '4px 8px',
+    padding: 'var(--space-1) var(--space-2)',
     overflowX: 'auto',
-    borderBottom: '1px solid var(--color-divider-light)',
+    borderBottom: 'var(--space-px) solid var(--color-divider-light)',
     background: 'color-mix(in srgb, var(--color-bg-header) 95%, transparent)',
 };
 
@@ -214,7 +214,7 @@ const letterAnchorButtonStyle: React.CSSProperties = {
     minWidth: 18,
     height: 16,
     borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--color-divider)',
+    border: 'var(--space-px) solid var(--color-divider)',
     fontSize: 'var(--font-size-2xs)',
     fontWeight: 'var(--font-weight-bold)' as unknown as number,
     fontFamily: 'var(--font-mono)',
@@ -226,7 +226,7 @@ const letterAnchorButtonStyle: React.CSSProperties = {
 const previewRootStyle: React.CSSProperties = {
     gridRow: 3,
     flexShrink: 0,
-    borderTop: '2px solid var(--color-divider)',
+    borderTop: 'var(--space-0-5) solid var(--color-divider)',
     background: 'var(--color-bg-secondary)',
     position: 'relative',
     zIndex: 10,
@@ -235,7 +235,7 @@ const previewRootStyle: React.CSSProperties = {
 const previewControlsRowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
-    padding: '4px 8px',
+    padding: 'var(--space-1) var(--space-2)',
     gap: 5,
     fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-secondary)',
@@ -246,12 +246,12 @@ const previewWaveContainerStyle: React.CSSProperties = {
     minWidth: 0,
     height: 16,
     borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--color-border-subtle)',
+    border: 'var(--space-px) solid var(--color-border-subtle)',
     background: 'color-mix(in srgb, var(--token-color-hex-000000) 18%, transparent)',
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 4px',
+    padding: '0 var(--space-1)',
 };
 
 const previewPlaceholderStyle: React.CSSProperties = {
@@ -266,7 +266,7 @@ const previewToggleStyle: React.CSSProperties = {
     height: 16,
     minWidth: 16,
     borderRadius: '50%',
-    border: '1px solid var(--color-border-subtle)',
+    border: 'var(--space-px) solid var(--color-border-subtle)',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',

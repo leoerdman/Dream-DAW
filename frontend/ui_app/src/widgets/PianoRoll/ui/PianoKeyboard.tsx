@@ -49,8 +49,8 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                 style={{
                     height: RULER_HEIGHT,
                     background: 'var(--color-bg-tertiary)',
-                    borderBottom: '1px solid var(--color-divider)',
-                    borderRight: '1px solid var(--color-divider)',
+                    borderBottom: 'var(--space-px) solid var(--color-divider)',
+                    borderRight: 'var(--space-px) solid var(--color-divider)',
                     flexShrink: 0,
                 }}
             />
@@ -61,7 +61,7 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                     flex: 1,
                     overflowY: 'hidden',
                     background: 'var(--color-bg-base)',
-                    borderRight: '1px solid var(--color-divider)',
+                    borderRight: 'var(--space-px) solid var(--color-divider)',
                 }}
             >
                 <div style={{ height: canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
@@ -88,7 +88,7 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                                     width: KEYBOARD_WIDTH,
                                     height: noteHeight,
                                     background,
-                                    borderBottom: '1px solid var(--color-border-subtle)',
+                                    borderBottom: 'var(--space-px) solid var(--color-border-subtle)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'flex-end',

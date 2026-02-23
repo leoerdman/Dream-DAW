@@ -55,7 +55,7 @@ export function DawShellMainView({
                 style={{
                     width: browserWidth,
                     background: 'var(--color-bg-panel)',
-                    borderRight: '1px solid var(--color-divider)',
+                    borderRight: 'var(--space-px) solid var(--color-divider)',
                 }}
             >
                 <ErrorBoundary module="Asset Browser">
@@ -80,7 +80,7 @@ export function DawShellMainView({
                         style={{
                             width: 'var(--daw-inspector-width)',
                             background: 'var(--color-bg-panel)',
-                            borderLeft: '1px solid var(--color-divider)',
+                            borderLeft: 'var(--space-px) solid var(--color-divider)',
                         }}
                     >
                         <ErrorBoundary module="Track Inspector">

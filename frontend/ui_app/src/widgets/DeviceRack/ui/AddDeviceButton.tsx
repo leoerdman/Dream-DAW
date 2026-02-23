@@ -20,7 +20,7 @@ export function AddDeviceButton({ onClick }: AddDeviceButtonProps) {
                 justifyContent: 'center',
                 gap: 6,
                 background: 'transparent',
-                border: '1px dashed var(--color-border-subtle)',
+                border: 'var(--space-px) dashed var(--color-border-subtle)',
                 borderRadius: 'var(--radius-sm)',
                 cursor: 'pointer',
                 color: 'var(--color-text-tertiary)',

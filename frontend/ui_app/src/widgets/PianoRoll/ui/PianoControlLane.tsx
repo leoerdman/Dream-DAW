@@ -42,7 +42,7 @@ export const PianoControlLane = memo(function PianoControlLane({
                 width: canvasWidth,
                 height: VELOCITY_LANE_HEIGHT,
                 background: 'var(--color-bg-base)',
-                borderTop: '1px solid var(--color-divider)',
+                borderTop: 'var(--space-px) solid var(--color-divider)',
             }}
         >
             {[0.25, 0.5, 0.75].map((pct) => (
@@ -80,7 +80,7 @@ export const PianoControlLane = memo(function PianoControlLane({
                             height: barHeight,
                             background: isSelected ? 'var(--color-text-bright)' : laneColor,
                             opacity: isSelected ? 0.9 : 0.6,
-                            borderRadius: '1px 1px 0 0',
+                            borderRadius: 'var(--space-px) var(--space-px) 0 0',
                             cursor: 'ns-resize',
                             transition: 'opacity var(--transition-micro)',
                         }}

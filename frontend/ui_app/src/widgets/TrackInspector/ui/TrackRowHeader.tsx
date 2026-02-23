@@ -67,7 +67,7 @@ export function TrackRowHeader({
                 maxWidth: layout.headerColWidth,
                 display: 'flex',
                 alignItems: 'stretch',
-                borderRight: '1px solid var(--color-border-subtle)',
+                borderRight: 'var(--space-px) solid var(--color-border-subtle)',
                 boxSizing: 'border-box',
                 cursor: !isMaster ? 'grab' : 'default',
             }}
@@ -89,7 +89,7 @@ export function TrackRowHeader({
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center',
-                    padding: `2px ${mixerFocusMode ? 8 : 6}px 2px ${basePaddingLeft}px`,
+                    padding: `var(--space-0-5) ${mixerFocusMode ? 8 : 6}px var(--space-0-5) ${basePaddingLeft}px`,
                     background: headerBgColor,
                     gap: 1,
                     position: 'relative',
@@ -141,10 +141,10 @@ export function TrackRowHeader({
                                     headerContrast === 'black'
                                         ? 'var(--token-color-rgba-255-255-255-0d42)'
                                         : 'var(--token-color-rgba-0-0-0-0d34)',
-                                border: `1px solid ${track.color}`,
+                                border: `var(--space-px) solid ${track.color}`,
                                 borderRadius: 'var(--radius-xs)',
                                 color: headerTextColor,
-                                padding: '1px 3px',
+                                padding: 'var(--space-px) var(--token-size-px-3)',
                                 outline: 'none',
                                 minWidth: 0,
                             }}

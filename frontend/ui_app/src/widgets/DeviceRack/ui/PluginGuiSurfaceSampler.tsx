@@ -29,7 +29,7 @@ export function PluginGuiSurfaceSampler({
         <div
             style={{
                 display: 'grid',
-                gridTemplateRows: '102px auto',
+                gridTemplateRows: 'var(--token-size-px-102) auto',
                 height: '100%',
                 gap: 4,
                 borderRadius: 'var(--radius-lg)',
@@ -41,7 +41,7 @@ export function PluginGuiSurfaceSampler({
                 style={{
                     position: 'relative',
                     overflow: 'hidden',
-                    borderBottom: '1px solid var(--token-color-rgba-90-178-255-0d22)',
+                    borderBottom: 'var(--space-px) solid var(--token-color-rgba-90-178-255-0d22)',
                 }}
                 onMouseUp={() => {
                     const dragging = useDragStore.getState().draggingItem;
@@ -62,7 +62,7 @@ export function PluginGuiSurfaceSampler({
                 <svg
                     viewBox="0 0 1000 90"
                     preserveAspectRatio="none"
-                    style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - 16px)' }}
+                    style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))' }}
                 >
                     <defs>
                         <linearGradient id="samplerWaveFill" x1="0" y1="0" x2="0" y2="1">
@@ -134,12 +134,12 @@ export function PluginGuiSurfaceSampler({
                         position: 'absolute',
                         right: 8,
                         top: 4,
-                        border: '1px solid var(--color-overlay-light)',
+                        border: 'var(--space-px) solid var(--color-overlay-light)',
                         borderRadius: 'var(--radius-sm)',
                         background: 'var(--surface-tab-inactive)',
                         color: 'var(--token-color-hex-dce9ff)',
                         fontSize: 'var(--font-size-2xs)',
-                        padding: '3px 7px',
+                        padding: 'var(--token-size-px-3) var(--token-size-px-7)',
                         cursor: 'pointer',
                     }}
                 >
@@ -152,7 +152,7 @@ export function PluginGuiSurfaceSampler({
                     gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
                     gap: 8,
                     alignItems: 'center',
-                    padding: '4px 8px 8px 8px',
+                    padding: 'var(--space-1) var(--space-2) var(--space-2) var(--space-2)',
                     background: 'var(--token-color-rgba-16-20-28-0d55)',
                 }}
             >

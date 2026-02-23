@@ -115,7 +115,7 @@ export function DeviceNodeBody({
                         style={{
                             maxHeight: 230,
                             overflow: 'auto',
-                            border: '1px solid var(--token-color-rgba-255-255-255-0d04)',
+                            border: 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d04)',
                             borderRadius: 'var(--radius-sm)',
                             background: 'var(--token-color-rgba-0-0-0-0d15)',
                             padding: 6,
@@ -163,12 +163,12 @@ export function DeviceNodeBody({
                         value={sidechainSourceTrackId || 'none'}
                         onChange={(e) => onSidechainSourceChange?.(e.target.value)}
                         style={{
-                            border: '1px solid var(--color-divider)',
+                            border: 'var(--space-px) solid var(--color-divider)',
                             borderRadius: 'var(--radius-md)',
                             background: 'var(--token-color-hex-2a2a2a)',
                             color: 'var(--color-text-primary)',
                             fontSize: 'var(--font-size-2xs)',
-                            padding: '4px 6px',
+                            padding: 'var(--space-1) var(--space-1-5)',
                             outline: 'none',
                             width: '100%',
                         }}

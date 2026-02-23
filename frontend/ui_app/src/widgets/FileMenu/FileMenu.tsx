@@ -167,10 +167,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-xs)',
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                    padding: '2px 8px',
+                    padding: 'var(--space-0-5) var(--space-2)',
                     cursor: 'pointer',
                     transition: 'all var(--transition-fast)',
-                    letterSpacing: '0.5px',
+                    letterSpacing: '0.var(--token-size-px-5)',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
                 onMouseLeave={e => {
@@ -190,11 +190,11 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                         marginTop: 4,
                         minWidth: 220,
                         background: 'var(--color-bg-elevated)',
-                        border: '1px solid var(--color-border-subtle)',
+                        border: 'var(--space-px) solid var(--color-border-subtle)',
                         borderRadius: 'var(--radius-md)',
-                        boxShadow: '0 8px 32px var(--color-overlay-dark)',
-                        backdropFilter: 'blur(20px)',
-                        padding: '4px 0',
+                        boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
+                        backdropFilter: 'blur(var(--space-5))',
+                        padding: 'var(--space-1) 0',
                         zIndex: 'var(--z-menu)' as unknown as number,
                         overflow: 'visible',
                     }}
@@ -233,11 +233,11 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     top: -4,
                                     minWidth: 260,
                                     background: 'var(--color-bg-elevated)',
-                                    border: '1px solid var(--color-border-subtle)',
+                                    border: 'var(--space-px) solid var(--color-border-subtle)',
                                     borderRadius: 'var(--radius-md)',
-                                    boxShadow: '0 8px 32px var(--color-overlay-dark)',
-                                    backdropFilter: 'blur(20px)',
-                                    padding: '4px 0',
+                                    boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
+                                    backdropFilter: 'blur(var(--space-5))',
+                                    padding: 'var(--space-1) 0',
                                     zIndex: 'var(--z-drag-overlay)' as unknown as number,
                                 }}
                             >
@@ -260,11 +260,11 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     top: -4,
                                     minWidth: 180,
                                     background: 'var(--color-bg-elevated)',
-                                    border: '1px solid var(--color-border-subtle)',
+                                    border: 'var(--space-px) solid var(--color-border-subtle)',
                                     borderRadius: 'var(--radius-md)',
-                                    boxShadow: '0 8px 32px var(--color-overlay-dark)',
-                                    backdropFilter: 'blur(20px)',
-                                    padding: '8px 12px',
+                                    boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
+                                    backdropFilter: 'blur(var(--space-5))',
+                                    padding: 'var(--space-2) var(--space-3)',
                                     zIndex: 'var(--z-drag-overlay)' as unknown as number,
                                 }}
                             >

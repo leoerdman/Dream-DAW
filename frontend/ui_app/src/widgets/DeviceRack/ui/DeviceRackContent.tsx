@@ -38,9 +38,9 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                 height: '100%',
                 background: 'var(--color-bg-panel)',
                 position: 'relative',
-                outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
+                outline: isDropActive ? 'var(--space-0-5) solid var(--color-accent-primary)' : 'none',
                 boxShadow: isDropActive
-                    ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)'
+                    ? 'inset 0 0 0 var(--space-px) color-mix(in srgb, var(--color-accent-primary) 35%, transparent)'
                     : 'none',
             }}
         >
@@ -53,7 +53,7 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                     display: 'flex',
                     alignItems: 'stretch',
                     gap: 6,
-                    padding: '10px',
+                    padding: 'var(--space-2-5)',
                     flex: 1,
                     minHeight: 0,
                     overflowX: 'auto',
@@ -82,9 +82,9 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                         right: 10,
                         top: 10,
                         zIndex: 'var(--z-header)' as unknown as number,
-                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, var(--token-color-hex-ffffff22))',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 65%, var(--token-color-hex-ffffff22))',
                         borderRadius: 'var(--radius-lg)',
-                        padding: '5px 8px',
+                        padding: 'var(--token-size-px-5) var(--space-2)',
                         background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',
                         color: 'var(--color-text-primary)',
                         fontSize: 'var(--font-size-xs)',

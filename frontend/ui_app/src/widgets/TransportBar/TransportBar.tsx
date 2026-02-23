@@ -171,7 +171,7 @@ export const TransportBar = ({
         color: 'var(--color-text-primary)',
         background: TRANSPORT_UI.controlBg,
         borderRadius: TRANSPORT_UI.controlRadius,
-        padding: '0 8px',
+        padding: '0 var(--space-2)',
         minWidth: 56,
         height: TRANSPORT_UI.controlHeight,
         lineHeight: `${TRANSPORT_UI.controlHeight}px`,

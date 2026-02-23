@@ -58,7 +58,7 @@ export const PluginSettingsPanel = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {device.source === 'vst' && (
                 <div style={{
-                    border: '1px solid var(--color-divider)',
+                    border: 'var(--space-px) solid var(--color-divider)',
                     borderRadius: 'var(--radius-sm)',
                     background: 'color-mix(in srgb, var(--color-bg-header) 88%, var(--token-color-hex-0e1117))',
                     padding: 8,
@@ -73,8 +73,8 @@ export const PluginSettingsPanel = ({
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: 'var(--font-weight-bold)' as unknown as number,
                             borderRadius: 'var(--radius-full)',
-                            border: '1px solid var(--color-divider)',
-                            padding: '2px 7px',
+                            border: 'var(--space-px) solid var(--color-divider)',
+                            padding: 'var(--space-0-5) var(--token-size-px-7)',
                             color: runtimeStatus?.loaded ? 'var(--token-color-hex-7edb90)' : 'var(--token-color-hex-ff9b9b)',
                             background: runtimeStatus?.loaded
                                 ? 'color-mix(in srgb, var(--token-color-hex-7edb90) 16%, transparent)'
@@ -101,11 +101,11 @@ export const PluginSettingsPanel = ({
                         style={{
                             height: 24,
                             borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-divider)',
+                            border: 'var(--space-px) solid var(--color-divider)',
                             background: 'var(--color-bg-panel)',
                             color: 'var(--color-text-primary)',
                             fontSize: 'var(--font-size-sm)',
-                            padding: '0 8px',
+                            padding: '0 var(--space-2)',
                             outline: 'none',
                         }}
                     />
@@ -126,12 +126,12 @@ export const PluginSettingsPanel = ({
                         value={sidechainSourceTrackId || 'none'}
                         onChange={(e) => onSidechainSourceChange?.(e.target.value)}
                         style={{
-                            border: '1px solid var(--color-divider)',
+                            border: 'var(--space-px) solid var(--color-divider)',
                             borderRadius: 'var(--radius-md)',
                             background: 'var(--color-bg-header)',
                             color: 'var(--color-text-primary)',
                             fontSize: 'var(--font-size-sm)',
-                            padding: '5px 7px',
+                            padding: 'var(--token-size-px-5) var(--token-size-px-7)',
                             outline: 'none',
                         }}
                     >
@@ -160,12 +160,12 @@ export const PluginSettingsPanel = ({
                                 type="button"
                                 onClick={() => onApplyQuickPreset?.(preset)}
                                 style={{
-                                    border: '1px solid var(--color-divider)',
+                                    border: 'var(--space-px) solid var(--color-divider)',
                                     borderRadius: 'var(--radius-md)',
                                     background: 'var(--color-bg-header)',
                                     color: 'var(--color-text-secondary)',
                                     fontSize: 'var(--font-size-xs)',
-                                    padding: '4px 8px',
+                                    padding: 'var(--space-1) var(--space-2)',
                                     cursor: 'pointer',
                                 }}
                             >
@@ -187,13 +187,13 @@ export const PluginSettingsPanel = ({
                         Performance
                     </span>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button type="button" onClick={() => onRandomize?.()} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}>Random</button>
-                        <button type="button" onClick={() => onReset?.()} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}>Reset</button>
-                        <button type="button" onClick={() => onStoreSnapshot?.('A')} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'A' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}>Store A</button>
-                        <button type="button" onClick={() => onStoreSnapshot?.('B')} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'B' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}>Store B</button>
-                        <button type="button" onClick={() => onRecallSnapshot?.('A')} disabled={!snapshotState?.A} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.A ? 'pointer' : 'not-allowed', opacity: snapshotState?.A ? 1 : 0.55 }}>A</button>
-                        <button type="button" onClick={() => onRecallSnapshot?.('B')} disabled={!snapshotState?.B} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.B ? 1 : 0.55 }}>B</button>
-                        <button type="button" onClick={() => onToggleSnapshot?.()} disabled={!snapshotState?.A || !snapshotState?.B} style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.A && snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.A && snapshotState?.B ? 1 : 0.55 }}>A/B</button>
+                        <button type="button" onClick={() => onRandomize?.()} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: 'pointer' }}>Random</button>
+                        <button type="button" onClick={() => onReset?.()} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: 'pointer' }}>Reset</button>
+                        <button type="button" onClick={() => onStoreSnapshot?.('A')} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'A' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: 'pointer' }}>Store A</button>
+                        <button type="button" onClick={() => onStoreSnapshot?.('B')} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'B' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: 'pointer' }}>Store B</button>
+                        <button type="button" onClick={() => onRecallSnapshot?.('A')} disabled={!snapshotState?.A} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: snapshotState?.A ? 'pointer' : 'not-allowed', opacity: snapshotState?.A ? 1 : 0.55 }}>A</button>
+                        <button type="button" onClick={() => onRecallSnapshot?.('B')} disabled={!snapshotState?.B} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.B ? 1 : 0.55 }}>B</button>
+                        <button type="button" onClick={() => onToggleSnapshot?.()} disabled={!snapshotState?.A || !snapshotState?.B} style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--space-1) var(--space-2)', cursor: snapshotState?.A && snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.A && snapshotState?.B ? 1 : 0.55 }}>A/B</button>
                     </div>
                 </div>
             )}
@@ -203,12 +203,12 @@ export const PluginSettingsPanel = ({
                     onClick={() => onLoadSample?.()}
                     style={{
                         width: 'fit-content',
-                        border: '1px solid var(--color-divider)',
+                        border: 'var(--space-px) solid var(--color-divider)',
                         borderRadius: 'var(--radius-md)',
                         background: 'var(--color-bg-header)',
                         color: 'var(--color-text-secondary)',
                         fontSize: 'var(--font-size-sm)',
-                        padding: '6px 10px',
+                        padding: 'var(--space-1-5) var(--space-2-5)',
                         cursor: 'pointer',
                     }}
                 >
@@ -233,9 +233,9 @@ export const PluginSettingsPanel = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    border: '1px solid var(--color-divider)',
+                    border: 'var(--space-px) solid var(--color-divider)',
                     borderRadius: 'var(--radius-lg)',
-                    padding: '8px 10px',
+                    padding: 'var(--space-2) var(--space-2-5)',
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-xs)',
                 }}>

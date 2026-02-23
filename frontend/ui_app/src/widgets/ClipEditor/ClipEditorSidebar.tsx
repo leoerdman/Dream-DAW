@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 const sidebarStyle: CSSProperties = {
     width: 224,
     flexShrink: 0,
-    borderRight: '1px solid var(--color-divider)',
+    borderRight: 'var(--space-px) solid var(--color-divider)',
     background: 'var(--color-bg-panel)',
     padding: 8,
     display: 'flex',
@@ -14,7 +14,7 @@ const sidebarStyle: CSSProperties = {
 };
 
 const sectionStyle: CSSProperties = {
-    border: '1px solid var(--color-control-border)',
+    border: 'var(--space-px) solid var(--color-control-border)',
     borderRadius: 'var(--radius-sm)',
     background: 'var(--color-bg-secondary)',
     padding: 8,

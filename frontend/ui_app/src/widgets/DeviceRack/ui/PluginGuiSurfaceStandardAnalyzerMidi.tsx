@@ -6,13 +6,13 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 
 const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
-    gridTemplateRows: '90px auto',
+    gridTemplateRows: 'var(--token-size-px-90) auto',
     gap: 'var(--plugin-grid-gap)',
     height: '100%',
 };
 
 const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: '1px solid var(--plugin-card-border)',
+    border: 'var(--space-px) solid var(--plugin-card-border)',
     borderRadius: 'var(--plugin-card-radius)',
     padding: 'var(--plugin-card-pad-y) var(--plugin-card-pad-x)',
     display: 'grid',
@@ -93,7 +93,7 @@ export function renderStandardAnalyzerMidiSurface(
                     </svg>
                 )}
                 {device.effectType === 'analyzer' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: '4px 8px', height: 80, background: 'var(--token-color-rgba-8-10-14-0d7)', borderRadius: 'var(--radius-md)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: 'var(--space-1) var(--space-2)', height: 80, background: 'var(--token-color-rgba-8-10-14-0d7)', borderRadius: 'var(--radius-md)' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             <div style={{ fontSize: 9, color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK L</div>
                             <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
@@ -124,7 +124,7 @@ export function renderStandardAnalyzerMidiSurface(
                 {device.effectType === 'midiScale' && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 3, height: 46, alignItems: 'center' }}>
                         {noteNames.map((n, idx) => (
-                            <div key={n} style={{ borderRadius: 'var(--radius-sm)', border: idx === activeRoot ? '1px solid var(--token-color-hex-8bc27a)' : '1px solid var(--token-color-rgba-255-255-255-0d14)', background: idx === activeRoot ? 'var(--token-color-rgba-139-194-122-0d22)' : 'var(--token-color-rgba-160-180-210-0d1)', color: idx === activeRoot ? 'var(--token-color-hex-d9f3d1)' : 'var(--token-color-hex-a8b7cd)', fontSize: 'var(--font-size-2xs)', textAlign: 'center', padding: '3px 0' }}>
+                            <div key={n} style={{ borderRadius: 'var(--radius-sm)', border: idx === activeRoot ? 'var(--space-px) solid var(--token-color-hex-8bc27a)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d14)', background: idx === activeRoot ? 'var(--token-color-rgba-139-194-122-0d22)' : 'var(--token-color-rgba-160-180-210-0d1)', color: idx === activeRoot ? 'var(--token-color-hex-d9f3d1)' : 'var(--token-color-hex-a8b7cd)', fontSize: 'var(--font-size-2xs)', textAlign: 'center', padding: 'var(--token-size-px-3) 0' }}>
                                 {n}
                             </div>
                         ))}
@@ -146,7 +146,7 @@ export function renderStandardAnalyzerMidiSurface(
                                 </div>
                                 <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1e2430)', overflow: 'hidden', position: 'relative' }}>
                                     <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-rgba-255-255-255-0d2)' }} />
-                                    <div style={{ position: 'absolute', left: `calc(${Math.max(0, Math.min(100, (velOffset + 64) / 128 * 100)).toFixed(1)}% - 5px)`, top: -2, width: 10, height: 12, borderRadius: 'var(--radius-md)', background: isCcControl || isExpressionControl ? 'var(--token-color-hex-8ecb7c)' : 'var(--token-color-hex-d9a25c)' }} />
+                                    <div style={{ position: 'absolute', left: `calc(${Math.max(0, Math.min(100, (velOffset + 64) / 128 * 100)).toFixed(1)}% - var(--token-size-px-5))`, top: -2, width: 10, height: 12, borderRadius: 'var(--radius-md)', background: isCcControl || isExpressionControl ? 'var(--token-color-hex-8ecb7c)' : 'var(--token-color-hex-d9a25c)' }} />
                                 </div>
                             </>
                         )}

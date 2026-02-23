@@ -58,12 +58,12 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                     <div style={{
                                         position: 'absolute',
                                         top: -3,
-                                        left: `calc(${(panPct * 50 + 50).toFixed(3)}% - 5px)`,
+                                        left: `calc(${(panPct * 50 + 50).toFixed(3)}% - var(--token-size-px-5))`,
                                         width: 10,
                                         height: 14,
                                         borderRadius: 'var(--radius-md)',
                                         background: 'var(--token-color-hex-56a7ff)',
-                                        boxShadow: '0 0 6px var(--token-color-rgba-86-167-255-0d45)',
+                                        boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-86-167-255-0d45)',
                                     }} />
                                 </div>
                             </div>
@@ -87,17 +87,17 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('center')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
                                 >Center</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('mono')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
                                 >Mono</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('wide')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: 'var(--token-size-px-3) var(--space-2)', cursor: 'pointer' }}
                                 >Wide</button>
                             </div>
                         </>
@@ -187,7 +187,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             <line x1="14" y1="70" x2="260" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
                         </svg>
                     )}
-                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-divider)', padding: 3 }}>
+                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: 'var(--space-px) solid var(--color-divider)', padding: 3 }}>
                         <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'var(--color-error)', borderRadius: 2 }} />
                     </div>
                     {!isTransientShaper && (

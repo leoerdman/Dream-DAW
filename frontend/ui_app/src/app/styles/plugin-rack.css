@@ -10,8 +10,8 @@
    ───────────────────────────────────────────────────────────── */
 
 .device-node {
-    width: 200px;
-    min-height: 160px;
+    width: var(--token-size-px-200);
+    min-height: var(--token-size-px-160);
     background: var(--color-bg-node);
     border: var(--border-width-1) solid var(--color-control-border);
     border-radius: var(--node-border-radius);
@@ -30,7 +30,7 @@
 
 .device-node.selected {
     border-color: var(--color-accent-primary);
-    box-shadow: 0 0 0 1px var(--color-accent-primary);
+    box-shadow: 0 0 0 var(--space-px) var(--color-accent-primary);
 }
 
 .device-node.bypassed {
@@ -41,7 +41,7 @@
     background: var(--color-bg-node);
 }
 
-/* ── Color Stripe (3px top bar per effect type) ─────────────── */
+/* ── Color Stripe (var(--token-size-px-3) top bar per effect type) ─────────────── */
 
 .device-node::before {
     content: '';
@@ -95,12 +95,12 @@
    ───────────────────────────────────────────────────────────── */
 
 .device-node-header {
-    height: 28px;
+    height: var(--space-7);
     background: var(--color-bg-node-header);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 8px;
+    padding: 0 var(--space-2);
     border-bottom: var(--border-width-1) solid var(--color-divider);
 }
 
@@ -111,30 +111,30 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 100px;
+    max-width: var(--token-size-px-100);
 }
 
 .device-node-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
 }
 
 /* ── Bypass LED ── */
 
 .device-bypass-led {
-    width: 7px;
-    height: 7px;
+    width: var(--token-size-px-7);
+    height: var(--token-size-px-7);
     border-radius: var(--radius-full);
     background: var(--color-accent-primary);
     /* Blue LED by default */
     cursor: pointer;
     transition: background var(--transition-fast), box-shadow var(--transition-fast);
-    box-shadow: 0 0 4px var(--token-color-rgba-74-158-255-0d4);
+    box-shadow: 0 0 var(--space-1) var(--token-color-rgba-74-158-255-0d4);
 }
 
 .device-bypass-led:hover {
-    box-shadow: 0 0 8px var(--token-color-rgba-102-204-51-0d6);
+    box-shadow: 0 0 var(--space-2) var(--token-color-rgba-102-204-51-0d6);
 }
 
 .device-bypass-led.bypassed {
@@ -149,10 +149,10 @@
 .device-node-body {
     flex: 1;
     background: var(--color-bg-node-body);
-    padding: 8px;
+    padding: var(--space-2);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-1-5);
 }
 
 /* ── Knob Row ── */
@@ -160,24 +160,24 @@
 .device-knob-row {
     display: flex;
     justify-content: space-around;
-    gap: 2px;
+    gap: var(--space-0-5);
 }
 
 .device-knob {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
-    min-width: 36px;
+    gap: var(--space-0-5);
+    min-width: var(--token-size-px-36);
 }
 
 /* Knob dial — 270° arc (ported from KnobView.swift) */
 .device-knob-dial {
-    width: 28px;
-    height: 28px;
+    width: var(--space-7);
+    height: var(--space-7);
     border-radius: var(--radius-full);
     background: var(--color-knob-fill);
-    border: 2px solid var(--color-knob-arc-inactive);
+    border: var(--space-0-5) solid var(--color-knob-arc-inactive);
     position: relative;
     cursor: pointer;
     transition: border-color var(--transition-fast);
@@ -191,11 +191,11 @@
 .device-knob-dial::after {
     content: '';
     position: absolute;
-    top: 2px;
+    top: var(--space-0-5);
     left: 50%;
     transform: translateX(-50%);
-    width: 3px;
-    height: 3px;
+    width: var(--token-size-px-3);
+    height: var(--token-size-px-3);
     border-radius: var(--radius-full);
     background: var(--color-text-primary);
 }
@@ -221,7 +221,7 @@
 
 .device-meter {
     width: 100%;
-    height: 3px;
+    height: var(--token-size-px-3);
     background: var(--color-meter-bg);
     border-radius: var(--radius-xs);
     overflow: hidden;
@@ -245,22 +245,22 @@
 
 .device-port {
     position: absolute;
-    width: 8px;
-    height: 8px;
+    width: var(--space-2);
+    height: var(--space-2);
     border-radius: var(--radius-full);
     background: var(--color-port-audio);
-    border: 1px solid var(--token-color-rgba-0-0-0-0d3);
+    border: var(--space-px) solid var(--token-color-rgba-0-0-0-0d3);
     z-index: 2;
 }
 
 .device-port.input {
-    left: -4px;
+    left: -var(--token-size-px-4);
     top: 50%;
     transform: translateY(-50%);
 }
 
 .device-port.output {
-    right: -4px;
+    right: -var(--token-size-px-4);
     top: 50%;
     transform: translateY(-50%);
 }
@@ -278,7 +278,7 @@
    ───────────────────────────────────────────────────────────── */
 
 .device-wire {
-    height: 2px;
+    height: var(--space-0-5);
     background: var(--color-divider-light);
     flex-shrink: 0;
     position: relative;
@@ -288,12 +288,12 @@
     content: '';
     position: absolute;
     right: 0;
-    top: -2px;
+    top: -var(--token-size-px-2);
     width: 0;
     height: 0;
-    border-left: 4px solid var(--color-divider-light);
-    border-top: 3px solid transparent;
-    border-bottom: 3px solid transparent;
+    border-left: var(--space-1) solid var(--color-divider-light);
+    border-top: var(--token-size-px-3) solid transparent;
+    border-bottom: var(--token-size-px-3) solid transparent;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -301,15 +301,15 @@
    ───────────────────────────────────────────────────────────── */
 
 .device-add-slot {
-    width: 80px;
-    min-height: 160px;
-    border: 1px dashed var(--color-divider-light);
+    width: var(--space-20);
+    min-height: var(--token-size-px-160);
+    border: var(--space-px) dashed var(--color-divider-light);
     border-radius: var(--node-border-radius);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     cursor: pointer;
     color: var(--color-text-tertiary);
     transition: all var(--transition-fast);

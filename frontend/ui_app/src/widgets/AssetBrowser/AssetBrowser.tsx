@@ -97,8 +97,8 @@ const rootStyle: React.CSSProperties = {
 };
 
 const searchBarWrapStyle: React.CSSProperties = {
-    padding: '6px 8px',
-    borderBottom: '1px solid var(--color-divider)',
+    padding: 'var(--space-1-5) var(--space-2)',
+    borderBottom: 'var(--space-px) solid var(--color-divider)',
     background: 'var(--color-bg-header)',
 };
 

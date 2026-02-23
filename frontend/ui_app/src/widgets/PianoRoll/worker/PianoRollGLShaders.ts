@@ -260,7 +260,7 @@ void main() {
     color = mix(color, vec3(1.0), topHighlight * velNorm);
     color = mix(color, vec3(0.0), bottomShadow);
 
-    // Left edge highlight — subtle specular on left 2px
+    // Left edge highlight — subtle specular on left var(--space-0-5)
     float leftHL = smoothstep(3.0, 0.0, pixelPos.x) * 0.15;
     color = mix(color, vec3(1.0), leftHL * velNorm);
 
@@ -311,10 +311,10 @@ void main() {
     // Core line: crisp 1.5 CSS pixels with anti-aliased edges
     float coreMask = 1.0 - smoothstep(0.0, 1.0, dist);
 
-    // Inner glow — warm white, tight (3px)
+    // Inner glow — warm white, tight (var(--token-size-px-3))
     float innerGlow = exp(-dist * dist * 0.15) * 0.55;
 
-    // Outer bloom — soft diffuse light halo (10px)
+    // Outer bloom — soft diffuse light halo (var(--space-2-5))
     float outerBloom = exp(-dist * 0.22) * 0.20;
 
     float totalAlpha = min(1.0, coreMask * 0.97 + innerGlow + outerBloom);

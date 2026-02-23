@@ -144,12 +144,12 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             }}
             style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: `4px 8px 4px ${8 + (item._depth ?? 0) * 14}px`,
+                padding: `var(--space-1) var(--space-2) var(--space-1) ${8 + (item._depth ?? 0) * 14}px`,
                 cursor: isDraggable ? 'grab' : (item.isDirectory ? 'pointer' : 'default'),
                 position: 'absolute', top: absIdx * ROW_HEIGHT,
                 left: 0, right: 0, height: ROW_HEIGHT, boxSizing: 'border-box',
                 background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                borderBottom: '1px solid var(--color-divider-light)',
+                borderBottom: 'var(--space-px) solid var(--color-divider-light)',
             }}
         >
             {item.isDirectory && (

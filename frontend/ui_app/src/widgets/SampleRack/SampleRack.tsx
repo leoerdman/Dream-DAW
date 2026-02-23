@@ -114,10 +114,10 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 position: 'relative', overflow: 'hidden',
                                 borderRadius: 6,
                                 border: isSelected
-                                    ? `2px solid ${pc}`
+                                    ? `var(--space-0-5) solid ${pc}`
                                     : canDrop
-                                        ? '2px dashed var(--color-success)'
-                                        : '1px solid var(--color-divider)',
+                                        ? 'var(--space-0-5) dashed var(--color-success)'
+                                        : 'var(--space-px) solid var(--color-divider)',
                                 background: hasSample
                                     ? `color-mix(in srgb, ${pc} 15%, transparent)`
                                     : 'var(--color-bg-muted)',
@@ -126,7 +126,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 alignItems: 'center', justifyContent: 'center',
                                 transition: 'var(--transition-fast)',
                                 boxShadow: 'none',
-                                padding: '2px 3px',
+                                padding: 'var(--space-0-5) var(--token-size-px-3)',
                                 minHeight: 0,
                             }}
                         >
@@ -162,7 +162,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 color: hasSample ? 'var(--token-color-hex-ffffff)' : 'var(--token-color-rgba-255-255-255-0d35)',
                                 textAlign: 'center', lineHeight: 1.1,
                                 overflow: 'hidden', textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 2px',
+                                whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 var(--space-0-5)',
                             }}>
                                 {hasSample ? fileName : PAD_NAMES[i]}
                             </span>
@@ -174,19 +174,19 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
             {/* ── RIGHT: Pad Detail Panel (Sampler UI) ── */}
             <div style={{
                 flex: 1, minWidth: 0,
-                display: 'grid', gridTemplateRows: '102px auto',
+                display: 'grid', gridTemplateRows: 'var(--token-size-px-102) auto',
                 gap: 4, padding: 4,
                 background: 'var(--token-color-rgba-0-0-0-0d15)',
-                borderLeft: '1px solid var(--token-color-rgba-255-255-255-0d04)',
+                borderLeft: 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d04)',
             }}>
                 {pad ? (
                     <>
                         {/* Waveform View */}
                         <div style={{
                             position: 'relative', overflow: 'hidden',
-                            borderBottom: '1px solid var(--color-divider)',
+                            borderBottom: 'var(--space-px) solid var(--color-divider)',
                             background: 'var(--surface-tab-inactive)',
-                            borderRadius: '4px 4px 0 0',
+                            borderRadius: 'var(--space-1) var(--space-1) 0 0',
                         }}>
                             <div style={{
                                 position: 'absolute', inset: 0,
@@ -207,7 +207,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             <div style={{
                                 position: 'absolute', top: 6, left: 8,
                                 color: 'var(--token-color-hex-e0e0e0)', fontSize: 10, fontWeight: 700,
-                                fontFamily: 'var(--font-mono)', letterSpacing: '0.5px'
+                                fontFamily: 'var(--font-mono)', letterSpacing: '0.var(--token-size-px-5)'
                             }}>
                                 PAD {selectedPad + 1}
                             </div>
@@ -224,8 +224,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                     onClick={() => handleClearPad(selectedPad)}
                                     style={{
                                         position: 'absolute', top: 4, right: 8,
-                                        background: 'var(--token-color-rgba-255-100-100-0d15)', border: '1px solid var(--token-color-rgba-255-100-100-0d3)',
-                                        borderRadius: 4, color: 'var(--token-color-hex-ff8080)', fontSize: 9, padding: '2px 6px',
+                                        background: 'var(--token-color-rgba-255-100-100-0d15)', border: 'var(--space-px) solid var(--token-color-rgba-255-100-100-0d3)',
+                                        borderRadius: 4, color: 'var(--token-color-hex-ff8080)', fontSize: 9, padding: 'var(--space-0-5) var(--space-1-5)',
                                         cursor: 'pointer', fontWeight: 600,
                                     }}
                                 >
@@ -237,7 +237,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                         {/* Knobs Grid */}
                         <div style={{
                             display: 'flex', flexWrap: 'wrap', gap: 8,
-                            padding: '8px 4px',
+                            padding: 'var(--space-2) var(--space-1)',
                             alignItems: 'flex-start',
                         }}>
                             <PluginKnob param={{ name: 'Vol', value: pad.volume ?? 1, min: 0, max: 2, suffix: '', step: 0.01 }}
@@ -258,13 +258,13 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {/* Mute/Solo */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleMute} style={{
-                                    width: 32, height: 20, border: pad.is_muted ? '1px solid var(--token-color-hex-ff5c5c)' : '1px solid var(--token-color-rgba-255-255-255-0d1)',
+                                    width: 32, height: 20, border: pad.is_muted ? 'var(--space-px) solid var(--token-color-hex-ff5c5c)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
                                     borderRadius: 4, background: pad.is_muted ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: pad.is_muted ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
                                 }}>MUTE</button>
                                 <button onClick={toggleSolo} style={{
-                                    width: 32, height: 20, border: pad.is_soloed ? '1px solid var(--token-color-hex-f0c430)' : '1px solid var(--token-color-rgba-255-255-255-0d1)',
+                                    width: 32, height: 20, border: pad.is_soloed ? 'var(--space-px) solid var(--token-color-hex-f0c430)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
                                     borderRadius: 4, background: pad.is_soloed ? 'var(--token-color-rgba-240-196-48-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: pad.is_soloed ? 'var(--token-color-hex-f0c430)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'

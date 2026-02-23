@@ -5,16 +5,16 @@
 
 .assistant-chat-overlay {
     position: fixed;
-    right: 16px;
-    bottom: 48px;
-    width: 420px;
-    max-height: 680px;
+    right: var(--space-4);
+    bottom: var(--space-12);
+    width: var(--token-size-px-420);
+    max-height: var(--token-size-px-680);
     display: flex;
     flex-direction: column;
     background: var(--color-bg-panel);
-    border: 1px solid var(--color-divider);
+    border: var(--space-px) solid var(--color-divider);
     border-radius: var(--radius-xl);
-    box-shadow: 0 20px 60px var(--token-color-rgba-0-0-0-0d55), 0 0 0 1px var(--token-color-rgba-255-255-255-0d04);
+    box-shadow: 0 var(--space-5) var(--token-size-px-60) var(--token-color-rgba-0-0-0-0d55), 0 0 0 var(--space-px) var(--token-color-rgba-255-255-255-0d04);
     z-index: 9999;
     overflow: hidden;
 }
@@ -25,8 +25,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--color-divider);
+    padding: var(--space-2-5) var(--space-3-5);
+    border-bottom: var(--space-px) solid var(--color-divider);
     user-select: none;
     background: var(--color-bg-panel);
     cursor: grab;
@@ -35,19 +35,19 @@
 .assistant-header-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .assistant-header-icon {
-    width: 28px;
-    height: 28px;
+    width: var(--space-7);
+    height: var(--space-7);
     border-radius: var(--radius-md);
     background: linear-gradient(135deg, var(--color-accent), var(--token-color-hex-a855f7));
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
-    box-shadow: 0 2px 8px var(--token-color-rgba-74-158-255-0d35);
+    box-shadow: 0 var(--space-0-5) var(--space-2) var(--token-color-rgba-74-158-255-0d35);
 }
 
 .assistant-header-title {
@@ -60,16 +60,16 @@
 .assistant-header-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
 }
 
 /* ── Model Selector ──────────────────────────────────────────────────── */
 
 .model-selector-dropdown {
-    padding: 4px 22px 4px 8px;
-    border: 1px solid var(--color-divider);
+    padding: var(--space-1) var(--token-size-px-22) var(--space-1) var(--space-2);
+    border: var(--space-px) solid var(--color-divider);
     border-radius: var(--radius-md);
-    font-size: 11px;
+    font-size: var(--token-size-px-11);
     font-weight: var(--font-weight-semibold);
     cursor: pointer;
     color: var(--color-text-secondary);
@@ -84,7 +84,7 @@
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 6px center;
+    background-position: right var(--space-1-5) center;
 }
 
 .model-selector-dropdown:hover {
@@ -94,13 +94,13 @@
 
 .model-selector-dropdown:focus {
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 1px var(--color-accent);
+    box-shadow: 0 0 0 var(--space-px) var(--color-accent);
 }
 
 .model-selector-dropdown option {
     background: var(--color-bg-elevated);
     color: var(--color-text-primary);
-    padding: 4px 8px;
+    padding: var(--space-1) var(--space-2);
 }
 
 /* ── Messages ────────────────────────────────────────────────────────── */
@@ -108,12 +108,12 @@
 .assistant-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: var(--space-3);
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    min-height: 200px;
-    max-height: 480px;
+    gap: var(--space-2-5);
+    min-height: var(--token-size-px-200);
+    max-height: var(--token-size-px-480);
     scrollbar-width: thin;
     scrollbar-color: var(--token-color-rgba-136-136-170-0d2) transparent;
 }
@@ -121,7 +121,7 @@
 .assistant-msg {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1);
     max-width: 92%;
 }
 
@@ -135,9 +135,9 @@
 }
 
 .msg-bubble {
-    padding: 8px 12px;
-    border-radius: 14px;
-    font-size: 15px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--space-3-5);
+    font-size: var(--token-size-px-15);
     line-height: 1.5;
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -146,31 +146,31 @@
 .msg-bubble.user {
     background: var(--color-accent);
     color: white;
-    border-bottom-right-radius: 4px;
+    border-bottom-right-radius: var(--space-1);
 }
 
 .msg-bubble.assistant {
     background: var(--color-bg-input);
     color: var(--color-text-primary);
-    border-bottom-left-radius: 4px;
-    border: 1px solid var(--color-divider);
+    border-bottom-left-radius: var(--space-1);
+    border: var(--space-px) solid var(--color-divider);
 }
 
 .msg-bubble.tool {
     background: var(--token-color-rgba-34-197-94-0d06);
     color: var(--color-text-secondary);
-    border: 1px solid var(--token-color-rgba-34-197-94-0d15);
+    border: var(--space-px) solid var(--token-color-rgba-34-197-94-0d15);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--token-size-px-11);
     border-radius: var(--radius-md);
-    max-height: 120px;
+    max-height: var(--token-size-px-120);
     overflow-y: auto;
 }
 
 .msg-bubble.assistant code {
     background: var(--token-color-rgba-255-255-255-0d08);
-    padding: 1px 4px;
-    border-radius: 3px;
+    padding: var(--space-px) var(--space-1);
+    border-radius: var(--token-size-px-3);
     font-family: var(--font-mono);
     font-size: 0.9em;
 }
@@ -181,10 +181,10 @@
 }
 
 .msg-label {
-    font-size: 10px;
+    font-size: var(--space-2-5);
     font-weight: var(--font-weight-semibold);
     color: var(--color-text-secondary);
-    padding: 0 4px;
+    padding: 0 var(--space-1);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -201,7 +201,7 @@
     border: none;
     color: var(--color-text-secondary);
     cursor: pointer;
-    padding: 4px;
+    padding: var(--space-1);
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
@@ -219,18 +219,18 @@
 }
 
 .assistant-thinking-log {
-    font-size: 11px;
-    margin-bottom: 8px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--token-color-rgba-255-255-255-0d08);
+    font-size: var(--token-size-px-11);
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+    border-bottom: var(--space-px) solid var(--token-color-rgba-255-255-255-0d08);
 }
 
 /* ── Persisted Actions Log (visible after streaming ends) ── */
 .assistant-actions-log {
-    font-size: 11px;
-    margin-bottom: 8px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--token-color-rgba-255-255-255-0d08);
+    font-size: var(--token-size-px-11);
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+    border-bottom: var(--space-px) solid var(--token-color-rgba-255-255-255-0d08);
 }
 
 .assistant-actions-log summary {
@@ -246,20 +246,20 @@
 }
 
 .assistant-actions-list {
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--token-size-px-3);
 }
 
 .assistant-actions-list .action-item {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 6px;
-    border-radius: var(--radius-sm, 4px);
+    gap: var(--space-1-5);
+    padding: var(--token-size-px-3) var(--space-1-5);
+    border-radius: var(--radius-sm, var(--space-1));
     background: var(--token-color-rgba-255-255-255-0d04);
-    font-size: 10px;
+    font-size: var(--space-2-5);
     font-family: var(--font-mono, monospace);
 }
 
@@ -286,7 +286,7 @@
 }
 
 .assistant-actions-list .action-result {
-    font-size: 10px;
+    font-size: var(--space-2-5);
     flex-shrink: 0;
 }
 
@@ -303,16 +303,16 @@
 }
 
 .assistant-thinking-content {
-    margin-top: 6px;
+    margin-top: var(--space-1-5);
     white-space: pre-wrap;
     color: var(--token-color-rgba-255-255-255-0d6);
     background: var(--token-color-rgba-0-0-0-0d15);
-    padding: 6px 8px;
+    padding: var(--space-1-5) var(--space-2);
     border-radius: var(--radius-sm);
-    max-height: 200px;
+    max-height: var(--token-size-px-200);
     overflow-y: auto;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--space-2-5);
 }
 
 .thinking-bubble {
@@ -323,11 +323,11 @@
 /* Streaming cursor */
 .streaming-cursor {
     display: inline-block;
-    width: 6px;
-    height: 14px;
+    width: var(--space-1-5);
+    height: var(--space-3-5);
     background: var(--color-accent);
-    border-radius: 1px;
-    margin-left: 2px;
+    border-radius: var(--space-px);
+    margin-left: var(--space-0-5);
     animation: blink-cursor 0.8s step-end infinite;
     vertical-align: text-bottom;
 }
@@ -345,22 +345,22 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 40px 20px;
+    gap: var(--space-3);
+    padding: var(--space-10) var(--space-5);
     text-align: center;
     flex: 1;
 }
 
 .assistant-empty-icon {
-    width: 48px;
-    height: 48px;
+    width: var(--space-12);
+    height: var(--space-12);
     border-radius: var(--radius-lg);
     background: linear-gradient(135deg, var(--color-accent), var(--token-color-hex-a855f7));
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
-    box-shadow: 0 4px 16px var(--token-color-rgba-74-158-255-0d3);
+    box-shadow: 0 var(--space-1) var(--space-4) var(--token-color-rgba-74-158-255-0d3);
 }
 
 .assistant-empty h3 {
@@ -373,7 +373,7 @@
 .assistant-empty p {
     font-size: var(--font-size-sm);
     color: var(--color-text-secondary);
-    max-width: 280px;
+    max-width: var(--token-size-px-280);
     line-height: 1.5;
     margin: 0;
 }
@@ -383,26 +383,26 @@
 .assistant-input-area {
     display: flex;
     align-items: flex-end;
-    gap: 6px;
-    padding: 10px 12px;
-    border-top: 1px solid var(--color-divider);
+    gap: var(--space-1-5);
+    padding: var(--space-2-5) var(--space-3);
+    border-top: var(--space-px) solid var(--color-divider);
     background: var(--color-bg-panel);
 }
 
 .assistant-input {
     flex: 1;
     background: var(--color-bg-input);
-    border: 1px solid var(--color-divider);
+    border: var(--space-px) solid var(--color-divider);
     border-radius: var(--radius-md);
-    padding: 8px 12px;
-    font-size: 14px;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--space-3-5);
     color: var(--color-text-primary);
     resize: none;
     outline: none;
     font-family: inherit;
     line-height: 1.45;
-    max-height: 100px;
-    min-height: 36px;
+    max-height: var(--token-size-px-100);
+    min-height: var(--token-size-px-36);
     transition: border-color 0.15s ease;
 }
 
@@ -415,8 +415,8 @@
 }
 
 .assistant-send-btn {
-    width: 36px;
-    height: 36px;
+    width: var(--token-size-px-36);
+    height: var(--token-size-px-36);
     border: none;
     border-radius: var(--radius-md);
     background: var(--color-accent);
@@ -445,8 +445,8 @@
 /* ── Stop button ──────────────────────────────────────────────────────── */
 
 .assistant-stop-btn {
-    width: 36px;
-    height: 36px;
+    width: var(--token-size-px-36);
+    height: var(--token-size-px-36);
     border: none;
     border-radius: var(--radius-md);
     background: var(--color-status-error);
@@ -470,8 +470,8 @@
 /* ── Voice button ─────────────────────────────────────────────────────── */
 
 .assistant-voice-btn {
-    width: 36px;
-    height: 36px;
+    width: var(--token-size-px-36);
+    height: var(--token-size-px-36);
     border: none;
     border-radius: var(--radius-md);
     display: flex;
@@ -482,7 +482,7 @@
     cursor: pointer;
     transition: all 0.15s ease;
     flex-shrink: 0;
-    border: 1px solid var(--color-divider);
+    border: var(--space-px) solid var(--color-divider);
 }
 
 .assistant-voice-btn:hover {
@@ -526,15 +526,15 @@
     }
 
     50% {
-        box-shadow: 0 0 0 6px var(--token-color-rgba-239-68-68-0);
+        box-shadow: 0 0 0 var(--space-1-5) var(--token-color-rgba-239-68-68-0);
     }
 }
 
 /* ── Mini button ──────────────────────────────────────────────────────── */
 
 .assistant-mini-btn {
-    width: 24px;
-    height: 24px;
+    width: var(--space-6);
+    height: var(--space-6);
     border: none;
     border-radius: var(--radius-sm);
     display: flex;
@@ -554,20 +554,20 @@
 /* ── Status ───────────────────────────────────────────────────────────── */
 
 .assistant-status {
-    padding: 4px 14px 6px;
-    font-size: 10px;
+    padding: var(--space-1) var(--space-3-5) var(--space-1-5);
+    font-size: var(--space-2-5);
     color: var(--color-text-secondary);
-    border-top: 1px solid var(--color-divider-light);
+    border-top: var(--space-px) solid var(--color-divider-light);
     display: flex;
     align-items: center;
     justify-content: space-between;
 }
 
 .assistant-status .dot {
-    width: 5px;
-    height: 5px;
+    width: var(--token-size-px-5);
+    height: var(--token-size-px-5);
     border-radius: var(--radius-full);
-    margin-right: 5px;
+    margin-right: var(--token-size-px-5);
     display: inline-block;
 }
 

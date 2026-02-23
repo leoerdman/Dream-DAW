@@ -46,9 +46,9 @@ export const AssetSearchInput = memo(function AssetSearchInput({
             onKeyDown={handleBrowserKeyDown}
             style={{
                 width: '100%',
-                padding: '4px 8px',
+                padding: 'var(--space-1) var(--space-2)',
                 background: 'var(--color-input-bg)',
-                border: '1px solid var(--color-border-subtle)',
+                border: 'var(--space-px) solid var(--color-border-subtle)',
                 color: 'var(--color-text-primary)',
                 borderRadius: 'var(--radius-xs)',
                 fontSize: 'var(--font-size-sm)',

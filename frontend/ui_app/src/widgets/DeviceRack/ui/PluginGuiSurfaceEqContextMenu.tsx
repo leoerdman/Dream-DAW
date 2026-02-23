@@ -29,10 +29,10 @@ export function PluginGuiSurfaceEqContextMenu({
                 ...(flipUp ? { bottom: window.innerHeight - eqContextMenu.y } : { top: eqContextMenu.y }),
                 zIndex: 9999,
                 background: 'var(--color-bg-elevated, var(--token-color-hex-1e2128))',
-                border: '1px solid var(--token-color-rgba-90-178-255-0d2)',
+                border: 'var(--space-px) solid var(--token-color-rgba-90-178-255-0d2)',
                 borderRadius: 6,
-                padding: '4px 0',
-                boxShadow: '0 8px 32px var(--token-color-rgba-0-0-0-0d6)',
+                padding: 'var(--space-1) 0',
+                boxShadow: '0 var(--space-2) var(--space-8) var(--token-color-rgba-0-0-0-0d6)',
                 minWidth: 120,
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -41,7 +41,7 @@ export function PluginGuiSurfaceEqContextMenu({
                 <div
                     key={type}
                     style={{
-                        padding: '5px 14px',
+                        padding: 'var(--token-size-px-5) var(--space-3-5)',
                         fontSize: 12,
                         color: bands[eqContextMenu.bandIdx].filterType === type ? 'var(--token-color-hex-5ab2ff)' : 'var(--token-color-rgba-220-230-240-0d85)',
                         cursor: 'pointer',

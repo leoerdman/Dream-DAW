@@ -215,7 +215,7 @@ export function AudioTab({
             </SettingRow>
             <SettingRow label="Sandbox Instances"><span style={valueStyle}>{sandboxSnapshot?.instances.length ?? 0}</span></SettingRow>
             {!!sandboxSnapshot?.instances.length && (
-                <div style={{ marginTop: 8, border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-lg)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
+                <div style={{ marginTop: 8, border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-lg)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
                     {sandboxSnapshot.instances.map((inst) => (
                         <div key={inst.plugin_instance_id} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.plugin_name}</span>

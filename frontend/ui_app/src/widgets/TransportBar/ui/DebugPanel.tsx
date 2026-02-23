@@ -69,14 +69,14 @@ export function DebugPanel({
                 right: panelPos.right,
                 top: panelPos.top,
                 width: 440,
-                maxHeight: 'min(58vh, 540px)',
+                maxHeight: 'min(58vh, var(--token-size-px-540))',
                 display: 'flex',
                 flexDirection: 'column',
                 background: 'color-mix(in srgb, var(--color-bg-panel) 96%, var(--token-color-hex-000000) 4%)',
-                border: '1px solid var(--color-divider)',
+                border: 'var(--space-px) solid var(--color-divider)',
                 borderRadius: 'var(--radius-xl)',
-                boxShadow: '0 16px 42px var(--color-overlay-dark)',
-                backdropFilter: 'blur(8px)',
+                boxShadow: '0 var(--space-4) var(--token-size-px-42) var(--color-overlay-dark)',
+                backdropFilter: 'blur(var(--space-2))',
                 zIndex: 'var(--z-tooltip)' as unknown as number,
                 overflow: 'hidden',
             }}
@@ -87,8 +87,8 @@ export function DebugPanel({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '8px 10px',
-                    borderBottom: '1px solid var(--color-divider)',
+                    padding: 'var(--space-2) var(--space-2-5)',
+                    borderBottom: 'var(--space-px) solid var(--color-divider)',
                     cursor: 'move',
                     userSelect: 'none',
                 }}
@@ -107,11 +107,11 @@ export function DebugPanel({
             </div>
             <div
                 style={{
-                    padding: '8px 10px',
+                    padding: 'var(--space-2) var(--space-2-5)',
                     fontFamily: 'var(--font-mono)',
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-secondary)',
-                    borderBottom: '1px solid var(--color-divider)',
+                    borderBottom: 'var(--space-px) solid var(--color-divider)',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
                     gap: 4,
@@ -122,12 +122,12 @@ export function DebugPanel({
                 <div>PDC Nodes: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.node_count ?? '—'}</strong></div>
                 <div>Sandbox: <strong style={{ color: 'var(--color-text-primary)' }}>{(sandboxRuntime ?? sandboxSnapshot)?.enabled ? 'enabled' : 'disabled'}</strong></div>
             </div>
-            <div style={{ display: 'flex', gap: 6, padding: '6px 10px', borderBottom: '1px solid var(--color-divider)' }}>
+            <div style={{ display: 'flex', gap: 6, padding: 'var(--space-1-5) var(--space-2-5)', borderBottom: 'var(--space-px) solid var(--color-divider)' }}>
                 <button style={debugTabBtnStyle(debugTab === 'overview')} onClick={() => setDebugTab('overview')}>Overview</button>
                 <button style={debugTabBtnStyle(debugTab === 'pdc')} onClick={() => setDebugTab('pdc')}>PDC</button>
                 <button style={debugTabBtnStyle(debugTab === 'sandbox')} onClick={() => setDebugTab('sandbox')}>Sandbox</button>
             </div>
-            <div style={{ minHeight: 210, maxHeight: 'min(45vh, 380px)', overflow: 'auto' }}>
+            <div style={{ minHeight: 210, maxHeight: 'min(45vh, var(--token-size-px-380))', overflow: 'auto' }}>
                 {debugTab === 'overview' && (
                     <div>
                         <div style={sectionHeaderStyle}>Runtime Overview</div>
@@ -145,7 +145,7 @@ export function DebugPanel({
                 )}
                 {debugTab === 'pdc' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-                        <div style={{ borderRight: '1px solid var(--color-divider)', overflow: 'auto' }}>
+                        <div style={{ borderRight: 'var(--space-px) solid var(--color-divider)', overflow: 'auto' }}>
                             <div style={sectionHeaderStyle}>Node Delays</div>
                             {(pdcSnapshot?.nodes ?? []).map((n) => (
                                 <div key={`node-${n.node_id}`} style={rowStyle}>
@@ -170,7 +170,7 @@ export function DebugPanel({
                 {debugTab === 'sandbox' && (
                     <div>
                         <div style={sectionHeaderStyle}>Plugin Sandbox</div>
-                        <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-divider)' }}>
+                        <div style={{ padding: 'var(--space-1-5) var(--space-2)', borderBottom: 'var(--space-px) solid var(--color-divider)' }}>
                             <button onClick={onTickWatchdog} style={miniButtonStyle} title="Tick watchdog">
                                 <RefreshCw size={13} />
                             </button>
@@ -185,7 +185,7 @@ export function DebugPanel({
                     </div>
                 )}
             </div>
-            <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-divider)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            <div style={{ padding: 'var(--space-1-5) var(--space-2-5)', borderTop: 'var(--space-px) solid var(--color-divider)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                 {(pdcLoading || rtLoading || sandboxLoading)
                     ? 'Updating…'
                     : (pdcError || rtError || sandboxError)
@@ -215,17 +215,17 @@ const sectionHeaderStyle: CSSProperties = {
     position: 'sticky',
     top: 0,
     zIndex: 'var(--z-local)' as unknown as number,
-    padding: '6px 8px',
+    padding: 'var(--space-1-5) var(--space-2)',
     fontSize: 'var(--font-size-xs)',
     fontWeight: 'var(--font-weight-bold)' as unknown as number,
     color: 'var(--color-text-primary)',
     background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-000000) 8%)',
-    borderBottom: '1px solid var(--color-divider)',
+    borderBottom: 'var(--space-px) solid var(--color-divider)',
 };
 
 const rowStyle: CSSProperties = {
-    padding: '6px 8px',
-    borderBottom: '1px solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
+    padding: 'var(--space-1-5) var(--space-2)',
+    borderBottom: 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
     fontFamily: 'var(--font-mono)',
     fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
@@ -233,10 +233,10 @@ const rowStyle: CSSProperties = {
 };
 
 const debugTabBtnStyle = (active: boolean): CSSProperties => ({
-    border: '1px solid var(--color-divider)',
+    border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-md)',
     height: 22,
-    padding: '0 8px',
+    padding: '0 var(--space-2)',
     background: active
         ? 'color-mix(in srgb, var(--color-accent-primary) 18%, transparent)'
         : 'transparent',

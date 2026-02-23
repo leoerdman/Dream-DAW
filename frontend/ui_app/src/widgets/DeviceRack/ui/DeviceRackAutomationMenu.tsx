@@ -5,7 +5,7 @@ import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDevice
 const autoCtxMenuItemStyle: React.CSSProperties = {
     display: 'block',
     width: '100%',
-    padding: '5px 8px',
+    padding: 'var(--token-size-px-5) var(--space-2)',
     border: 'none',
     background: 'transparent',
     color: 'var(--color-text-primary)',
@@ -40,18 +40,18 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                 top: logic.autoCtxMenu.y,
                 zIndex: 'var(--z-menu)' as unknown as number,
                 background: 'var(--color-bg-elevated)',
-                border: '1px solid var(--color-divider)',
+                border: 'var(--space-px) solid var(--color-divider)',
                 borderRadius: 'var(--radius-sm)',
                 padding: 4,
                 minWidth: 200,
-                boxShadow: '0 8px 24px var(--color-overlay-dark)',
+                boxShadow: '0 var(--space-2) var(--space-6) var(--color-overlay-dark)',
             }}
         >
             <div
                 style={{
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-tertiary)',
-                    padding: '4px 8px',
+                    padding: 'var(--space-1) var(--space-2)',
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',

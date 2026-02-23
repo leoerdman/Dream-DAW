@@ -174,7 +174,7 @@ body {
    0%,
    100% {
       opacity: 0.68;
-      box-shadow: 0 0 3px var(--glow-cursor);
+      box-shadow: 0 0 var(--token-size-px-3) var(--glow-cursor);
    }
 
    50% {
@@ -192,18 +192,18 @@ body {
    0%,
    100% {
       opacity: 0.92;
-      box-shadow: 0 0 7px var(--glow-drop-line);
+      box-shadow: 0 0 var(--token-size-px-7) var(--glow-drop-line);
    }
 
    50% {
       opacity: 0.42;
-      box-shadow: 0 0 2px var(--glow-cursor-dim);
+      box-shadow: 0 0 var(--space-0-5) var(--glow-cursor-dim);
    }
 }
 
 .track-drop-insert-line {
    height: var(--daw-color-stripe-width);
-   margin: 0 var(--space-sm, 3px);
+   margin: 0 var(--space-sm, var(--token-size-px-3));
    border-radius: var(--radius-full);
    background: var(--color-text-bright);
    animation: track-drop-line-pulse 1.5s ease-in-out infinite;

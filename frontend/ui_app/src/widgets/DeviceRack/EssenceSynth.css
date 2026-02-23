@@ -17,8 +17,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--token-color-rgba-255-255-255-0d04);
+    padding: var(--space-1) var(--space-2);
+    border-bottom: var(--space-px) solid var(--token-color-rgba-255-255-255-0d04);
     background: var(--token-color-rgba-0-0-0-0d12);
 }
 
@@ -33,19 +33,19 @@
 .essence__presets {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: var(--token-size-px-3);
 }
 
 .essence__preset-btn {
-    border: 1px solid var(--token-color-rgba-255-255-255-0d08);
+    border: var(--space-px) solid var(--token-color-rgba-255-255-255-0d08);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-255-255-255-0d04);
     color: var(--token-color-hex-8a8a8a);
-    font-size: 9px;
+    font-size: var(--token-size-px-9);
     font-weight: 700;
     letter-spacing: 0.04em;
     cursor: pointer;
-    padding: 2px 7px;
+    padding: var(--space-0-5) var(--token-size-px-7);
     transition: all 0.12s ease;
     font-family: var(--font-mono);
 }
@@ -63,14 +63,14 @@
 }
 
 .essence__random-btn {
-    border: 1px solid var(--token-color-rgba-255-255-255-0d08);
+    border: var(--space-px) solid var(--token-color-rgba-255-255-255-0d08);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-255-255-255-0d04);
     color: var(--token-color-hex-aaaaaa);
-    font-size: 10px;
+    font-size: var(--space-2-5);
     font-weight: 700;
     cursor: pointer;
-    padding: 2px 6px;
+    padding: var(--space-0-5) var(--space-1-5);
     font-family: var(--font-mono);
     transition: all 0.12s ease;
 }
@@ -93,9 +93,9 @@
 .essence__section {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 6px 8px 4px;
-    border-right: 1px solid var(--token-color-rgba-255-255-255-0d04);
+    gap: var(--token-size-px-3);
+    padding: var(--space-1-5) var(--space-2) var(--space-1);
+    border-right: var(--space-px) solid var(--token-color-rgba-255-255-255-0d04);
     min-width: 0;
 }
 
@@ -104,12 +104,12 @@
 }
 
 .essence__section-label {
-    font-size: 8px;
+    font-size: var(--space-2);
     font-weight: 700;
     color: var(--token-color-rgba-255-255-255-0d3);
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    margin-bottom: 1px;
+    margin-bottom: var(--space-px);
 }
 
 /* ── OSC Section ──────────────────────────────────────────── */
@@ -117,17 +117,17 @@
 .essence__osc-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .essence__osc-block {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--token-size-px-3);
 }
 
 .essence__osc-label {
-    font-size: 8px;
+    font-size: var(--space-2);
     font-weight: 600;
     letter-spacing: 0.08em;
 }
@@ -142,7 +142,7 @@
 
 .essence__wave-display {
     width: 100%;
-    height: 28px;
+    height: var(--space-7);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-0-0-0-0d25);
     overflow: hidden;
@@ -151,18 +151,18 @@
 .essence__wave-btns {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 2px;
+    gap: var(--space-0-5);
 }
 
 .essence__wave-btn {
-    border: 1px solid var(--token-color-rgba-255-255-255-0d06);
+    border: var(--space-px) solid var(--token-color-rgba-255-255-255-0d06);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-255-255-255-0d03);
     color: var(--token-color-hex-777777);
-    font-size: 8px;
+    font-size: var(--space-2);
     font-weight: 600;
     cursor: pointer;
-    padding: 2px 0;
+    padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
     font-family: var(--font-mono);
@@ -190,18 +190,18 @@
 .essence__filt-types {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 2px;
+    gap: var(--space-0-5);
 }
 
 .essence__filt-btn {
-    border: 1px solid var(--token-color-rgba-255-200-80-0d1);
+    border: var(--space-px) solid var(--token-color-rgba-255-200-80-0d1);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-255-200-80-0d04);
     color: var(--token-color-hex-9a8560);
-    font-size: 8px;
+    font-size: var(--space-2);
     font-weight: 700;
     cursor: pointer;
-    padding: 2px 0;
+    padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
     font-family: var(--font-mono);
@@ -222,7 +222,7 @@
 
 .essence__adsr-graph {
     width: 100%;
-    height: 32px;
+    height: var(--space-8);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-0-0-0-0d25);
     overflow: hidden;
@@ -233,18 +233,18 @@
 .essence__lfo-targets {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 2px;
+    gap: var(--space-0-5);
 }
 
 .essence__lfo-btn {
-    border: 1px solid var(--token-color-rgba-160-120-230-0d1);
+    border: var(--space-px) solid var(--token-color-rgba-160-120-230-0d1);
     border-radius: var(--radius-xs);
     background: var(--token-color-rgba-160-120-230-0d04);
     color: var(--token-color-hex-8a70a8);
-    font-size: 8px;
+    font-size: var(--space-2);
     font-weight: 700;
     cursor: pointer;
-    padding: 2px 0;
+    padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
     font-family: var(--font-mono);
@@ -265,10 +265,10 @@
 
 .essence__knobs {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
-    gap: 2px;
-    padding: 4px 6px 5px;
-    border-top: 1px solid var(--token-color-rgba-255-255-255-0d04);
+    grid-template-columns: repeat(auto-fit, minmax(var(--token-size-px-44), 1fr));
+    gap: var(--space-0-5);
+    padding: var(--space-1) var(--space-1-5) var(--token-size-px-5);
+    border-top: var(--space-px) solid var(--token-color-rgba-255-255-255-0d04);
     background: var(--token-color-rgba-0-0-0-0d1);
 }
 
@@ -278,12 +278,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 4px;
-    padding: 0 1px;
+    gap: var(--space-1);
+    padding: 0 var(--space-px);
 }
 
 .essence__param-label {
-    font-size: 8px;
+    font-size: var(--space-2);
     color: var(--token-color-rgba-255-255-255-0d3);
     font-weight: 600;
     white-space: nowrap;
@@ -291,7 +291,7 @@
 }
 
 .essence__param-value {
-    font-size: 9px;
+    font-size: var(--token-size-px-9);
     color: var(--token-color-hex-a8a8a8);
     font-weight: 600;
     text-align: right;
@@ -302,12 +302,12 @@
 
 .essence__blend-bar {
     width: 100%;
-    height: 3px;
-    border-radius: 2px;
+    height: var(--token-size-px-3);
+    border-radius: var(--space-0-5);
     background: var(--token-color-rgba-0-0-0-0d3);
     position: relative;
     overflow: hidden;
-    margin: 1px 0;
+    margin: var(--space-px) 0;
 }
 
 .essence__blend-fill {
@@ -315,7 +315,7 @@
     top: 0;
     left: 0;
     height: 100%;
-    border-radius: 2px;
+    border-radius: var(--space-0-5);
     transition: width 0.1s ease;
 }
 

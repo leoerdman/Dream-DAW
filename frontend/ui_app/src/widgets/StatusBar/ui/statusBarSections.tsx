@@ -54,11 +54,11 @@ export function HistorySection({
                         maxHeight: 240,
                         overflowY: 'auto',
                         background: 'var(--color-bg-elevated)',
-                        border: '1px solid var(--color-divider)',
+                        border: 'var(--space-px) solid var(--color-divider)',
                         borderRadius: 'var(--radius-md)',
-                        boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                        boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
                         zIndex: 'var(--z-tooltip)' as unknown as number,
-                        padding: '6px 8px',
+                        padding: 'var(--space-1-5) var(--space-2)',
                     }}
                 >
                     {historyItems.map((item) => {
@@ -109,7 +109,7 @@ export function InlineMessage({ statusMessage, statusSeverity, onClear }: Inline
                     cursor: 'pointer',
                     fontSize: 'var(--font-size-xs)',
                     opacity: 0.7,
-                    padding: '0 4px',
+                    padding: '0 var(--space-1)',
                     flexShrink: 0,
                 }}
                 title="Dismiss"
@@ -145,14 +145,14 @@ export function StatusRightSection({
                 <button
                     onClick={() => void onReloadCrashed()}
                     style={{
-                        border: '1px solid var(--color-control-border)',
+                        border: 'var(--space-px) solid var(--color-control-border)',
                         borderRadius: 'var(--radius-md)',
                         background: 'var(--color-control-bg)',
                         color: 'var(--color-status-error)',
                         fontSize: 'var(--font-size-xs)',
                         fontFamily: 'var(--font-mono)',
                         fontWeight: 600,
-                        padding: '2px 6px',
+                        padding: 'var(--space-0-5) var(--space-1-5)',
                         cursor: 'pointer',
                     }}
                     title={`Reload ${crashedSandboxCount} crashed/timed-out sandbox plugin instance(s)`}

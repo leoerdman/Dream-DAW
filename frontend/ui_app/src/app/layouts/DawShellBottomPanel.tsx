@@ -50,7 +50,7 @@ export function DawShellBottomPanel({
             style={{
                 height: `var(--daw-bottom-panel-height, ${bottomPanelHeightPx}px)`,
                 minHeight: 'var(--daw-device-rack-min-height)',
-                borderTop: '1px solid var(--color-divider)',
+                borderTop: 'var(--space-px) solid var(--color-divider)',
                 position: 'relative',
             }}
         >
@@ -75,7 +75,7 @@ export function DawShellBottomPanel({
                             height: 2,
                             borderRadius: 'var(--radius-xs)',
                             background: 'color-mix(in srgb, var(--color-text-secondary) 45%, transparent)',
-                            margin: '2px auto 0',
+                            margin: 'var(--space-0-5) auto 0',
                         }}
                     />
                 </div>

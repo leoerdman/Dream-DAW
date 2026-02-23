@@ -2,13 +2,13 @@ import React from 'react';
 
 export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
-    gridTemplateRows: '90px auto',
+    gridTemplateRows: 'var(--token-size-px-90) auto',
     gap: 'var(--plugin-grid-gap)',
     height: '100%',
 };
 
 export const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: '1px solid var(--plugin-card-border)',
+    border: 'var(--space-px) solid var(--plugin-card-border)',
     borderRadius: 'var(--plugin-card-radius)',
     padding: 'var(--plugin-card-pad-y) var(--plugin-card-pad-x)',
     display: 'grid',

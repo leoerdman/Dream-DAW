@@ -133,7 +133,7 @@ export const VerticalMixerStrip = ({
                     height: 62,
                     borderRadius: 'var(--radius-md)',
                     background: 'var(--surface-elevated)',
-                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                    border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                     overflow: 'hidden',
                     cursor: 'ns-resize',
                     touchAction: 'none',
@@ -158,7 +158,7 @@ export const VerticalMixerStrip = ({
                     bottom: `${peakHoldNorm * 100}%`,
                     height: 1,
                     background: 'color-mix(in srgb, var(--color-text-bright) 95%, transparent)',
-                    boxShadow: '0 0 2px color-mix(in srgb, var(--color-text-bright) 70%, transparent)',
+                    boxShadow: '0 0 var(--space-0-5) color-mix(in srgb, var(--color-text-bright) 70%, transparent)',
                     pointerEvents: 'none',
                 }} />
                 <div style={{
@@ -175,10 +175,10 @@ export const VerticalMixerStrip = ({
                     position: 'absolute',
                     left: 0,
                     right: 0,
-                    bottom: `calc(${volNorm * 100}% - 1px)`,
+                    bottom: `calc(${volNorm * 100}% - var(--space-px))`,
                     height: 2,
                     background: 'color-mix(in srgb, var(--color-text-bright) 90%, transparent)',
-                    boxShadow: '0 0 4px color-mix(in srgb, var(--color-text-bright) 45%, transparent)',
+                    boxShadow: '0 0 var(--space-1) color-mix(in srgb, var(--color-text-bright) 45%, transparent)',
                     transition: isDragging ? 'none' : 'bottom 60ms linear',
                     pointerEvents: 'none',
                 }} />
@@ -192,7 +192,7 @@ export const VerticalMixerStrip = ({
                         marginLeft: -2,
                         borderRadius: '50%',
                         background: 'var(--color-status-record)',
-                        boxShadow: '0 0 4px color-mix(in srgb, var(--color-status-record) 85%, transparent)',
+                        boxShadow: '0 0 var(--space-1) color-mix(in srgb, var(--color-status-record) 85%, transparent)',
                         pointerEvents: 'none',
                     }} />
                 )}
@@ -223,7 +223,7 @@ export const VerticalMixerStrip = ({
                         height: 8,
                         borderRadius: 'var(--radius-sm)',
                         background: 'var(--surface-elevated)',
-                        border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
                     }}
                 >
                     <div style={{
@@ -237,7 +237,7 @@ export const VerticalMixerStrip = ({
                     <div style={{
                         position: 'absolute',
                         top: 0,
-                        left: `calc(${panNorm * 100}% - 3px)`,
+                        left: `calc(${panNorm * 100}% - var(--token-size-px-3))`,
                         width: 6,
                         height: '100%',
                         borderRadius: 'var(--radius-xs)',

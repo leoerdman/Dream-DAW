@@ -56,15 +56,15 @@
 /* ── Logo: 180×180 circular with glow ───────────────────────── */
 .splash-logo-container {
   position: relative;
-  width: 180px;
-  height: 180px;
+  width: var(--token-size-px-180);
+  height: var(--token-size-px-180);
   flex-shrink: 0;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .splash-logo-glow {
   position: absolute;
-  inset: -20px;
+  inset: -var(--token-size-px-20);
   border-radius: 50%;
   background: radial-gradient(circle,
       var(--color-accent-primary-glow, var(--token-color-rgba-74-158-255-0d3)) 0%,
@@ -89,13 +89,13 @@
 
 .splash-logo {
   position: relative;
-  width: 180px;
-  height: 180px;
+  width: var(--token-size-px-180);
+  height: var(--token-size-px-180);
   border-radius: 22%;
   object-fit: cover;
   /* Hardware-accelerated compositing */
   will-change: transform;
-  filter: drop-shadow(0 0 24px var(--color-accent-primary-glow, var(--token-color-rgba-74-158-255-0d3)));
+  filter: drop-shadow(0 0 var(--space-6) var(--color-accent-primary-glow, var(--token-color-rgba-74-158-255-0d3)));
   animation: splash-logo-float 3s ease-in-out infinite;
 }
 
@@ -107,21 +107,21 @@
   }
 
   50% {
-    transform: translateY(-6px);
+    transform: translateY(-var(--token-size-px-6));
   }
 }
 
 /* ── Title ──────────────────────────────────────────────────── */
 .splash-title {
   position: relative;
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-1-5);
   font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-  font-size: 32px;
+  font-size: var(--space-8);
   font-weight: var(--font-weight-bold);
-  letter-spacing: 4px;
+  letter-spacing: var(--space-1);
   color: var(--token-color-hex-ffffff);
   text-align: center;
-  text-shadow: 0 0 20px var(--token-color-rgba-74-158-255-0d3);
+  text-shadow: 0 0 var(--space-5) var(--token-color-rgba-74-158-255-0d3);
   animation: splash-title-glow 3s ease-in-out infinite;
 }
 
@@ -129,11 +129,11 @@
 
   0%,
   100% {
-    text-shadow: 0 0 20px var(--token-color-rgba-74-158-255-0d3);
+    text-shadow: 0 0 var(--space-5) var(--token-color-rgba-74-158-255-0d3);
   }
 
   50% {
-    text-shadow: 0 0 30px var(--token-color-rgba-74-158-255-0d55), 0 0 60px var(--token-color-rgba-74-158-255-0d15);
+    text-shadow: 0 0 var(--token-size-px-30) var(--token-color-rgba-74-158-255-0d55), 0 0 var(--token-size-px-60) var(--token-color-rgba-74-158-255-0d15);
   }
 }
 
@@ -144,14 +144,14 @@
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-accent-primary, var(--token-color-hex-4a9eff));
-  letter-spacing: 1px;
+  letter-spacing: var(--space-px);
   margin-bottom: 0;
 }
 
 /* ── Status bar (bottom of card) ───────────────────────────── */
 .splash-status-container {
   position: absolute;
-  bottom: 28px;
+  bottom: var(--space-7);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -161,8 +161,8 @@
 }
 
 .splash-spinner {
-  width: 14px;
-  height: 14px;
+  width: var(--space-3-5);
+  height: var(--space-3-5);
   border: var(--border-width-2) solid var(--token-color-rgba-255-255-255-0d15);
   border-top-color: var(--color-accent-primary, var(--token-color-hex-4a9eff));
   border-radius: 50%;
@@ -186,8 +186,8 @@
 
 /* ── Progress bar ───────────────────────────────────────── */
 .splash-progress-bar {
-  width: 200px;
-  height: 2px;
+  width: var(--token-size-px-200);
+  height: var(--space-0-5);
   border-radius: var(--radius-full);
   background: var(--token-color-rgba-255-255-255-0d08);
   overflow: hidden;
@@ -202,21 +202,21 @@
 }
 
 /* ── Responsive: shrink on very small windows ───────────────── */
-@media (max-width: 500px),
-(max-height: 500px) {
+@media (max-width: var(--token-size-px-500)),
+(max-height: var(--token-size-px-500)) {
   .splash-logo-container {
-    width: 120px;
-    height: 120px;
+    width: var(--token-size-px-120);
+    height: var(--token-size-px-120);
   }
 
   .splash-logo {
-    width: 120px;
-    height: 120px;
+    width: var(--token-size-px-120);
+    height: var(--token-size-px-120);
   }
 
   .splash-title {
-    font-size: 24px;
-    letter-spacing: 3px;
+    font-size: var(--space-6);
+    letter-spacing: var(--token-size-px-3);
   }
 
   .splash-version {

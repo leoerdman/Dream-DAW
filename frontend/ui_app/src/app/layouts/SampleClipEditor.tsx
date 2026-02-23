@@ -153,7 +153,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
 
     return (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)' }}>
-            <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 10px', borderBottom: '1px solid var(--color-divider)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 var(--space-2-5)', borderBottom: 'var(--space-px) solid var(--color-divider)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clip.name}</span>
                 <span style={{ fontFamily: 'var(--font-mono)' }}>{clipDurationBeats.toFixed(2)} beats</span>
             </div>
@@ -188,7 +188,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                             waveHeightScale={zoomY}
                         />
                     ) : (
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: '1px dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: 'var(--space-px) dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>
                             {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
                         </div>
                     )}

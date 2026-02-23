@@ -84,7 +84,7 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
                             setCopiedAll(true);
                             setTimeout(() => setCopiedAll(false), 2000);
                         }}
-                        style={{ padding: '2px 6px', marginRight: 4 }}
+                        style={{ padding: 'var(--space-0-5) var(--space-1-5)', marginRight: 4 }}
                     >
                         {copiedAll ? <Check size={11} style={{ color: 'var(--color-status-success)' }} /> : <Copy size={11} />}
                     </button>

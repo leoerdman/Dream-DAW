@@ -83,13 +83,13 @@ export function TransportLeftSection(props: {
                             width: 56,
                             minWidth: 56,
                             outline: 'none',
-                            boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 42%, transparent)',
+                            boxShadow: '0 0 0 var(--space-px) color-mix(in srgb, var(--color-accent-primary) 42%, transparent)',
                         }}
                     />
                 ) : (
                     <button onClick={() => { setBpmEditing(true); setBpmText(bpm.toFixed(2)); }} style={valueChipStyle}>{bpm.toFixed(2)}</button>
                 )}
-                <button onClick={cycleTimeSignature} style={valueChipStyle} title="Time Signature">{timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 1px' }}>/</span>{timeSigDen}</button>
+                <button onClick={cycleTimeSignature} style={valueChipStyle} title="Time Signature">{timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 var(--space-px)' }}>/</span>{timeSigDen}</button>
             </PillSection>
             <PillSection>
                 <div
@@ -128,9 +128,9 @@ export function TransportLeftSection(props: {
                                 top: 30,
                                 minWidth: 360,
                                 background: 'var(--color-bg-elevated)',
-                                border: '1px solid var(--color-divider)',
+                                border: 'var(--space-px) solid var(--color-divider)',
                                 borderRadius: 'var(--radius-md)',
-                                boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                                boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
                                 zIndex: 'var(--z-tooltip)' as unknown as number,
                                 padding: 8,
                                 display: 'grid',
@@ -150,8 +150,8 @@ export function TransportLeftSection(props: {
                             >
                                 {keyEnabled ? 'Disable Key Signature' : 'Enable Key Signature'}
                             </button>
-                            <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', fontWeight: 700, padding: '0 4px' }}>TONIC</div>
-                            <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', fontWeight: 700, padding: '0 4px' }}>MODE</div>
+                            <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', fontWeight: 700, padding: '0 var(--space-1)' }}>TONIC</div>
+                            <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-2xs)', fontWeight: 700, padding: '0 var(--space-1)' }}>MODE</div>
                             <div style={{ display: 'grid', gap: 2 }}>
                                 {KEY_TONICS.map((tonic, idx) => (
                                     <button
@@ -226,11 +226,11 @@ export function TransportLeftSection(props: {
                                 top: 28,
                                 minWidth: 108,
                                 background: 'var(--color-bg-elevated)',
-                                border: '1px solid var(--color-divider)',
+                                border: 'var(--space-px) solid var(--color-divider)',
                                 borderRadius: 'var(--radius-md)',
-                                boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                                boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
                                 zIndex: 'var(--z-tooltip)' as unknown as number,
-                                padding: '4px 0',
+                                padding: 'var(--space-1) 0',
                             }}
                         >
                             {ALL_DIVISIONS.map((div) => {
@@ -251,7 +251,7 @@ export function TransportLeftSection(props: {
                                             color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                                             fontSize: 'var(--font-size-xs)',
                                             fontFamily: 'var(--font-mono)',
-                                            padding: '4px 8px',
+                                            padding: 'var(--space-1) var(--space-2)',
                                             cursor: 'pointer',
                                         }}
                                     >
@@ -333,7 +333,7 @@ export function TransportRightSection(props: {
     return (
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
             <PillSection>
-                <span ref={midiLedRef} style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-status-success)', opacity: 0.35, boxShadow: '0 0 8px color-mix(in srgb, var(--color-status-success) 75%, transparent)', transition: 'opacity 40ms linear' }} />
+                <span ref={midiLedRef} style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-status-success)', opacity: 0.35, boxShadow: '0 0 var(--space-2) color-mix(in srgb, var(--color-status-success) 75%, transparent)', transition: 'opacity 40ms linear' }} />
                 <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-midi-indicator)' }}>MIDI</span>
                 <button onClick={() => setPdcOpen((v) => !v)} title="Debug Panel" style={iconBtnStyle(pdcOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', pdcOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}>{pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 <button onClick={() => onAssistantToggle?.()} title="AI Assistant" style={iconBtnStyle(assistantOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', assistantOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}><Bot size={15} /></button>
@@ -363,7 +363,7 @@ const keyMenuItemStyle = (active: boolean): React.CSSProperties => ({
     background: active ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent',
     color: 'var(--color-text-primary)',
     textAlign: 'left',
-    padding: '4px 6px',
+    padding: 'var(--space-1) var(--space-1-5)',
     fontSize: 'var(--font-size-xs)',
     fontFamily: 'var(--font-mono)',
     fontWeight: active ? 700 : 500,

@@ -10,7 +10,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                 height: rulerHeight,
                 flexShrink: 0,
                 background: 'var(--color-bg-header)',
-                borderBottom: '1px solid var(--color-divider)',
+                borderBottom: 'var(--space-px) solid var(--color-divider)',
                 display: 'flex',
                 alignItems: 'center',
                 paddingLeft: 8,
@@ -21,7 +21,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: 'var(--color-text-secondary)',
-                    letterSpacing: '0.5px',
+                    letterSpacing: '0.var(--token-size-px-5)',
                     textTransform: 'uppercase',
                 }}
             >
@@ -36,9 +36,9 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                         fontFamily: 'var(--font-mono)',
                         color: 'var(--color-accent-primary)',
                         background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',
-                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 36%, transparent)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 36%, transparent)',
                         borderRadius: 'var(--radius-sm)',
-                        padding: '1px 4px',
+                        padding: 'var(--space-px) var(--space-1)',
                     }}
                 >
                     TAB

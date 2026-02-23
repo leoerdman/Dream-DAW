@@ -117,7 +117,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                                     height: `${24 + i * 12}px`,
                                     marginTop: `${-(12 + i * 6)}px`,
                                     borderRadius: '50%',
-                                    border: '1px solid var(--token-color-rgba-192-145-255-0d35)',
+                                    border: 'var(--space-px) solid var(--token-color-rgba-192-145-255-0d35)',
                                 }}
                             />
                         ))}

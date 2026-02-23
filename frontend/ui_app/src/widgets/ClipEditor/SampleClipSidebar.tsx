@@ -73,7 +73,7 @@ export function SampleClipSidebar({
                             baseBpm: draftWarpBaseBpm,
                         });
                     }}
-                    style={{ ...editorButtonStyle, padding: '3px 6px' }}
+                    style={{ ...editorButtonStyle, padding: 'var(--token-size-px-3) var(--space-1-5)' }}
                 >
                     <option value="standard">Standard</option>
                     <option value="pro">Pro</option>
@@ -94,7 +94,7 @@ export function SampleClipSidebar({
                                 baseBpm: draftWarpBaseBpm,
                             });
                         }}
-                        style={{ width: 68, ...editorButtonStyle, padding: '2px 6px' }}
+                        style={{ width: 68, ...editorButtonStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}
                     />
                 </div>
             </ClipEditorSection>
@@ -119,7 +119,7 @@ export function SampleClipSidebar({
                             }}
                             style={{ flex: 1 }}
                         />
-                        <span style={{ ...editorMetaTextStyle, width: '28px', textAlign: 'right' }}>
+                        <span style={{ ...editorMetaTextStyle, width: 'var(--space-7)', textAlign: 'right' }}>
                             {draftPitch > 0 ? `+${draftPitch}` : draftPitch}
                         </span>
                     </div>
@@ -148,13 +148,13 @@ export function SampleClipSidebar({
 }
 
 const editorButtonStyle = {
-    border: '1px solid var(--color-divider)',
+    border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-header)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
     fontWeight: 600,
-    padding: '4px 8px',
+    padding: 'var(--space-1) var(--space-2)',
     cursor: 'pointer',
 };
 

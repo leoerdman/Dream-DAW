@@ -140,7 +140,7 @@ export const TrackRow = ({
                 display: 'flex',
                 alignItems: 'stretch',
                 height: trackHeight,
-                borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
+                borderBottom: isMasterFixed ? 'none' : 'var(--space-px) solid var(--color-divider)',
                 borderTop: 'none',
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
@@ -156,10 +156,10 @@ export const TrackRow = ({
                 flexShrink: 0,
                 boxSizing: 'border-box',
                 width: '100%',
-                outline: isGroupDropTarget ? '2px solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
-                outlineOffset: isGroupDropTarget ? '-2px' : 0,
+                outline: isGroupDropTarget ? 'var(--space-0-5) solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
+                outlineOffset: isGroupDropTarget ? '-var(--token-size-px-2)' : 0,
                 boxShadow: isGroupDropTarget
-                    ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 0 10px color-mix(in srgb, var(--color-accent-primary) 32%, transparent)'
+                    ? 'inset 0 0 0 var(--space-px) color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 0 var(--space-2-5) color-mix(in srgb, var(--color-accent-primary) 32%, transparent)'
                     : 'none',
             }}
         >
@@ -216,7 +216,7 @@ export const TrackRow = ({
                         pointerEvents: 'none',
                         zIndex: 'var(--z-local-raised)' as unknown as number,
                         boxShadow:
-                            'inset 0 0 0 2px color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 16px color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
+                            'inset 0 0 0 var(--space-0-5) color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 var(--space-4) color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
                     }}
                 />
             )}

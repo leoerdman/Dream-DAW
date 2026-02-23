@@ -5,7 +5,7 @@ export const TRANSPORT_UI = {
     controlHeight: 24,
     controlRadius: 'var(--radius-sm)',
     controlBg: 'color-mix(in srgb, var(--color-bg-header) 88%, black 12%)',
-    controlBorder: '1px solid color-mix(in srgb, var(--color-control-border) 60%, transparent)',
+    controlBorder: 'var(--space-px) solid color-mix(in srgb, var(--color-control-border) 60%, transparent)',
 };
 
 export const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
@@ -14,8 +14,8 @@ export const PillSection = ({ children, style }: { children: React.ReactNode; st
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            padding: '0 4px',
-            margin: '0 2px',
+            padding: '0 var(--space-1)',
+            margin: '0 var(--space-0-5)',
             height: TRANSPORT_UI.sectionHeight,
             borderRadius: 0,
             background: 'transparent',
@@ -45,7 +45,7 @@ export const ControlButton = ({ label, onClick, dimmed }: { label: string; onCli
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '0 8px',
+            padding: '0 var(--space-2)',
             lineHeight: 1,
             verticalAlign: 'middle',
             margin: 0,

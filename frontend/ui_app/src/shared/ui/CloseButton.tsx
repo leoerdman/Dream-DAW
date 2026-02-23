@@ -7,7 +7,7 @@ import { memo, useState, useCallback, type CSSProperties } from 'react';
 
 interface CloseButtonProps {
     onClick: () => void;
-    /** Size variant — 'sm' (20px), 'md' (24px) */
+    /** Size variant — 'sm' (var(--space-5)), 'md' (var(--space-6)) */
     size?: 'sm' | 'md';
     /** Optional tooltip */
     title?: string;

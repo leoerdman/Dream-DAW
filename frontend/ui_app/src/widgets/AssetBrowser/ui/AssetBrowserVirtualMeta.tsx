@@ -17,8 +17,8 @@ export const VirtualListHeader = memo(function VirtualListHeader({
                 setColumnMenuPos({ x: e.clientX, y: e.clientY });
             }}
             style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', background: 'var(--color-bg-header)',
-                borderBottom: '1px solid var(--color-divider-light)', color: 'var(--color-text-secondary)',
+                display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-0-5) var(--space-2)', background: 'var(--color-bg-header)',
+                borderBottom: 'var(--space-px) solid var(--color-divider-light)', color: 'var(--color-text-secondary)',
                 fontSize: 'var(--font-size-2xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
                 position: 'sticky', top: 0, zIndex: 'var(--z-local-raised)' as unknown as number,
             }}
@@ -46,7 +46,7 @@ export const VirtualListHeader = memo(function VirtualListHeader({
 export const ScanStatus = memo(function ScanStatus({ scanLoading, scanError }: { scanLoading: boolean; scanError: string | null }) {
     if (scanLoading) {
         return (
-            <div style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
+            <div style={{ padding: 'var(--space-3) var(--space-2-5)', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <BrowserGlyph name="hourglass" size={11} />
                     Scanning…
@@ -56,7 +56,7 @@ export const ScanStatus = memo(function ScanStatus({ scanLoading, scanError }: {
     }
     if (!scanError) return null;
     return (
-        <div style={{ padding: '8px 10px', color: 'var(--color-status-error)', fontSize: 'var(--font-size-xs)' }}>
+        <div style={{ padding: 'var(--space-2) var(--space-2-5)', color: 'var(--color-status-error)', fontSize: 'var(--font-size-xs)' }}>
             <span>⚠ Scan error</span>
             <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
         </div>
@@ -86,7 +86,7 @@ export const EmptyAssetState = memo(function EmptyAssetState({
                     : 'No items found';
 
     return (
-        <div style={{ padding: '20px 12px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
+        <div style={{ padding: 'var(--space-5) var(--space-3)', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
             {message}
         </div>
     );

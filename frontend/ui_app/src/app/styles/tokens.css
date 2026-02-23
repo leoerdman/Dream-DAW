@@ -659,6 +659,46 @@
    --token-color-rgba-mathdmin-255-rgbdr-60: rgba(${Math.min(255, rgb.r + 60);
 /* END AUTO-GENERATED TOKENIZED RAW COLORS */
 
+
+/* AUTO-GENERATED TOKENIZED PX SIZES — DO NOT EDIT MANUALLY */
+   --token-size-px-2: 2px;
+   --token-size-px-3: 3px;
+   --token-size-px-4: 4px;
+   --token-size-px-5: 5px;
+   --token-size-px-6: 6px;
+   --token-size-px-7: 7px;
+   --token-size-px-8: 8px;
+   --token-size-px-9: 9px;
+   --token-size-px-11: 11px;
+   --token-size-px-15: 15px;
+   --token-size-px-18: 18px;
+   --token-size-px-20: 20px;
+   --token-size-px-22: 22px;
+   --token-size-px-26: 26px;
+   --token-size-px-30: 30px;
+   --token-size-px-36: 36px;
+   --token-size-px-42: 42px;
+   --token-size-px-44: 44px;
+   --token-size-px-56: 56px;
+   --token-size-px-60: 60px;
+   --token-size-px-90: 90px;
+   --token-size-px-100: 100px;
+   --token-size-px-102: 102px;
+   --token-size-px-120: 120px;
+   --token-size-px-160: 160px;
+   --token-size-px-170: 170px;
+   --token-size-px-180: 180px;
+   --token-size-px-200: 200px;
+   --token-size-px-240: 240px;
+   --token-size-px-280: 280px;
+   --token-size-px-380: 380px;
+   --token-size-px-420: 420px;
+   --token-size-px-480: 480px;
+   --token-size-px-500: 500px;
+   --token-size-px-540: 540px;
+   --token-size-px-680: 680px;
+/* END AUTO-GENERATED TOKENIZED PX SIZES */
+
 /* ═══════════════════════════════════════════════════════════════
    DARK THEME (DEFAULT)
    Source: DreamTheme.swift → DarkTheme struct (lines 463-556)

@@ -18,6 +18,7 @@ import {
     useAudioFailoverRecovery,
     useDawShellGlobalShortcuts,
     useInitialLayoutSync,
+    useProjectAutoRecovery,
     useSelectedTrackConsistency,
     useTauriFileDropImport,
     useTelemetryBootstrap,
@@ -165,6 +166,7 @@ export const DawShell = () => {
 
     useTelemetryBootstrap(startTelemetryLoop);
     useInitialLayoutSync();
+    useProjectAutoRecovery();
 
     // ── Engine state for Timeline ───────────────────────────────────
     const transportBpm = useEngineStore(s => s.transport.bpm);

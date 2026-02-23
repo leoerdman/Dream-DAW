@@ -119,7 +119,7 @@ export function DeviceNodeHeader({
                         width: 16,
                         height: 16,
                         borderRadius: 'var(--radius-sm)',
-                        background: (showSettings || nativeEditorOpen) ? '#48d282' : 'transparent',
+                        background: (showSettings || nativeEditorOpen) ? 'var(--token-color-hex-48d282)' : 'transparent',
                         border: (showSettings || nativeEditorOpen) ? 'none' : '1px solid var(--color-overlay-light)',
                         cursor: 'pointer',
                         flexShrink: 0,
@@ -134,11 +134,11 @@ export function DeviceNodeHeader({
                     <svg width="8" height="8" viewBox="0 0 16 16" fill="none">
                         <path
                             d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"
-                            stroke={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : '#48d282'}
+                            stroke={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--token-color-hex-48d282)'}
                             strokeWidth="2"
                             fill="none"
                         />
-                        <circle cx="8" cy="8" r="2.5" fill={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : '#48d282'} />
+                        <circle cx="8" cy="8" r="2.5" fill={(showSettings || nativeEditorOpen) ? 'var(--color-bg-primary)' : 'var(--token-color-hex-48d282)'} />
                     </svg>
                 </button>
             )}
@@ -154,8 +154,8 @@ export function DeviceNodeHeader({
                         width: 14,
                         height: 14,
                         borderRadius: '50%',
-                        background: 'rgba(255, 100, 100, 0.25)',
-                        border: '1px solid rgba(255, 100, 100, 0.5)',
+                        background: 'var(--token-color-rgba-255-100-100-0d25)',
+                        border: '1px solid var(--token-color-rgba-255-100-100-0d5)',
                         cursor: 'pointer',
                         flexShrink: 0,
                         display: 'flex',
@@ -164,7 +164,7 @@ export function DeviceNodeHeader({
                         padding: 0,
                         fontSize: 8,
                         fontWeight: 800,
-                        color: '#ff6464',
+                        color: 'var(--token-color-hex-ff6464)',
                     }}
                 >
                     !
@@ -210,7 +210,7 @@ export function DeviceNodeHeader({
                     transform: 'rotate(180deg)',
                     fontSize: 'var(--font-size-micro)',
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                    color: '#808080',
+                    color: 'var(--token-color-hex-808080)',
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                     flex: 1,

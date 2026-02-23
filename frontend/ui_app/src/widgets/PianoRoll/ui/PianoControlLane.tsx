@@ -66,7 +66,7 @@ export const PianoControlLane = memo(function PianoControlLane({
                 const laneValue = readLaneValue(note, activeLane);
                 const barHeight = (laneValue / 127) * (VELOCITY_LANE_HEIGHT - 4);
                 const isSelected = selectedNotes.has(note.id);
-                const laneColor = activeLane === 'velocity' ? color : activeLane === 'modWheel' ? '#b48cff' : '#7fd7ff';
+                const laneColor = activeLane === 'velocity' ? color : activeLane === 'modWheel' ? 'var(--token-color-hex-b48cff)' : 'var(--token-color-hex-7fd7ff)';
 
                 return (
                     <div

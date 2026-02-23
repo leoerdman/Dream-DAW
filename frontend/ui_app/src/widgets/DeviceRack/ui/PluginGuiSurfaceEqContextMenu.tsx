@@ -28,11 +28,11 @@ export function PluginGuiSurfaceEqContextMenu({
                 left: eqContextMenu.x,
                 ...(flipUp ? { bottom: window.innerHeight - eqContextMenu.y } : { top: eqContextMenu.y }),
                 zIndex: 9999,
-                background: 'var(--color-bg-elevated, #1e2128)',
-                border: '1px solid rgba(90,178,255,0.2)',
+                background: 'var(--color-bg-elevated, var(--token-color-hex-1e2128))',
+                border: '1px solid var(--token-color-rgba-90-178-255-0d2)',
                 borderRadius: 6,
                 padding: '4px 0',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                boxShadow: '0 8px 32px var(--token-color-rgba-0-0-0-0d6)',
                 minWidth: 120,
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -43,11 +43,11 @@ export function PluginGuiSurfaceEqContextMenu({
                     style={{
                         padding: '5px 14px',
                         fontSize: 12,
-                        color: bands[eqContextMenu.bandIdx].filterType === type ? '#5ab2ff' : 'rgba(220,230,240,0.85)',
+                        color: bands[eqContextMenu.bandIdx].filterType === type ? 'var(--token-color-hex-5ab2ff)' : 'var(--token-color-rgba-220-230-240-0d85)',
                         cursor: 'pointer',
                         fontWeight: bands[eqContextMenu.bandIdx].filterType === type ? 700 : 400,
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(90,178,255,0.12)'; }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--token-color-rgba-90-178-255-0d12)'; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                     onClick={() => {
                         const FILTER_TYPE_MAP: Record<string, number> = {

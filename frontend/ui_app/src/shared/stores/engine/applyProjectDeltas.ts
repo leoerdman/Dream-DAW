@@ -46,6 +46,22 @@ export function extractSnapshotProjectMeta(
     const bpm = toFiniteNumber(project.pulse_map?.tempo_events?.[0]?.bpm, transport.bpm || 120);
     const sampleRate = resolveSampleRate(project.sample_rate, transport.sample_rate);
 
+    const rawViewZoom = toFiniteNumber(
+        project.view_zoom_scale ?? project.sequencer_navigator_zoom ?? Number.NaN,
+        Number.NaN,
+    );
+    const rawViewScroll = toFiniteNumber(
+        project.view_scroll_position ?? project.sequencer_navigator_scroll_x ?? Number.NaN,
+        Number.NaN,
+    );
+    const hasViewport = Number.isFinite(rawViewZoom) || Number.isFinite(rawViewScroll);
+    const viewportPixelsPerBeat = Number.isFinite(rawViewZoom)
+        ? Math.max(0.5, Math.min(2000, rawViewZoom))
+        : undefined;
+    const viewportScrollLeft = Number.isFinite(rawViewScroll)
+        ? Math.max(0, rawViewScroll)
+        : undefined;
+
     return {
         bpm,
         sampleRate,
@@ -62,6 +78,12 @@ export function extractSnapshotProjectMeta(
             snapToGrid: Boolean(project.arrangement_snap_to_grid ?? true),
             fixed: Boolean(project.arrangement_grid_fixed ?? false),
         },
+        viewport: hasViewport
+            ? {
+                pixelsPerBeat: viewportPixelsPerBeat,
+                scrollLeft: viewportScrollLeft,
+            }
+            : undefined,
     };
 }
 
@@ -101,7 +123,7 @@ export function applyProjectDeltasToState(
                         startBeat: frameToBeat(posFrames, bpm, sampleRate),
                         durationBeats: frameToBeat(durFrames, bpm, sampleRate),
                         type: isMidiTrack ? 'midi' : 'audio',
-                        color: clipColor !== '#667788' ? clipColor : trackColor,
+                        color: clipColor !== 'var(--token-color-hex-667788)' ? clipColor : trackColor,
                         filePath: isMidiTrack ? undefined : clip.file_path,
                         durationSamples: durFrames,
                         isWarped: Boolean(clip.is_warped ?? false),
@@ -127,7 +149,7 @@ export function applyProjectDeltasToState(
                         startBeat: frameToBeat(posFrames, bpm, sampleRate),
                         durationBeats: frameToBeat(durFrames, bpm, sampleRate),
                         type: 'midi',
-                        color: midiClipColor !== '#667788' ? midiClipColor : trackColor,
+                        color: midiClipColor !== 'var(--token-color-hex-667788)' ? midiClipColor : trackColor,
                         durationSamples: durFrames,
                         sourceOffset: 0,
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),

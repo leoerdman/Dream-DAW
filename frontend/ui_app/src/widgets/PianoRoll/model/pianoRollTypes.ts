@@ -49,6 +49,8 @@ export interface PianoRollToolbarProps {
     setFoldToUsedNotes: (next: boolean) => void;
     drumMode: boolean;
     setDrumMode: (next: boolean) => void;
+    noteAuditionEnabled: boolean;
+    setNoteAuditionEnabled: (next: boolean) => void;
     stepInputOctave: number;
     setStepInputOctave: (next: number) => void;
     stepInputCursorBeat: number;

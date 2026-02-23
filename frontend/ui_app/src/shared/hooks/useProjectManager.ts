@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '../../shared/api/engine';
 import type { ProjectStatus } from '../../shared/api/engine';
 import { useEngineStore } from '../../shared/stores/useEngineStore';
+import { useTimelineStore } from '../../shared/stores/useTimelineStore';
 
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -41,6 +42,15 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const syncProjectHistory = useEngineStore((s) => s.syncProjectHistory);
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
+    const syncArrangementViewport = useCallback(async () => {
+        const timeline = useTimelineStore.getState();
+        try {
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+        } catch (err) {
+            // Save must not fail just because viewport persistence failed.
+            console.warn('[ProjectManager] setArrangementViewport failed (non-fatal):', err);
+        }
+    }, []);
 
     // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
     const filePathRef = useRef<string | null>(null);
@@ -76,6 +86,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             if (typeof flush === 'function') {
                 await flush();
             }
+            await syncArrangementViewport();
 
             // Re-read backend status at save time because project may have been
             // opened via native menu / recent projects outside this hook.
@@ -111,7 +122,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus, syncProjectHistory]);
+    }, [refreshStatus, syncProjectHistory, syncArrangementViewport]);
 
     /** Save As — always shows the dialog. */
     const handleSaveAs = useCallback(async () => {
@@ -122,6 +133,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             if (typeof flush === 'function') {
                 await flush();
             }
+            await syncArrangementViewport();
 
             const path = await engineApi.saveProjectDialog();
             if (path) {
@@ -134,7 +146,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus, syncProjectHistory]);
+    }, [refreshStatus, syncProjectHistory, syncArrangementViewport]);
 
     // ── New Project ───────────────────────────────────────────────────
 

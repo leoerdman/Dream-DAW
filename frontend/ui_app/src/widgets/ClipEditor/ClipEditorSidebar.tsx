@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 const sidebarStyle: CSSProperties = {
-    width: 182,
+    width: 224,
     flexShrink: 0,
     borderRight: '1px solid var(--color-divider)',
     background: 'var(--color-bg-panel)',

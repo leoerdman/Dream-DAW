@@ -42,14 +42,14 @@ export const DragOverlay = () => {
                 transform: 'translate(0px, 0px)',
                 pointerEvents: 'none',
                 zIndex: 99999,
-                background: 'rgba(30, 30, 40, 0.85)',
+                background: 'var(--token-color-rgba-30-30-40-0d85)',
                 backdropFilter: 'blur(8px)',
-                color: '#fff',
+                color: 'var(--token-color-hex-ffffff)',
                 padding: '5px 10px',
                 borderRadius: 6,
                 fontSize: 12,
                 whiteSpace: 'nowrap',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                boxShadow: '0 4px 12px var(--token-color-rgba-0-0-0-0d4)',
                 willChange: 'transform',
             }}
         >

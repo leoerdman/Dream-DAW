@@ -62,7 +62,7 @@ export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePat
                 const yMax = mid - Math.max(-1, Math.min(1, p.max)) * mid;
                 const yMin = mid - Math.max(-1, Math.min(1, p.min)) * mid;
                 const barH = Math.max(1, yMin - yMax);
-                return <rect key={i} x={i * barW} y={yMax} width={Math.max(0.8, barW - 0.3)} height={barH} fill="#5ce0a6" rx={0.3} />;
+                return <rect key={i} x={i * barW} y={yMax} width={Math.max(0.8, barW - 0.3)} height={barH} fill="var(--token-color-hex-5ce0a6)" rx={0.3} />;
             })}
         </svg>
     );

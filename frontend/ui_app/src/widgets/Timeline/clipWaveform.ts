@@ -4,10 +4,10 @@ import type { PeakPair, WaveformPeaks } from '@/shared/api/engine';
 const CLIP_PEAK_CACHE = new Map<string, WaveformPeaks>();
 const CLIP_PEAK_INFLIGHT = new Map<string, Promise<WaveformPeaks>>();
 
-const WAVEFORM_COLOR = 'rgba(120, 200, 255, 0.85)';
-const WAVEFORM_COLOR_SELECTED = 'rgba(160, 230, 255, 0.95)';
-const WAVEFORM_RMS_COLOR = 'rgba(80, 160, 220, 0.6)';
-const CENTER_LINE_COLOR = 'rgba(255, 255, 255, 0.12)';
+const WAVEFORM_COLOR = 'var(--token-color-rgba-120-200-255-0d85)';
+const WAVEFORM_COLOR_SELECTED = 'var(--token-color-rgba-160-230-255-0d95)';
+const WAVEFORM_RMS_COLOR = 'var(--token-color-rgba-80-160-220-0d6)';
+const CENTER_LINE_COLOR = 'var(--token-color-rgba-255-255-255-0d12)';
 
 export async function loadPeaksCached(filePath: string): Promise<WaveformPeaks> {
     const cached = CLIP_PEAK_CACHE.get(filePath);

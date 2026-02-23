@@ -159,11 +159,11 @@ export function useTelemetryLoop(
 
                                 // Color: green → yellow → red
                                 if (left.clipping || right.clipping) {
-                                    el.style.backgroundColor = '#e53e3e';
+                                    el.style.backgroundColor = 'var(--token-color-hex-e53e3e)';
                                 } else if (clamped > 0.7) {
-                                    el.style.backgroundColor = '#d69e2e';
+                                    el.style.backgroundColor = 'var(--token-color-hex-d69e2e)';
                                 } else {
-                                    el.style.backgroundColor = '#38a169';
+                                    el.style.backgroundColor = 'var(--token-color-hex-38a169)';
                                 }
                             }
                         }

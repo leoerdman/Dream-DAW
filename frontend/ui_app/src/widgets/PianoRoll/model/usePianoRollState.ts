@@ -40,6 +40,7 @@ export function usePianoRollState({
     const [stepInputOctave, setStepInputOctave] = useState(4);
     const [stepInputCursorBeat, setStepInputCursorBeat] = useState(0);
     const [drumMode, setDrumMode] = useState(false);
+    const [noteAuditionEnabled, setNoteAuditionEnabled] = useState(true);
     const [activeLane, setActiveLane] = useState<PianoLaneType>('velocity');
     const [ratchetCount, setRatchetCount] = useState(2);
     const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -102,6 +103,7 @@ export function usePianoRollState({
         stepInputOctave, setStepInputOctave,
         stepInputCursorBeat, setStepInputCursorBeat,
         drumMode, setDrumMode,
+        noteAuditionEnabled, setNoteAuditionEnabled,
         activeLane, setActiveLane,
         ratchetCount, setRatchetCount,
         notesRef,

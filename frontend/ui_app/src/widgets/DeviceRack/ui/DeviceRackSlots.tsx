@@ -24,8 +24,8 @@ export function DeviceSlot({
                 const rect = e.currentTarget.getBoundingClientRect();
                 const midX = rect.left + rect.width / 2;
                 const isLeftHalf = e.clientX < midX;
-                (e.currentTarget as HTMLElement).style.borderLeft = isLeftHalf ? '3px solid #5ab2ff' : '';
-                (e.currentTarget as HTMLElement).style.borderRight = !isLeftHalf ? '3px solid #5ab2ff' : '';
+                (e.currentTarget as HTMLElement).style.borderLeft = isLeftHalf ? '3px solid var(--token-color-hex-5ab2ff)' : '';
+                (e.currentTarget as HTMLElement).style.borderRight = !isLeftHalf ? '3px solid var(--token-color-hex-5ab2ff)' : '';
             }}
             onDragLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.borderLeft = '';

@@ -78,7 +78,7 @@ export function TrackRowHeader({
                     style={{
                         width: stripeW,
                         minWidth: stripeW,
-                        background: `color-mix(in srgb, ${groupRailColor} 70%, #000)`,
+                        background: `color-mix(in srgb, ${groupRailColor} 70%, var(--token-color-hex-000000))`,
                         opacity: 1,
                     }}
                 />
@@ -139,8 +139,8 @@ export function TrackRowHeader({
                                 fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                 background:
                                     headerContrast === 'black'
-                                        ? 'rgba(255, 255, 255, 0.42)'
-                                        : 'rgba(0, 0, 0, 0.34)',
+                                        ? 'var(--token-color-rgba-255-255-255-0d42)'
+                                        : 'var(--token-color-rgba-0-0-0-0d34)',
                                 border: `1px solid ${track.color}`,
                                 borderRadius: 'var(--radius-xs)',
                                 color: headerTextColor,
@@ -189,7 +189,7 @@ export function TrackRowHeader({
                                     width="2"
                                     height="6"
                                     rx="0.3"
-                                    fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'}
+                                    fill={headerContrast === 'black' ? 'var(--token-color-rgba-255-255-255-0d65)' : 'var(--token-color-rgba-0-0-0-0d65)'}
                                 />
                                 <rect
                                     x="6.5"
@@ -197,7 +197,7 @@ export function TrackRowHeader({
                                     width="2"
                                     height="6"
                                     rx="0.3"
-                                    fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'}
+                                    fill={headerContrast === 'black' ? 'var(--token-color-rgba-255-255-255-0d65)' : 'var(--token-color-rgba-0-0-0-0d65)'}
                                 />
                             </svg>
                         ) : (

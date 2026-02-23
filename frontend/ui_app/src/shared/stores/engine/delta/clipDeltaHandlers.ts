@@ -15,7 +15,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.duration,
             type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
-            color: track?.color ?? '#667788',
+            color: track?.color ?? 'var(--token-color-hex-667788)',
             filePath: delta.data.file_path ?? undefined,
             sourceOffset: 0,
             muted: false,

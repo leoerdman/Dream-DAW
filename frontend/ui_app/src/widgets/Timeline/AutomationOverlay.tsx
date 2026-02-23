@@ -130,7 +130,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                 height: LANE_HEIGHT,
                                 pointerEvents: 'all',
                                 background:
-                                    'color-mix(in srgb, var(--color-bg-panel) 85%, #000 15%)',
+                                    'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
                                 borderBottom:
                                     '1px solid var(--color-divider)',
                             }}

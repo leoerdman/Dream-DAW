@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { applyProjectDeltasToState, extractSnapshotProjectMeta } from '@/shared/stores/engine/applyProjectDeltas';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import {
     createTransportActions,
 } from '@/shared/stores/engine/actionsTransport';
@@ -109,6 +110,17 @@ const DEFAULT_METERS: MeteringSnapshot = {
 
 export function getMetersRef(): MeteringSnapshot {
     return readLatestMeters(useEngineStore.getState().meters);
+}
+
+function shouldApplyViewportRestore(reason: string): boolean {
+    if (!reason) return false;
+    return (
+        reason === 'file-menu:new'
+        || reason === 'native-menu:new'
+        || reason === 'project-manager:new'
+        || reason.includes(':open')
+        || reason.includes('open-last-project')
+    );
 }
 
 export const useEngineStore = create<EngineStore>((set, get) => ({
@@ -237,6 +249,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 keySigMode: nextKeySigMode,
             };
         });
+
+        if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {
+            const timeline = useTimelineStore.getState();
+            const requestedPixelsPerBeat = snapshotMeta.viewport.pixelsPerBeat ?? timeline.pixelsPerBeat;
+            const requestedScrollLeft = snapshotMeta.viewport.scrollLeft ?? timeline.scrollLeft;
+            const viewportDeltaPx = Math.abs((timeline.scrollLeft ?? 0) - requestedScrollLeft);
+            const viewportDeltaZoom = Math.abs((timeline.pixelsPerBeat ?? 20) - requestedPixelsPerBeat);
+            if (viewportDeltaPx > 0.5 || viewportDeltaZoom > 0.0001) {
+                timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft);
+            }
+        }
     },
 
 }));

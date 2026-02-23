@@ -247,7 +247,7 @@ const previewWaveContainerStyle: React.CSSProperties = {
     height: 16,
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--color-border-subtle)',
-    background: 'color-mix(in srgb, #000 18%, transparent)',
+    background: 'color-mix(in srgb, var(--token-color-hex-000000) 18%, transparent)',
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',

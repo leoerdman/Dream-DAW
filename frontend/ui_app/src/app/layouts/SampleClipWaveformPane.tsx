@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
 
 type Props = {
@@ -7,6 +8,7 @@ type Props = {
     clipDurationBeats: number;
     pxPerBeat: number;
     gridStep: number;
+    waveHeightScale: number;
 };
 
 export const SampleClipWaveformPane = ({
@@ -16,10 +18,26 @@ export const SampleClipWaveformPane = ({
     clipDurationBeats,
     pxPerBeat,
     gridStep,
+    waveHeightScale,
 }: Props) => {
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const [bodyHeight, setBodyHeight] = useState(120);
+
+    useEffect(() => {
+        const element = bodyRef.current;
+        if (!element) return;
+        const observer = new ResizeObserver((entries) => {
+            const next = entries[0]?.contentRect?.height ?? 120;
+            setBodyHeight(Math.max(80, Math.floor(next)));
+        });
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, []);
+
     const beatsPerBar = 4;
     const waveformWidth = Math.max(420, Math.round(clipDurationBeats * pxPerBeat));
     const gridLineCount = Math.min(512, Math.ceil(clipDurationBeats / gridStep));
+    const renderedWaveHeight = Math.max(56, Math.round(bodyHeight * Math.max(0.5, Math.min(2.0, waveHeightScale))));
 
     return (
         <div style={{
@@ -57,15 +75,29 @@ export const SampleClipWaveformPane = ({
                             );
                         })}
                     </div>
-                    <div style={{ position: 'absolute', top: 20, left: 0, right: 0, bottom: 0 }}>
-                        <ClipRenderer
-                            filePath={filePath}
-                            width={waveformWidth}
-                            height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
-                            durationSamples={durationSamples}
-                            sourceOffset={sourceOffset ?? 0}
-                            isSelected
-                        />
+                    <div
+                        ref={bodyRef}
+                        style={{
+                            position: 'absolute',
+                            top: 20,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'stretch',
+                        }}
+                    >
+                        <div style={{ width: '100%', height: renderedWaveHeight }}>
+                            <ClipRenderer
+                                filePath={filePath}
+                                width={waveformWidth}
+                                height={renderedWaveHeight}
+                                durationSamples={durationSamples}
+                                sourceOffset={sourceOffset ?? 0}
+                                isSelected
+                            />
+                        </div>
                     </div>
                 </div>
             </div>

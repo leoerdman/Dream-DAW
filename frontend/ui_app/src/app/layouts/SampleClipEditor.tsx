@@ -27,6 +27,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const gridTriplet = useGridStore((s) => s.triplet);
 
     const [zoomX, setZoomX] = useState(1);
+    const [zoomY, setZoomY] = useState(1);
     const [draftWarpEnabled, setDraftWarpEnabled] = useState<boolean>(Boolean(clip.isWarped));
     const [draftWarpMode, setDraftWarpMode] = useState<number>((clip.warpMode ?? 0) > 0 ? 1 : 0);
     const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
@@ -165,10 +166,12 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                 draftWarpBaseBpm={draftWarpBaseBpm}
                 draftPitch={draftPitch}
                 zoomX={zoomX}
+                zoomY={zoomY}
                 isPreviewing={isPreviewing}
                 setDraftWarpBaseBpm={setDraftWarpBaseBpm}
                 setDraftPitch={setDraftPitch}
                 setZoomX={setZoomX}
+                setZoomY={setZoomY}
                 onCommitWarp={(next) => { void commitWarp(next); }}
                 onCommitPitch={(value) => { void commitPitch(value); }}
                 onTogglePreview={() => { void togglePreview(); }}
@@ -182,6 +185,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
                             clipDurationBeats={clipDurationBeats}
                             pxPerBeat={pxPerBeat}
                             gridStep={gridStep}
+                            waveHeightScale={zoomY}
                         />
                     ) : (
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-base)', border: '1px dashed var(--color-divider)', borderRadius: 'var(--radius-lg)' }}>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 
-export function usePianoRollAudition(trackIndex?: number) {
+export function usePianoRollAudition(trackIndex: number | undefined, enabled: boolean) {
     const auditionOffTimersRef = useRef<Map<number, number>>(new Map());
 
     const stopAudition = useCallback((pitch: number) => {
@@ -17,7 +17,7 @@ export function usePianoRollAudition(trackIndex?: number) {
     }, [trackIndex]);
 
     const auditionNote = useCallback((pitch: number, velocity = 100, durationMs = 140) => {
-        if (trackIndex == null) return;
+        if (!enabled || trackIndex == null) return;
         stopAudition(pitch);
         void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch((err) => {
             console.warn('[PianoRoll] previewSamplerNoteOn failed:', err);
@@ -29,7 +29,7 @@ export function usePianoRollAudition(trackIndex?: number) {
             auditionOffTimersRef.current.delete(pitch);
         }, durationMs);
         auditionOffTimersRef.current.set(pitch, timer);
-    }, [trackIndex, stopAudition]);
+    }, [enabled, trackIndex, stopAudition]);
 
     useEffect(() => {
         const timers = auditionOffTimersRef.current;
@@ -38,6 +38,19 @@ export function usePianoRollAudition(trackIndex?: number) {
             timers.clear();
         };
     }, []);
+
+    useEffect(() => {
+        if (enabled || trackIndex == null) return;
+        const timers = auditionOffTimersRef.current;
+        timers.forEach((timer) => window.clearTimeout(timer));
+        const pitches = Array.from(timers.keys());
+        timers.clear();
+        for (const pitch of pitches) {
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+                console.warn('[PianoRoll] previewSamplerNoteOff(disable) failed:', err);
+            });
+        }
+    }, [enabled, trackIndex]);
 
     return { auditionNote };
 }

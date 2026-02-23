@@ -4,6 +4,7 @@ import * as engineApi from '@/shared/api/engine';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 
 /**
  * Creates the native macOS application menu bar.
@@ -32,6 +33,15 @@ export function useNativeMenu(onProjectChange?: () => void) {
 async function buildNativeMenu(onProjectChange?: () => void) {
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
+    const syncArrangementViewport = async () => {
+        const timeline = useTimelineStore.getState();
+        try {
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+        } catch (err) {
+            // Save hotkeys/menu must remain functional even if viewport sync fails.
+            console.warn('[NativeMenu] setArrangementViewport failed (non-fatal):', err);
+        }
+    };
     const appSubmenu = await Submenu.new({
         text: 'Dream DAW',
         items: [
@@ -107,6 +117,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             try {
                 const flush = window.__dreamFlushPendingEdits;
                 if (typeof flush === 'function') await flush();
+                await syncArrangementViewport();
                 const status = await engineApi.getProjectStatus();
                 const hasPath = !!status.filePath && status.filePath.trim().length > 0;
                 if (!hasPath) {
@@ -214,6 +225,12 @@ async function handleSaveAs() {
         const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
         const flush = window.__dreamFlushPendingEdits;
         if (typeof flush === 'function') await flush();
+        const timeline = useTimelineStore.getState();
+        try {
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+        } catch (err) {
+            console.warn('[NativeMenu] setArrangementViewport failed before Save As (non-fatal):', err);
+        }
         const path = await engineApi.saveProjectDialog();
         if (!path) return;
         await engineApi.saveProjectAs(path);

@@ -82,7 +82,7 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                         right: 10,
                         top: 10,
                         zIndex: 'var(--z-header)' as unknown as number,
-                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, #ffffff22)',
+                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, var(--token-color-hex-ffffff22))',
                         borderRadius: 'var(--radius-lg)',
                         padding: '5px 8px',
                         background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',

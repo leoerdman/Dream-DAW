@@ -45,6 +45,8 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         stepInputCursorBeat,
         drumMode,
         setDrumMode,
+        noteAuditionEnabled,
+        setNoteAuditionEnabled,
         activeLane,
         setActiveLane,
         ratchetCount,
@@ -129,13 +131,26 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
 
     const [scrollX, setScrollX] = useState(0);
     const [scrollY, setScrollY] = useState(0);
+    const [isPanelResizing, setIsPanelResizing] = useState(false);
 
     const handleGridScroll = useCallback(() => {
+        if (isPanelResizing) return;
         const el = scrollRef.current;
         if (!el) return;
         setScrollX(el.scrollLeft);
         setScrollY(el.scrollTop);
-    }, [scrollRef]);
+    }, [isPanelResizing, scrollRef]);
+
+    useEffect(() => {
+        const onStart = () => setIsPanelResizing(true);
+        const onEnd = () => setIsPanelResizing(false);
+        window.addEventListener('dream:bottom-panel-resize-start', onStart);
+        window.addEventListener('dream:bottom-panel-resize-end', onEnd);
+        return () => {
+            window.removeEventListener('dream:bottom-panel-resize-start', onStart);
+            window.removeEventListener('dream:bottom-panel-resize-end', onEnd);
+        };
+    }, []);
 
     useEffect(() => {
         const el = scrollRef.current;
@@ -170,6 +185,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         scaleNotes: scalePitchClasses,
         playheadBeat,
         clipBeats,
+        paused: isPanelResizing,
     });
 
     return (
@@ -211,6 +227,8 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                 setFoldToUsedNotes={setFoldToUsedNotes}
                 drumMode={drumMode}
                 setDrumMode={setDrumMode}
+                noteAuditionEnabled={noteAuditionEnabled}
+                setNoteAuditionEnabled={setNoteAuditionEnabled}
                 stepInputOctave={stepInputOctave}
                 setStepInputOctave={setStepInputOctave}
                 stepInputCursorBeat={stepInputCursorBeat}

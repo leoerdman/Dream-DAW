@@ -30,11 +30,11 @@ class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <div style={{
-          background: '#1a0000', color: '#ff6b6b', padding: 40,
+          background: 'var(--token-color-hex-1a0000)', color: 'var(--token-color-hex-ff6b6b)', padding: 40,
           fontFamily: 'monospace', fontSize: 14, overflow: 'auto',
           width: '100vw', height: '100vh',
         }}>
-          <h1 style={{ color: '#ff4444', fontSize: 24, marginBottom: 16 }}>
+          <h1 style={{ color: 'var(--token-color-hex-ff4444)', fontSize: 24, marginBottom: 16 }}>
             ⚠️ Dream DAW — Component Crash
           </h1>
           <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>

@@ -94,7 +94,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
     toggleGlobalVisible: () => set((s) => ({ globalVisible: !s.globalVisible })),
 
-    addLane: (trackId, paramName, paramKey, color = '#58a6ff') => {
+    addLane: (trackId, paramName, paramKey, color = 'var(--token-color-hex-58a6ff)') => {
         const id = genId();
         const lane: AutomationLane = {
             id,

@@ -72,7 +72,7 @@ export function DebugPanel({
                 maxHeight: 'min(58vh, 540px)',
                 display: 'flex',
                 flexDirection: 'column',
-                background: 'color-mix(in srgb, var(--color-bg-panel) 96%, #000 4%)',
+                background: 'color-mix(in srgb, var(--color-bg-panel) 96%, var(--token-color-hex-000000) 4%)',
                 border: '1px solid var(--color-divider)',
                 borderRadius: 'var(--radius-xl)',
                 boxShadow: '0 16px 42px var(--color-overlay-dark)',
@@ -219,7 +219,7 @@ const sectionHeaderStyle: CSSProperties = {
     fontSize: 'var(--font-size-xs)',
     fontWeight: 'var(--font-weight-bold)' as unknown as number,
     color: 'var(--color-text-primary)',
-    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #000 8%)',
+    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-000000) 8%)',
     borderBottom: '1px solid var(--color-divider)',
 };
 

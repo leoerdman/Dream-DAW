@@ -30,10 +30,10 @@
 //
 // Gradient Color Zones (bottom → top):
 //
-//  Zone 1 — SAFE     (−60 dB → −2 dB)  : solid green   #36c95a
-//  Zone 2 — WARNING  (−2 dB  →  0 dB)  : green→yellow  #36c95a → #f2d33e
-//  Zone 3 — HOT      ( 0 dB  → +3 dB)  : yellow→orange #f2d33e → #ff8c1a
-//  Zone 4 — CLIP     (+3 dB  → +6 dB)  : orange→red    #ff8c1a → #ff3333
+//  Zone 1 — SAFE     (−60 dB → −2 dB)  : solid green   var(--token-color-hex-36c95a)
+//  Zone 2 — WARNING  (−2 dB  →  0 dB)  : green→yellow  var(--token-color-hex-36c95a) → var(--token-color-hex-f2d33e)
+//  Zone 3 — HOT      ( 0 dB  → +3 dB)  : yellow→orange var(--token-color-hex-f2d33e) → var(--token-color-hex-ff8c1a)
+//  Zone 4 — CLIP     (+3 dB  → +6 dB)  : orange→red    var(--token-color-hex-ff8c1a) → var(--token-color-hex-ff3333)
 //
 // The gradient is STATIC: the entire bar background is a fixed
 // green-to-red gradient.  The "fill" div simply grows from height 0%
@@ -79,30 +79,30 @@ export const DB_CLIP_NORM = (DB_CLIP_START - DB_FLOOR) / DB_RANGE; // 63/66 ≈ 
 // ─── Color Constants ─────────────────────────────────────────────────────
 
 /** Green — safe zone (−60 dB → −2 dB). */
-export const COLOR_METER_GREEN = '#36c95a';
+export const COLOR_METER_GREEN = 'var(--token-color-hex-36c95a)';
 
 /** Yellow — warning zone (−2 dB → 0 dB). */
-export const COLOR_METER_YELLOW = '#f2d33e';
+export const COLOR_METER_YELLOW = 'var(--token-color-hex-f2d33e)';
 
 /** Orange — hot zone (0 dB → +3 dB). */
-export const COLOR_METER_ORANGE = '#ff8c1a';
+export const COLOR_METER_ORANGE = 'var(--token-color-hex-ff8c1a)';
 
 /** Red — clip zone (+3 dB → +6 dB). */
-export const COLOR_METER_RED = '#ff3333';
+export const COLOR_METER_RED = 'var(--token-color-hex-ff3333)';
 
 /** Meter background (dark well). */
-export const COLOR_METER_BG = 'var(--color-meter-bg, #1e1e1e)';
+export const COLOR_METER_BG = 'var(--color-meter-bg, var(--token-color-hex-1e1e1e))';
 
 /** 0 dB divider line color. */
-export const COLOR_ZERO_DB_LINE = 'rgba(255, 255, 255, 0.25)';
+export const COLOR_ZERO_DB_LINE = 'var(--token-color-rgba-255-255-255-0d25)';
 
 /** Channel divider color (between L and R). */
-export const COLOR_CHANNEL_DIVIDER = 'rgba(255, 255, 255, 0.06)';
+export const COLOR_CHANNEL_DIVIDER = 'var(--token-color-rgba-255-255-255-0d06)';
 
 // ─── MIDI Meter ──────────────────────────────────────────────────────────
 
 /** MIDI velocity meter color (distinct from audio). */
-export const COLOR_METER_MIDI = '#ffd34d';
+export const COLOR_METER_MIDI = 'var(--token-color-hex-ffd34d)';
 
 // ─── Gradient Stops ──────────────────────────────────────────────────────
 //

@@ -66,7 +66,7 @@ export function renderStandardDistNoiseSurface(
                                 : normalizedInternalId === 'internal://effect/roar'
                                     ? 'Roar'
                                     : 'Distortion';
-        const color = device.effectType === 'distortion' ? '#ff965e' : '#f2de72';
+        const color = device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)';
         const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 0;
         const mix = device.params.find((p) => p.name.toLowerCase() === 'mix')?.value ?? 0;
         const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
@@ -76,18 +76,18 @@ export function renderStandardDistNoiseSurface(
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-distortion)' }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: '#d6c1a5' }}>{title}</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d6c1a5)' }}>{title}</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.65)" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-20-13-9-0d65)" />
                         {!isAmp && !isErosion && !isBit && (
                             <path d="M 8 44 L 48 12 L 88 44 L 128 12 L 168 44 L 208 12 L 248 44 L 312 16" fill="none" stroke={color} strokeWidth="2.2" />
                         )}
                         {isAmp && (
                             <>
                                 {Array.from({ length: 7 }).map((_, i) => (
-                                    <line key={i} x1={18 + i * 45} y1={8} x2={18 + i * 45} y2={44} stroke="rgba(255,170,110,0.35)" />
+                                    <line key={i} x1={18 + i * 45} y1={8} x2={18 + i * 45} y2={44} stroke="var(--token-color-rgba-255-170-110-0d35)" />
                                 ))}
-                                <path d="M 6 43 C 52 38, 86 16, 126 18 C 166 20, 210 42, 260 36 C 282 33, 302 29, 316 22" fill="none" stroke="#ffb57a" strokeWidth="2.4" />
+                                <path d="M 6 43 C 52 38, 86 16, 126 18 C 166 20, 210 42, 260 36 C 282 33, 302 29, 316 22" fill="none" stroke="var(--token-color-hex-ffb57a)" strokeWidth="2.4" />
                             </>
                         )}
                         {isErosion && (
@@ -95,7 +95,7 @@ export function renderStandardDistNoiseSurface(
                                 {Array.from({ length: 24 }).map((_, i) => {
                                     const x = 8 + i * 13;
                                     const h = 8 + ((i * 19) % 30);
-                                    return <rect key={i} x={x} y={42 - h} width="6" height={h} rx="1" fill="rgba(255,156,94,0.82)" />;
+                                    return <rect key={i} x={x} y={42 - h} width="6" height={h} rx="1" fill="var(--token-color-rgba-255-156-94-0d82)" />;
                                 })}
                             </>
                         )}
@@ -104,7 +104,7 @@ export function renderStandardDistNoiseSurface(
                                 {Array.from({ length: 16 }).map((_, i) => {
                                     const x = 12 + i * 18;
                                     const high = i % 2 === 0 || i % 5 === 0;
-                                    return <rect key={i} x={x} y={high ? 14 : 26} width="12" height={high ? 24 : 12} fill="rgba(242,222,114,0.9)" rx="1.5" />;
+                                    return <rect key={i} x={x} y={high ? 14 : 26} width="12" height={high ? 24 : 12} fill="var(--token-color-rgba-242-222-114-0d9)" rx="1.5" />;
                                 })}
                             </>
                         )}
@@ -139,10 +139,10 @@ export function renderStandardDistNoiseSurface(
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-noise)' }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: '#a5d6b0' }}>Noise Machine</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a5d6b0)' }}>Noise Machine</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(12, 18, 12, 0.65)" />
-                        <path d="M 4 26 L 12 10 L 20 38 L 28 18 L 36 42 L 44 14 L 52 34 L 60 8 L 68 40 L 76 20 L 84 36 L 92 12 L 100 44 L 108 16 L 116 38 L 124 22 L 132 40 L 140 10 L 148 34 L 156 18 L 164 42 L 172 14 L 180 36 L 188 8 L 196 40 L 204 20 L 212 38 L 220 12 L 228 44 L 236 16 L 244 34 L 252 22 L 260 40 L 268 10 L 276 38 L 284 18 L 292 42 L 300 14 L 308 36 L 316 26" fill="none" stroke="#72d68a" strokeWidth="1.6" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-12-18-12-0d65)" />
+                        <path d="M 4 26 L 12 10 L 20 38 L 28 18 L 36 42 L 44 14 L 52 34 L 60 8 L 68 40 L 76 20 L 84 36 L 92 12 L 100 44 L 108 16 L 116 38 L 124 22 L 132 40 L 140 10 L 148 34 L 156 18 L 164 42 L 172 14 L 180 36 L 188 8 L 196 40 L 204 20 L 212 38 L 220 12 L 228 44 L 236 16 L 244 34 L 252 22 L 260 40 L 268 10 L 276 38 L 284 18 L 292 42 L 300 14 L 308 36 L 316 26" fill="none" stroke="var(--token-color-hex-72d68a)" strokeWidth="1.6" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{typeLabel}</span>

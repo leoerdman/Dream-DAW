@@ -7,7 +7,7 @@ export const EmptyClipEditor = () => (
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-bg-panel) 88%, #2a3a55) 0%, var(--color-bg-panel) 66%)',
+        background: 'radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-bg-panel) 88%, var(--token-color-hex-2a3a55)) 0%, var(--color-bg-panel) 66%)',
     }}>
         <div style={cardStyle}>
             <div style={titleStyle}>No Clip Selected</div>
@@ -22,7 +22,7 @@ const cardStyle: CSSProperties = {
     padding: '18px 26px',
     border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
     borderRadius: 'var(--radius-xl)',
-    background: 'color-mix(in srgb, var(--color-bg-header) 86%, #0a111f)',
+    background: 'color-mix(in srgb, var(--color-bg-header) 86%, var(--token-color-hex-0a111f))',
     boxShadow: '0 10px 24px var(--color-overlay-dark)',
     maxWidth: 520,
 };

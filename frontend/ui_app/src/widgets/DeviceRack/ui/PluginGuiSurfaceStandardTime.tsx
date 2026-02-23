@@ -39,27 +39,27 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     background: 'var(--plugin-bg-delay)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(14,20,30,0.6)" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-14-20-30-0d6)" />
                         {!isLooper && !isSpectralTime && !isBeatRepeat && Array.from({ length: 8 }).map((_, i) => {
                             const x = 16 + i * 36;
                             const h = 24 * Math.pow((fb / 100), i);
-                            return <rect key={i} x={x} y={26 - h / 2} width="10" height={h} fill={i === 0 ? '#7cc4ff' : '#4a9eff'} opacity={0.95 - i * 0.08} rx="1.5" />;
+                            return <rect key={i} x={x} y={26 - h / 2} width="10" height={h} fill={i === 0 ? 'var(--token-color-hex-7cc4ff)' : 'var(--token-color-hex-4a9eff)'} opacity={0.95 - i * 0.08} rx="1.5" />;
                         })}
                         {isBeatRepeat && Array.from({ length: 16 }).map((_, i) => {
                             const x = 10 + i * 18;
                             const on = i % 4 === 0 || i % 7 === 0;
-                            return <rect key={i} x={x} y={on ? 12 : 18} width="12" height={on ? 28 : 16} fill={on ? '#78c3ff' : 'rgba(120,170,230,0.35)'} rx="2" />;
+                            return <rect key={i} x={x} y={on ? 12 : 18} width="12" height={on ? 28 : 16} fill={on ? 'var(--token-color-hex-78c3ff)' : 'var(--token-color-rgba-120-170-230-0d35)'} rx="2" />;
                         })}
                         {isLooper && (
                             <>
-                                <circle cx="160" cy="26" r="16" fill="none" stroke="rgba(124,196,255,0.45)" strokeWidth="2" />
-                                <path d="M 160 10 A 16 16 0 1 1 148 16" fill="none" stroke="#7cc4ff" strokeWidth="3" strokeLinecap="round" />
+                                <circle cx="160" cy="26" r="16" fill="none" stroke="var(--token-color-rgba-124-196-255-0d45)" strokeWidth="2" />
+                                <path d="M 160 10 A 16 16 0 1 1 148 16" fill="none" stroke="var(--token-color-hex-7cc4ff)" strokeWidth="3" strokeLinecap="round" />
                             </>
                         )}
                         {isSpectralTime && Array.from({ length: 24 }).map((_, i) => {
                             const x = 6 + i * 13;
                             const h = 8 + (Math.sin(i * 0.8) + 1) * 14;
-                            return <rect key={i} x={x} y={26 - h / 2} width="8" height={h} fill="rgba(138,205,255,0.85)" rx="1.5" />;
+                            return <rect key={i} x={x} y={26 - h / 2} width="8" height={h} fill="var(--token-color-rgba-138-205-255-0d85)" rx="1.5" />;
                         })}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
@@ -105,7 +105,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-reverb)',
                 }}>
-                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 'var(--radius-md)', background: 'rgba(10,10,12,0.45)' }}>
+                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 'var(--radius-md)', background: 'var(--token-color-rgba-10-10-12-0d45)' }}>
                         {Array.from({ length: 5 }).map((_, i) => (
                             <div
                                 key={i}
@@ -117,7 +117,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                                     height: `${24 + i * 12}px`,
                                     marginTop: `${-(12 + i * 6)}px`,
                                     borderRadius: '50%',
-                                    border: '1px solid rgba(192, 145, 255, 0.35)',
+                                    border: '1px solid var(--token-color-rgba-192-145-255-0d35)',
                                 }}
                             />
                         ))}
@@ -157,9 +157,9 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     background: 'var(--plugin-bg-chorus)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(12, 11, 18, 0.65)" />
-                        <path d="M 0 26 C 40 8, 80 44, 120 26 C 160 8, 200 44, 240 26 C 280 8, 320 44, 320 26" fill="none" stroke="#c867ff" strokeWidth="2.2" />
-                        <path d="M 0 26 C 40 44, 80 8, 120 26 C 160 44, 200 8, 240 26 C 280 44, 320 8, 320 26" fill="none" stroke="#4ac0ff" strokeWidth="2.2" opacity="0.9" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-12-11-18-0d65)" />
+                        <path d="M 0 26 C 40 8, 80 44, 120 26 C 160 8, 200 44, 240 26 C 280 8, 320 44, 320 26" fill="none" stroke="var(--token-color-hex-c867ff)" strokeWidth="2.2" />
+                        <path d="M 0 26 C 40 44, 80 8, 120 26 C 160 44, 200 8, 240 26 C 280 44, 320 8, 320 26" fill="none" stroke="var(--token-color-hex-4ac0ff)" strokeWidth="2.2" opacity="0.9" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{rate.toFixed(1)}Hz</span>
@@ -201,9 +201,9 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     background: 'var(--plugin-bg-saturator)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.7)" />
-                        <line x1="12" y1="46" x2="308" y2="6" stroke="rgba(255,172,89,0.18)" strokeWidth="1" strokeDasharray="3,3" />
-                        <path d={`M 12 46 C ${knee} 46, ${160 - knee / 2} 6, 160 6 C ${160 + knee / 2} 6, ${320 - knee} 46, 308 46`} fill="none" stroke="#ffac59" strokeWidth={Math.max(2, 2 + driveClamp / 8)} strokeLinecap="round" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-20-13-9-0d7)" />
+                        <line x1="12" y1="46" x2="308" y2="6" stroke="var(--token-color-rgba-255-172-89-0d18)" strokeWidth="1" strokeDasharray="3,3" />
+                        <path d={`M 12 46 C ${knee} 46, ${160 - knee / 2} 6, 160 6 C ${160 + knee / 2} 6, ${320 - knee} 46, 308 46`} fill="none" stroke="var(--token-color-hex-ffac59)" strokeWidth={Math.max(2, 2 + driveClamp / 8)} strokeLinecap="round" />
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{satTitle}</span>

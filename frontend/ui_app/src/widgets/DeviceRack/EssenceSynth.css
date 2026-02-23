@@ -18,14 +18,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 4px 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    background: rgba(0, 0, 0, 0.12);
+    border-bottom: 1px solid var(--token-color-rgba-255-255-255-0d04);
+    background: var(--token-color-rgba-0-0-0-0d12);
 }
 
 .essence__title {
     font-size: var(--font-size-xs);
     font-weight: 800;
-    color: #b8c4be;
+    color: var(--token-color-hex-b8c4be);
     letter-spacing: 0.1em;
     text-transform: uppercase;
 }
@@ -37,10 +37,10 @@
 }
 
 .essence__preset-btn {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--token-color-rgba-255-255-255-0d08);
     border-radius: var(--radius-xs);
-    background: rgba(255, 255, 255, 0.04);
-    color: #8a8a8a;
+    background: var(--token-color-rgba-255-255-255-0d04);
+    color: var(--token-color-hex-8a8a8a);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -51,22 +51,22 @@
 }
 
 .essence__preset-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #c8c8c8;
-    border-color: rgba(255, 255, 255, 0.15);
+    background: var(--token-color-rgba-255-255-255-0d1);
+    color: var(--token-color-hex-c8c8c8);
+    border-color: var(--token-color-rgba-255-255-255-0d15);
 }
 
 .essence__preset-btn--active {
-    background: rgba(92, 224, 166, 0.15);
-    color: #c0ecd4;
-    border-color: rgba(92, 224, 166, 0.3);
+    background: var(--token-color-rgba-92-224-166-0d15);
+    color: var(--token-color-hex-c0ecd4);
+    border-color: var(--token-color-rgba-92-224-166-0d3);
 }
 
 .essence__random-btn {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--token-color-rgba-255-255-255-0d08);
     border-radius: var(--radius-xs);
-    background: rgba(255, 255, 255, 0.04);
-    color: #aaa;
+    background: var(--token-color-rgba-255-255-255-0d04);
+    color: var(--token-color-hex-aaaaaa);
     font-size: 10px;
     font-weight: 700;
     cursor: pointer;
@@ -76,7 +76,7 @@
 }
 
 .essence__random-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--token-color-rgba-255-255-255-0d1);
 }
 
 /* ── Main Body (Block Grid) ──────────────────────────────────── */
@@ -95,7 +95,7 @@
     flex-direction: column;
     gap: 3px;
     padding: 6px 8px 4px;
-    border-right: 1px solid rgba(255, 255, 255, 0.04);
+    border-right: 1px solid var(--token-color-rgba-255-255-255-0d04);
     min-width: 0;
 }
 
@@ -106,7 +106,7 @@
 .essence__section-label {
     font-size: 8px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--token-color-rgba-255-255-255-0d3);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     margin-bottom: 1px;
@@ -133,18 +133,18 @@
 }
 
 .essence__osc-label--1 {
-    color: #6cbb8e;
+    color: var(--token-color-hex-6cbb8e);
 }
 
 .essence__osc-label--2 {
-    color: #7ab0e0;
+    color: var(--token-color-hex-7ab0e0);
 }
 
 .essence__wave-display {
     width: 100%;
     height: 28px;
     border-radius: var(--radius-xs);
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--token-color-rgba-0-0-0-0d25);
     overflow: hidden;
 }
 
@@ -155,10 +155,10 @@
 }
 
 .essence__wave-btn {
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--token-color-rgba-255-255-255-0d06);
     border-radius: var(--radius-xs);
-    background: rgba(255, 255, 255, 0.03);
-    color: #777;
+    background: var(--token-color-rgba-255-255-255-0d03);
+    color: var(--token-color-hex-777777);
     font-size: 8px;
     font-weight: 600;
     cursor: pointer;
@@ -169,20 +169,20 @@
 }
 
 .essence__wave-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #aaa;
+    background: var(--token-color-rgba-255-255-255-0d08);
+    color: var(--token-color-hex-aaaaaa);
 }
 
 .essence__wave-btn--active-1 {
-    border-color: #5ce0a6;
-    background: rgba(92, 224, 166, 0.15);
-    color: #b8ecd2;
+    border-color: var(--token-color-hex-5ce0a6);
+    background: var(--token-color-rgba-92-224-166-0d15);
+    color: var(--token-color-hex-b8ecd2);
 }
 
 .essence__wave-btn--active-2 {
-    border-color: #7abfff;
-    background: rgba(122, 191, 255, 0.15);
-    color: #c4dfff;
+    border-color: var(--token-color-hex-7abfff);
+    background: var(--token-color-rgba-122-191-255-0d15);
+    color: var(--token-color-hex-c4dfff);
 }
 
 /* ── Filter Section ───────────────────────────────────────── */
@@ -194,10 +194,10 @@
 }
 
 .essence__filt-btn {
-    border: 1px solid rgba(255, 200, 80, 0.1);
+    border: 1px solid var(--token-color-rgba-255-200-80-0d1);
     border-radius: var(--radius-xs);
-    background: rgba(255, 200, 80, 0.04);
-    color: #9a8560;
+    background: var(--token-color-rgba-255-200-80-0d04);
+    color: var(--token-color-hex-9a8560);
     font-size: 8px;
     font-weight: 700;
     cursor: pointer;
@@ -208,14 +208,14 @@
 }
 
 .essence__filt-btn:hover {
-    background: rgba(255, 200, 80, 0.1);
-    color: #c4a870;
+    background: var(--token-color-rgba-255-200-80-0d1);
+    color: var(--token-color-hex-c4a870);
 }
 
 .essence__filt-btn--active {
-    border-color: #e0b430;
-    background: rgba(224, 180, 48, 0.15);
-    color: #e8d098;
+    border-color: var(--token-color-hex-e0b430);
+    background: var(--token-color-rgba-224-180-48-0d15);
+    color: var(--token-color-hex-e8d098);
 }
 
 /* ── ADSR Visual ──────────────────────────────────────────── */
@@ -224,7 +224,7 @@
     width: 100%;
     height: 32px;
     border-radius: var(--radius-xs);
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--token-color-rgba-0-0-0-0d25);
     overflow: hidden;
 }
 
@@ -237,10 +237,10 @@
 }
 
 .essence__lfo-btn {
-    border: 1px solid rgba(160, 120, 230, 0.1);
+    border: 1px solid var(--token-color-rgba-160-120-230-0d1);
     border-radius: var(--radius-xs);
-    background: rgba(160, 120, 230, 0.04);
-    color: #8a70a8;
+    background: var(--token-color-rgba-160-120-230-0d04);
+    color: var(--token-color-hex-8a70a8);
     font-size: 8px;
     font-weight: 700;
     cursor: pointer;
@@ -251,14 +251,14 @@
 }
 
 .essence__lfo-btn:hover {
-    background: rgba(160, 120, 230, 0.1);
-    color: #a890c8;
+    background: var(--token-color-rgba-160-120-230-0d1);
+    color: var(--token-color-hex-a890c8);
 }
 
 .essence__lfo-btn--active {
-    border-color: #a078e0;
-    background: rgba(160, 120, 230, 0.15);
-    color: #c8b0e8;
+    border-color: var(--token-color-hex-a078e0);
+    background: var(--token-color-rgba-160-120-230-0d15);
+    color: var(--token-color-hex-c8b0e8);
 }
 
 /* ── Bottom Knob Strip ────────────────────────────────────── */
@@ -268,8 +268,8 @@
     grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
     gap: 2px;
     padding: 4px 6px 5px;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
-    background: rgba(0, 0, 0, 0.1);
+    border-top: 1px solid var(--token-color-rgba-255-255-255-0d04);
+    background: var(--token-color-rgba-0-0-0-0d1);
 }
 
 /* ── Param row in section ─────────────────────────────────── */
@@ -284,7 +284,7 @@
 
 .essence__param-label {
     font-size: 8px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--token-color-rgba-255-255-255-0d3);
     font-weight: 600;
     white-space: nowrap;
     min-width: 0;
@@ -292,7 +292,7 @@
 
 .essence__param-value {
     font-size: 9px;
-    color: #a8a8a8;
+    color: var(--token-color-hex-a8a8a8);
     font-weight: 600;
     text-align: right;
     white-space: nowrap;
@@ -304,7 +304,7 @@
     width: 100%;
     height: 3px;
     border-radius: 2px;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--token-color-rgba-0-0-0-0d3);
     position: relative;
     overflow: hidden;
     margin: 1px 0;
@@ -320,11 +320,11 @@
 }
 
 .essence__blend-fill--1 {
-    background: linear-gradient(90deg, rgba(92, 224, 166, 0.6), rgba(92, 224, 166, 0.15));
+    background: linear-gradient(90deg, var(--token-color-rgba-92-224-166-0d6), var(--token-color-rgba-92-224-166-0d15));
 }
 
 .essence__blend-fill--2 {
     right: 0;
     left: auto;
-    background: linear-gradient(270deg, rgba(118, 186, 255, 0.6), rgba(118, 186, 255, 0.15));
+    background: linear-gradient(270deg, var(--token-color-rgba-118-186-255-0d6), var(--token-color-rgba-118-186-255-0d15));
 }

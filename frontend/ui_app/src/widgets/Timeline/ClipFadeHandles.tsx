@@ -137,7 +137,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             >
                 <defs>
                     <pattern id="fadeHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                        <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+                        <line x1="0" y1="0" x2="0" y2="6" stroke="var(--token-color-rgba-255-255-255-0d45)" strokeWidth="2" />
                     </pattern>
                 </defs>
                 {fadeIn > 0 && (
@@ -186,7 +186,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                 <svg width={HANDLE_SIZE} height={HANDLE_SIZE} viewBox="0 0 8 8">
                     <polygon
                         points="0,0 8,0 4,8"
-                        fill={hoveredHandle === 'fadeIn' ? '#fff' : color}
+                        fill={hoveredHandle === 'fadeIn' ? 'var(--token-color-hex-ffffff)' : color}
                     />
                 </svg>
             </div>
@@ -210,7 +210,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                 <svg width={HANDLE_SIZE} height={HANDLE_SIZE} viewBox="0 0 8 8">
                     <polygon
                         points="0,0 8,0 4,8"
-                        fill={hoveredHandle === 'fadeOut' ? '#fff' : color}
+                        fill={hoveredHandle === 'fadeOut' ? 'var(--token-color-hex-ffffff)' : color}
                     />
                 </svg>
             </div>

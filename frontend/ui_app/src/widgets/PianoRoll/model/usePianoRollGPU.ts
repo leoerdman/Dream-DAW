@@ -37,6 +37,7 @@ export interface UsePianoRollGPUProps {
     scaleNotes?: Set<number>;  // Pitch classes in the scale (0-11)
     playheadBeat: number | undefined;
     clipBeats: number;
+    paused?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ export function usePianoRollGPU({
     scaleNotes,
     playheadBeat,
     clipBeats,
+    paused = false,
 }: UsePianoRollGPUProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const rendererRef = useRef<PianoRollGLRenderer | null>(null);
@@ -140,6 +142,7 @@ export function usePianoRollGPU({
 
     // ── Schedule render on next frame ──
     const scheduleRender = useCallback(() => {
+        if (paused) return;
         dirtyRef.current = true;
         if (animFrameRef.current === null) {
             animFrameRef.current = requestAnimationFrame(() => {
@@ -150,7 +153,7 @@ export function usePianoRollGPU({
                 }
             });
         }
-    }, []);
+    }, [paused]);
 
     // ── Renderer lifecycle (main-thread WebGL2) ──
     useEffect(() => {
@@ -205,7 +208,7 @@ export function usePianoRollGPU({
     useEffect(() => {
         const canvas = canvasRef.current;
         const renderer = rendererRef.current;
-        if (!renderer || !canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
+        if (paused || !renderer || !canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
 
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.ceil(canvasWidth * dpr);
@@ -216,21 +219,21 @@ export function usePianoRollGPU({
             dpr,
         });
         scheduleRender();
-    }, [canvasWidth, canvasHeight, scheduleRender]);
+    }, [paused, canvasWidth, canvasHeight, scheduleRender]);
 
     // ── Upload notes ──
     useEffect(() => {
         const renderer = rendererRef.current;
-        if (!renderer) return;
+        if (paused || !renderer) return;
         const data = packNotes(notes, ghostNotes, selectedNotes);
         renderer.uploadNotes(data);
         scheduleRender();
-    }, [notes, ghostNotes, selectedNotes, scheduleRender]);
+    }, [paused, notes, ghostNotes, selectedNotes, scheduleRender]);
 
     // ── View updates (CSS pixels — shaders apply DPR internally) ──
     useEffect(() => {
         const renderer = rendererRef.current;
-        if (!renderer) return;
+        if (paused || !renderer) return;
 
         const dpr = window.devicePixelRatio || 1;
         const playheadX = playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats
@@ -255,14 +258,14 @@ export function usePianoRollGPU({
             playheadX,
         });
         scheduleRender();
-    }, [pixelsPerBeat, noteHeight, scrollX, scrollY, canvasWidth, canvasHeight,
+    }, [paused, pixelsPerBeat, noteHeight, scrollX, scrollY, canvasWidth, canvasHeight,
         beatsPerBar, gridInterval, totalBeats, totalPitches,
         highlightScale, scaleRoot, scaleNotes, playheadBeat, clipBeats, scheduleRender]);
 
     // ── Style (color) updates ──
     useEffect(() => {
         const renderer = rendererRef.current;
-        if (!renderer) return;
+        if (paused || !renderer) return;
         const noteColor = hexToRGB(color);
         // Root row tint: mix accent color at 12% opacity
         const rootRowColor: [number, number, number] = [
@@ -281,7 +284,11 @@ export function usePianoRollGPU({
 
         renderer.setStyle({ noteColor, rootRowColor, scaleRowColor, outScaleRowColor });
         scheduleRender();
-    }, [color, scheduleRender]);
+    }, [paused, color, scheduleRender]);
+
+    useEffect(() => {
+        if (!paused) scheduleRender();
+    }, [paused, scheduleRender]);
 
     return {
         gpuCanvasRef: canvasRef,

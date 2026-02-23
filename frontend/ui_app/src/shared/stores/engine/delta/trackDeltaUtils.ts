@@ -1,13 +1,13 @@
 const TRACK_PALETTE = [
-    '#F05C4D', '#FF8A1A', '#FFBF33', '#FFE14D',
-    '#A3D94D', '#4DC775', '#4DC7B0', '#4DC7CC',
-    '#4DA6E3', '#4D7AE3', '#6B5CE3', '#9B59D9',
-    '#D94DA6', '#E36B96', '#E66673', '#8C949E',
+    'var(--token-color-hex-f05c4d)', 'var(--token-color-hex-ff8a1a)', 'var(--token-color-hex-ffbf33)', 'var(--token-color-hex-ffe14d)',
+    'var(--token-color-hex-a3d94d)', 'var(--token-color-hex-4dc775)', 'var(--token-color-hex-4dc7b0)', 'var(--token-color-hex-4dc7cc)',
+    'var(--token-color-hex-4da6e3)', 'var(--token-color-hex-4d7ae3)', 'var(--token-color-hex-6b5ce3)', 'var(--token-color-hex-9b59d9)',
+    'var(--token-color-hex-d94da6)', 'var(--token-color-hex-e36b96)', 'var(--token-color-hex-e66673)', 'var(--token-color-hex-8c949e)',
 ] as const;
 
 export function colorForTrackIndex(index: number): string {
     const safe = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : 0;
-    return TRACK_PALETTE[safe % TRACK_PALETTE.length] ?? '#667788';
+    return TRACK_PALETTE[safe % TRACK_PALETTE.length] ?? 'var(--token-color-hex-667788)';
 }
 
 export function normalizeTrackType(trackType: string): string {

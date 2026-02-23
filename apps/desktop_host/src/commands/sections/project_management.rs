@@ -343,6 +343,46 @@ fn get_project_status(
     }))
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct ArrangementViewportPayload {
+    pixels_per_beat: Option<f64>,
+    scroll_left: Option<f64>,
+}
+
+/// Stores arrangement viewport metadata in the project model so it persists in `.ddpj`.
+#[tauri::command]
+fn set_arrangement_viewport_cmd(
+    pixels_per_beat: f64,
+    scroll_left: f64,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let ppb = pixels_per_beat.clamp(0.5, 2000.0);
+    let scroll = scroll_left.max(0.0);
+
+    project.view_zoom_scale = Some(ppb);
+    project.view_scroll_position = Some(scroll);
+    project.sequencer_navigator_zoom = Some(ppb);
+    project.sequencer_navigator_scroll_x = Some(scroll.round() as i32);
+    Ok(())
+}
+
+/// Reads persisted arrangement viewport metadata from the project model.
+#[tauri::command]
+fn get_arrangement_viewport_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<ArrangementViewportPayload, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let pixels_per_beat = project.view_zoom_scale.or(project.sequencer_navigator_zoom);
+    let scroll_left = project
+        .view_scroll_position
+        .or(project.sequencer_navigator_scroll_x.map(f64::from));
+    Ok(ArrangementViewportPayload {
+        pixels_per_beat,
+        scroll_left,
+    })
+}
+
 /// Persists arrangement/editor grid settings in the project.
 #[tauri::command]
 fn set_arrangement_grid_cmd(

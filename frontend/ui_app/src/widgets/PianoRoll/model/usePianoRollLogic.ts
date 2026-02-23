@@ -31,7 +31,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         onNotesChange,
         onGenerateVariation,
         aiVariationBusy = false,
-        color = '#4a9eff',
+        color = 'var(--token-color-hex-4a9eff)',
         timeSignature = [4, 4],
         totalBars = 8,
         playheadBeat: playheadBeatProp,
@@ -64,6 +64,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         stepInputOctave, setStepInputOctave,
         stepInputCursorBeat, setStepInputCursorBeat,
         drumMode, setDrumMode,
+        noteAuditionEnabled, setNoteAuditionEnabled,
         activeLane, setActiveLane,
         ratchetCount, setRatchetCount,
         notesRef,
@@ -73,7 +74,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         keyboardScrollRef,
         editorRootRef,
     } = pianoState;
-    const { auditionNote } = usePianoRollAudition(trackIndex);
+    const { auditionNote } = usePianoRollAudition(trackIndex, noteAuditionEnabled);
 
     const { laneValuesByNote, setLaneValuesByNote, readLaneValue, handleVelocityMouseDown } = usePianoRollLaneValues({
         midiEnvelopes,
@@ -268,6 +269,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
             clipTranspose, setClipTranspose, quantizeAmount, setQuantizeAmount,
             foldToUsedNotes, setFoldToUsedNotes, stepInputOctave, setStepInputOctave,
             stepInputCursorBeat, setStepInputCursorBeat, drumMode, setDrumMode,
+            noteAuditionEnabled, setNoteAuditionEnabled,
             activeLane, setActiveLane, ratchetCount, setRatchetCount,
             laneValuesByNote, setLaneValuesByNote, hoveredNoteEdge, setHoveredNoteEdge,
             zoomOverrideH, setZoomOverrideH,

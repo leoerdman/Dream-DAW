@@ -133,7 +133,7 @@ export const EssenceSynth = ({
                                 OSC 1 · {waveformLabel(p.osc1)}
                             </span>
                             <svg className="essence__wave-display" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                <path d={wavePath(p.osc1)} fill="none" stroke="#64e7ad" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d={wavePath(p.osc1)} fill="none" stroke="var(--token-color-hex-64e7ad)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                             <div className="essence__wave-btns">
                                 {WAVEFORMS.map(wf => (
@@ -154,7 +154,7 @@ export const EssenceSynth = ({
                                 OSC 2 · {waveformLabel(p.osc2)}
                             </span>
                             <svg className="essence__wave-display" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                <path d={wavePath(p.osc2)} fill="none" stroke="#8cd1ff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d={wavePath(p.osc2)} fill="none" stroke="var(--token-color-hex-8cd1ff)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                             <div className="essence__wave-btns">
                                 {WAVEFORMS.map(wf => (
@@ -221,8 +221,8 @@ export const EssenceSynth = ({
 
                     <span className="essence__section-label" style={{ marginTop: 4 }}>Envelope</span>
                     <svg className="essence__adsr-graph" viewBox="0 0 120 28" preserveAspectRatio="none">
-                        <path d={adsrPath} fill="none" stroke="#5be3a7" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d={adsrPath} fill="rgba(91, 227, 167, 0.08)" />
+                        <path d={adsrPath} fill="none" stroke="var(--token-color-hex-5be3a7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={adsrPath} fill="var(--token-color-rgba-91-227-167-0d08)" />
                     </svg>
                     <div className="essence__param-row">
                         <span className="essence__param-label">A</span>

@@ -35,6 +35,10 @@ export interface SnapshotProjectMeta {
         snapToGrid: boolean;
         fixed: boolean;
     };
+    viewport?: {
+        pixelsPerBeat?: number;
+        scrollLeft?: number;
+    };
 }
 
 export interface DeltaApplyResult {

@@ -738,7 +738,7 @@ export const TOOLS = [
         type: 'function' as const,
         function: {
             name: 'set_track_color',
-            description: 'Set the color of a track. Use hex color (e.g. "#FF5733").',
+            description: 'Set the color of a track. Use hex color (e.g. "var(--token-color-hex-ff5733)").',
             parameters: {
                 type: 'object',
                 properties: {

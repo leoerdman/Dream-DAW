@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Pencil, Brush, Sparkles, RotateCw, Music, Filter, ChevronUp, ChevronDown } from 'lucide-react';
+import { Pencil, Brush, Sparkles, RotateCw, Music, Filter, ChevronUp, ChevronDown, Volume2 } from 'lucide-react';
 import {
     MIDI_GRID_PRESETS,
     ROOT_NOTES,
@@ -39,6 +39,8 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
     setFoldToUsedNotes,
     drumMode,
     setDrumMode,
+    noteAuditionEnabled,
+    setNoteAuditionEnabled,
     stepInputOctave,
     setStepInputOctave,
     stepInputCursorBeat,
@@ -51,6 +53,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
     'quantizeAmount' | 'setQuantizeAmount' | 'applyLegato' | 'humanizeSelection' |
     'ratchetCount' | 'setRatchetCount' | 'applyRatchet' |
     'foldToUsedNotes' | 'setFoldToUsedNotes' | 'drumMode' | 'setDrumMode' |
+    'noteAuditionEnabled' | 'setNoteAuditionEnabled' |
     'stepInputOctave' | 'setStepInputOctave' | 'stepInputCursorBeat' |
     'activeLane' | 'setActiveLane'
 >) {
@@ -163,6 +166,22 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                 <Filter size={12} /> Fold
             </button>
             <button onClick={() => setDrumMode(!drumMode)} style={{ ...actionBtnStyle, background: drumMode ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background, color: drumMode ? 'var(--color-accent-primary)' : actionBtnStyle.color, border: drumMode ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border }}>Drum</button>
+            <button
+                onClick={() => setNoteAuditionEnabled(!noteAuditionEnabled)}
+                style={{
+                    ...actionBtnStyle,
+                    background: noteAuditionEnabled ? 'var(--color-accent-primary-dim)' : actionBtnStyle.background,
+                    color: noteAuditionEnabled ? 'var(--color-accent-primary)' : actionBtnStyle.color,
+                    border: noteAuditionEnabled ? '1px solid var(--color-accent-primary)' : actionBtnStyle.border,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                }}
+                title={noteAuditionEnabled ? 'Note preview ON' : 'Note preview OFF'}
+                aria-pressed={noteAuditionEnabled}
+            >
+                <Volume2 size={12} /> Preview
+            </button>
 
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Step</span>

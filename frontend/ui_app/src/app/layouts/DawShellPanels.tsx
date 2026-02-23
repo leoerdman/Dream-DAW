@@ -101,11 +101,11 @@ export const SessionWorkspace = ({
                                                 style={{
                                                     height: 26,
                                                     border: 'none',
-                                                    borderBottom: '1px solid #2a2a2a',
-                                                    borderRight: '1px solid #262626',
+                                                    borderBottom: '1px solid var(--token-color-hex-2a2a2a)',
+                                                    borderRight: '1px solid var(--token-color-hex-262626)',
                                                     background: clip
                                                         ? clip.color
-                                                        : 'color-mix(in srgb, var(--color-bg-panel) 90%, #131313)',
+                                                        : 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--token-color-hex-131313))',
                                                     color: clipText,
                                                     fontSize: 'var(--font-size-xs)',
                                                     fontWeight: clip ? 600 : 500,
@@ -177,11 +177,11 @@ export const SessionWorkspace = ({
                         Master
                     </div>
                     {scenes.map((_, i) => (
-                        <div key={`master-scene-${i}`} style={{ height: 26, borderBottom: '1px solid #2a2a2a' }} />
+                        <div key={`master-scene-${i}`} style={{ height: 26, borderBottom: '1px solid var(--token-color-hex-2a2a2a)' }} />
                     ))}
                 </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #0e0e0e)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-0e0e0e))' }}>
                 <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
                     {tracks.map((track, trackIndex) => {
                         const meterPair = meters.tracks[trackIndex];
@@ -194,7 +194,7 @@ export const SessionWorkspace = ({
                         const isActive = isTrackActive(trackIndex, tracks);
                         return (
                             <div key={`mix-${track.id}`} style={{
-                                width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6,
+                                width: SESSION_TRACK_WIDTH, borderRight: '1px solid var(--token-color-hex-2d2d2d)', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6,
                                 opacity: isActive ? 1 : 0.35,
                                 filter: isActive ? 'none' : 'grayscale(0.9)',
                                 transition: 'opacity 0.15s ease, filter 0.15s ease',
@@ -222,7 +222,7 @@ export const SessionWorkspace = ({
                                         flex: 1,
                                         minHeight: 82,
                                         borderRadius: 'var(--radius-xs)',
-                                        border: '1px solid #3d3d3d',
+                                        border: '1px solid var(--token-color-hex-3d3d3d)',
                                         background: 'var(--color-bg-canvas)',
                                         position: 'relative',
                                         overflow: 'hidden',
@@ -243,7 +243,7 @@ export const SessionWorkspace = ({
                         );
                     })}
                 </div>
-                <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
+                <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid var(--token-color-hex-3b3b3b)', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
                     <div style={{ position: 'relative', border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
                         {/* Stereo master: unified MeterStrip */}
@@ -265,7 +265,7 @@ const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
     minWidth: 24,
     height: 18,
     borderRadius: 'var(--radius-sm)',
-    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, transparent)' : '1px solid #4b4b4b',
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, transparent)' : '1px solid var(--token-color-hex-4b4b4b)',
     background: active ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-header)',
     color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',

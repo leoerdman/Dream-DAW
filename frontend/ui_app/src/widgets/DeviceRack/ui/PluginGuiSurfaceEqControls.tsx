@@ -85,7 +85,7 @@ export function PluginGuiSurfaceEqControls({
             <div
                 style={{
                     fontSize: 9,
-                    color: 'rgba(160,190,220,0.4)',
+                    color: 'var(--token-color-rgba-160-190-220-0d4)',
                     textAlign: 'center',
                     fontFamily: 'Inter, sans-serif',
                     marginTop: 2,

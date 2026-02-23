@@ -72,7 +72,7 @@ export function useTrackInspectorDerivedState({
             id: 'master',
             name: 'Master',
             type: 'master',
-            color: '#3a3a3a',
+            color: 'var(--token-color-hex-3a3a3a)',
             volume: masterVolume,
             pan: 0,
             isMuted: false,

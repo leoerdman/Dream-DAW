@@ -41,8 +41,8 @@ export const PLOT_W = VB_W - MARGIN_L - MARGIN_R;
 
 /** Default 8-band color palette (matches Dream EQ GUI) */
 export const EQ_BAND_COLORS = [
-    '#e06cf5', '#5ab2ff', '#5cf5e0', '#d9a625',
-    '#ff8b5b', '#7ceb8a', '#ff5c5c', '#f0c430',
+    'var(--token-color-hex-e06cf5)', 'var(--token-color-hex-5ab2ff)', 'var(--token-color-hex-5cf5e0)', 'var(--token-color-hex-d9a625)',
+    'var(--token-color-hex-ff8b5b)', 'var(--token-color-hex-7ceb8a)', 'var(--token-color-hex-ff5c5c)', 'var(--token-color-hex-f0c430)',
 ] as const;
 
 /** Default EQ band center frequencies (Hz) */

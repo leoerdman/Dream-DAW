@@ -34,7 +34,7 @@ export const AgentActionCard = memo(({ group }: AgentActionCardProps) => {
 
     const primaryColor = useMemo(() => {
         const first = group.actions[0];
-        return first ? (TOOL_META[first.toolName] || DEFAULT_META).categoryColor : '#6b7280';
+        return first ? (TOOL_META[first.toolName] || DEFAULT_META).categoryColor : 'var(--token-color-hex-6b7280)';
     }, [group.actions]);
 
     const fullLogText = useMemo(() => {

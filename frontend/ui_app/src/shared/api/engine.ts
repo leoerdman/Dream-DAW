@@ -559,6 +559,23 @@ export const getRecentProjects = () =>
 
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
 
+export interface ArrangementViewportState {
+    pixels_per_beat: number | null;
+    scroll_left: number | null;
+}
+
+export const setArrangementViewport = (pixelsPerBeat: number, scrollLeft: number) =>
+    invoke<void>('set_arrangement_viewport_cmd', {
+        // Keep both casings for cross-version compatibility of Tauri arg mapping.
+        pixelsPerBeat,
+        scrollLeft,
+        pixels_per_beat: pixelsPerBeat,
+        scroll_left: scrollLeft,
+    });
+
+export const getArrangementViewport = () =>
+    invoke<ArrangementViewportState>('get_arrangement_viewport_cmd');
+
 export const createBackup = () => invoke<string>('create_backup_cmd');
 
 export interface AutoSaveResult {

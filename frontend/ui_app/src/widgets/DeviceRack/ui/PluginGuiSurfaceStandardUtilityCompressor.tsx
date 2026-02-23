@@ -52,9 +52,9 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     {hasUtilityCoreParams ? (
                         <>
                             <div>
-                                <div style={{ fontSize: 'var(--font-size-2xs)', color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
+                                <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-9fa7b5)', marginBottom: 4 }}>Pan</div>
                                 <div style={{ position: 'relative', height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)' }}>
-                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
+                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-rgba-255-255-255-0d2)' }} />
                                     <div style={{
                                         position: 'absolute',
                                         top: -3,
@@ -62,13 +62,13 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                         width: 10,
                                         height: 14,
                                         borderRadius: 'var(--radius-md)',
-                                        background: '#56a7ff',
-                                        boxShadow: '0 0 6px rgba(86,167,255,0.45)',
+                                        background: 'var(--token-color-hex-56a7ff)',
+                                        boxShadow: '0 0 6px var(--token-color-rgba-86-167-255-0d45)',
                                     }} />
                                 </div>
                             </div>
                             <div>
-                                <div style={{ fontSize: 'var(--font-size-2xs)', color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
+                                <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-9fa7b5)', marginBottom: 4 }}>Stereo Width</div>
                                 <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                                     <div style={{
                                         width: `${(widthPct * 100).toFixed(2)}%`,
@@ -103,23 +103,23 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         </>
                     ) : (
                         <>
-                            <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: '#d9e3f2' }}>{utilityTitle}</div>
+                            <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d9e3f2)' }}>{utilityTitle}</div>
                             {isTuner && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: '#a9d2ff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
-                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1f2a36', position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: '#7ab6ff' }} />
+                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-a9d2ff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1f2a36)', position: 'relative' }}>
+                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-hex-7ab6ff)' }} />
                                     </div>
                                 </div>
                             )}
                             {(isAutoShift || isShifter) && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: '#a5bed8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
-                                    <div style={{ fontSize: 'var(--font-size-2xl)', color: '#dce9ff', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
+                                    <div style={{ fontSize: 'var(--font-size-2xl)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
                                 </div>
                             )}
                             {isExternalFx && (
-                                <div style={{ gridColumn: '1 / span 2', fontSize: 'var(--font-size-xs)', color: '#c2cfdb', lineHeight: 1.4 }}>
+                                <div style={{ gridColumn: '1 / span 2', fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c2cfdb)', lineHeight: 1.4 }}>
                                     External routing host. Use device params below for send/return balance and compensation.
                                 </div>
                             )}
@@ -167,12 +167,12 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                 }}>
                     {isTransientShaper ? (
                         <div style={{ display: 'grid', gap: 6 }}>
-                            <div style={{ ...pluginPanelTitleStyle, color: '#b9d7ff' }}>Transient Shaper</div>
+                            <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b9d7ff)' }}>Transient Shaper</div>
                             <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: '#53b0ff' }} />
+                                <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-53b0ff)' }} />
                             </div>
                             <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: '#78d6ad' }} />
+                                <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-78d6ad)' }} />
                             </div>
                             <div style={pluginPanelMetaStyle}>
                                 <span>Attack {atkMs.toFixed(1)} ms</span>
@@ -181,10 +181,10 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                         </div>
                     ) : (
                         <svg viewBox="0 0 280 86" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                            <rect x="0" y="0" width="280" height="86" fill="rgba(22,24,30,0.65)" />
-                            <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="#6ac3ff" strokeWidth="3" strokeLinecap="round" />
-                            <line x1="14" y1="20" x2="14" y2="70" stroke="rgba(255,255,255,0.2)" />
-                            <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
+                            <rect x="0" y="0" width="280" height="86" fill="var(--token-color-rgba-22-24-30-0d65)" />
+                            <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="var(--token-color-hex-6ac3ff)" strokeWidth="3" strokeLinecap="round" />
+                            <line x1="14" y1="20" x2="14" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
+                            <line x1="14" y1="70" x2="260" y2="70" stroke="var(--token-color-rgba-255-255-255-0d2)" />
                         </svg>
                     )}
                     <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-divider)', padding: 3 }}>

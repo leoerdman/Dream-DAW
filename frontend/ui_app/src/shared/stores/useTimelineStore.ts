@@ -27,8 +27,15 @@ interface TimelineState {
     /** Ruler height in pixels. */
     rulerHeight: number;
 
+    /** One-shot viewport restore payload sequence. */
+    restoreSeq: number;
+    restorePixelsPerBeat: number | null;
+    restoreScrollLeft: number | null;
+
     /** Update layout values. */
     setLayout: (values: Partial<Pick<TimelineState, 'pixelsPerBeat' | 'trackHeight' | 'canvasRect' | 'scrollLeft' | 'scrollTop' | 'rulerHeight'>>) => void;
+    requestViewportRestore: (pixelsPerBeat: number, scrollLeft: number) => void;
+    clearViewportRestore: () => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set) => ({
@@ -38,6 +45,20 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     scrollLeft: 0,
     scrollTop: 0,
     rulerHeight: 24,
+    restoreSeq: 0,
+    restorePixelsPerBeat: null,
+    restoreScrollLeft: null,
 
     setLayout: (values) => set(values),
+    requestViewportRestore: (pixelsPerBeat, scrollLeft) =>
+        set((state) => ({
+            restoreSeq: state.restoreSeq + 1,
+            restorePixelsPerBeat: Number.isFinite(pixelsPerBeat) ? pixelsPerBeat : 20,
+            restoreScrollLeft: Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0,
+        })),
+    clearViewportRestore: () =>
+        set({
+            restorePixelsPerBeat: null,
+            restoreScrollLeft: null,
+        }),
 }));

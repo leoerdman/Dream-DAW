@@ -163,30 +163,30 @@ export function PluginGuiSurfaceEqCanvas({
             >
                 <defs>
                     <linearGradient id={`eqGrad-${deviceId}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#5ab2ff" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="#5ab2ff" stopOpacity="0" />
+                        <stop offset="0%" stopColor="var(--token-color-hex-5ab2ff)" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="var(--token-color-hex-5ab2ff)" stopOpacity="0" />
                     </linearGradient>
                 </defs>
                 {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
-                    <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'rgba(80,160,255,0.35)' : 'rgba(60,130,220,0.08)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
+                    <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'var(--token-color-rgba-80-160-255-0d35)' : 'var(--token-color-rgba-60-130-220-0d08)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
                 ))}
                 {FREQ_LABELS.map((fl) => (
-                    <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(60,130,220,0.12)" strokeWidth="0.5" />
+                    <line key={`vf-${fl.freq}`} x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="var(--token-color-rgba-60-130-220-0d12)" strokeWidth="0.5" />
                 ))}
                 {FREQ_SUB_LINES.map((f) => (
-                    <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="rgba(60,130,220,0.05)" strokeWidth="0.3" />
+                    <line key={`vsub-${f}`} x1={freqToX(f)} y1={4} x2={freqToX(f)} y2={VB_H - 12} stroke="var(--token-color-rgba-60-130-220-0d05)" strokeWidth="0.3" />
                 ))}
                 <defs>
                     <linearGradient id={`specGrad-${deviceId}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="rgba(0,220,200,0.35)" />
-                        <stop offset="100%" stopColor="rgba(0,220,200,0)" />
+                        <stop offset="0%" stopColor="var(--token-color-rgba-0-220-200-0d35)" />
+                        <stop offset="100%" stopColor="var(--token-color-rgba-0-220-200-0)" />
                     </linearGradient>
                 </defs>
                 {spectrumPath && <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.6" />}
                 <path d={fillPath} fill={`url(#eqGrad-${deviceId})`} opacity="0.5" />
-                <path d={curvePath} fill="none" stroke="rgba(90,178,255,0.7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={curvePath} fill="none" stroke="var(--token-color-rgba-90-178-255-0d7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 {bands.filter((b) => b.enabled).length === 0 && (
-                    <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="rgba(160,190,220,0.25)" fontSize="10" fontFamily="Inter, sans-serif">
+                    <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-160-190-220-0d25)" fontSize="10" fontFamily="Inter, sans-serif">
                         Double-click to add EQ point
                     </text>
                 )}
@@ -196,15 +196,15 @@ export function PluginGuiSurfaceEqCanvas({
                 style={{
                     position: 'absolute', top: 4, right: 6, zIndex: 10, cursor: 'pointer', width: 22, height: 22, borderRadius: 4,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: eqSpectrumEnabled ? 'rgba(0,220,200,0.15)' : 'rgba(90,178,255,0.06)',
-                    border: `1px solid ${eqSpectrumEnabled ? 'rgba(0,220,200,0.4)' : 'rgba(90,178,255,0.1)'}`,
+                    background: eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d15)' : 'var(--token-color-rgba-90-178-255-0d06)',
+                    border: `1px solid ${eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d4)' : 'var(--token-color-rgba-90-178-255-0d1)'}`,
                     transition: 'all 0.2s ease',
                 }}
                 title={eqSpectrumEnabled ? 'Hide Spectrum' : 'Show Spectrum'}
                 onClick={() => setEqSpectrumEnabled(!eqSpectrumEnabled)}
             >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'rgba(0,220,200,0.9)' : 'rgba(160,190,220,0.4)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M1 10 L3 6 L5 8 L7 3 L9 7 L11 5 L13 9" stroke={eqSpectrumEnabled ? 'var(--token-color-rgba-0-220-200-0d9)' : 'var(--token-color-rgba-160-190-220-0d4)'} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
             </div>
             <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -212,7 +212,7 @@ export function PluginGuiSurfaceEqCanvas({
                     <div key={`dblabel-${db}`} style={{
                         position: 'absolute', left: `${((MARGIN_L + 2) / VB_W) * 100}%`, top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
                         fontSize: 8, fontFamily: 'Inter, sans-serif',
-                        color: db === 0 ? 'rgba(160,200,255,0.55)' : 'rgba(160,200,255,0.3)',
+                        color: db === 0 ? 'var(--token-color-rgba-160-200-255-0d55)' : 'var(--token-color-rgba-160-200-255-0d3)',
                         whiteSpace: 'nowrap', lineHeight: 1,
                     }}>
                         {db > 0 ? '+' : ''}{db}dB
@@ -223,7 +223,7 @@ export function PluginGuiSurfaceEqCanvas({
                 {FREQ_LABELS.map((fl) => (
                     <div key={`flabel-${fl.freq}`} style={{
                         position: 'absolute', left: `${(freqToX(fl.freq) / VB_W) * 100}%`, bottom: 2, transform: 'translateX(-50%)',
-                        fontSize: 8, fontFamily: 'Inter, sans-serif', color: 'rgba(160,200,255,0.5)', whiteSpace: 'nowrap', lineHeight: 1,
+                        fontSize: 8, fontFamily: 'Inter, sans-serif', color: 'var(--token-color-rgba-160-200-255-0d5)', whiteSpace: 'nowrap', lineHeight: 1,
                     }}>
                         {fl.label}
                     </div>

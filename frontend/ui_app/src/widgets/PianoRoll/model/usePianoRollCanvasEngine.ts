@@ -49,7 +49,7 @@ export function usePianoRollCanvasEngine({
             const h = noteHeight - 2;
             if (x + w < 0 || x > canvasWidth) continue;
             ctx.globalAlpha = 0.17;
-            ctx.fillStyle = '#9db2d6';
+            ctx.fillStyle = 'var(--token-color-hex-9db2d6)';
             ctx.fillRect(x, y, w, h);
         }
 
@@ -74,13 +74,13 @@ export function usePianoRollCanvasEngine({
 
             // Top highlight edge (gives 3D feel)
             ctx.globalAlpha = 0.35;
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = 'var(--token-color-hex-ffffff)';
             ctx.fillRect(x + 1, y, w - 2, 1);
 
             // Selection outline
             if (selectedNotes.has(note.id)) {
                 ctx.globalAlpha = 1;
-                ctx.strokeStyle = '#ffffff';
+                ctx.strokeStyle = 'var(--token-color-hex-ffffff)';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.roundRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, h - 1), r);

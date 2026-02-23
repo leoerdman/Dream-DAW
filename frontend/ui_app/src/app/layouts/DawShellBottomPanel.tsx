@@ -111,7 +111,7 @@ export function DawShellBottomPanel({
                         </Suspense>
                     ) : selectedTimelineClip?.type === 'audio' ? (
                         <SampleClipEditor
-                            key={`${selectedTimelineClip.id}:${selectedTimelineClip.pitchShiftSemitones ?? 0}:${selectedTimelineClip.isWarped ? 1 : 0}:${selectedTimelineClip.warpMode ?? 0}:${Math.round(selectedTimelineClip.warpBaseBpm ?? 0)}`}
+                            key={selectedTimelineClip.id}
                             clip={selectedTimelineClip}
                         />
                     ) : (

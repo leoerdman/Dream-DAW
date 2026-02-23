@@ -38,9 +38,9 @@ export type PluginGroupedRow =
 
 export const STATIC_CATEGORIES: BrowserCategory[] = [
     { id: 'sec-collections', title: 'Browser', icon: 'search', kind: 'section' },
-    { id: 'collection-red', title: 'Collection', icon: 'star', markerColor: '#ef4444', kind: 'leaf' },
-    { id: 'collection-yellow', title: 'Collection', icon: 'star', markerColor: '#f59e0b', kind: 'leaf' },
-    { id: 'collection-green', title: 'Collection', icon: 'star', markerColor: '#22c55e', kind: 'leaf' },
+    { id: 'collection-red', title: 'Collection', icon: 'star', markerColor: 'var(--token-color-hex-ef4444)', kind: 'leaf' },
+    { id: 'collection-yellow', title: 'Collection', icon: 'star', markerColor: 'var(--token-color-hex-f59e0b)', kind: 'leaf' },
+    { id: 'collection-green', title: 'Collection', icon: 'star', markerColor: 'var(--token-color-hex-22c55e)', kind: 'leaf' },
     { id: 'sec-library', title: 'Library', icon: 'folder-tree', kind: 'section' },
     { id: 'all', title: 'All', icon: 'grid', kind: 'leaf' },
     { id: 'samples', title: 'Samples', icon: 'wave-bars', kind: 'leaf' },

@@ -23,10 +23,10 @@ const PAD_NAMES = [
 
 // Pad color groups (GM drum map style)
 const PAD_COLORS: Record<number, string> = {
-    0: '#ff5c5c', 1: '#ff8c5c', 2: '#ffbf5c', 3: '#8c5cff',
-    4: '#5caeff', 5: '#5caeff', 6: '#5ce0a6', 7: '#5caeff',
-    8: '#5ce0a6', 9: '#5ce0a6', 10: '#f0c430', 11: '#f0c430',
-    12: '#f0c430', 13: '#f0c430', 14: '#cf8ef7', 15: '#cf8ef7',
+    0: 'var(--token-color-hex-ff5c5c)', 1: 'var(--token-color-hex-ff8c5c)', 2: 'var(--token-color-hex-ffbf5c)', 3: 'var(--token-color-hex-8c5cff)',
+    4: 'var(--token-color-hex-5caeff)', 5: 'var(--token-color-hex-5caeff)', 6: 'var(--token-color-hex-5ce0a6)', 7: 'var(--token-color-hex-5caeff)',
+    8: 'var(--token-color-hex-5ce0a6)', 9: 'var(--token-color-hex-5ce0a6)', 10: 'var(--token-color-hex-f0c430)', 11: 'var(--token-color-hex-f0c430)',
+    12: 'var(--token-color-hex-f0c430)', 13: 'var(--token-color-hex-f0c430)', 14: 'var(--token-color-hex-cf8ef7)', 15: 'var(--token-color-hex-cf8ef7)',
 };
 export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: SampleRackProps) {
     const [selectedPad, setSelectedPad] = useState<number>(0);
@@ -97,7 +97,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                     const isSelected = selectedPad === i;
                     const hasSample = !!p?.sample_path;
                     const fileName = p?.sample_path?.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
-                    const pc = PAD_COLORS[i] ?? '#5ce0a6';
+                    const pc = PAD_COLORS[i] ?? 'var(--token-color-hex-5ce0a6)';
 
                     return (
                         <div
@@ -133,7 +133,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {/* Pad number */}
                             <span style={{
                                 position: 'absolute', top: 2, left: 4,
-                                fontSize: 8, color: isSelected ? pc : 'rgba(255,255,255,0.25)',
+                                fontSize: 8, color: isSelected ? pc : 'var(--token-color-rgba-255-255-255-0d25)',
                                 fontWeight: 700, fontFamily: 'var(--font-mono)',
                             }}>
                                 {i + 1}
@@ -143,13 +143,13 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {p?.is_muted && (
                                 <span style={{
                                     position: 'absolute', top: 2, right: 3,
-                                    fontSize: 7, color: '#ff5c5c', fontWeight: 700,
+                                    fontSize: 7, color: 'var(--token-color-hex-ff5c5c)', fontWeight: 700,
                                 }}>M</span>
                             )}
                             {p?.is_soloed && (
                                 <span style={{
                                     position: 'absolute', top: 2, right: p?.is_muted ? 12 : 3,
-                                    fontSize: 7, color: '#f0c430', fontWeight: 700,
+                                    fontSize: 7, color: 'var(--token-color-hex-f0c430)', fontWeight: 700,
                                 }}>S</span>
                             )}
 
@@ -159,7 +159,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             ) : null}
                             <span style={{
                                 fontSize: hasSample ? 8 : 9, fontWeight: 600,
-                                color: hasSample ? '#fff' : 'rgba(255,255,255,0.35)',
+                                color: hasSample ? 'var(--token-color-hex-ffffff)' : 'var(--token-color-rgba-255-255-255-0d35)',
                                 textAlign: 'center', lineHeight: 1.1,
                                 overflow: 'hidden', textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap', maxWidth: '100%', padding: '0 2px',
@@ -176,8 +176,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                 flex: 1, minWidth: 0,
                 display: 'grid', gridTemplateRows: '102px auto',
                 gap: 4, padding: 4,
-                background: 'rgba(0, 0, 0, 0.15)',
-                borderLeft: '1px solid rgba(255, 255, 255, 0.04)',
+                background: 'var(--token-color-rgba-0-0-0-0d15)',
+                borderLeft: '1px solid var(--token-color-rgba-255-255-255-0d04)',
             }}>
                 {pad ? (
                     <>
@@ -199,21 +199,21 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                         <PadWaveform samplePath={pad.sample_path} />
                                     </div>
                                 ) : (
-                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--font-mono)' }}>
+                                    <span style={{ fontSize: 10, color: 'var(--token-color-rgba-255-255-255-0d3)', fontFamily: 'var(--font-mono)' }}>
                                         NO SAMPLE LOADED
                                     </span>
                                 )}
                             </div>
                             <div style={{
                                 position: 'absolute', top: 6, left: 8,
-                                color: '#e0e0e0', fontSize: 10, fontWeight: 700,
+                                color: 'var(--token-color-hex-e0e0e0)', fontSize: 10, fontWeight: 700,
                                 fontFamily: 'var(--font-mono)', letterSpacing: '0.5px'
                             }}>
                                 PAD {selectedPad + 1}
                             </div>
                             <div style={{
                                 position: 'absolute', bottom: 4, left: 8, right: 8,
-                                color: pad.sample_path ? '#5ce0a6' : 'rgba(255,255,255,0.4)',
+                                color: pad.sample_path ? 'var(--token-color-hex-5ce0a6)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                 fontSize: 10, fontFamily: 'var(--font-mono)',
                                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                             }}>
@@ -224,8 +224,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                     onClick={() => handleClearPad(selectedPad)}
                                     style={{
                                         position: 'absolute', top: 4, right: 8,
-                                        background: 'rgba(255,100,100,0.15)', border: '1px solid rgba(255,100,100,0.3)',
-                                        borderRadius: 4, color: '#ff8080', fontSize: 9, padding: '2px 6px',
+                                        background: 'var(--token-color-rgba-255-100-100-0d15)', border: '1px solid var(--token-color-rgba-255-100-100-0d3)',
+                                        borderRadius: 4, color: 'var(--token-color-hex-ff8080)', fontSize: 9, padding: '2px 6px',
                                         cursor: 'pointer', fontWeight: 600,
                                     }}
                                 >
@@ -258,15 +258,15 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {/* Mute/Solo */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleMute} style={{
-                                    width: 32, height: 20, border: pad.is_muted ? '1px solid #ff5c5c' : '1px solid rgba(255,255,255,0.1)',
-                                    borderRadius: 4, background: pad.is_muted ? 'rgba(255,92,92,0.2)' : 'rgba(0,0,0,0.2)',
-                                    color: pad.is_muted ? '#ff5c5c' : 'rgba(255,255,255,0.4)',
+                                    width: 32, height: 20, border: pad.is_muted ? '1px solid var(--token-color-hex-ff5c5c)' : '1px solid var(--token-color-rgba-255-255-255-0d1)',
+                                    borderRadius: 4, background: pad.is_muted ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
+                                    color: pad.is_muted ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
                                 }}>MUTE</button>
                                 <button onClick={toggleSolo} style={{
-                                    width: 32, height: 20, border: pad.is_soloed ? '1px solid #f0c430' : '1px solid rgba(255,255,255,0.1)',
-                                    borderRadius: 4, background: pad.is_soloed ? 'rgba(240,196,48,0.2)' : 'rgba(0,0,0,0.2)',
-                                    color: pad.is_soloed ? '#f0c430' : 'rgba(255,255,255,0.4)',
+                                    width: 32, height: 20, border: pad.is_soloed ? '1px solid var(--token-color-hex-f0c430)' : '1px solid var(--token-color-rgba-255-255-255-0d1)',
+                                    borderRadius: 4, background: pad.is_soloed ? 'var(--token-color-rgba-240-196-48-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
+                                    color: pad.is_soloed ? 'var(--token-color-hex-f0c430)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
                                 }}>SOLO</button>
                             </div>
@@ -275,7 +275,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                 ) : (
                     <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        height: '100%', fontSize: 11, color: 'rgba(255,255,255,0.3)',
+                        height: '100%', fontSize: 11, color: 'var(--token-color-rgba-255-255-255-0d3)',
                         fontFamily: 'var(--font-mono)', fontStyle: 'italic',
                     }}>
                         SELECT A PAD

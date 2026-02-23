@@ -121,7 +121,7 @@ const sectionButtonStyle: React.CSSProperties = {
     padding: '3px 6px 3px 12px',
     background: 'none',
     border: 'none',
-    color: '#ffffff',
+    color: 'var(--token-color-hex-ffffff)',
     fontSize: 'var(--font-size-sm)',
     fontWeight: 'var(--font-weight-bold)' as unknown as number,
     textTransform: 'uppercase',
@@ -150,7 +150,7 @@ const addFolderButtonStyle: React.CSSProperties = {
     padding: '2px 4px 2px 12px',
     background: 'transparent',
     border: 'none',
-    color: '#ffffff',
+    color: 'var(--token-color-hex-ffffff)',
     fontSize: 'var(--font-size-base)',
     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     textAlign: 'left',
@@ -167,7 +167,7 @@ const categoryButtonStyle: React.CSSProperties = {
     width: '100%',
     padding: '2px 4px 2px 12px',
     border: 'none',
-    color: '#ffffff',
+    color: 'var(--token-color-hex-ffffff)',
     fontSize: 'var(--font-size-base)',
     textAlign: 'left',
     cursor: 'pointer',
@@ -181,7 +181,7 @@ const categoryIconStyle: React.CSSProperties = {
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
-    color: '#ffffff',
+    color: 'var(--token-color-hex-ffffff)',
 };
 
 const categoryLabelStyle: React.CSSProperties = {
@@ -195,5 +195,5 @@ const markerDotStyle = (markerColor: string): React.CSSProperties => ({
     height: 7,
     borderRadius: '50%',
     background: markerColor,
-    boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.28)',
+    boxShadow: '0 0 0 1px var(--token-color-rgba-0-0-0-0d28)',
 });

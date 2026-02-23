@@ -98,7 +98,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                         style={retryBtnStyle}
                         onMouseEnter={e => {
                             (e.target as HTMLButtonElement).style.background = 'var(--color-accent-primary)';
-                            (e.target as HTMLButtonElement).style.color = '#fff';
+                            (e.target as HTMLButtonElement).style.color = 'var(--token-color-hex-ffffff)';
                         }}
                         onMouseLeave={e => {
                             (e.target as HTMLButtonElement).style.background = 'var(--color-border-subtle)';
@@ -156,7 +156,7 @@ const iconStyle: React.CSSProperties = {
 const titleStyle: React.CSSProperties = {
     fontSize: 'var(--font-size-md)',
     fontWeight: 700,
-    color: '#e53e3e',
+    color: 'var(--token-color-hex-e53e3e)',
     letterSpacing: '0.03em',
 };
 

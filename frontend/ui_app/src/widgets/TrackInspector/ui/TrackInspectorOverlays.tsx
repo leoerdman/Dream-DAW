@@ -91,7 +91,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     currentColor={
                         (logic.colorPickerState.trackId === 'master'
                             ? logic.masterTrack.color
-                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || '#666'
+                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || 'var(--token-color-hex-666666)'
                     }
                     onSelect={(color) => logic.handleColorSelect(logic.colorPickerState!.trackId, color)}
                     onDismiss={() => logic.setColorPickerState(null)}

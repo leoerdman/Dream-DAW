@@ -41,7 +41,7 @@ export function PluginGuiSurfaceSampler({
                 style={{
                     position: 'relative',
                     overflow: 'hidden',
-                    borderBottom: '1px solid rgba(90,178,255,0.22)',
+                    borderBottom: '1px solid var(--token-color-rgba-90-178-255-0d22)',
                 }}
                 onMouseUp={() => {
                     const dragging = useDragStore.getState().draggingItem;
@@ -66,11 +66,11 @@ export function PluginGuiSurfaceSampler({
                 >
                     <defs>
                         <linearGradient id="samplerWaveFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#ffcc58" stopOpacity="0.92" />
-                            <stop offset="100%" stopColor="#f0a62a" stopOpacity="0.66" />
+                            <stop offset="0%" stopColor="var(--token-color-hex-ffcc58)" stopOpacity="0.92" />
+                            <stop offset="100%" stopColor="var(--token-color-hex-f0a62a)" stopOpacity="0.66" />
                         </linearGradient>
                     </defs>
-                    <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 90%, #0f1728)" />
+                    <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 90%, var(--token-color-hex-0f1728))" />
                     {Array.from({ length: 18 }).map((_, i) => (
                         <line
                             key={`g-${i}`}
@@ -78,21 +78,21 @@ export function PluginGuiSurfaceSampler({
                             y1={0}
                             x2={(i / 17) * 1000}
                             y2={90}
-                            stroke="rgba(90,178,255,0.09)"
+                            stroke="var(--token-color-rgba-90-178-255-0d09)"
                             strokeWidth="1"
                         />
                     ))}
-                    <line x1="0" y1="45" x2="1000" y2="45" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                    <line x1="0" y1="45" x2="1000" y2="45" stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="1" />
                     {samplerWaveformPath ? (
                         <>
                             <path d={samplerWaveformPath} fill="url(#samplerWaveFill)" />
-                            <path d={samplerWaveformPath} fill="none" stroke="rgba(255,214,110,0.85)" strokeWidth="1" />
+                            <path d={samplerWaveformPath} fill="none" stroke="var(--token-color-rgba-255-214-110-0d85)" strokeWidth="1" />
                         </>
                     ) : (
                         <path
                             d="M 0 46 C 30 14, 60 78, 90 46 C 120 14, 150 78, 180 46 C 210 14, 240 78, 270 46 C 300 14, 330 78, 360 46 C 390 14, 420 78, 450 46 C 480 14, 510 78, 540 46 C 570 18, 600 74, 630 46 C 660 24, 690 68, 720 46 C 750 30, 780 62, 810 46 C 840 36, 870 56, 900 46 C 930 42, 960 50, 1000 46"
                             fill="none"
-                            stroke="#ffbf3c"
+                            stroke="var(--token-color-hex-ffbf3c)"
                             strokeWidth="2.4"
                             strokeLinecap="round"
                         />
@@ -103,7 +103,7 @@ export function PluginGuiSurfaceSampler({
                         position: 'absolute',
                         left: 8,
                         top: 4,
-                        color: '#d7dce7',
+                        color: 'var(--token-color-hex-d7dce7)',
                         fontSize: 'var(--font-size-2xs)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
@@ -118,7 +118,7 @@ export function PluginGuiSurfaceSampler({
                         left: 8,
                         right: 88,
                         bottom: 3,
-                        color: sampleName ? '#9fb6d9' : '#a8b0bd',
+                        color: sampleName ? 'var(--token-color-hex-9fb6d9)' : 'var(--token-color-hex-a8b0bd)',
                         fontSize: 'var(--font-size-2xs)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -137,7 +137,7 @@ export function PluginGuiSurfaceSampler({
                         border: '1px solid var(--color-overlay-light)',
                         borderRadius: 'var(--radius-sm)',
                         background: 'var(--surface-tab-inactive)',
-                        color: '#dce9ff',
+                        color: 'var(--token-color-hex-dce9ff)',
                         fontSize: 'var(--font-size-2xs)',
                         padding: '3px 7px',
                         cursor: 'pointer',
@@ -153,7 +153,7 @@ export function PluginGuiSurfaceSampler({
                     gap: 8,
                     alignItems: 'center',
                     padding: '4px 8px 8px 8px',
-                    background: 'rgba(16, 20, 28, 0.55)',
+                    background: 'var(--token-color-rgba-16-20-28-0d55)',
                 }}
             >
                 {otherSamplerParams.map((p) => (

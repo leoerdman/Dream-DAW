@@ -9,10 +9,12 @@ type Props = {
     draftWarpBaseBpm: number;
     draftPitch: number;
     zoomX: number;
+    zoomY: number;
     isPreviewing: boolean;
     setDraftWarpBaseBpm: (value: number) => void;
     setDraftPitch: (value: number) => void;
     setZoomX: (value: number) => void;
+    setZoomY: (value: number) => void;
     onCommitWarp: (next: { enabled: boolean; mode: number; baseBpm: number }) => void;
     onCommitPitch: (value: number) => void;
     onTogglePreview: () => void;
@@ -27,14 +29,23 @@ export const SampleClipEditorSidebar = (props: Props) => {
         draftWarpBaseBpm,
         draftPitch,
         zoomX,
+        zoomY,
         isPreviewing,
         setDraftWarpBaseBpm,
         setDraftPitch,
         setZoomX,
+        setZoomY,
         onCommitWarp,
         onCommitPitch,
         onTogglePreview,
     } = props;
+
+    const clampPitch = (value: number) => Math.max(-48, Math.min(48, Math.round(value || 0)));
+    const nudgePitch = (delta: number) => {
+        const next = clampPitch(draftPitch + delta);
+        setDraftPitch(next);
+        onCommitPitch(next);
+    };
 
     return (
         <ClipEditorSidebar>
@@ -71,6 +82,22 @@ export const SampleClipEditorSidebar = (props: Props) => {
                 <div style={{ display: 'grid', gap: 4 }}>
                     <span style={editorMetaTextStyle}>Transpose (st)</span>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(-12)}
+                            style={{ ...editorButtonStyle, minWidth: 40, padding: '3px 6px' }}
+                            title="Transpose down octave"
+                        >
+                            -12
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(-1)}
+                            style={{ ...editorButtonStyle, minWidth: 34, padding: '3px 6px' }}
+                            title="Transpose down"
+                        >
+                            -1
+                        </button>
                         <input
                             type="range"
                             min={-48}
@@ -87,7 +114,49 @@ export const SampleClipEditorSidebar = (props: Props) => {
                             }}
                             style={{ flex: 1 }}
                         />
-                        <span style={{ ...editorMetaTextStyle, width: '28px', textAlign: 'right' }}>{draftPitch > 0 ? `+${draftPitch}` : draftPitch}</span>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(1)}
+                            style={{ ...editorButtonStyle, minWidth: 34, padding: '3px 6px' }}
+                            title="Transpose up"
+                        >
+                            +1
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => nudgePitch(12)}
+                            style={{ ...editorButtonStyle, minWidth: 40, padding: '3px 6px' }}
+                            title="Transpose up octave"
+                        >
+                            +12
+                        </button>
+                        <input
+                            type="number"
+                            min={-48}
+                            max={48}
+                            step={1}
+                            value={draftPitch}
+                            onChange={(e) => setDraftPitch(clampPitch(Number(e.target.value)))}
+                            onBlur={() => onCommitPitch(clampPitch(draftPitch))}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    onCommitPitch(clampPitch(draftPitch));
+                                }
+                            }}
+                            style={{ width: 58, ...editorButtonStyle, padding: '2px 6px', textAlign: 'right' }}
+                            title="Exact transpose in semitones"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setDraftPitch(0);
+                                onCommitPitch(0);
+                            }}
+                            style={{ ...editorButtonStyle, minWidth: 52, padding: '3px 6px' }}
+                            title="Reset transpose"
+                        >
+                            Reset
+                        </button>
                     </div>
                 </div>
             </ClipEditorSection>
@@ -97,9 +166,14 @@ export const SampleClipEditorSidebar = (props: Props) => {
                     {isPreviewing ? 'Stop Preview' : 'Preview'}
                 </button>
                 <div style={{ display: 'grid', gap: 4 }}>
-                    <span style={editorMetaTextStyle}>Zoom</span>
+                    <span style={editorMetaTextStyle}>Zoom X</span>
                     <input type="range" min={0.6} max={4} step={0.1} value={zoomX} onChange={(e) => setZoomX(Number(e.target.value))} />
                     <span style={{ ...editorMetaTextStyle }}>{zoomX.toFixed(1)}x</span>
+                </div>
+                <div style={{ display: 'grid', gap: 4 }}>
+                    <span style={editorMetaTextStyle}>Height</span>
+                    <input type="range" min={0.5} max={2} step={0.05} value={zoomY} onChange={(e) => setZoomY(Number(e.target.value))} />
+                    <span style={{ ...editorMetaTextStyle }}>{zoomY.toFixed(2)}x</span>
                 </div>
             </ClipEditorSection>
         </ClipEditorSidebar>

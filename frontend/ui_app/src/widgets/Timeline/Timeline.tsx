@@ -8,6 +8,7 @@ import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
+import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
@@ -114,10 +115,19 @@ export const Timeline = (props: TimelineProps) => {
     // avoids ~30 React re-renders per second of the entire Timeline component.
 
     // ── Grid store for dynamic snap ───────────────────────────────────
-    const gridInterval = useGridStore((s) => s.gridInterval);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
     const snapEnabled = useGridStore((s) => s.snapEnabled);
     const pixelsPerBeat = useTimelineStore((s) => s.pixelsPerBeat);
-    const snapBeatsValue = gridInterval(beatsPerBar, pixelsPerBeat);
+    const restoreSeq = useTimelineStore((s) => s.restoreSeq);
+    const restorePixelsPerBeat = useTimelineStore((s) => s.restorePixelsPerBeat);
+    const restoreScrollLeft = useTimelineStore((s) => s.restoreScrollLeft);
+    const setTimelineLayout = useTimelineStore((s) => s.setLayout);
+    const clearViewportRestore = useTimelineStore((s) => s.clearViewportRestore);
+    const snapBeatsValue = useMemo(
+        () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat),
+        [gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat],
+    );
 
     // ── Engine config ─────────────────────────────────────────────────
     const engineConfig: UseTimelineEngineConfig = {
@@ -134,7 +144,7 @@ export const Timeline = (props: TimelineProps) => {
         snapEnabled,
     };
 
-    const { canvasRef, engineRef } = useTimelineEngine(engineConfig);
+    const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
@@ -293,9 +303,10 @@ export const Timeline = (props: TimelineProps) => {
         // mutation. The effect should ONLY run when fitHorizontalToken changes
         // (explicit user action, e.g. pressing W).
         const currentClips = propsRef.current.clips ?? [];
+        const currentBeatsPerBar = Math.max(1, propsRef.current.timeSignature?.[0] ?? beatsPerBar);
 
         let minBeat = 0;
-        let maxBeat = Math.max(4, beatsPerBar * 4);
+        let maxBeat = Math.max(4, currentBeatsPerBar * 4);
 
         if (currentClips.length > 0) {
             minBeat = Infinity;
@@ -308,7 +319,7 @@ export const Timeline = (props: TimelineProps) => {
             }
             if (!Number.isFinite(minBeat) || !Number.isFinite(maxBeat)) {
                 minBeat = 0;
-                maxBeat = Math.max(4, beatsPerBar * 4);
+                maxBeat = Math.max(4, currentBeatsPerBar * 4);
             }
         }
 
@@ -320,7 +331,8 @@ export const Timeline = (props: TimelineProps) => {
 
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-    }, [fitHorizontalToken, engineRef, beatsPerBar, clips]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fitHorizontalToken, engineRef]);
 
     // Selection is now applied atomically inside the clips effect above.
     // This separate effect handles only explicit selection changes (e.g. click, Shift+click)
@@ -363,6 +375,24 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
         engine.setEditCursor(editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd ?? editCursorTrackIndex);
     }, [editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd, engineRef]);
+
+    useEffect(() => {
+        setTimelineLayout({
+            pixelsPerBeat: viewportState.ppb,
+            scrollLeft: viewportState.scrollX,
+            scrollTop: viewportState.scrollY,
+        });
+    }, [viewportState, setTimelineLayout]);
+
+    useEffect(() => {
+        if (restorePixelsPerBeat == null || restoreScrollLeft == null) return;
+        const engine = engineRef.current;
+        if (!engine) return;
+        engine.viewport.setZoom(restorePixelsPerBeat);
+        engine.viewport.scrollTo(restoreScrollLeft, engine.viewport.scrollY);
+        clearViewportRestore();
+        // restoreSeq ensures one-shot apply even if values repeat.
+    }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, engineRef, clearViewportRestore]);
 
     // ── Feed selected track highlight ─────────────────────────────────
     useEffect(() => {

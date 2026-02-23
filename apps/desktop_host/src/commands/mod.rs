@@ -112,6 +112,8 @@ pub(crate) fn invoke_handler()
         import_ableton_project,
         get_recent_projects,
         get_project_status,
+        set_arrangement_viewport_cmd,
+        get_arrangement_viewport_cmd,
         set_arrangement_grid_cmd,
         set_arrangement_grid_with_deltas_cmd,
         // Settings

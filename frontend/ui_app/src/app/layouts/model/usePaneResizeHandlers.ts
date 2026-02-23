@@ -67,6 +67,7 @@ export function usePaneResizeHandlers({
         const root = document.documentElement;
         const prevCursor = document.body.style.cursor;
         document.body.style.cursor = 'ns-resize';
+        window.dispatchEvent(new Event('dream:bottom-panel-resize-start'));
 
         const flushHeight = () => {
             rafId = null;
@@ -93,6 +94,7 @@ export function usePaneResizeHandlers({
                 setBottomPanelHeightPx((prev) => (prev === finalHeight ? prev : finalHeight));
             }
             document.body.style.cursor = prevCursor;
+            window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };

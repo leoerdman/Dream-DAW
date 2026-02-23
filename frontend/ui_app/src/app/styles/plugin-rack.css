@@ -130,11 +130,11 @@
     /* Blue LED by default */
     cursor: pointer;
     transition: background var(--transition-fast), box-shadow var(--transition-fast);
-    box-shadow: 0 0 4px rgba(74, 158, 255, 0.4);
+    box-shadow: 0 0 4px var(--token-color-rgba-74-158-255-0d4);
 }
 
 .device-bypass-led:hover {
-    box-shadow: 0 0 8px rgba(102, 204, 51, 0.6);
+    box-shadow: 0 0 8px var(--token-color-rgba-102-204-51-0d6);
 }
 
 .device-bypass-led.bypassed {
@@ -249,7 +249,7 @@
     height: 8px;
     border-radius: var(--radius-full);
     background: var(--color-port-audio);
-    border: 1px solid rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--token-color-rgba-0-0-0-0d3);
     z-index: 2;
 }
 

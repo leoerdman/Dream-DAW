@@ -23,7 +23,7 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-limiter)' }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: '#a4d9d3' }}>Lookahead Limiter</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-a4d9d3)' }}>Lookahead Limiter</div>
                     <div style={{ height: 10, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                         <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'var(--color-success)' }} />
                     </div>
@@ -58,7 +58,7 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-gate)' }}>
-                    <div style={{ ...pluginPanelTitleStyle, color: '#b8dfad' }}>Noise Gate</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-b8dfad)' }}>Noise Gate</div>
                     <div style={{ height: 34, borderRadius: 'var(--radius-md)', background: 'var(--color-bg-tertiary)', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'var(--color-success)' }} />
                     </div>
@@ -102,12 +102,12 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                         ? 'Phaser'
                         : 'Flanger';
         const hue = device.effectType === 'autoFilter'
-            ? '#4cc9d8'
+            ? 'var(--token-color-hex-4cc9d8)'
             : device.effectType === 'autoPan'
-                ? '#6db3ff'
+                ? 'var(--token-color-hex-6db3ff)'
                 : device.effectType === 'phaser'
-                    ? '#998bff'
-                    : '#66b3ff';
+                    ? 'var(--token-color-hex-998bff)'
+                    : 'var(--token-color-hex-66b3ff)';
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -115,14 +115,14 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                     background: 'var(--plugin-bg-mod)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(8, 10, 14, 0.65)" />
+                        <rect x="0" y="0" width="320" height="52" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         {!isVocoder && (
                             <path d="M 0 30 C 32 10, 64 46, 96 26 C 128 6, 160 44, 192 24 C 224 8, 256 42, 288 22 C 304 12, 320 26, 320 26" fill="none" stroke={hue} strokeWidth="2.4" />
                         )}
                         {isVocoder && Array.from({ length: 20 }).map((_, i) => {
                             const x = 8 + i * 15;
                             const h = 8 + ((i * 17) % 34);
-                            return <rect key={i} x={x} y={42 - h} width="9" height={h} rx="1.5" fill="rgba(120,200,255,0.9)" />;
+                            return <rect key={i} x={x} y={42 - h} width="9" height={h} rx="1.5" fill="var(--token-color-rgba-120-200-255-0d9)" />;
                         })}
                     </svg>
                     <div style={pluginPanelMetaStyle}>

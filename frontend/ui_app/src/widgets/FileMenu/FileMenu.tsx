@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { MenuItem, MenuSeparator } from './FileMenuParts';
 import { pathBasename } from './fileMenuPath';
 
@@ -45,6 +46,15 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
 
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
+    const syncArrangementViewport = useCallback(async () => {
+        const timeline = useTimelineStore.getState();
+        try {
+            await engineApi.setArrangementViewport(timeline.pixelsPerBeat, timeline.scrollLeft);
+        } catch (err) {
+            // Save should proceed even if viewport persistence fails.
+            console.warn('[FileMenu] setArrangementViewport failed (non-fatal):', err);
+        }
+    }, []);
 
     const handleNew = useCallback(async () => {
         setOpen(false);
@@ -114,6 +124,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (typeof flush === 'function') {
                 await flush();
             }
+            await syncArrangementViewport();
             const path = await engineApi.saveProjectDialog();
             if (!path) return; // Cancelled
             await engineApi.saveProjectAs(path);
@@ -122,7 +133,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Save As failed:', err);
         }
-    }, [syncProjectHistory]);
+    }, [syncProjectHistory, syncArrangementViewport]);
 
     const handleSave = useCallback(async () => {
         setOpen(false);
@@ -131,6 +142,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             if (typeof flush === 'function') {
                 await flush();
             }
+            await syncArrangementViewport();
             await engineApi.saveProject();
             await syncProjectHistory();
             console.log('[FileMenu] Project saved');
@@ -139,7 +151,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             console.log('[FileMenu] Save failed, trying Save As...', err);
             handleSaveAs();
         }
-    }, [handleSaveAs, syncProjectHistory]);
+    }, [handleSaveAs, syncProjectHistory, syncArrangementViewport]);
 
     return (
         <div ref={menuRef} style={{ position: 'relative' }}>

@@ -33,7 +33,7 @@ export function PluginGuiSurfaceEqBandStrip({
                         cursor: 'pointer',
                         padding: '1px 5px',
                         borderRadius: 3,
-                        background: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 'rgba(255,255,255,0.08)' : 'transparent',
+                        background: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 'var(--token-color-rgba-255-255-255-0d08)' : 'transparent',
                         fontSize: 10,
                         fontWeight: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 700 : 400,
                         transition: 'all 0.15s ease',

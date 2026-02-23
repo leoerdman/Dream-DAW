@@ -120,7 +120,7 @@ export function AutomationLaneSvg({
                             cx={mx}
                             cy={my}
                             r={active ? 5.2 : 4}
-                            fill={active ? '#ffffff' : lane.color}
+                            fill={active ? 'var(--token-color-hex-ffffff)' : lane.color}
                             fillOpacity={active ? 1 : 0.85}
                             stroke={lane.color}
                             strokeWidth={1}
@@ -144,7 +144,7 @@ export function AutomationLaneSvg({
                         cx={x}
                         cy={y}
                         r={r}
-                        fill={isSelected ? '#fff' : lane.color}
+                        fill={isSelected ? 'var(--token-color-hex-ffffff)' : lane.color}
                         stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
                         strokeWidth={isSelected ? 2 : 1}
                         style={{

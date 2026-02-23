@@ -21,19 +21,18 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/app/**/*.{ts,tsx}', 'src/widgets/StatusBar/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     rules: {
-      // UI tokens v2 migration guardrail:
-      // enforce in active shell/status surfaces first; legacy widgets are migrated incrementally.
+      // Enforce tokenized design colors everywhere in app source.
       'no-restricted-syntax': [
-        'warn',
+        'error',
         {
-          selector: "Literal[value=/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/]",
-          message: 'Avoid raw hex colors in TS/TSX. Use semantic tokens (e.g. var(--surface-2), var(--accent)).',
+          selector: "Literal[value=/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/]",
+          message: 'Avoid raw hex colors in TS/TSX. Use tokens (e.g. var(--color-text-primary) or var(--token-color-...)).',
         },
         {
-          selector: "Literal[value=/^rgba?\\(/]",
-          message: 'Avoid raw rgb/rgba colors in TS/TSX. Use semantic tokens or color-mix with tokens.',
+          selector: "Literal[value=/^(?:rgba?|hsla?)\\(/]",
+          message: 'Avoid raw rgb/rgba/hsl/hsla colors in TS/TSX. Use tokens or color-mix with tokens.',
         },
       ],
     },

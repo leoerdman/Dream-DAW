@@ -60,7 +60,7 @@ export const PluginSettingsPanel = ({
                 <div style={{
                     border: '1px solid var(--color-divider)',
                     borderRadius: 'var(--radius-sm)',
-                    background: 'color-mix(in srgb, var(--color-bg-header) 88%, #0e1117)',
+                    background: 'color-mix(in srgb, var(--color-bg-header) 88%, var(--token-color-hex-0e1117))',
                     padding: 8,
                     display: 'grid',
                     gap: 6,
@@ -75,10 +75,10 @@ export const PluginSettingsPanel = ({
                             borderRadius: 'var(--radius-full)',
                             border: '1px solid var(--color-divider)',
                             padding: '2px 7px',
-                            color: runtimeStatus?.loaded ? '#7edb90' : '#ff9b9b',
+                            color: runtimeStatus?.loaded ? 'var(--token-color-hex-7edb90)' : 'var(--token-color-hex-ff9b9b)',
                             background: runtimeStatus?.loaded
-                                ? 'color-mix(in srgb, #7edb90 16%, transparent)'
-                                : 'color-mix(in srgb, #ff7070 16%, transparent)',
+                                ? 'color-mix(in srgb, var(--token-color-hex-7edb90) 16%, transparent)'
+                                : 'color-mix(in srgb, var(--token-color-hex-ff7070) 16%, transparent)',
                         }}>
                             {runtimeStatus?.loaded ? (runtimeStatus.runtime || 'loaded') : 'offline'}
                         </span>

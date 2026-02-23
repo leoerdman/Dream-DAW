@@ -9,6 +9,8 @@ import {
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -17,15 +19,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     if (device.effectType === 'utility') {
-        const utilityTitle = normalizedInternalId === 'internal://effect/tuner'
-            ? 'Tuner'
-            : normalizedInternalId === 'internal://effect/external-audio-effect'
-                ? 'External Audio Effect'
-                : normalizedInternalId === 'internal://effect/auto-shift'
-                    ? 'Auto Shift'
-                    : normalizedInternalId === 'internal://effect/shifter'
-                        ? 'Shifter'
-                        : 'Utility';
+        const utilityTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Utility';
         const isTuner = normalizedInternalId === 'internal://effect/tuner';
         const isExternalFx = normalizedInternalId === 'internal://effect/external-audio-effect';
         const isAutoShift = normalizedInternalId === 'internal://effect/auto-shift';
@@ -46,7 +40,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     background: 'var(--plugin-bg-utility)',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
-                    gap: 10,
+                    gap: 'var(--space-2-5)',
                     alignItems: 'center',
                 }}>
                     {showCoreUtilityPanel ? (
@@ -146,15 +140,13 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
 
     if (device.effectType === 'compressor') {
         const isTransientShaper = normalizedInternalId === 'internal://effect/transient-shaper';
-        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -18;
-        const ratio = device.params.find((p) => p.name.toLowerCase() === 'ratio')?.value ?? 4;
-        const pseudoGr = Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
-        const atkMs = device.params.find((p) => p.name.toLowerCase() === 'atk')?.value
-            ?? device.params.find((p) => p.name.toLowerCase().includes('attack'))?.value
-            ?? 10;
-        const relMs = device.params.find((p) => p.name.toLowerCase() === 'rel')?.value
-            ?? device.params.find((p) => p.name.toLowerCase().includes('release'))?.value
-            ?? 80;
+        const thr = safeParamValue(device, 'thr', -18);
+        const ratio = safeParamValue(device, 'ratio', 4);
+        // BUG-P8 FIX: Use real VU level for GR meter when available, fallback to static formula.
+        const rawGr = Number.isFinite(device.vuLevel) ? Math.abs(device.vuLevel) : 0;
+        const pseudoGr = rawGr > 0 ? Math.max(0, Math.min(24, rawGr)) : Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
+        const atkMs = safeParamValue(device, ['atk', 'attack'], 10);
+        const relMs = safeParamValue(device, ['rel', 'release'], 80);
         const attackNorm = Math.max(0, Math.min(1, Math.log10(Math.max(0.1, atkMs)) / Math.log10(200)));
         const releaseNorm = Math.max(0, Math.min(1, Math.log10(Math.max(1, relMs)) / Math.log10(1000)));
         return (
@@ -164,7 +156,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                     background: 'var(--plugin-bg-compressor)',
                     display: 'grid',
                     gridTemplateColumns: '1fr auto',
-                    gap: 10,
+                    gap: 'var(--space-2-5)',
                     alignItems: 'center',
                 }}>
                     {isTransientShaper ? (

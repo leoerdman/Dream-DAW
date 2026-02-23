@@ -122,10 +122,10 @@ pub fn find_slot_in_node_by_id_mut(
 /// exist. Used for per-slot state restoration on project load.
 pub fn find_project_plugin_slot_by_slot_id(project: &Project, slot_id: Uuid) -> Option<PluginSlot> {
     for track in &project.tracks {
-        if let Some(inst) = &track.instrument {
-            if let Some(found) = find_slot_in_node_by_id(inst, slot_id) {
-                return Some(found);
-            }
+        if let Some(inst) = &track.instrument
+            && let Some(found) = find_slot_in_node_by_id(inst, slot_id)
+        {
+            return Some(found);
         }
         for fx in &track.effects {
             if let Some(found) = find_slot_in_node_by_id(fx, slot_id) {

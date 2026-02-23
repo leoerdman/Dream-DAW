@@ -283,6 +283,7 @@ pub struct AnalyzerProcessor {
 
 impl AnalyzerProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let sr = sample_rate as f64;
         Self {
             sample_rate: sr,

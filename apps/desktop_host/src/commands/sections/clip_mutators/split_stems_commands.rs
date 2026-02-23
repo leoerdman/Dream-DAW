@@ -104,9 +104,8 @@ async fn split_track_to_stems_cmd(
     })
     .await
     .map_err(|e| format!("Stem separation worker failed: {e}"))?
-    .map_err(|e| {
+    .inspect_err(|e| {
         let _ = finish_job(&app, &job_id, false, false, Some(e.clone()));
-        e
     })?;
 
     if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {

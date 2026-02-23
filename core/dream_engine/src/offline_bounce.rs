@@ -569,7 +569,21 @@ impl OfflineBouncer {
 
         // Phase 1.5 - 4: Unified Topological Processing Loop
         // Correctly processes leaf and group tracks in topological dependency order.
-        for &node_idx in &snapshot.plan.processing_order {
+        // Fallback: if topology plan is temporarily empty, process tracks linearly
+        // to avoid silent exports (especially visible on external VST instruments).
+        let processing_order: Vec<_> = if snapshot.plan.processing_order.is_empty() {
+            let mut fallback = snapshot
+                .dag
+                .graph()
+                .node_indices()
+                .filter(|idx| snapshot.dag.node(*idx).id.0 != 0)
+                .collect::<Vec<_>>();
+            fallback.sort_unstable_by_key(|idx| snapshot.dag.node(*idx).id.0);
+            fallback
+        } else {
+            snapshot.plan.processing_order.clone()
+        };
+        for &node_idx in &processing_order {
             let id = snapshot.dag.node(node_idx).id.0;
             if id == 0 {
                 continue; // Master processed specifically after all nodes
@@ -647,6 +661,7 @@ impl OfflineBouncer {
                         .cmp(&b.sample_offset)
                         .then_with(|| a.data[0].cmp(&b.data[0]))
                 });
+
             }
 
             // Audio leaves must have spawned audio. Groups might accumulate audio.

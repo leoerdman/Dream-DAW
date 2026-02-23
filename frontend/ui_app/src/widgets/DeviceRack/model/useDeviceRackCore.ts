@@ -48,10 +48,22 @@ export function useDeviceRackCore(selectedTrackId: string) {
         meters: s.meters,
     })));
 
-    const localBypass = localBypassByTrack[selectedTrackId] ?? {};
-    const localParams = localParamsByTrack[selectedTrackId] ?? {};
-    const selectedDeviceIds = selectedDeviceIdsByTrack[selectedTrackId] ?? [];
-    const inlineSettingsOpen = inlineSettingsOpenByTrack[selectedTrackId] ?? {};
+    const localBypass = useMemo(
+        () => localBypassByTrack[selectedTrackId] ?? {},
+        [localBypassByTrack, selectedTrackId],
+    );
+    const localParams = useMemo(
+        () => localParamsByTrack[selectedTrackId] ?? {},
+        [localParamsByTrack, selectedTrackId],
+    );
+    const selectedDeviceIds = useMemo(
+        () => selectedDeviceIdsByTrack[selectedTrackId] ?? [],
+        [selectedDeviceIdsByTrack, selectedTrackId],
+    );
+    const inlineSettingsOpen = useMemo(
+        () => inlineSettingsOpenByTrack[selectedTrackId] ?? {},
+        [inlineSettingsOpenByTrack, selectedTrackId],
+    );
 
     const setLocalBypass: React.Dispatch<React.SetStateAction<Record<string, boolean>>> = useCallback((update) => {
         setLocalBypassByTrack((prev) => {
@@ -99,7 +111,8 @@ export function useDeviceRackCore(selectedTrackId: string) {
 
     const isMaster = selectedTrackId === 'master';
     const trackIndex = trackIds.indexOf(selectedTrackId);
-    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] : null);
+    // BUG-23 FIX: Guard against trackIndex === -1 when selectedTrackId is not in trackIds.
+    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] ?? null : null);
 
     const inLevelL = isMaster
         ? dbToMeterNorm(meters.master_left.peak)
@@ -107,6 +120,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
     const inLevelR = isMaster
         ? dbToMeterNorm(meters.master_right.peak)
         : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
+    // Note: outLevel currently aliases inLevel. Separate pre/post metering not yet implemented.
     const outLevelL = inLevelL;
     const outLevelR = inLevelR;
     const outLevel = Math.max(outLevelL, outLevelR);
@@ -132,7 +146,8 @@ export function useDeviceRackCore(selectedTrackId: string) {
         return map;
     }, [selectedTrack]);
 
-    const buildChain = (externalParamsBySlotId: Record<string, PluginParam[]>) => {
+    // BUG-21 FIX: Wrap in useCallback to prevent recreation every render.
+    const buildChain = useCallback((externalParamsBySlotId: Record<string, PluginParam[]>) => {
         if (!selectedTrack) return [];
 
         const nodes = [
@@ -247,7 +262,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 sampleRackConfig: node.sampleRackConfig,
             };
         }).filter((s): s is DeviceSlot => s !== null);
-    };
+    }, [selectedTrack, localBypass, localParams, staticLaneValueByParamId, outLevel, outLevelL, outLevelR]);
 
     return {
         selectedTrack,

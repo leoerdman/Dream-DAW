@@ -20,6 +20,7 @@ pub mod fades;
 pub mod resampler;
 pub mod spectrum_analyzer;
 pub mod svf;
+pub mod zdf;
 
 // ── Device Chain DSP (Sprint: Insert FX Pipeline) ──────────────────────
 pub mod device_chain;

@@ -17,6 +17,8 @@ use crate::state_managers::recording::AutomationRuntime;
 
 #[path = "sync_engine/runtime_device_chains.rs"]
 mod runtime_device_chains;
+#[path = "sync_engine/runtime_device_import_params.rs"]
+mod runtime_device_import_params;
 #[path = "sync_engine/sampler_snapshot.rs"]
 mod sampler_snapshot;
 pub use runtime_device_chains::rebuild_runtime_device_chains_from_project;
@@ -29,7 +31,7 @@ pub use sampler_snapshot::rebuild_sampler_snapshot_from_project;
 #[macro_export]
 macro_rules! push_command_or_log {
     ($handle:expr, $cmd:expr, $context:expr) => {
-        if let Err(err) = crate::state_managers::sync_engine::push_command($handle, $cmd) {
+        if let Err(err) = $crate::state_managers::sync_engine::push_command($handle, $cmd) {
             log::warn!(
                 "[Engine] BUG-063: Failed to push command ({}): {}",
                 $context,

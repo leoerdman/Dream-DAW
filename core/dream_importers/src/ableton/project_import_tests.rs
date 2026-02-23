@@ -4,7 +4,7 @@ use dream_importers::ableton::device_params::{
     collect_external_plugin_static_lanes, import_internal_device_static_params,
 };
 use dream_importers::ableton::plugin_mapper::{
-    canonical_internal_plugin_for_import,
+    MissingExternalPluginSlotSpec, canonical_internal_plugin_for_import,
     make_missing_external_plugin_slot_with_metadata,
     parse_external_plugin_meta,
 };
@@ -710,17 +710,17 @@ fn make_missing_external_slot_keeps_external_meta() {
         preset_blob: Some("UFJFU0VUX0JMT0I=".to_string()),
         preset_blob_kind: Some("Chunk".to_string()),
     };
-    let node = make_missing_external_plugin_slot_with_metadata(
-        "external",
-        "Nectar 3",
-        "Nectar 3",
-        "Nectar 3",
-        "",
-        "Nectar 3",
-        "",
-        true,
-        Some(&meta),
-    );
+    let node = make_missing_external_plugin_slot_with_metadata(MissingExternalPluginSlotSpec {
+        kind: "external",
+        preferred_name: "Nectar 3",
+        user_name: "Nectar 3",
+        vst2_name: "Nectar 3",
+        vst2_path: "",
+        vst3_name: "Nectar 3",
+        vst3_path: "",
+        is_placeholder: true,
+        meta: Some(&meta),
+    });
     let slot = match node {
         DeviceNode::Single(slot) => slot,
         _ => panic!("expected single plugin slot"),

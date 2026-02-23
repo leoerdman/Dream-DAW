@@ -7,6 +7,8 @@ import {
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -15,28 +17,22 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const readMix = (params: DeviceSlot['params'], fallback: number) =>
         params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value
+        ?? params.find((p) => p.name.toLowerCase() === 'drywet')?.value
+        ?? params.find((p) => p.name.toLowerCase() === 'dry_wet')?.value
         ?? params.find((p) => p.name.toLowerCase() === 'mix')?.value
+        ?? params.find((p) => p.name.toLowerCase() === 'wet')?.value
         ?? params.find((p) => p.name.toLowerCase() === 'amount')?.value
         ?? fallback;
 
     if (device.effectType === 'delay') {
-        const delayTitle = normalizedInternalId === 'internal://effect/echo'
-            ? 'Echo'
-            : normalizedInternalId === 'internal://effect/beat-repeat'
-                ? 'Beat Repeat'
-                : normalizedInternalId === 'internal://effect/looper'
-                    ? 'Looper'
-                    : normalizedInternalId === 'internal://effect/spectral-time'
-                        ? 'Spectral Time'
-                        : normalizedInternalId === 'internal://effect/grain-delay'
-                            ? 'Grain Delay'
-                            : 'Delay';
+        const delayTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Delay';
         const isBeatRepeat = delayTitle === 'Beat Repeat';
         const isLooper = delayTitle === 'Looper';
         const isSpectralTime = delayTitle === 'Spectral Time';
-        const time = device.params.find((p) => p.name.toLowerCase() === 'time')?.value ?? 280;
-        const fb = device.params.find((p) => p.name.toLowerCase() === 'fb')?.value ?? 30;
-        const mix = readMix(device.params, 35);
+        const timeL = safeParamValue(device, ['time l', 'time'], 250);
+        const timeR = safeParamValue(device, 'time r', 375);
+        const fb = safeParamValue(device, 'fb', 30);
+        const mix = readMix(device.params, 30);
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -69,7 +65,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{delayTitle}</span>
-                        <span>{time.toFixed(0)}ms</span>
+                        <span>L {timeL.toFixed(0)}ms</span>
+                        <span>R {timeR.toFixed(0)}ms</span>
                         <span>FB {fb.toFixed(0)}%</span>
                         <span>Mix {mix.toFixed(0)}%</span>
                     </div>
@@ -91,19 +88,10 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     }
 
     if (device.effectType === 'reverb') {
-        const reverbTitle = normalizedInternalId === 'internal://effect/hybrid-reverb'
-            ? 'Hybrid Reverb'
-            : normalizedInternalId === 'internal://effect/corpus'
-                ? 'Corpus'
-                : normalizedInternalId === 'internal://effect/resonators'
-                    ? 'Resonators'
-                    : normalizedInternalId === 'internal://effect/spectral-resonator'
-                        ? 'Spectral Resonator'
-                        : 'Reverb';
-        const decay = device.params.find((p) => p.name.toLowerCase() === 'decay')?.value ?? 45;
-        const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
-        const reverbMix = readMix(device.params, 50);
-        const reverbSize = device.params.find((p) => p.name.toLowerCase() === 'size')?.value ?? 40;
+        const reverbTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Reverb';
+        const reverbSize = safeParamValue(device, ['size', 'decay'], 50);
+        const reverbDamp = safeParamValue(device, ['damp', 'tone'], 40);
+        const reverbMix = readMix(device.params, 30);
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -130,8 +118,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
                     <div style={pluginPanelMetaStyle}>
                         <span>{reverbTitle}</span>
                         <span>Size {reverbSize.toFixed(0)}%</span>
-                        <span>Decay {decay.toFixed(0)}%</span>
-                        <span>Tone {tone.toFixed(0)}%</span>
+                        <span>Damp {reverbDamp.toFixed(0)}%</span>
                         <span>Mix {reverbMix.toFixed(0)}%</span>
                     </div>
                 </div>
@@ -152,8 +139,8 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     }
 
     if (device.effectType === 'chorus') {
-        const rate = device.params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 1.2;
-        const depth = device.params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 40;
+        const rate = safeParamValue(device, 'rate', 1.2);
+        const depth = safeParamValue(device, 'depth', 40);
         const chorusMix = readMix(device.params, 50);
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
@@ -189,16 +176,13 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     }
 
     if (device.effectType === 'saturator') {
-        const satTitle = normalizedInternalId === 'internal://effect/drum-buss'
-            ? 'Drum Buss'
-            : normalizedInternalId === 'internal://effect/dynamic-tube'
-                ? 'Dynamic Tube'
-                : 'Saturator';
-        const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 3;
-        const satTone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
+        const satTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Saturator';
+        const drive = safeParamValue(device, 'drive', 3);
+        const satTone = safeParamValue(device, 'tone', 0);
         const satMix = readMix(device.params, 100);
         const driveClamp = Math.max(0, Math.min(24, drive));
-        const knee = Math.max(12, 80 - driveClamp * 2.8);
+        // BUG-P6 FIX: Clamp knee to [12, 68] to prevent SVG control points from crossing.
+        const knee = Math.max(12, Math.min(68, 80 - driveClamp * 2.8));
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{

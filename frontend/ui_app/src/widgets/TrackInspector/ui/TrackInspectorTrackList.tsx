@@ -1,4 +1,5 @@
 import { scrollSync } from '@/shared/lib/useScrollSync';
+import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import type { TrackInspectorLogicState } from '@/widgets/TrackInspector/model/useTrackInspectorLogic';
 import { TrackRow } from '@/widgets/TrackInspector/ui/TrackRow';
@@ -88,10 +89,7 @@ export function TrackInspectorTrackList({
                 const isCollapsed = isGroup ? logic.collapsedGroups.has(track.id) : false;
                 const depth = logic.getDepth(track);
                 const trackIndex = logic.getTrackIndex(track.id);
-                const defaultRowHeight = Math.max(
-                    24,
-                    Math.min(120, Math.round(Number.isFinite(track.height) ? track.height : trackHeight)),
-                );
+                const defaultRowHeight = clampTrackHeightPx(Number.isFinite(track.height) ? track.height : trackHeight);
                 const resolvedRowHeight =
                     track.type === 'master'
                         ? (logic.rowHeightsByTrackId[track.id] ?? trackHeight)

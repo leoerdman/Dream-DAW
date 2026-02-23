@@ -50,3 +50,65 @@ export function getParamValue(
     const found = device.params.find((param) => normalizedAliases.includes(param.name.toLowerCase()));
     return found?.value ?? fallback;
 }
+
+/**
+ * NaN-safe param value reader. Unlike `?.value ?? fallback`, this guards
+ * against NaN (which passes the `??` null-coalescing check).
+ */
+export function safeParamValue(
+    device: DeviceSlot,
+    names: string | string[],
+    fallback: number,
+): number {
+    const aliases = Array.isArray(names) ? names : [names];
+    for (const alias of aliases) {
+        const param = device.params.find((p) => p.name.toLowerCase() === alias.toLowerCase());
+        if (param && Number.isFinite(param.value)) return param.value;
+    }
+    return fallback;
+}
+
+/**
+ * Enterprise title lookup map for internal plugin IDs.
+ * Replaces deeply nested ternary chains across all surface files.
+ */
+export const PLUGIN_TITLE_MAP: Record<string, string> = {
+    // Distortion
+    'internal://effect/amp': 'Amp',
+    'internal://effect/cabinet': 'Cabinet',
+    'internal://effect/erosion': 'Erosion',
+    'internal://effect/overdrive': 'Overdrive',
+    'internal://effect/pedal': 'Pedal',
+    'internal://effect/roar': 'Roar',
+    // Delay / Time
+    'internal://effect/echo': 'Echo',
+    'internal://effect/beat-repeat': 'Beat Repeat',
+    'internal://effect/looper': 'Looper',
+    'internal://effect/spectral-time': 'Spectral Time',
+    'internal://effect/grain-delay': 'Grain Delay',
+    // Reverb
+    'internal://effect/hybrid-reverb': 'Hybrid Reverb',
+    'internal://effect/corpus': 'Corpus',
+    'internal://effect/resonators': 'Resonators',
+    'internal://effect/spectral-resonator': 'Spectral Resonator',
+    // Saturator
+    'internal://effect/drum-buss': 'Drum Buss',
+    'internal://effect/dynamic-tube': 'Dynamic Tube',
+    // Utility
+    'internal://effect/tuner': 'Tuner',
+    'internal://effect/external-audio-effect': 'External Audio Effect',
+    'internal://effect/auto-shift': 'Auto Shift',
+    'internal://effect/shifter': 'Shifter',
+    // Compressor
+    'internal://effect/transient-shaper': 'Transient Shaper',
+    // Analyzer / Spectrum
+    'internal://effect/spectrum': 'Spectrum',
+    // MIDI FX
+    'internal://midi-fx/chord': 'Chord',
+    'internal://midi-fx/note-length': 'Note Length',
+    'internal://midi-fx/cc-control': 'CC Control',
+    'internal://midi-fx/expression-control': 'Expression Control',
+    'internal://midi-fx/arpeggiator': 'Arpeggiator',
+    // Modulation
+    'internal://effect/vocoder': 'Vocoder',
+};

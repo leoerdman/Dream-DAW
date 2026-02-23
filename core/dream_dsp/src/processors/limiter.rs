@@ -54,6 +54,7 @@ pub struct LimiterProcessor {
 
 impl LimiterProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             threshold_db: -0.3,
             threshold_lin: 10.0_f32.powf(-0.3 / 20.0),

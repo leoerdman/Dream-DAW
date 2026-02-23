@@ -233,13 +233,12 @@ fn open_project(
             Some(runtime_sample_rate),
         )?
     } else {
-        let project = ProjectFile::load(&file_path).map_err(|e| e.to_string())?;
         // CRITICAL: Do NOT call normalize_internal_plugins_for_import() here.
         // That normalizer is intended for ALS imports (where plugin names need
         // mapping to internal://). Calling it on native .ddpj projects destroys
         // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
         // keyword matcher hits on substrings like "shaper" in "ShaperBox".
-        project
+        ProjectFile::load(&file_path).map_err(|e| e.to_string())?
     };
     if importing_als {
         for track in &mut loaded.tracks {

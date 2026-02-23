@@ -31,7 +31,7 @@ export function PluginGuiSurfaceEqControls({
                 flexShrink: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 2,
+                gap: 'var(--space-0-5)',
                 padding: 'var(--space-1-5) var(--space-1)',
                 background: 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--color-bg-header) 10%)',
                 borderRadius: 'var(--plugin-card-radius)',
@@ -86,10 +86,10 @@ export function PluginGuiSurfaceEqControls({
             )}
             <div
                 style={{
-                    fontSize: 9,
+                    fontSize: 'var(--font-size-micro)',
                     color: 'color-mix(in srgb, var(--color-text-primary) 78%, transparent)',
                     textAlign: 'center',
-                    fontFamily: 'Inter, sans-serif',
+                    fontFamily: 'var(--font-sans)',
                     marginTop: 2,
                 }}
             >

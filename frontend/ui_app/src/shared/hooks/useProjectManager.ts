@@ -6,23 +6,19 @@
 //   - Unsaved changes confirmation
 // Mirrors the Swift ProjectFileManager workflow in React.
 // ═══════════════════════════════════════════════════════════════════════════
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '../../shared/api/engine';
 import type { ProjectStatus } from '../../shared/api/engine';
 import { useEngineStore } from '../../shared/stores/useEngineStore';
 import { useTimelineStore } from '../../shared/stores/useTimelineStore';
-
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
-
 export interface ProjectManagerState {
     isDirty: boolean;
     filePath: string | null;
     projectFolder: string | null;
     isSaving: boolean;
 }
-
 /**
  * Enterprise project management hook.
  *
@@ -38,7 +34,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         projectFolder: null,
         isSaving: false,
     });
-
     const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const syncProjectHistory = useEngineStore((s) => s.syncProjectHistory);
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
@@ -51,13 +46,30 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.warn('[ProjectManager] setArrangementViewport failed (non-fatal):', err);
         }
     }, []);
-
+    const pickSavePath = useCallback(async (): Promise<string | null> => {
+        try {
+            const path = await engineApi.saveProjectDialog();
+            if (path && path.trim().length > 0) return path;
+        } catch (err) {
+            console.warn('[ProjectManager] saveProjectDialog failed, trying plugin-dialog fallback:', err);
+        }
+        try {
+            const { save } = await import('@tauri-apps/plugin-dialog');
+            const path = await save({
+                title: 'Save Dream DAW Project',
+                filters: [{ name: 'Dream DAW Project', extensions: ['ddpj'] }],
+                defaultPath: 'Untitled Project.ddpj',
+            });
+            return typeof path === 'string' && path.trim().length > 0 ? path : null;
+        } catch (err) {
+            console.error('[ProjectManager] plugin-dialog save fallback failed:', err);
+            return null;
+        }
+    }, []);
     // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
     const filePathRef = useRef<string | null>(null);
     filePathRef.current = state.filePath;
-
     // ── Status Sync ───────────────────────────────────────────────────
-
     /** Fetches and syncs the project status from the backend. */
     const refreshStatus = useCallback(async () => {
         try {
@@ -74,20 +86,16 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.error('[ProjectManager] Failed to refresh status:', err);
         }
     }, []);
-
     // ── Save ──────────────────────────────────────────────────────────
-
     /** Save to existing path, or trigger Save As if unsaved. */
     const handleSave = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-
             const flush = window.__dreamFlushPendingEdits;
             if (typeof flush === 'function') {
                 await flush();
             }
             await syncArrangementViewport();
-
             // Re-read backend status at save time because project may have been
             // opened via native menu / recent projects outside this hook.
             const liveStatus: ProjectStatus = await engineApi.getProjectStatus();
@@ -100,7 +108,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 filePath: liveStatus.filePath,
                 projectFolder: liveStatus.projectFolder,
             }));
-
             // Use ref to always get the latest filePath, avoiding stale closure
             const currentPath = livePath ?? filePathRef.current;
             if (currentPath) {
@@ -109,33 +116,29 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 await syncProjectHistory();
             } else {
                 // Brand new project — show Save As dialog
-                const path = await engineApi.saveProjectDialog();
+                const path = await pickSavePath();
                 if (path) {
                     await engineApi.saveProjectAs(path);
                     await syncProjectHistory();
                 }
             }
-
             await refreshStatus();
         } catch (err) {
             console.error('[ProjectManager] Save failed:', err);
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus, syncProjectHistory, syncArrangementViewport]);
-
+    }, [refreshStatus, syncProjectHistory, syncArrangementViewport, pickSavePath]);
     /** Save As — always shows the dialog. */
     const handleSaveAs = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-
             const flush = window.__dreamFlushPendingEdits;
             if (typeof flush === 'function') {
                 await flush();
             }
             await syncArrangementViewport();
-
-            const path = await engineApi.saveProjectDialog();
+            const path = await pickSavePath();
             if (path) {
                 await engineApi.saveProjectAs(path);
                 await syncProjectHistory();
@@ -146,10 +149,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus, syncProjectHistory, syncArrangementViewport]);
-
+    }, [refreshStatus, syncProjectHistory, syncArrangementViewport, pickSavePath]);
     // ── New Project ───────────────────────────────────────────────────
-
     /** New project — confirms if dirty. */
     const handleNew = useCallback(async () => {
         if (state.isDirty) {
@@ -158,7 +159,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             );
             if (!confirmed) return;
         }
-
         try {
             const response = await engineApi.newProject();
             await applyProjectDeltas(response.deltas, 'project-manager:new');
@@ -169,9 +169,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.error('[ProjectManager] New project failed:', err);
         }
     }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
-
     // ── Open Project ──────────────────────────────────────────────────
-
     /** Open project — picks file, confirms if dirty. */
     const handleOpen = useCallback(async () => {
         if (state.isDirty) {
@@ -180,7 +178,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             );
             if (!confirmed) return;
         }
-
         try {
             const path = await engineApi.pickProjectFile();
             if (path) {
@@ -204,9 +201,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.error('[ProjectManager] Open failed:', err);
         }
     }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
-
     // ── Backup ────────────────────────────────────────────────────────
-
     /** Manually create a backup. */
     const handleBackup = useCallback(async () => {
         try {
@@ -217,41 +212,38 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.debug('[ProjectManager] Backup skipped:', err);
         }
     }, []);
-
     // ── Keyboard Shortcuts ────────────────────────────────────────────
     // NOTE: Cmd+N and Cmd+O are handled exclusively by the native macOS
     // menu (useNativeMenu) via Tauri accelerators. Registering them here
     // too would cause duplicate handlers: both would call pickProjectFile/openProject
     // and apply overlapping snapshot deltas concurrently, creating a race where
     // stale updates can win and leave UI state behind.
-
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.isComposing) return;
             const mod = e.metaKey || e.ctrlKey;
             if (!mod || e.altKey) return;
-
+            if (e.repeat) return;
+            const key = (e.key || '').toLowerCase();
+            const isSaveKey = e.code === 'KeyS' || key === 's' || key === 'ы';
             // Cmd+S — Save
-            if (e.code === 'KeyS' && !e.shiftKey) {
+            if (isSaveKey && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 handleSave();
                 return;
             }
-
             // Cmd+Shift+S — Save As
-            if (e.code === 'KeyS' && e.shiftKey) {
+            if (isSaveKey && e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 handleSaveAs();
                 return;
             }
         };
-
         window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
     }, [handleSave, handleSaveAs]);
-
     // ── Auto-Backup Timer ─────────────────────────────────────────────
     // Use refs for volatile state so the interval doesn't have to be
     // torn down and recreated every time isDirty or projectFolder changes.
@@ -259,46 +251,35 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     isDirtyRef.current = state.isDirty;
     const projectFolderRef = useRef(state.projectFolder);
     projectFolderRef.current = state.projectFolder;
-
     useEffect(() => {
         autoBackupRef.current = setInterval(() => {
             if (projectFolderRef.current && isDirtyRef.current) {
                 handleBackup();
             }
         }, AUTO_BACKUP_INTERVAL_MS);
-
         return () => {
             if (autoBackupRef.current) {
                 clearInterval(autoBackupRef.current);
             }
         };
     }, [handleBackup]);
-
     // ── Initial Status Sync ───────────────────────────────────────────
-
     useEffect(() => {
         refreshStatus();
     }, [refreshStatus]);
-
     return {
         /** Current project manager state. */
         ...state,
-
         /** Save to current path (or Save As if new). */
         save: handleSave,
-
         /** Always show Save As dialog. */
         saveAs: handleSaveAs,
-
         /** Create new empty project. */
         newProject: handleNew,
-
         /** Open project from disk. */
         openProject: handleOpen,
-
         /** Manually trigger a backup. */
         backup: handleBackup,
-
         /** Re-fetch project status from backend. */
         refreshStatus,
     };

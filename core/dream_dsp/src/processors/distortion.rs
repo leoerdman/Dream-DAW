@@ -26,6 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::DEFAULT_SAMPLE_RATE;
 
 pub struct DistortionProcessor {
     drive: f32,
@@ -52,6 +53,7 @@ pub struct DistortionProcessor {
 
 impl DistortionProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         Self {
             drive: 0.5,
             tone: 0.5,
@@ -110,7 +112,7 @@ impl DistortionProcessor {
 
 impl Default for DistortionProcessor {
     fn default() -> Self {
-        Self::new(44100.0)
+        Self::new(DEFAULT_SAMPLE_RATE)
     }
 }
 

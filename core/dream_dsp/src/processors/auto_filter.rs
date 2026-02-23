@@ -29,6 +29,8 @@ use crate::dsp_processor::DspProcessor;
 
 pub struct AutoFilterProcessor {
     cutoff_hz: f32,
+    cutoff_target_hz: f32,
+    cutoff_smooth_hz: f32,
     resonance: f32,
     lfo_rate: f32,
     lfo_depth: f32,
@@ -39,6 +41,7 @@ pub struct AutoFilterProcessor {
     drive_db: f32,
     drive_lin: f32,
     env_speed_ms: f32,
+    cutoff_smooth_coeff: f32,
     // State
     lfo_phase: f64,
     env_follower: f32,
@@ -57,9 +60,12 @@ pub struct AutoFilterProcessor {
 
 impl AutoFilterProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let env_coeff = (-1.0 / (20.0 * 0.001 * sample_rate)).exp();
         Self {
             cutoff_hz: 1000.0,
+            cutoff_target_hz: 1000.0,
+            cutoff_smooth_hz: 1000.0,
             resonance: 0.25,
             lfo_rate: 1.0,
             lfo_depth: 0.5,
@@ -70,6 +76,7 @@ impl AutoFilterProcessor {
             drive_db: 0.0,
             drive_lin: 1.0,
             env_speed_ms: 20.0,
+            cutoff_smooth_coeff: (-1.0 / (0.003 * sample_rate)).exp(), // ~3ms anti-zipper
             lfo_phase: 0.0,
             env_follower: 0.0,
             env_coeff,
@@ -94,6 +101,7 @@ impl AutoFilterProcessor {
         {
             self.sample_rate = sample_rate;
             self.update_env_coeff();
+            self.cutoff_smooth_coeff = (-1.0 / (0.003 * sample_rate)).exp();
         }
     }
 
@@ -195,9 +203,6 @@ impl DspProcessor for AutoFilterProcessor {
         let q = 0.5 + self.resonance * 15.0; // 0.5 to ~15
         let mix = self.mix;
 
-        // BUG-034 FIX: Pre-compute base log2(cutoff) outside the loop.
-        // Avoids log2() + powf() per sample (~100ns → ~10ns savings per sample).
-        let base_log_cutoff = (self.cutoff_hz / 20.0).max(1.0).log2();
         let max_range = (20000.0_f32 / 20.0).log2(); // ≈ 9.97
 
         for i in 0..len {
@@ -219,12 +224,18 @@ impl DspProcessor for AutoFilterProcessor {
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
 
-            // Modulated cutoff (log scale) — BUG-034 FIX: base_log_cutoff pre-computed
+            // Smooth cutoff target per sample to avoid zipper artifacts during automation.
+            self.cutoff_smooth_hz = self.cutoff_smooth_coeff * self.cutoff_smooth_hz
+                + (1.0 - self.cutoff_smooth_coeff) * self.cutoff_target_hz;
+
+            // Modulated cutoff (log scale).
+            let base_log_cutoff = (self.cutoff_smooth_hz / 20.0).max(1.0).log2();
             let mod_offset = lfo * self.lfo_depth * max_range * 0.5
                 + self.env_follower * self.env_amount * max_range;
+            let nyq_safe_max = (sr * 0.45).max(40.0);
             let mod_cutoff = (20.0
                 * 2.0_f32.powf((base_log_cutoff + mod_offset).clamp(0.0, max_range)))
-            .clamp(20.0, 20000.0);
+            .clamp(20.0, nyq_safe_max);
 
             // Drive
             let driven_l = (dry_l * self.drive_lin).tanh();
@@ -277,7 +288,11 @@ impl DspProcessor for AutoFilterProcessor {
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => self.cutoff_hz = value.clamp(20.0, 20000.0),
+            0 => {
+                let cutoff = value.clamp(20.0, 20000.0);
+                self.cutoff_hz = cutoff;
+                self.cutoff_target_hz = cutoff;
+            }
             1 => self.resonance = (value / 100.0).clamp(0.0, 1.0),
             2 => self.lfo_rate = value.clamp(0.01, 20.0),
             3 => self.lfo_depth = (value / 100.0).clamp(0.0, 1.0),

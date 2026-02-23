@@ -12,7 +12,6 @@
 //
 // All coordinate values are in CSS pixels. DPR scaling is done in shaders.
 // ═══════════════════════════════════════════════════════════════════════════
-
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { PianoRollGLRenderer } from '@/widgets/PianoRoll/worker/PianoRollGLRenderer';
@@ -139,6 +138,10 @@ export function usePianoRollGPU({
     const dirtyRef = useRef(true);
     const [gpuAvailable, setGpuAvailable] = useState(true); // optimistic, verified on first mount
     const initedRef = useRef(false);
+    const markGpuUnavailable = useCallback(() => {
+        // Avoid synchronous setState in effect body; schedule for next frame.
+        requestAnimationFrame(() => setGpuAvailable(false));
+    }, []);
 
     // ── Schedule render on next frame ──
     const scheduleRender = useCallback(() => {
@@ -175,7 +178,7 @@ export function usePianoRollGPU({
 
             if (!gl) {
                 console.warn('[PianoRollGPU] WebGL2 context unavailable, falling back to SVG');
-                setGpuAvailable(false);
+                markGpuUnavailable();
                 return;
             }
 
@@ -199,10 +202,10 @@ export function usePianoRollGPU({
             };
         } catch (err) {
             console.warn('[PianoRollGPU] WebGL2 init failed, falling back to SVG:', err);
-            setGpuAvailable(false);
+            markGpuUnavailable();
             initedRef.current = false;
         }
-    }, [gpuAvailable, canvasWidth, canvasHeight, scheduleRender]);
+    }, [gpuAvailable, canvasWidth, canvasHeight, scheduleRender, markGpuUnavailable]);
 
     // ── Resize ──
     useEffect(() => {

@@ -56,15 +56,17 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'shortcut-paste-same-track');
                 onClipSelectionChanged(results.map((r) => r.new_id));
             } else {
+                const allDeltas: Array<{ deltas: unknown[] }> = [];
                 const results = await Promise.all(clipboardRef.current.map((clip) => engine.duplicateClipWithDeltas(clip.id)));
+                allDeltas.push(...results);
                 for (let i = 0; i < results.length; i += 1) {
                     const clip = clipboardRef.current[i];
                     const destBeat = Math.max(0, cursorBeat + (clip.startBeat - firstBeat) + groupOffset);
                     const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
                     const response = await engine.moveClipWithDeltas(results[i].new_id, targetTrack, Math.max(0, beatToFrame(destBeat, bpm, sampleRate)));
-                    await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-move');
+                    allDeltas.push(response);
                 }
-                await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'shortcut-paste-cross-track');
+                await useEngineStore.getState().applyProjectDeltas(allDeltas.flatMap((r) => r.deltas as never[]), 'shortcut-paste-cross-track');
                 onClipSelectionChanged(results.map((r) => r.new_id));
             }
         } catch (err) {

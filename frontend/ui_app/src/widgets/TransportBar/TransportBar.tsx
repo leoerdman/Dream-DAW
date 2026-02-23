@@ -16,42 +16,8 @@ import { useTransportDebugPanel } from './model/useTransportDebugPanel';
 import { useMidiActivityLed } from './model/useMidiActivityLed';
 import { useTransportRecording } from './model/useTransportRecording';
 import { TransportCenterSection, TransportLeftSection, TransportRightSection } from './ui/TransportSections';
-import { TRANSPORT_UI } from './ui/TransportAtoms';
-
-// BUG-15 FIX: Module-level const — no longer recreated every render.
-const valueChipStyle: React.CSSProperties = {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 600,
-    color: 'var(--color-text-primary)',
-    background: TRANSPORT_UI.controlBg,
-    borderRadius: TRANSPORT_UI.controlRadius,
-    padding: '0 8px',
-    minWidth: 56,
-    height: TRANSPORT_UI.controlHeight,
-    lineHeight: `${TRANSPORT_UI.controlHeight}px`,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    border: TRANSPORT_UI.controlBorder,
-    cursor: 'pointer',
-};
-
-interface TransportBarProps {
-    onSettingsClick?: () => void;
-    onOpenExport?: () => void;
-    onRecordingStateChange?: (state: { active: boolean; trackIndex: number }) => void;
-    followPlayhead?: boolean;
-    onFollowPlayheadChange?: (enabled: boolean) => void;
-    automationVisible?: boolean;
-    onAutomationToggle?: () => void;
-    onFitTimelineHorizontally?: () => void;
-    onResetTrackHeights?: () => void;
-    assistantOpen?: boolean;
-    onAssistantToggle?: () => void;
-}
-
+import { valueChipStyle } from './model/transportBarStyles';
+import type { TransportBarProps } from './model/transportBarTypes';
 export const TransportBar = ({
     onSettingsClick,
     onOpenExport,
@@ -72,7 +38,7 @@ export const TransportBar = ({
         loopStartFrames,
         loopEndFrames,
         sampleRate,
-        togglePlay,
+        enginePlay,
         engineStop,
         engineSetBpm,
         engineSetLoop,
@@ -91,35 +57,31 @@ export const TransportBar = ({
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const setGridDivision = useGridStore((s) => s.setDivision);
-
     const { isRecording, handleRecordToggle, stopRecordingIfNeeded } = useTransportRecording(armedTrackIndex, onRecordingStateChange);
     const [bpmEditing, setBpmEditing] = useState(false);
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
-
     // BUG-7 FIX: Sync bpmText when engine BPM changes externally (automation, MIDI controller).
     useEffect(() => {
-        if (!bpmEditing) {
+        if (bpmEditing) return;
+        const rafId = requestAnimationFrame(() => {
             setBpmText(bpm.toFixed(2));
-        }
+        });
+        return () => cancelAnimationFrame(rafId);
     }, [bpm, bpmEditing]);
-
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
     const [keyMenuOpen, setKeyMenuOpen] = useState(false);
     const keyMenuRef = useRef<HTMLDivElement | null>(null);
     const [gridOpen, setGridOpen] = useState(false);
     const gridRef = useRef<HTMLDivElement | null>(null);
-
     const keyEnabled = storeKeySigEnabled;
     const keyTonic = resolveKeyTonicIndex(storeKeySigTonic);
     const keyMode = resolveKeyModeIndex(storeKeySigMode);
-
     // PERF-FIX: Position display is now ref-based (zero React re-renders).
     // posRef is attached to the position <span> in TransportCenterSection.
     // readPosBeats() provides imperative access for loop toggle.
-    const { posRef, posBeatsRef, readPosBeats } = usePositionRef(timeSigNum);
-
+    const { posRef, readPosBeats } = usePositionRef(timeSigNum);
     const tapTimestamps = useRef<number[]>([]);
     const { midiLedRef } = useMidiActivityLed();
     const {
@@ -142,7 +104,6 @@ export const TransportBar = ({
         refreshSnapshots,
         tickWatchdog,
     } = useTransportDebugPanel();
-
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
         const taps = tapTimestamps.current;
@@ -161,7 +122,6 @@ export const TransportBar = ({
             setBpmText(rounded.toFixed(2));
         }
     }, [engineSetBpm]);
-
     // BUG-13 FIX: Wrapped in useCallback to prevent unnecessary re-renders of TransportLeftSection.
     const commitBpm = useCallback(() => {
         setBpmText((prev) => {
@@ -175,7 +135,6 @@ export const TransportBar = ({
         });
         setBpmEditing(false);
     }, [bpm, engineSetBpm]);
-
     // BUG-14 FIX: All 4 handlers wrapped in useCallback.
     const setKeyTonicAt = useCallback((index: number) => {
         const next = Math.max(0, Math.min(KEY_TONICS.length - 1, index));
@@ -196,13 +155,11 @@ export const TransportBar = ({
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
     }, [keyEnabled, keyTonic, keyMode]);
     const cycleTimeSignature = useCallback(() => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length), []);
-
     // BUG-11 FIX: Replaced 2 inline click-outside effects with shared useClickOutside hook.
     const closeKeyMenu = useCallback(() => setKeyMenuOpen(false), []);
     const closeGridMenu = useCallback(() => setGridOpen(false), []);
     useClickOutside(keyMenuRef, closeKeyMenu, keyMenuOpen);
     useClickOutside(gridRef, closeGridMenu, gridOpen);
-
     // BUG-42 FIX: Escape key closes open menus.
     useEffect(() => {
         if (!keyMenuOpen && !gridOpen) return;
@@ -215,7 +172,6 @@ export const TransportBar = ({
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [keyMenuOpen, gridOpen]);
-
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
@@ -248,10 +204,9 @@ export const TransportBar = ({
                     gridTriplet={gridTriplet}
                     setGridDivision={setGridDivision}
                 />
-
                 <TransportCenterSection
                     isPlaying={isPlaying}
-                    togglePlay={togglePlay}
+                    enginePlay={enginePlay}
                     engineStop={engineStop}
                     isRecording={isRecording}
                     handleRecordToggle={handleRecordToggle}
@@ -275,7 +230,6 @@ export const TransportBar = ({
                     posRef={posRef}
                     valueChipStyle={valueChipStyle}
                 />
-
                 <TransportRightSection
                     midiLedRef={midiLedRef}
                     pdcOpen={pdcOpen}
@@ -303,7 +257,7 @@ export const TransportBar = ({
                         telemetryRunning={telemetryRunning}
                         isPlaying={isPlaying}
                         bpm={bpm}
-                        posString={`${posBeatsRef.current.toFixed(2)}`}
+                        posString={`${readPosBeats().toFixed(2)}`}
                         sampleRate={sampleRate}
                         trackCount={trackCount}
                         engineLastError={engineLastError ?? ''}

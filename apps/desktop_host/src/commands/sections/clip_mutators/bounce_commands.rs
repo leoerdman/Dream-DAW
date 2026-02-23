@@ -118,6 +118,8 @@ async fn bounce_selection_to_track_cmd(
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
 
     handle
         .export_cancel
@@ -130,18 +132,15 @@ async fn bounce_selection_to_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
-        let no_plugins: std::collections::HashMap<
-            uuid::Uuid,
-            dream_engine::driver::PluginInstanceArc,
-        > = std::collections::HashMap::new();
-        let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
+        let plugin_registry_snapshot = plugin_registry_snapshot;
+        let external_fx_snapshot = external_fx_snapshot;
         bouncer
             .bounce(
                 &mut bounce_project,
                 &mut local_pool,
                 None,
-                &no_plugins,
-                &no_fx,
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let _ = set_job_progress(
                         &app_for_progress,
@@ -284,6 +283,8 @@ async fn bounce_track_cmd(
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
 
     handle
         .export_cancel
@@ -296,13 +297,15 @@ async fn bounce_track_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
+        let plugin_registry_snapshot = plugin_registry_snapshot;
+        let external_fx_snapshot = external_fx_snapshot;
         bouncer
             .bounce(
                 &mut bounce_project,
                 &mut local_pool,
                 None,
-                &std::collections::HashMap::new(),
-                &[],
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let _ = set_job_progress(
                         &app_for_progress,
@@ -413,6 +416,8 @@ async fn bounce_track_with_deltas_cmd(
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
 
     handle
         .export_cancel
@@ -425,13 +430,15 @@ async fn bounce_track_with_deltas_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
+        let plugin_registry_snapshot = plugin_registry_snapshot;
+        let external_fx_snapshot = external_fx_snapshot;
         bouncer
             .bounce(
                 &mut bounce_project,
                 &mut local_pool,
                 None,
-                &std::collections::HashMap::new(),
-                &[],
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let _ = set_job_progress(
                         &app_for_progress,
@@ -586,6 +593,8 @@ async fn bounce_group_cmd(
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
 
     handle
         .export_cancel
@@ -598,13 +607,15 @@ async fn bounce_group_cmd(
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
+        let plugin_registry_snapshot = plugin_registry_snapshot;
+        let external_fx_snapshot = external_fx_snapshot;
         bouncer
             .bounce(
                 &mut bounce_project,
                 &mut local_pool,
                 None,
-                &std::collections::HashMap::new(),
-                &[],
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let _ = set_job_progress(
                         &app_for_progress,

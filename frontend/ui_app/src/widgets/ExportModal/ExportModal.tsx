@@ -12,6 +12,24 @@ import {
     type ExportModalProps,
 } from './exportModalConfig';
 
+function getErrorMessage(err: unknown): string {
+    if (typeof err === 'string' && err.trim()) return err.trim();
+    if (err instanceof Error) {
+        const cause = (err as Error & { cause?: unknown }).cause;
+        if (typeof cause === 'string' && cause.trim()) return cause.trim();
+        if (cause && typeof cause === 'object') {
+            const causeMessage = (cause as { message?: unknown }).message;
+            if (typeof causeMessage === 'string' && causeMessage.trim()) return causeMessage.trim();
+        }
+        if (err.message?.trim()) return err.message.trim();
+    }
+    if (err && typeof err === 'object') {
+        const candidateMessage = (err as { message?: unknown }).message;
+        if (typeof candidateMessage === 'string' && candidateMessage.trim()) return candidateMessage.trim();
+    }
+    return String(err);
+}
+
 export const ExportModal = ({
     isOpen,
     onClose,
@@ -28,15 +46,15 @@ export const ExportModal = ({
     const [format, setFormat] = useState(savedPrefs.format);
     const [exportSampleRate, setExportSampleRate] = useState(savedPrefs.sampleRate);
     const [bitDepth, setBitDepth] = useState(savedPrefs.bitDepth);
-    const [exportRange, setExportRange] = useState<ExportRange>('full');
+    const [exportRange, setExportRange] = useState<ExportRange>(savedPrefs.range);
     const [normalize, setNormalize] = useState(savedPrefs.normalize);
     const [tailMs, setTailMs] = useState(savedPrefs.tailMs);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [bounceError, setBounceError] = useState<string | null>(null);
 
     useEffect(() => {
-        saveExportPrefs({ format, sampleRate: exportSampleRate, bitDepth, normalize, tailMs });
-    }, [format, exportSampleRate, bitDepth, normalize, tailMs]);
+        saveExportPrefs({ format, sampleRate: exportSampleRate, bitDepth, range: exportRange, normalize, tailMs });
+    }, [format, exportSampleRate, bitDepth, exportRange, normalize, tailMs]);
 
     useEffect(() => {
         if (isOpen) {
@@ -164,7 +182,7 @@ export const ExportModal = ({
             await engineApi.exportMix(settings);
             onClose();
         } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.error('[ExportModal] Bounce failed:', msg);
             setBounceError(msg);
         } finally {

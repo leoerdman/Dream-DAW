@@ -133,23 +133,22 @@ impl DspProcessor for EqProcessor {
                 right[i] *= g;
             }
         }
-        // BUG-013 FIX: Truly continuous soft-clip for signals exceeding ±4.0.
-        // This preserves perfect EQ transparency (y=x) on clean signals while
-        // protecting against cascaded filter boosts without creating click artifacts.
+        // Numeric runaway guard only for extreme boost stacks / pathological automation.
+        // Transparent in normal operating range and bounded in stress scenarios.
         #[inline(always)]
-        fn continuous_clip(x: f32) -> f32 {
-            if x > 4.0 {
-                4.0 + (x - 4.0) / (1.0 + (x - 4.0))
-            } else if x < -4.0 {
-                -4.0 + (x + 4.0) / (1.0 - (x + 4.0))
-            } else {
+        fn runaway_guard(x: f32) -> f32 {
+            let ax = x.abs();
+            if ax <= 24.0 {
                 x
+            } else {
+                let tail = (ax - 24.0) / (1.0 + (ax - 24.0));
+                x.signum() * (24.0 + 6.0 * tail)
             }
         }
 
         for i in 0..left.len().min(right.len()) {
-            left[i] = continuous_clip(left[i]);
-            right[i] = continuous_clip(right[i]);
+            left[i] = runaway_guard(left[i]);
+            right[i] = runaway_guard(right[i]);
         }
     }
 

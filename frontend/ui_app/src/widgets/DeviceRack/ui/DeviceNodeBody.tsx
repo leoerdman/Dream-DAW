@@ -89,13 +89,13 @@ export function DeviceNodeBody({
             <div
                 data-no-drag
                 style={{
-                    padding: 4,
+                    padding: 'var(--space-1)',
                     flex: 1,
                     minWidth: 0,
                     minHeight: 0,
                     display: 'grid',
                     gridTemplateRows: showSettings && supportsSettingsToggle ? '1fr auto' : '1fr',
-                    gap: 4,
+                    gap: 'var(--space-1)',
                     overflow: 'hidden',
                 }}
             >
@@ -119,7 +119,7 @@ export function DeviceNodeBody({
                             border: 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d04)',
                             borderRadius: 'var(--radius-sm)',
                             background: 'var(--token-color-rgba-0-0-0-0d15)',
-                            padding: 6,
+                            padding: 'var(--space-1-5)',
                         }}
                     >
                         {settingsPanel}
@@ -130,13 +130,13 @@ export function DeviceNodeBody({
     }
 
     if (showSettings && supportsSettingsToggle) {
-        return <div style={{ padding: 6, flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>{settingsPanel}</div>;
+        return <div style={{ padding: 'var(--space-1-5)', flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>{settingsPanel}</div>;
     }
 
     return (
         <div
             style={{
-                padding: device.source === 'vst' ? 8 : 0,
+                padding: device.source === 'vst' ? 'var(--space-2)' : 0,
                 flex: 1,
                 minWidth: 0,
                 minHeight: 0,
@@ -144,11 +144,12 @@ export function DeviceNodeBody({
                 flexDirection: 'column',
                 justifyContent: device.source === 'vst' ? 'flex-start' : 'center',
                 alignItems: 'center',
-                gap: 6,
+                gap: 'var(--space-1-5)',
             }}
         >
-            {device.source === 'vst' && (
-                <div style={{ display: 'grid', gap: 4, width: '100%' }}>
+            {/* BUG-45 FIX: Only show sidechain for VST devices that support it */}
+            {device.source === 'vst' && device.supportsSidechain && (
+                <div data-no-drag style={{ display: 'grid', gap: 'var(--space-1)', width: '100%' }}>
                     <span
                         style={{
                             fontSize: 'var(--font-size-2xs)',

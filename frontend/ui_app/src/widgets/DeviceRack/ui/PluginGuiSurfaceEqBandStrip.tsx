@@ -23,22 +23,22 @@ export function PluginGuiSurfaceEqBandStrip({
     metaStyle,
 }: Props): React.ReactNode {
     return (
-        <div style={{ ...metaStyle, alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, marginRight: 4, fontSize: 10 }}>{eqTitle}</span>
+        <div style={{ ...metaStyle, alignItems: 'center', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, marginRight: 4, fontSize: 'var(--font-size-2xs)' }}>{eqTitle}</span>
             {bands.filter((b) => b.enabled).map((band) => (
                 <span
                     key={band.idx}
                     style={{
                         color: (selectedEqBand === band.idx || dragEqBand === band.idx)
-                            ? 'rgba(255, 255, 255, 0.94)'
-                            : 'rgba(220, 220, 220, 0.78)',
+                            ? 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)'
+                            : 'color-mix(in srgb, var(--color-text-primary) 78%, transparent)',
                         cursor: 'pointer',
                         padding: 'var(--space-px) var(--token-size-px-5)',
-                        borderRadius: 3,
+                        borderRadius: 'var(--radius-xs)',
                         background: (selectedEqBand === band.idx || dragEqBand === band.idx)
-                            ? 'rgba(255, 255, 255, 0.10)'
+                            ? 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)'
                             : 'transparent',
-                        fontSize: 10,
+                        fontSize: 'var(--font-size-2xs)',
                         fontWeight: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 700 : 400,
                         transition: 'all 0.15s ease',
                     }}
@@ -48,7 +48,7 @@ export function PluginGuiSurfaceEqBandStrip({
                     {band.freq >= 1000 ? `${(band.freq / 1000).toFixed(1)}k` : band.freq.toFixed(0)}
                 </span>
             ))}
-            <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.6 }}>Out {out > 0 ? '+' : ''}{out.toFixed(1)}dB</span>
+            <span style={{ marginLeft: 'auto', fontSize: 'var(--font-size-2xs)', opacity: 0.6 }}>Out {Number.isFinite(out) ? `${out > 0 ? '+' : ''}${out.toFixed(1)}` : '0.0'}dB</span>
         </div>
     );
 }

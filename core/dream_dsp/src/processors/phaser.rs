@@ -52,6 +52,7 @@ pub struct PhaserProcessor {
 
 impl PhaserProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         Self {
             rate: 0.5,
             depth: 0.5,

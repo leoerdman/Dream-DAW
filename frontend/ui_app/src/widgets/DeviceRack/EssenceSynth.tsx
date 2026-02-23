@@ -12,6 +12,8 @@ import {
 } from './EssenceSynth.config';
 import './EssenceSynth.css';
 
+const BOTTOM_KNOB_NAMES = ['osc1wave', 'osc2wave', 'mix', 'detune', 'sub', 'cutoff', 'res', 'vol', 'attack', 'decay', 'sustain', 'release'] as const;
+
 interface EssenceSynthProps {
     params: PluginParam[];
     onParamChange: (paramName: string, value: number) => void;
@@ -53,46 +55,51 @@ export const EssenceSynth = ({
         return params.find(pp => pp.name.toLowerCase() === name.toLowerCase()) ?? null;
     }, [params]);
 
+    const clampToParam = useCallback((name: string, value: number): number => {
+        const pp = findParam(name);
+        if (!pp) return value;
+        return Math.max(pp.min, Math.min(pp.max, value));
+    }, [findParam]);
+
     const applyPreset = useCallback((presetId: string) => {
         const values = PRESET_VALUES[presetId];
         if (!values) return;
         for (const [name, value] of Object.entries(values)) {
-            onParamChange(name, value);
+            onParamChange(name, clampToParam(name, value));
         }
-    }, [onParamChange]);
+    }, [onParamChange, clampToParam]);
 
     const randomize = useCallback(() => {
         const r = (min: number, max: number, step = 0.01) => {
             const raw = min + Math.random() * (max - min);
             return Math.round(raw / step) * step;
         };
-        onParamChange('Osc1Wave', Math.floor(Math.random() * 4));
-        onParamChange('Osc2Wave', Math.floor(Math.random() * 4));
-        onParamChange('Mix', r(0.1, 0.9));
-        onParamChange('Detune', r(-18, 18, 0.1));
-        onParamChange('Sub', r(0, 0.5));
-        onParamChange('Cutoff', r(200, 8000, 1));
-        onParamChange('Res', r(0, 0.8));
-        onParamChange('FiltType', Math.floor(Math.random() * 4));
-        onParamChange('Vol', r(0.7, 1.4));
-        onParamChange('Attack', r(0.001, 0.18, 0.001));
-        onParamChange('Decay', r(0.03, 1.8, 0.001));
-        onParamChange('Sustain', r(0.25, 1.0));
-        onParamChange('Release', r(0.02, 2.2, 0.001));
-        onParamChange('LfoRate', r(0.1, 12, 0.1));
-        onParamChange('LfoDepth', r(0, 0.6));
-        onParamChange('LfoTarget', Math.floor(Math.random() * 3));
-        onParamChange('PulseWidth', r(0.1, 0.9, 0.01));
-    }, [onParamChange]);
+        onParamChange('Osc1Wave', clampToParam('Osc1Wave', Math.floor(Math.random() * 4)));
+        onParamChange('Osc2Wave', clampToParam('Osc2Wave', Math.floor(Math.random() * 4)));
+        onParamChange('Mix', clampToParam('Mix', r(0.1, 0.9)));
+        onParamChange('Detune', clampToParam('Detune', r(-18, 18, 0.1)));
+        onParamChange('Sub', clampToParam('Sub', r(0, 0.5)));
+        onParamChange('Cutoff', clampToParam('Cutoff', r(200, 8000, 1)));
+        onParamChange('Res', clampToParam('Res', r(0, 0.8)));
+        onParamChange('FiltType', clampToParam('FiltType', Math.floor(Math.random() * 4)));
+        onParamChange('Vol', clampToParam('Vol', r(0.7, 1.0)));
+        onParamChange('Attack', clampToParam('Attack', r(0.001, 0.18, 0.001)));
+        onParamChange('Decay', clampToParam('Decay', r(0.03, 1.8, 0.001)));
+        onParamChange('Sustain', clampToParam('Sustain', r(0.25, 1.0)));
+        onParamChange('Release', clampToParam('Release', r(0.02, 2.2, 0.001)));
+        onParamChange('LfoRate', clampToParam('LfoRate', r(0.1, 12, 0.1)));
+        onParamChange('LfoDepth', clampToParam('LfoDepth', r(0, 0.6)));
+        onParamChange('LfoTarget', clampToParam('LfoTarget', Math.floor(Math.random() * 3)));
+        onParamChange('PulseWidth', clampToParam('PulseWidth', r(0.1, 0.9, 0.01)));
+    }, [onParamChange, clampToParam]);
 
     const adsrPath = useMemo(
         () => buildAdsrPath(p.attack, p.decay, p.sustain, p.release),
         [p.attack, p.decay, p.sustain, p.release],
     );
 
-    const bottomKnobNames = ['osc1wave', 'osc2wave', 'mix', 'detune', 'sub', 'cutoff', 'res', 'vol', 'attack', 'decay', 'sustain', 'release'];
     const bottomKnobs = useMemo(
-        () => bottomKnobNames
+        () => BOTTOM_KNOB_NAMES
             .map(n => findParam(n))
             .filter((pp): pp is PluginParam => pp !== null),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +107,7 @@ export const EssenceSynth = ({
     );
 
     return (
-        <div className="essence">
+        <div className="essence" data-no-drag>
             {/* ── Header ──────────────────────────────────────── */}
             <div className="essence__header">
                 <span className="essence__title">Essence</span>

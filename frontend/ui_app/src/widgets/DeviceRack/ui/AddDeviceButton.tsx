@@ -18,7 +18,7 @@ export function AddDeviceButton({ onClick }: AddDeviceButtonProps) {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
+                gap: 'var(--space-1-5)',
                 background: 'transparent',
                 border: 'var(--space-px) dashed var(--color-border-subtle)',
                 borderRadius: 'var(--radius-sm)',

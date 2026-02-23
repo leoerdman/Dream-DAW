@@ -237,50 +237,55 @@ pub fn encode_missing_meta(raw: &str) -> String {
         .collect::<String>()
 }
 
+pub struct MissingExternalPluginSlotSpec<'a> {
+    pub kind: &'a str,
+    pub preferred_name: &'a str,
+    pub user_name: &'a str,
+    pub vst2_name: &'a str,
+    pub vst2_path: &'a str,
+    pub vst3_name: &'a str,
+    pub vst3_path: &'a str,
+    pub is_placeholder: bool,
+    pub meta: Option<&'a ExternalPluginMeta>,
+}
+
 pub fn make_missing_external_plugin_slot_with_metadata(
-    kind: &str,
-    preferred_name: &str,
-    user_name: &str,
-    vst2_name: &str,
-    vst2_path: &str,
-    vst3_name: &str,
-    vst3_path: &str,
-    is_placeholder: bool,
-    meta: Option<&ExternalPluginMeta>,
+    spec: MissingExternalPluginSlotSpec<'_>,
 ) -> DeviceNode {
     let mut details = Vec::new();
-    if !user_name.trim().is_empty() {
-        details.push(format!("user={}", user_name.trim()));
+    if !spec.user_name.trim().is_empty() {
+        details.push(format!("user={}", spec.user_name.trim()));
     }
-    if !vst3_name.trim().is_empty() {
-        details.push(format!("vst3={}", vst3_name.trim()));
+    if !spec.vst3_name.trim().is_empty() {
+        details.push(format!("vst3={}", spec.vst3_name.trim()));
     }
-    if !vst3_path.trim().is_empty() {
-        details.push(format!("vst3_path={}", vst3_path.trim()));
+    if !spec.vst3_path.trim().is_empty() {
+        details.push(format!("vst3_path={}", spec.vst3_path.trim()));
     }
-    if !vst2_name.trim().is_empty() {
-        details.push(format!("vst2={}", vst2_name.trim()));
+    if !spec.vst2_name.trim().is_empty() {
+        details.push(format!("vst2={}", spec.vst2_name.trim()));
     }
-    if !vst2_path.trim().is_empty() {
-        details.push(format!("vst2_path={}", vst2_path.trim()));
+    if !spec.vst2_path.trim().is_empty() {
+        details.push(format!("vst2_path={}", spec.vst2_path.trim()));
     }
     details.push(format!(
         "placeholder={}",
-        if is_placeholder { "1" } else { "0" }
+        if spec.is_placeholder { "1" } else { "0" }
     ));
 
     let detail_text = details.join("; ");
     let display_name = if detail_text.is_empty() {
-        format!("Plugin Not Found: {}", preferred_name.trim())
+        format!("Plugin Not Found: {}", spec.preferred_name.trim())
     } else {
         format!(
             "Plugin Not Found: {} [{}]",
-            preferred_name.trim(),
+            spec.preferred_name.trim(),
             detail_text
         )
     };
 
-    let normalized = preferred_name
+    let normalized = spec
+        .preferred_name
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() {
@@ -303,37 +308,37 @@ pub fn make_missing_external_plugin_slot_with_metadata(
     let mut query = Vec::new();
     query.push(format!(
         "name={}",
-        encode_missing_meta(preferred_name.trim())
+        encode_missing_meta(spec.preferred_name.trim())
     ));
-    if !user_name.trim().is_empty() {
-        query.push(format!("user={}", encode_missing_meta(user_name.trim())));
+    if !spec.user_name.trim().is_empty() {
+        query.push(format!("user={}", encode_missing_meta(spec.user_name.trim())));
     }
-    if !vst3_name.trim().is_empty() {
-        query.push(format!("vst3={}", encode_missing_meta(vst3_name.trim())));
+    if !spec.vst3_name.trim().is_empty() {
+        query.push(format!("vst3={}", encode_missing_meta(spec.vst3_name.trim())));
     }
-    if !vst3_path.trim().is_empty() {
+    if !spec.vst3_path.trim().is_empty() {
         query.push(format!(
             "vst3path={}",
-            encode_missing_meta(vst3_path.trim())
+            encode_missing_meta(spec.vst3_path.trim())
         ));
     }
-    if !vst2_name.trim().is_empty() {
-        query.push(format!("vst2={}", encode_missing_meta(vst2_name.trim())));
+    if !spec.vst2_name.trim().is_empty() {
+        query.push(format!("vst2={}", encode_missing_meta(spec.vst2_name.trim())));
     }
-    if !vst2_path.trim().is_empty() {
+    if !spec.vst2_path.trim().is_empty() {
         query.push(format!(
             "vst2path={}",
-            encode_missing_meta(vst2_path.trim())
+            encode_missing_meta(spec.vst2_path.trim())
         ));
     }
     query.push(format!(
         "placeholder={}",
-        if is_placeholder { "1" } else { "0" }
+        if spec.is_placeholder { "1" } else { "0" }
     ));
 
-    let plugin_id = format!("missing://{kind}/{slug}?{}", query.join("&"));
+    let plugin_id = format!("missing://{}/{slug}?{}", spec.kind, query.join("&"));
     let mut slot = PluginSlot::new(display_name, plugin_id);
-    if let Some(meta) = meta {
+    if let Some(meta) = spec.meta {
         apply_external_plugin_meta(&mut slot, meta);
     }
     DeviceNode::Single(slot)

@@ -1,19 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — PianoRoll GLSL Shaders (WebGL2) — Premium Edition
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// All shaders receive CSS-pixel uniforms (scroll, ppb, noteHeight) and
-// a u_dpr uniform. Physical-pixel conversion is done inside the shader
-// so the host can pass values directly from React without pre-scaling.
-//
-// Grid: procedural fragment shader with gradient rows, subtle vignette,
-//       premium anti-aliased lines with depth.
-// Notes: hardware-instanced SDF rounded rectangles with velocity-mapped
-//       color gradient, inner glow, 3D bevel, premium selection halo.
-// Playhead: fullscreen quad with dual-layer glow and soft bloom.
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ── Grid ────────────────────────────────────────────────────────────────
 
 export const GRID_VS = `#version 300 es
 precision highp float;
@@ -64,18 +48,15 @@ bool isC(int note) {
     return n == 0;
 }
 
-// Anti-aliased line with smooth falloff
 float aaLine(float phase, float thickness) {
     float halfT = thickness * 0.5;
     return 1.0 - smoothstep(0.0, halfT + 1.0, abs(phase - halfT));
 }
 
 void main() {
-    // Convert fragment position to CSS-pixel world coordinates
     vec2 fragCSS = v_uv * u_resolution / u_dpr;
     vec2 worldPos = fragCSS + u_scroll;
 
-    // ── Row coloring with gradient ──
     float rowF = worldPos.y / u_noteHeight;
     int row = int(floor(rowF));
     int pitch = int(u_totalPitches) - 1 - row;
@@ -103,12 +84,9 @@ void main() {
         }
     }
 
-    // Subtle vertical gradient within each row — slightly lighter at top,
-    // darker at bottom for a 3D "lane" feel
     float rowGrad = 1.0 - rowFrac * 0.08;
     rowColor *= rowGrad;
 
-    // ── Horizontal row borders (premium anti-aliased) ──
     float borderPx = 1.0 / u_noteHeight;
     bool isCLine = isC(pitch);
     float borderAlpha = 0.0;
@@ -116,42 +94,33 @@ void main() {
         borderAlpha = isCLine ? 0.50 : 0.16;
         borderAlpha *= smoothstep(1.0 - borderPx * 1.5, 1.0 - borderPx * 0.3, rowFrac);
     }
-    // C lines get a subtle colored tint
     vec3 borderColor = isCLine ? u_cLineColor : vec3(0.35, 0.36, 0.38);
 
-    // ── Vertical grid lines (premium layered) ──
     float ppb = u_pixelsPerBeat;
 
-    // Bar lines — strongest, with subtle glow
     float barSpacing = u_beatsPerBar * ppb;
     float barPhase = mod(worldPos.x, barSpacing);
     float barCore = aaLine(barPhase, 1.4) * 0.62;
     float barGlow = aaLine(barPhase, 4.0) * 0.06; // subtle glow around bar lines
     float barAlpha = barCore + barGlow;
 
-    // Beat lines
     float beatPhase = mod(worldPos.x, ppb);
     float beatAlpha = aaLine(beatPhase, 0.9) * 0.25;
 
-    // Subdivision lines
     float subSpacing = u_gridInterval * ppb;
     float subPhase = mod(worldPos.x, subSpacing);
     float subAlpha = subSpacing > 3.0 ? aaLine(subPhase, 0.5) * 0.10 : 0.0;
 
-    // Composite: bar wins over beat wins over sub
     float lineAlpha = max(barAlpha, max(beatAlpha, subAlpha));
     vec3 lineColor = barAlpha > beatAlpha
         ? (barAlpha > subAlpha ? u_barLineColor : u_subLineColor)
         : (beatAlpha > subAlpha ? u_beatLineColor : u_subLineColor);
 
-    // ── Compose ──
     vec3 color = mix(rowColor, borderColor, borderAlpha);
     color = mix(color, lineColor, lineAlpha);
 
     fragColor = vec4(color, 1.0);
 }`;
-
-// ── Notes ───────────────────────────────────────────────────────────────
 
 export const NOTE_VS = `#version 300 es
 precision highp float;
@@ -176,7 +145,6 @@ out float v_ghost;
 out vec2  v_noteSize;   // physical pixels
 
 void main() {
-    // All math in CSS pixels, then convert to physical at the end
     float worldX = a_startBeat * u_pixelsPerBeat;
     float row = u_totalPitches - 1.0 - a_pitch;
     float worldY = row * u_noteHeight;
@@ -187,7 +155,6 @@ void main() {
     float x_css = worldX + a_quadPos.x * noteW_css - u_scroll.x;
     float y_css = worldY + 1.0 + a_quadPos.y * noteH_css - u_scroll.y;
 
-    // Convert to NDC using physical resolution
     float x_phys = x_css * u_dpr;
     float y_phys = y_css * u_dpr;
     vec2 clipPos = vec2(
@@ -230,11 +197,9 @@ void main() {
     float mask = 1.0 - smoothstep(-1.0, 0.8, dist);
     if (mask < 0.01) discard;
 
-    // ── Ghost notes — ethereal translucent ──
     if (v_ghost > 0.5) {
         vec3 ghostColor = vec3(0.55, 0.65, 0.85);
         float ghostAlpha = 0.14 * mask;
-        // Subtle outline for ghosted notes
         float outlineDist = sdfRoundedRect(pixelPos - center, halfSize - vec2(1.0), max(0.0, radius - 0.5));
         float outline = (1.0 - smoothstep(-1.0, 0.5, outlineDist)) * smoothstep(-1.0, 0.5, dist + 1.5);
         ghostColor = mix(ghostColor, vec3(0.7, 0.8, 1.0), outline * 0.4);
@@ -243,48 +208,38 @@ void main() {
         return;
     }
 
-    // ── Velocity → color + alpha gradient (premium) ──
     float velNorm = v_velocity / 127.0;
     float alpha = 0.25 + velNorm * 0.75;
 
-    // Velocity-driven color: low velocity → desaturated/dim, high → vivid bright
     vec3 baseColor = u_noteColor;
     vec3 brightColor = baseColor * 1.3 + vec3(0.08);      // Push brighter for high velocity
     vec3 dimColor = baseColor * 0.6 + vec3(0.03, 0.03, 0.05); // Cooler/dimmer for low velocity
     vec3 color = mix(dimColor, brightColor, velNorm);
 
-    // Inner vertical gradient — light at top, deeper at bottom (3D bevel)
     float vertGrad = v_localUV.y;
     float topHighlight = smoothstep(0.0, 0.25, 1.0 - vertGrad) * 0.30;
     float bottomShadow = smoothstep(0.7, 1.0, vertGrad) * 0.25;
     color = mix(color, vec3(1.0), topHighlight * velNorm);
     color = mix(color, vec3(0.0), bottomShadow);
 
-    // Left edge highlight — subtle specular on left var(--space-0-5)
     float leftHL = smoothstep(3.0, 0.0, pixelPos.x) * 0.15;
     color = mix(color, vec3(1.0), leftHL * velNorm);
 
-    // ── Selection halo — premium glowing border ──
     if (v_selected > 0.5) {
-        // Outer glow ring
         float outerDist = sdfRoundedRect(pixelPos - center, halfSize - vec2(0.0), radius);
         float innerDist = sdfRoundedRect(pixelPos - center, halfSize - vec2(3.0), max(0.0, radius - 1.5));
         float border = (1.0 - smoothstep(-1.5, 0.5, outerDist)) * smoothstep(-1.5, 0.5, innerDist);
 
-        // Selection uses bright white-blue border
         vec3 selColor = vec3(0.85, 0.92, 1.0);
         color = mix(color, selColor, border * 0.92);
         alpha = mix(alpha, 1.0, border * 0.85);
 
-        // Subtle inner glow for selected notes
         float innerGlow = exp(-max(0.0, -dist) * 0.15) * 0.12;
         color += selColor * innerGlow;
     }
 
     fragColor = vec4(color, alpha * mask);
 }`;
-
-// ── Playhead ────────────────────────────────────────────────────────────
 
 export const PLAYHEAD_VS = `#version 300 es
 precision highp float;
@@ -308,19 +263,15 @@ void main() {
     float fragX_css = v_uv.x * u_resolution.x / u_dpr;
     float dist = abs(fragX_css - u_playheadX);
 
-    // Core line: crisp 1.5 CSS pixels with anti-aliased edges
     float coreMask = 1.0 - smoothstep(0.0, 1.0, dist);
 
-    // Inner glow — warm white, tight (var(--token-size-px-3))
     float innerGlow = exp(-dist * dist * 0.15) * 0.55;
 
-    // Outer bloom — soft diffuse light halo (var(--space-2-5))
     float outerBloom = exp(-dist * 0.22) * 0.20;
 
     float totalAlpha = min(1.0, coreMask * 0.97 + innerGlow + outerBloom);
     if (totalAlpha < 0.004) discard;
 
-    // Color: bright white core fading to slight blue-white at edges
     vec3 coreColor = vec3(1.0, 1.0, 1.0);
     vec3 glowColor = vec3(0.82, 0.88, 1.0);
     float colorMix = smoothstep(0.0, 6.0, dist);

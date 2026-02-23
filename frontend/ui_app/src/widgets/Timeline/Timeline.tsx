@@ -1,8 +1,3 @@
-/**
- * Timeline — Canvas-based arrangement timeline.
- *
- * Thin React shell around the TimelineEngine canvas.
- */
 import { useRef, useEffect, useMemo } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
@@ -56,7 +51,6 @@ interface TimelineProps {
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     onMarqueeSelectionStart?: () => void;
     onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
-    // Scroll sync handled by scrollSync singleton — no props needed.
     followPlayhead?: boolean;
     automationVisible?: boolean;
     fitHorizontalToken?: number;
@@ -65,8 +59,6 @@ interface TimelineProps {
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
-
-// ── Component ──────────────────────────────────────────────────────────────
 
 export const Timeline = (props: TimelineProps) => {
     const {
@@ -77,13 +69,11 @@ export const Timeline = (props: TimelineProps) => {
         trackHeight = DEFAULT_TRACK_HEIGHT,
         trackHeights,
         clips = [],
-        // playheadBeat — now read from store directly (effectivePlayheadBeat)
         editCursorBeat = 0,
         editCursorTrackIndex = 0,
         editCursorTrackIndexEnd = 0,
         selectedTrackIndex = -1,
         selectedTrackIndices,
-        // isPlaying — now read from store directly (effectiveIsPlaying)
         trackIds = [],
         loopStart = 0,
         loopEnd = 4,
@@ -108,13 +98,8 @@ export const Timeline = (props: TimelineProps) => {
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
-    // Read live sample rate from engine (could be 44100, 48000, 96000+)
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
-    // PERF-FIX: Playhead position AND isPlaying are pumped to the engine via a
-    // direct Zustand subscription (below) instead of React subscriptions. This
-    // avoids ~30 React re-renders per second of the entire Timeline component.
 
-    // ── Grid store for dynamic snap ───────────────────────────────────
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const snapEnabled = useGridStore((s) => s.snapEnabled);
@@ -130,7 +115,6 @@ export const Timeline = (props: TimelineProps) => {
         [gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat],
     );
 
-    // ── Engine config ─────────────────────────────────────────────────
     const engineConfig: UseTimelineEngineConfig = {
         beatsPerBar,
         bpm,
@@ -152,7 +136,6 @@ export const Timeline = (props: TimelineProps) => {
     propsRef.current = props;
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
 
-    // ── Store refs for callbacks (avoid stale closures) ───────────────
     const callbacksRef = useRef({
         onPlayheadChange,
         onEditCursorChange,
@@ -186,7 +169,6 @@ export const Timeline = (props: TimelineProps) => {
         onMarqueeSelectionChange,
     };
 
-    // Refs for callback closure stability
     const selectedClipIdsRef = useRef(selectedClipIds);
     selectedClipIdsRef.current = selectedClipIds;
     const trackIdsRef = useRef(trackIds);
@@ -244,7 +226,6 @@ export const Timeline = (props: TimelineProps) => {
         };
     }, []);
 
-    // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
     const tracksEntity = useEngineStore((s) => s.tracks);
     const trackActiveStates = useMemo(() => {
         const orderedTracks = tracksEntity.allIds
@@ -253,12 +234,10 @@ export const Timeline = (props: TimelineProps) => {
         return orderedTracks.map((_t, i, arr) => isTrackActive(i, arr));
     }, [tracksEntity]);
 
-    // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         const clipData: TimelineClipData[] = clips.map(c => ({
-            // Stored fades are in sample-frames; canvas renderer expects 0..1 fraction of clip width.
             fadeIn: (c.durationSamples && c.durationSamples > 0)
                 ? Math.max(0, Math.min(1, (c.fadeIn ?? 0) / c.durationSamples))
                 : 0,
@@ -280,16 +259,11 @@ export const Timeline = (props: TimelineProps) => {
             fadeOutCurve: c.fadeOutCurve,
             isOffline: c.isOffline,
             muted: c.muted,
-            // Clips on inactive tracks render darker (reactive via trackActiveStates dep)
             trackMuted: !trackActiveStates[c.trackIndex],
             midiNotes: c.midiNotes,
         }));
 
         engine.setClips(clipData);
-        // BUG-A FIX: Immediately re-apply clip selection AFTER setClips to prevent
-        // deselection after snapshot/delta project swaps. setClips resets all
-        // clip.selected flags to false,
-        // so we must re-apply the selection atomically within the same effect.
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates]);
 
@@ -300,9 +274,6 @@ export const Timeline = (props: TimelineProps) => {
         const viewportWidth = viewport.viewportWidth;
         if (viewportWidth <= 8) return;
 
-        // Read clips from ref to avoid triggering this effect on every clip
-        // mutation. The effect should ONLY run when fitHorizontalToken changes
-        // (explicit user action, e.g. pressing W).
         const currentClips = propsRef.current.clips ?? [];
         const currentBeatsPerBar = Math.max(1, propsRef.current.timeSignature?.[0] ?? beatsPerBar);
 
@@ -332,23 +303,14 @@ export const Timeline = (props: TimelineProps) => {
 
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fitHorizontalToken, engineRef]);
 
-    // Selection is now applied atomically inside the clips effect above.
-    // This separate effect handles only explicit selection changes (e.g. click, Shift+click)
-    // that happen WITHOUT a clips array change.
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.setClipSelection(selectedClipIds);
     }, [selectedClipIds, engineRef]);
 
-    // ── Feed playhead (DIRECT ZUSTAND SUBSCRIPTION — bypasses React) ──
-    // PERF-FIX: This replaces the old useEffect([effectivePlayheadBeat]) pattern
-    // that caused 30fps React re-renders of the entire Timeline component.
-    // Now the engine gets position updates synchronously from the store without
-    // touching React at all.
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -360,7 +322,6 @@ export const Timeline = (props: TimelineProps) => {
 
             if (beats !== prevBeats) {
                 engine.setPlayheadBeat(beats);
-                // Follow playhead: keep playhead visible during playback
                 if (playing && propsRef.current.followPlayhead) {
                     engine.ensureBeatVisible(beats);
                 }
@@ -370,7 +331,6 @@ export const Timeline = (props: TimelineProps) => {
         return unsub;
     }, [engineRef]);
 
-    // ── Feed edit cursor ──────────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -392,10 +352,8 @@ export const Timeline = (props: TimelineProps) => {
         engine.viewport.setZoom(restorePixelsPerBeat);
         engine.viewport.scrollTo(restoreScrollLeft, restoreScrollTop ?? engine.viewport.scrollY);
         clearViewportRestore();
-        // restoreSeq ensures one-shot apply even if values repeat.
     }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, restoreScrollTop, engineRef, clearViewportRestore]);
 
-    // ── Feed selected track highlight ─────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -405,11 +363,9 @@ export const Timeline = (props: TimelineProps) => {
         engine.setSelectedTracks(selectedTrackIndex, list);
     }, [selectedTrackIndex, selectedTrackIndices, engineRef]);
 
-    // ── Feed loop region ──────────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        // Always pass loop markers so handles stay visible/interactive.
         engine.setLoop({
             start: loopStart,
             end: loopEnd,
@@ -426,7 +382,6 @@ export const Timeline = (props: TimelineProps) => {
         };
     }, [engineRef]);
 
-    // ── Store-based drag overlay (DawShell → Timeline) ────────────────
     const draggingItem = useDragStore(s => s.draggingItem);
     const dragCursorX = useDragStore(s => s.cursorX);
     const dragCursorY = useDragStore(s => s.cursorY);
@@ -440,12 +395,6 @@ export const Timeline = (props: TimelineProps) => {
         dragCursorX,
         dragCursorY,
     });
-
-    // Ghost clip is handled together with cursor-tracked drop target effect above.
-
-    // ═══════════════════════════════════════════════════════════════════
-    // RENDER — A single <canvas> element. That's it.
-    // ═══════════════════════════════════════════════════════════════════
 
     return (
         <div

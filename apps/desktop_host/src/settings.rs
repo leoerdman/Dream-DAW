@@ -78,6 +78,24 @@ pub(crate) struct AppSettings {
         alias = "browserLeftPaneWidth"
     )]
     pub(crate) browser_left_pane_width: u32,
+    /// Follow playhead state in transport bar.
+    #[serde(default = "default_true", alias = "transportFollowPlayhead")]
+    pub(crate) transport_follow_playhead: bool,
+    /// Global automation visibility toggle.
+    #[serde(default, alias = "transportAutomationVisible")]
+    pub(crate) transport_automation_visible: bool,
+    /// Piano pencil mode toggle.
+    #[serde(default = "default_true", alias = "transportPianoPencilMode")]
+    pub(crate) transport_piano_pencil_mode: bool,
+    /// Arrangement grid UI division label (OFF, ADAPTIVE, 1/1..1/32).
+    #[serde(default = "default_arrangement_grid_division", alias = "arrangementGridDivision")]
+    pub(crate) arrangement_grid_division: String,
+    /// Arrangement grid triplet toggle.
+    #[serde(default, alias = "arrangementGridTriplet")]
+    pub(crate) arrangement_grid_triplet: bool,
+    /// Arrangement snap enabled toggle.
+    #[serde(default = "default_true", alias = "arrangementGridSnapEnabled")]
+    pub(crate) arrangement_grid_snap_enabled: bool,
 }
 
 pub(crate) fn default_language() -> String {
@@ -137,6 +155,9 @@ pub(crate) fn default_open_router_model() -> String {
 pub(crate) fn default_browser_left_pane_width() -> u32 {
     92
 }
+pub(crate) fn default_arrangement_grid_division() -> String {
+    "ADAPTIVE".into()
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -168,6 +189,12 @@ impl Default for AppSettings {
             browser_show_size_column: true,
             browser_show_type_column: false,
             browser_left_pane_width: default_browser_left_pane_width(),
+            transport_follow_playhead: true,
+            transport_automation_visible: false,
+            transport_piano_pencil_mode: true,
+            arrangement_grid_division: default_arrangement_grid_division(),
+            arrangement_grid_triplet: false,
+            arrangement_grid_snap_enabled: true,
         }
     }
 }

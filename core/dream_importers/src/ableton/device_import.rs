@@ -25,7 +25,8 @@ use super::device_params::{
 };
 use super::plugin_mapper::{
     ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
-    infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
+    MissingExternalPluginSlotSpec, infer_device_display_name,
+    make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
 };
 use super::rack_parser::parse_als_rack;
@@ -210,17 +211,17 @@ fn import_external_plugin_device(
             vst3_path,
             vst2_path
         );
-        make_missing_external_plugin_slot_with_metadata(
-            "external",
-            &preferred_name,
-            &user_name,
-            &vst2_name,
-            &vst2_path,
-            &vst3_name,
-            &vst3_path,
+        make_missing_external_plugin_slot_with_metadata(MissingExternalPluginSlotSpec {
+            kind: "external",
+            preferred_name: &preferred_name,
+            user_name: &user_name,
+            vst2_name: &vst2_name,
+            vst2_path: &vst2_path,
+            vst3_name: &vst3_name,
+            vst3_path: &vst3_path,
             is_placeholder,
-            Some(&meta),
-        )
+            meta: Some(&meta),
+        })
     };
 
     if is_instrument_slot {

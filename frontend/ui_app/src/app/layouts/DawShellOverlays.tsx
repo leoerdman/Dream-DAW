@@ -2,14 +2,12 @@ import { lazy, Suspense } from 'react';
 import { AssistantChat } from '@/widgets/AssistantChat/AssistantChat';
 import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentActionIndicator';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
+import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 const SettingsPanel = lazy(async () => ({
     default: (await import('@/widgets/SettingsPanel/SettingsPanel')).SettingsPanel,
-}));
-const ExportModal = lazy(async () => ({
-    default: (await import('@/widgets/ExportModal/ExportModal')).ExportModal,
 }));
 const BlockingJobPopup = lazy(async () => ({
     default: (await import('@/widgets/BlockingJobPopup/BlockingJobPopup')).BlockingJobPopup,
@@ -85,20 +83,18 @@ export function DawShellOverlays({
             </ErrorBoundary>
 
             <ErrorBoundary module="Export">
-                <Suspense fallback={null}>
-                    <ExportModal
-                        isOpen={exportOpen}
-                        onClose={onCloseExport}
-                        projectName={projectName}
-                        selectedClipIds={selectedClipIds}
-                        allClips={timelineClipsForView}
-                        bpm={bpm}
-                        sampleRate={sampleRate}
-                        loopStartBeat={loopStartBeat}
-                        loopEndBeat={loopEndBeat}
-                        marqueeSelection={marqueeSelection}
-                    />
-                </Suspense>
+                <ExportModal
+                    isOpen={exportOpen}
+                    onClose={onCloseExport}
+                    projectName={projectName}
+                    selectedClipIds={selectedClipIds}
+                    allClips={timelineClipsForView}
+                    bpm={bpm}
+                    sampleRate={sampleRate}
+                    loopStartBeat={loopStartBeat}
+                    loopEndBeat={loopEndBeat}
+                    marqueeSelection={marqueeSelection}
+                />
             </ErrorBoundary>
 
             <Suspense fallback={null}>
@@ -109,4 +105,3 @@ export function DawShellOverlays({
         </>
     );
 }
-

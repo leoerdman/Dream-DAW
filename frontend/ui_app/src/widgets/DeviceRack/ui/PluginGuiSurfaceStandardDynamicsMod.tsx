@@ -8,6 +8,8 @@ import {
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -16,8 +18,8 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     if (device.effectType === 'limiter') {
-        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -0.3;
-        const ceil = device.params.find((p) => p.name.toLowerCase() === 'ceil')?.value ?? -0.1;
+        const thr = safeParamValue(device, 'thr', -0.3);
+        const ceil = safeParamValue(device, 'ceil', -0.1);
         const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
         const limGr = Math.max(0, Math.abs(thr) * 0.8);
         return (
@@ -50,10 +52,10 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
     }
 
     if (device.effectType === 'gate') {
-        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -40;
-        const range = device.params.find((p) => p.name.toLowerCase() === 'range')?.value ?? -80;
-        const gateAtk = device.params.find((p) => p.name.toLowerCase() === 'atk')?.value ?? device.params.find((p) => p.name.toLowerCase().includes('attack'))?.value ?? 0.1;
-        const gateRel = device.params.find((p) => p.name.toLowerCase() === 'rel')?.value ?? device.params.find((p) => p.name.toLowerCase().includes('release'))?.value ?? 50;
+        const thr = safeParamValue(device, 'thr', -40);
+        const range = safeParamValue(device, 'range', -80);
+        const gateAtk = safeParamValue(device, ['atk', 'attack'], 0.1);
+        const gateRel = safeParamValue(device, ['rel', 'release'], 50);
         const openness = Math.max(0, Math.min(1, (80 + thr) / 80));
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
@@ -86,29 +88,16 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
     }
 
     if (device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger') {
-        const params = device.params;
+        const modRate = safeParamValue(device, 'rate', 0);
+        const modDepth = safeParamValue(device, 'depth', 0);
+        const modMix = safeParamValue(device, ['dry/wet', 'mix', 'amount'], 50);
+        const modFreq = safeParamValue(device, ['freq', 'frequency', 'cutoff', 'center'], 0);
         const isVocoder = normalizedInternalId === 'internal://effect/vocoder';
-        const modRate = params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 0;
-        const modDepth = params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 0;
-        const modMix = params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value
-            ?? params.find((p) => p.name.toLowerCase() === 'mix')?.value
-            ?? params.find((p) => p.name.toLowerCase() === 'amount')?.value
-            ?? 50;
-        const modFreq = params.find((p) => (
-            p.name.toLowerCase() === 'freq'
-            || p.name.toLowerCase() === 'frequency'
-            || p.name.toLowerCase() === 'cutoff'
-            || p.name.toLowerCase() === 'center'
-        ))?.value ?? 0;
-        const title = isVocoder
-            ? 'Vocoder'
-            : device.effectType === 'autoFilter'
-                ? 'Auto Filter'
-                : device.effectType === 'autoPan'
-                    ? 'Auto Pan'
-                    : device.effectType === 'phaser'
-                        ? 'Phaser'
-                        : 'Flanger';
+        const title = PLUGIN_TITLE_MAP[normalizedInternalId]
+            ?? (device.effectType === 'autoFilter' ? 'Auto Filter'
+                : device.effectType === 'autoPan' ? 'Auto Pan'
+                    : device.effectType === 'phaser' ? 'Phaser'
+                        : 'Flanger');
         const hue = device.effectType === 'autoFilter'
             ? 'var(--token-color-hex-4cc9d8)'
             : device.effectType === 'autoPan'
@@ -141,8 +130,8 @@ export function renderStandardDynamicsModSurface(device: DeviceSlot, handlers: S
                         <span>Mix {modMix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, params.length))}, minmax(0, 1fr))`)}>
-                    {params.map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

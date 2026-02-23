@@ -63,6 +63,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     browserShowSizeColumn: true,
     browserShowTypeColumn: false,
     browserLeftPaneWidth: 92,
+    transportFollowPlayhead: true,
+    transportAutomationVisible: false,
+    transportPianoPencilMode: true,
+    arrangementGridDivision: 'ADAPTIVE',
+    arrangementGridTriplet: false,
+    arrangementGridSnapEnabled: true,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

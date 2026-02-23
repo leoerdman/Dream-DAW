@@ -19,6 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 
 /// Utility processor — gain, pan, width, mono.
 pub struct UtilityProcessor {
@@ -43,11 +44,7 @@ pub struct UtilityProcessor {
 impl UtilityProcessor {
     /// BUG-28 FIX: Accept `sample_rate` parameter instead of hardcoding 44100 Hz.
     pub fn new(sample_rate: f32) -> Self {
-        let sr = if sample_rate.is_finite() && sample_rate > 1000.0 {
-            sample_rate
-        } else {
-            44100.0
-        };
+        let sr = sanitize_sample_rate(sample_rate);
         Self {
             gain_db: 0.0,
             current_gain: 1.0,
@@ -73,7 +70,7 @@ impl UtilityProcessor {
 
 impl Default for UtilityProcessor {
     fn default() -> Self {
-        Self::new(44100.0)
+        Self::new(DEFAULT_SAMPLE_RATE)
     }
 }
 

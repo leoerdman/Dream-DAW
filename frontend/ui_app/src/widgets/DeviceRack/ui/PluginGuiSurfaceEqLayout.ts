@@ -19,7 +19,7 @@ export const pluginPanelMetaStyle: React.CSSProperties = {
 };
 
 export const EQ_FREQ_LABELS = [
-    { freq: 20, label: '20' }, { freq: 30, label: '30' }, { freq: 50, label: '50' },
+    { freq: 20, label: '20' }, { freq: 50, label: '50' },
     { freq: 100, label: '100' }, { freq: 200, label: '200' }, { freq: 500, label: '500' },
     { freq: 1000, label: '1k' }, { freq: 2000, label: '2k' }, { freq: 5000, label: '5k' },
     { freq: 10000, label: '10k' }, { freq: 20000, label: '20k' },

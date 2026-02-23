@@ -171,6 +171,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
         sample_rate: SR,
         ..Project::default()
     };
+    project.tracks.clear();
 
     // Group bus receiving one child track.
     let group = Track::with_type("Group", TrackType::Group, 0);

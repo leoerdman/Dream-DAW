@@ -3,49 +3,19 @@ import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-
-const pluginPanelLayoutStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateRows: 'var(--token-size-px-90) auto',
-    gap: 'var(--plugin-grid-gap)',
-    height: '100%',
-};
-
-const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: 'var(--space-px) solid var(--plugin-card-border)',
-    borderRadius: 'var(--plugin-card-radius)',
-    padding: 'var(--plugin-card-pad-y) var(--plugin-card-pad-x)',
-    display: 'grid',
-    gridTemplateRows: '1fr auto',
-    gap: 'var(--plugin-card-gap)',
-    background: 'var(--plugin-card-bg-main)',
-};
-
-const pluginPanelTitleStyle: React.CSSProperties = {
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--plugin-title-color)',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-};
-
-const pluginPanelMetaStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--plugin-meta-color)',
-    fontFamily: 'var(--font-mono)',
-};
-
-interface DistNoiseHandlers {
-    onParamChange: (paramName: string, value: number) => void;
-    onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
-    onParamGestureEnd?: (paramName: string) => void;
-}
+import {
+    pluginPanelCardBaseStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
+    type SurfaceHandlers,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 export function renderStandardDistNoiseSurface(
     device: DeviceSlot,
-    handlers: DistNoiseHandlers,
+    handlers: SurfaceHandlers,
 ): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
@@ -53,23 +23,11 @@ export function renderStandardDistNoiseSurface(
     if (device.effectType === 'distortion' || device.effectType === 'bitcrusher') {
         const title = device.effectType === 'bitcrusher'
             ? 'Bitcrusher'
-            : normalizedInternalId === 'internal://effect/amp'
-                ? 'Amp'
-                : normalizedInternalId === 'internal://effect/cabinet'
-                    ? 'Cabinet'
-                    : normalizedInternalId === 'internal://effect/erosion'
-                        ? 'Erosion'
-                        : normalizedInternalId === 'internal://effect/overdrive'
-                            ? 'Overdrive'
-                            : normalizedInternalId === 'internal://effect/pedal'
-                                ? 'Pedal'
-                                : normalizedInternalId === 'internal://effect/roar'
-                                    ? 'Roar'
-                                    : 'Distortion';
+            : (PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Distortion');
         const color = device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)';
-        const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 0;
-        const mix = device.params.find((p) => p.name.toLowerCase() === 'mix')?.value ?? 0;
-        const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
+        const drive = safeParamValue(device, 'drive', 0);
+        const mix = safeParamValue(device, 'mix', 0);
+        const tone = safeParamValue(device, 'tone', 0);
         const isAmp = title === 'Amp' || title === 'Cabinet';
         const isErosion = title === 'Erosion';
         const isBit = title === 'Bitcrusher';
@@ -132,9 +90,9 @@ export function renderStandardDistNoiseSurface(
     }
 
     if (device.effectType === 'noiseMachine') {
-        const type = Math.round(device.params.find((p) => p.name.toLowerCase() === 'type')?.value ?? 0);
-        const level = device.params.find((p) => p.name.toLowerCase() === 'level')?.value ?? -30;
-        const stereo = device.params.find((p) => p.name.toLowerCase() === 'stereo')?.value ?? 0.5;
+        const type = Math.round(safeParamValue(device, 'type', 0));
+        const level = safeParamValue(device, 'level', -30);
+        const stereo = safeParamValue(device, 'stereo', 0.5);
         const typeLabel = type <= 0 ? 'Vinyl' : type === 1 ? 'Air' : 'Storm';
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>

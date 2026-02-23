@@ -469,11 +469,24 @@ mod tests {
     use super::*;
     use dream_models::project::Project;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_NONCE: AtomicU64 = AtomicU64::new(0);
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("dream_daw_pm_test_{}", name));
-        let _ = fs::remove_dir_all(&dir); // Clean up from previous runs
-        dir
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = TEST_NONCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "dream_daw_pm_test_{}_{}_{}_{}",
+            name,
+            std::process::id(),
+            nonce,
+            seq
+        ))
     }
 
     #[test]

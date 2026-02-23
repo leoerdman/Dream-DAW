@@ -21,8 +21,6 @@ use crate::ableton::parser::{
     read_als_xml_text as read_als_xml_text_from_importer,
     resolve_timeline_sample_rate as resolve_timeline_sample_rate_from_importer,
 };
-#[cfg(test)]
-use crate::ableton::plugin_mapper::ExternalPluginMeta;
 use crate::ableton::plugin_mapper::{
     ExternalPluginIndex, infer_device_display_name as infer_device_display_name_from_importer,
     make_missing_plugin_slot, normalize_internal_plugins_for_import, normalize_plugin_key,
@@ -49,15 +47,6 @@ use crate::ableton::xml_helpers::{
     parse_track_send_manual_values,
 };
 
-#[cfg(test)]
-use crate::ableton::automation::plugin_param_lane_key_with as plugin_param_lane_key_with_importer;
-#[cfg(test)]
-use crate::ableton::clip_parser::parse_clip_grid;
-#[cfg(test)]
-use crate::ableton::xml_helpers::{
-    first_child_bool, first_child_f64, first_child_i32, first_child_value, parse_live_set_bool,
-    parse_live_set_i32, parse_root_midi_editor_lanes, parse_view_states_bool,
-};
 
 fn parse_project_markers(
     live_set: roxmltree::Node<'_, '_>,
@@ -125,22 +114,6 @@ fn build_pointee_map(
     track_node: roxmltree::Node<'_, '_>,
 ) -> std::collections::HashMap<String, String> {
     build_pointee_map_with_importer(track_node, infer_device_display_name, normalize_plugin_key)
-}
-
-#[cfg(test)]
-fn plugin_param_lane_key(
-    dev_idx: usize,
-    plugin_name: &str,
-    param_name: &str,
-    param_id: &str,
-) -> String {
-    plugin_param_lane_key_with_importer(
-        dev_idx,
-        plugin_name,
-        param_name,
-        param_id,
-        normalize_plugin_key,
-    )
 }
 
 fn import_track_automation(track_node: roxmltree::Node<'_, '_>, track: &mut Track) {

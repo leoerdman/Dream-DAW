@@ -136,6 +136,10 @@ impl WavWriter {
         };
 
         let path_buf = path.as_ref().to_path_buf();
+        if let Some(parent) = path_buf.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+        }
         let writer = hound::WavWriter::create(&path_buf, spec)
             .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
 
@@ -165,6 +169,10 @@ impl WavWriter {
         channels: u16,
         bit_depth: u16,
     ) -> Result<(), WavWriterError> {
+        if let Some(parent) = path.as_ref().parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+        }
         // IO-4 FIX: Guard against exceeding the WAV RIFF 4GB data chunk limit.
         // WAV uses u32 for the data chunk size field, capping at 4,294,967,295 bytes.
         // Writing more produces a corrupted file with wrapped chunk sizes.
@@ -399,9 +407,19 @@ impl StreamingWavWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_NONCE: AtomicU64 = AtomicU64::new(0);
 
     fn temp_wav(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("dream_daw_test_{name}.wav"))
+        let pid = std::process::id();
+        let ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let seq = TEST_NONCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("dream_daw_test_{name}_{pid}_{ns}_{seq}.wav"))
     }
 
     fn sine_samples(freq: f32, sample_rate: f32, duration_secs: f32) -> Vec<f32> {

@@ -1,33 +1,7 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — CanvasClipRenderer
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Draws timeline content directly on a Canvas 2D context.
-// This replaces ALL DOM `<div>` clip elements, `<svg>` grid lines,
-// and the `<div>` playhead.
-//
-// Visual design mirrors the WGSL shader in:
-//   core/dream_renderer/src/shaders/timeline.wgsl
-//
-// Everything here is pure drawing — no React, no DOM nodes.
-//
-// Sections:
-//   1. Grid (beat lines, bar lines, track dividers)
-//   2. Clips (rounded rects, headers, waveforms, MIDI notes)
-//   3. Selection glow, phantom/muted states
-//   4. Playhead
-//   5. Loop region overlay
-//   6. Edit cursor
-//   7. Drop target indicator
-//   8. Ghost clip preview
-//
-// ═══════════════════════════════════════════════════════════════════════════
 
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
-
-// ── Types ─────────────────────────────────────────────────────────────────
 
 export interface TimelineClipData {
     id: string;
@@ -50,7 +24,6 @@ export interface TimelineClipData {
     showFadeOutCurvePoint?: boolean;
     isOffline?: boolean;
     muted?: boolean;
-    /** TRUE when the parent track is muted — clips render darker. */
     trackMuted?: boolean;
     midiNotes?: Array<{
         pitch: number;
@@ -73,8 +46,6 @@ export interface GhostClipData {
     name: string;
     type: 'audio' | 'midi';
 }
-
-// ── Constants ─────────────────────────────────────────────────────────────
 
 const HEADER_HEIGHT = 20;
 const CLIP_RADIUS = 4;
@@ -102,8 +73,6 @@ interface TimelineTheme {
     trackDivider: string;
 }
 
-// ── Class ─────────────────────────────────────────────────────────────────
-
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
     private _bpm = 120;
@@ -111,9 +80,7 @@ export class CanvasClipRenderer {
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
 
-    /** Timestamp (ms) when the edit cursor was last repositioned. */
     private _editCursorPlacedMs = 0;
-    /** Previous edit cursor beat for change detection. */
     private _prevEditCursorBeat = -999;
 
     constructor(waveformCache: WaveformCache) {
@@ -142,10 +109,6 @@ export class CanvasClipRenderer {
         };
         this._lastThemeSync = now;
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 1. FULL FRAME DRAW
-    // ═══════════════════════════════════════════════════════════════════
 
     drawFrame(
         ctx: CanvasRenderingContext2D,
@@ -176,19 +139,16 @@ export class CanvasClipRenderer {
 
         const dpr = window.devicePixelRatio || 1;
 
-        // Clear entire canvas
         ctx.clearRect(0, 0, w * dpr, h * dpr);
 
         ctx.save();
         ctx.scale(dpr, dpr);
 
-        // Draw background
         ctx.fillStyle = theme.bg;
         ctx.fillRect(0, 0, w, h);
 
         const range = vp.getVisibleRange();
 
-        // Draw track area (below ruler)
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, vp.rulerHeight, w, h - vp.rulerHeight);
@@ -206,7 +166,6 @@ export class CanvasClipRenderer {
 
         ctx.restore();
 
-        // Draw ruler on top (always visible)
         this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme);
 
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
@@ -221,21 +180,15 @@ export class CanvasClipRenderer {
     ): void {
         const rulerH = vp.rulerHeight;
 
-        // Fill the entire track area with the default track color
         ctx.fillStyle = theme.trackDefault;
         ctx.fillRect(0, rulerH, vp.viewportWidth, vp.viewportHeight - rulerH);
 
-        // Highlight selected tracks (primary gets stronger)
-        // The highlight must be clipped to the actual track bounds so it scrolls
-        // with the track and disappears under the ruler / below the viewport edge.
         const list = (selectedTracks && selectedTracks.length > 0) ? selectedTracks : (selectedTrack >= 0 ? [selectedTrack] : []);
         for (const t of list) {
             if (t < 0) continue;
             const y = rulerH + vp.trackOffsetY(t) - vp.scrollY;
             const h = vp.trackHeightAt(t);
-            // Fully off-screen — skip
             if (y + h < rulerH || y > vp.viewportHeight) continue;
-            // Clip top to ruler and bottom to viewport
             const clippedTop = Math.max(rulerH, y);
             const clippedBottom = Math.min(vp.viewportHeight, y + h);
             const clippedH = clippedBottom - clippedTop;
@@ -247,10 +200,6 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 2. GRID
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawGrid(
         ctx: CanvasRenderingContext2D,
@@ -264,7 +213,6 @@ export class CanvasClipRenderer {
         const ppb = vp.pixelsPerBeat;
         const rulerH = vp.rulerHeight;
 
-        // ── Vertical grid lines ──────────────────────────────────────
         let gridStep = snapBeats;
         if (gridStep <= 0) {
             if (ppb < 8) gridStep = beatsPerBar * 4;
@@ -291,7 +239,6 @@ export class CanvasClipRenderer {
             ctx.stroke();
         }
 
-        // ── Horizontal track dividers ───────────────────────────────────
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
         for (let i = 0; i <= vp.trackCount; i++) {
@@ -304,10 +251,6 @@ export class CanvasClipRenderer {
         }
         ctx.restore();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 3. RULER
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawRuler(
         ctx: CanvasRenderingContext2D,
@@ -322,11 +265,9 @@ export class CanvasClipRenderer {
         ctx.save();
         const rulerH = vp.rulerHeight;
 
-        // Ruler background
         ctx.fillStyle = theme.rulerBg;
         ctx.fillRect(0, 0, vp.viewportWidth, rulerH);
 
-        // Bottom border
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -334,7 +275,6 @@ export class CanvasClipRenderer {
         ctx.lineTo(vp.viewportWidth, rulerH);
         ctx.stroke();
 
-        // Beat/bar marks
         let markStep = beatsPerBar;
         if (vp.pixelsPerBeat < 12) markStep = beatsPerBar * 4;
 
@@ -350,11 +290,9 @@ export class CanvasClipRenderer {
             const x = vp.beatsToScreenX(beat);
             if (x < -50 || x > vp.viewportWidth + 10) continue;
 
-            // Bar number
             const barNumber = Math.floor(beat / beatsPerBar) + 1;
             ctx.fillText(String(barNumber), x, 2);
 
-            // Tick mark
             ctx.strokeStyle = theme.rulerText;
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -363,7 +301,6 @@ export class CanvasClipRenderer {
             ctx.stroke();
         }
 
-        // Playhead marker on ruler
         const phX = vp.beatsToScreenX(playheadBeat);
         if (phX >= -5 && phX <= vp.viewportWidth + 5) {
             ctx.fillStyle = theme.playhead;
@@ -375,7 +312,6 @@ export class CanvasClipRenderer {
             ctx.fill();
         }
 
-        // Edit cursor marker on ruler (blinking triangle)
         const ecX = vp.beatsToScreenX(editCursorBeat);
         if (ecX >= -5 && ecX <= vp.viewportWidth + 5) {
             ctx.fillStyle = theme.editCursor;
@@ -387,14 +323,12 @@ export class CanvasClipRenderer {
             ctx.fill();
         }
 
-        // Loop markers on ruler (triangles with bars)
         if (loop) {
             const lStart = vp.beatsToScreenX(loop.start);
             const lEnd = vp.beatsToScreenX(loop.end);
 
             ctx.fillStyle = theme.loopBorder;
 
-            // Start marker handle (flag-like)
             if (lStart >= -10 && lStart <= vp.viewportWidth + 10) {
                 ctx.save();
                 ctx.beginPath();
@@ -406,7 +340,6 @@ export class CanvasClipRenderer {
                 ctx.fill();
 
                 if (loop.enabled) {
-                    // Vertical anchor line on ruler
                     ctx.strokeStyle = theme.loopBorder;
                     ctx.lineWidth = 1.5;
                     ctx.beginPath();
@@ -417,7 +350,6 @@ export class CanvasClipRenderer {
                 ctx.restore();
             }
 
-            // End marker handle (flag-like)
             if (lEnd >= -10 && lEnd <= vp.viewportWidth + 10) {
                 ctx.save();
                 ctx.beginPath();
@@ -429,7 +361,6 @@ export class CanvasClipRenderer {
                 ctx.fill();
 
                 if (loop.enabled) {
-                    // Vertical anchor line on ruler
                     ctx.strokeStyle = theme.loopBorder;
                     ctx.lineWidth = 1.5;
                     ctx.beginPath();
@@ -443,10 +374,6 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 4. CLIPS
-    // ═══════════════════════════════════════════════════════════════════
-
     private _drawClips(
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
@@ -454,7 +381,6 @@ export class CanvasClipRenderer {
         range: VisibleRange,
         sampleRate: number,
     ): void {
-        // Cull clips outside visible range (with a buffer)
         const bufferBeats = 2;
         const filtered = clips.filter(c => {
             const endBeat = c.startBeat + c.durationBeats;
@@ -465,9 +391,6 @@ export class CanvasClipRenderer {
             return true;
         });
 
-        // ── Compute per-track pitch range across ALL MIDI clips ──────
-        // This ensures octave differences between clips on the same track
-        // are visually represented (higher octave = higher position).
         const trackPitchRange = new Map<number, { min: number; max: number }>();
         for (const c of filtered) {
             if (c.type !== 'midi' || !c.midiNotes || c.midiNotes.length === 0) continue;
@@ -481,8 +404,6 @@ export class CanvasClipRenderer {
                 if (n.pitch > existing.max) existing.max = n.pitch;
             }
         }
-        // Enforce minimum range of 12 semitones (1 octave) for readable rendering.
-        // Center the padding around the actual note range.
         for (const [, pr] of trackPitchRange) {
             const span = pr.max - pr.min + 1;
             if (span < 12) {
@@ -492,7 +413,6 @@ export class CanvasClipRenderer {
             }
         }
 
-        // Sort: non-selected first, then selected (so selection glow is on top)
         filtered.sort((a, b) => (a.selected ? 1 : 0) - (b.selected ? 1 : 0));
 
         for (const clip of filtered) {
@@ -515,35 +435,29 @@ export class CanvasClipRenderer {
         const w = clip.durationBeats * ppb;
         const h = trackH - 2; // 1px gap top and bottom
 
-        // Skip if completely off-screen
         if (x + w < -10 || x > vp.viewportWidth + 10) return;
         if (y + h < vp.rulerHeight || y > vp.viewportHeight + 10) return;
 
         ctx.save();
 
-        // Track-muted dimming — significantly reduce opacity for clips on muted tracks
         const isTrackMuted = clip.trackMuted === true;
         if (isTrackMuted) {
             ctx.globalAlpha = 0.25;
         }
 
-        // ── 1. Rounded rectangle path ─────────────────────────────────
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.clip();
 
-        // ── 2. Parse color ────────────────────────────────────────────
         const rgbBase = this._parseColor(clip.color);
         const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
 
-        // ── 3. Header band ────────────────────────────────────────────
         const headerH = Math.min(HEADER_HEIGHT, h);
         const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
         ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 1)`;
         ctx.fillRect(x, y + 1, w, headerH);
 
-        // Header divider
-        const dividerR = Math.max(0, Math.round(rgb.r * 0.72)), dividerG = Math.max(0, Math.round(rgb.g * 0.72)), dividerB = Math.max(0, Math.round(rgb.b * 0.72));
+        const dividerR = Math.max(0, Math.round(headerR * 0.72)), dividerG = Math.max(0, Math.round(headerG * 0.72)), dividerB = Math.max(0, Math.round(headerB * 0.72));
         ctx.strokeStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.62)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -551,20 +465,17 @@ export class CanvasClipRenderer {
         ctx.lineTo(x + w, y + 1 + headerH);
         ctx.stroke();
 
-        // ── 4. Body ───────────────────────────────────────────────────
         if (h > headerH) {
-            const bodyR = Math.max(0, Math.round(rgb.r * 0.88)), bodyG = Math.max(0, Math.round(rgb.g * 0.88)), bodyB = Math.max(0, Math.round(rgb.b * 0.88));
-            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.92)`;
+            const bodyR = Math.max(0, Math.round(headerR * 0.84)), bodyG = Math.max(0, Math.round(headerG * 0.84)), bodyB = Math.max(0, Math.round(headerB * 0.84));
+            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.8)`;
             ctx.fillRect(x, y + 1 + headerH, w, h - headerH);
         }
 
-        // ── 5. Muted state ────────────────────────────────────────────
         if (clip.muted) {
             ctx.fillStyle = 'rgba(116, 122, 132, 0.42)';
             ctx.fillRect(x, y + 1, w, h);
         }
 
-        // ── 6. Offline indicator (diagonal stripes) ───────────────────
         if (clip.isOffline) {
             this._drawOfflineStripes(ctx, x, y + 1, w, h);
         }
@@ -572,9 +483,7 @@ export class CanvasClipRenderer {
         const bodyY = y + 1 + headerH;
         const bodyH = Math.max(0, h - headerH);
 
-        // ── 7. Waveform or MIDI notes ─────────────────────────────────
         if (bodyH > 8) {
-
             if (clip.type === 'audio' && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackMuted);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
@@ -584,7 +493,6 @@ export class CanvasClipRenderer {
 
         const showFadeUi = Boolean(clip.hovered);
 
-        // ── 8. Fade overlays ──────────────────────────────────────────
         if (showFadeUi && clip.fadeIn && clip.fadeIn > 0) {
             this._drawFade(
                 ctx,
@@ -608,7 +516,6 @@ export class CanvasClipRenderer {
             );
         }
 
-        // ── 9. Clip name ──────────────────────────────────────────────
         if (w > 30) {
             ctx.font = '11px Inter, -apple-system, sans-serif';
             const contrastColor = getContrastColor(clip.color);
@@ -629,7 +536,6 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
 
-        // ── 10. Top highlight (Liquid Glass) ──────────────────────────
         const gradient = ctx.createLinearGradient(x, y + 1, x, y + 4);
         gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
         gradient.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
@@ -638,7 +544,6 @@ export class CanvasClipRenderer {
 
         ctx.restore();
 
-        // ── 11. Selection glow (drawn OUTSIDE the clip) ───────────────
         if (clip.selected) {
             ctx.save();
             if (isTrackMuted) ctx.globalAlpha = 0.25;
@@ -651,7 +556,6 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
 
-        // ── 12. Border (non-selected) ─────────────────────────────────
         if (!clip.selected) {
             ctx.save();
             if (isTrackMuted) ctx.globalAlpha = 0.25;
@@ -662,7 +566,6 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
 
-        // ── 13. Fade grab points (on clip body) ───────────────────────
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;
             const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
@@ -715,10 +618,6 @@ export class CanvasClipRenderer {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 5. WAVEFORM DRAWING
-    // ═══════════════════════════════════════════════════════════════════
-
     private _drawWaveform(
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
@@ -731,12 +630,10 @@ export class CanvasClipRenderer {
         if (!clip.durationSamples) return;
 
         const ppb = vp.pixelsPerBeat;
-        // Guard divide-by-zero: a zero-width viewport hasn't laid out yet.
         if (ppb <= 0) return;
         const clipX = vp.beatsToScreenX(clip.startBeat);
         const clipW = clip.durationBeats * ppb;
 
-        // Calculate samples per pixel for mip-level selection
         const samplesPerBeat = sampleRate * 60 / this._bpm;
         const samplesPerPixel = samplesPerBeat / ppb;
 
@@ -767,11 +664,9 @@ export class CanvasClipRenderer {
                 : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
         }
 
-        // Map peaks to clip pixel range
         const pixelsPerPeak = clipW / peakCount;
 
         if (pixelsPerPeak >= 1) {
-            // High zoom: draw individual peak bars
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 const barW = Math.max(1, pixelsPerPeak);
@@ -783,17 +678,14 @@ export class CanvasClipRenderer {
                 ctx.fillRect(px, top, barW, barH);
             }
         } else {
-            // Low zoom: path-based overview
             ctx.beginPath();
             ctx.moveTo(clipX, centerY);
 
-            // Top line (maxima)
             for (let i = 0; i < peakCount; i++) {
                 const px = clipX + (i / peakCount) * clipW;
                 ctx.lineTo(px, centerY - maxs[i] * halfH);
             }
 
-            // Bottom line (minima, reversed)
             for (let i = peakCount - 1; i >= 0; i--) {
                 const px = clipX + (i / peakCount) * clipW;
                 ctx.lineTo(px, centerY - mins[i] * halfH);
@@ -805,7 +697,6 @@ export class CanvasClipRenderer {
             ctx.globalAlpha = 1.0;
         }
 
-        // Center line
         ctx.strokeStyle = muted
             ? 'rgba(132, 138, 148, 0.36)'
             : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)');
@@ -815,10 +706,6 @@ export class CanvasClipRenderer {
         ctx.lineTo(clipX + clipW, centerY);
         ctx.stroke();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 6. MIDI NOTE DRAWING
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawMidiNotes(
         ctx: CanvasRenderingContext2D,
@@ -834,14 +721,10 @@ export class CanvasClipRenderer {
         const ppb = vp.pixelsPerBeat;
         const clipX = vp.beatsToScreenX(clip.startBeat);
 
-        // Use track-wide pitch range for octave-aware positioning.
-        // Notes in higher octaves appear higher, lower octaves appear lower,
-        // consistent across all clips on the same track.
         const minPitch = trackPitch?.min ?? 60;
         const maxPitch = trackPitch?.max ?? 72;
         const pitchSlots = Math.max(1, maxPitch - minPitch + 1);
 
-        // Adaptive note height: thicker bars when few pitch slots, thinner when many
         const noteH = Math.max(1, Math.min(4, Math.floor(bodyH / Math.max(1, pitchSlots))));
         const rowGap = pitchSlots > 1
             ? Math.max(0, Math.min(1, (bodyH - pitchSlots * noteH) / (pitchSlots - 1)))
@@ -855,7 +738,6 @@ export class CanvasClipRenderer {
             : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)');
 
         for (const note of clip.midiNotes) {
-            // Clamp pitch to track range to avoid rendering outside clip body
             const clampedPitch = Math.max(minPitch, Math.min(maxPitch, note.pitch));
             const noteX = clipX + note.startBeat * ppb;
             const noteW = Math.max(1, note.durationBeats * ppb);
@@ -867,10 +749,6 @@ export class CanvasClipRenderer {
         }
         ctx.globalAlpha = 1.0;
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 7. PLAYHEAD
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawPlayhead(
         ctx: CanvasRenderingContext2D,
@@ -884,7 +762,6 @@ export class CanvasClipRenderer {
 
         const rulerH = vp.rulerHeight;
 
-        // Subtle glow/shadow for the playhead line
         ctx.save();
         ctx.strokeStyle = theme.playheadGlow;
         ctx.lineWidth = 4;
@@ -894,7 +771,6 @@ export class CanvasClipRenderer {
         ctx.stroke();
         ctx.restore();
 
-        // Core playhead line (save/restore to avoid leaking strokeStyle/lineWidth)
         ctx.save();
         ctx.strokeStyle = theme.playhead;
         ctx.lineWidth = 1;
@@ -904,10 +780,6 @@ export class CanvasClipRenderer {
         ctx.stroke();
         ctx.restore();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 8. EDIT CURSOR
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawEditCursor(
         ctx: CanvasRenderingContext2D,
@@ -924,15 +796,11 @@ export class CanvasClipRenderer {
         const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
         const cursorX = Math.round(x) + 0.5;
 
-        // Track cursor placement so blink always starts at full brightness.
         if (Math.abs(beat - this._prevEditCursorBeat) > 0.0001) {
             this._editCursorPlacedMs = performance.now();
             this._prevEditCursorBeat = beat;
         }
 
-        // Solid bright white line with slow, smooth breathing alpha.
-        // Phase is offset by placement time so the sine wave always
-        // starts at its peak (full brightness) when the cursor is moved.
         const elapsed = (performance.now() - this._editCursorPlacedMs) / 1000;
         const blink = 0.22 + 0.68 * (0.5 + 0.5 * Math.cos(elapsed * Math.PI * 0.34));
         ctx.save();
@@ -949,10 +817,6 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 9. LOOP REGION
-    // ═══════════════════════════════════════════════════════════════════
-
     private _drawLoopRegion(
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
@@ -966,11 +830,9 @@ export class CanvasClipRenderer {
         const y = vp.rulerHeight;
         const h = vp.viewportHeight - y;
 
-        // Fill overlay
         ctx.fillStyle = theme.loopFill;
         ctx.fillRect(x1, y, x2 - x1, h);
 
-        // Left and right borders
         ctx.strokeStyle = theme.loopBorder;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -982,10 +844,6 @@ export class CanvasClipRenderer {
         ctx.lineTo(Math.round(x2), y + h);
         ctx.stroke();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 10. DROP TARGET
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawDropTarget(
         ctx: CanvasRenderingContext2D,
@@ -1006,10 +864,6 @@ export class CanvasClipRenderer {
         ctx.strokeRect(x, y, w, h);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 11. MARQUEE SELECTION
-    // ═══════════════════════════════════════════════════════════════════
-
     private _drawMarquee(
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
@@ -1024,11 +878,9 @@ export class CanvasClipRenderer {
         const y1 = vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY;
         const y2 = vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY;
 
-        // Fill
         ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
-        // Solid white border (force non-dashed + pixel aligned).
         const sx1 = Math.round(x1) + 0.5;
         const sx2 = Math.round(x2) + 0.5;
         const sy1 = Math.round(y1) + 0.5;
@@ -1046,10 +898,6 @@ export class CanvasClipRenderer {
         ctx.stroke();
         ctx.restore();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // 12. GHOST CLIP
-    // ═══════════════════════════════════════════════════════════════════
 
     private _drawGhostClip(
         ctx: CanvasRenderingContext2D,
@@ -1072,7 +920,6 @@ export class CanvasClipRenderer {
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.fill();
 
-        // Ghost name
         if (w > 30) {
             const ghostColor = ghost.type === 'audio' ? '#64c8ff' : '#64ff96';
             const contrastColor = getContrastColor(ghostColor);
@@ -1082,14 +929,11 @@ export class CanvasClipRenderer {
             ctx.textAlign = 'left';
             const pad = 3;
 
-            // Hard clip text to clip bounds so it never spills visually.
             ctx.save();
             ctx.beginPath();
             ctx.rect(x + pad, y + 1, Math.max(0, w - pad * 2), h);
             ctx.clip();
             if (ghost.name) {
-                // Draw raw label and rely on clip bounds, so text uses maximum width
-                // instead of collapsing to "x..." too early.
                 ctx.fillText(ghost.name, x + pad, y + 1 + h / 2);
             }
             ctx.restore();
@@ -1098,11 +942,6 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // UTILITY
-    // ═══════════════════════════════════════════════════════════════════
-
-    /** Draw a rounded rectangle path (does NOT stroke or fill). */
     private _roundRect(
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number, r: number,
@@ -1120,7 +959,6 @@ export class CanvasClipRenderer {
         ctx.closePath();
     }
 
-    /** Parse CSS hex/rgb color string to {r, g, b} with hot-path cache. */
     private static _colorCache = new Map<string, { r: number; g: number; b: number }>();
     private _parseColor(color: string): { r: number; g: number; b: number } {
         const cached = CanvasClipRenderer._colorCache.get(color);
@@ -1136,7 +974,6 @@ export class CanvasClipRenderer {
         return { r: gray, g: gray, b: gray };
     }
 
-    /** Draw diagonal stripes for offline media indicator. */
     private _drawOfflineStripes(
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
@@ -1156,7 +993,6 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    /** Draw one-sided fade envelope overlay. */
     private _drawFade(
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,

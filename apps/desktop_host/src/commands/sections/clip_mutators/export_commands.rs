@@ -142,8 +142,11 @@ async fn export_mix_cmd(
         );
     }
 
-    // Preflight: fail fast if a MIDI track uses an external instrument slot
-    // that still has no runtime instance binding. This prevents silent exports.
+    // Preflight (soft): if slot-id binding is still missing after ensure_loaded,
+    // do not abort yet. Slot IDs can desync transiently after project import/edit,
+    // while the runtime snapshot may still contain a valid external instrument slot.
+    // We keep this as diagnostics and rely on the stricter runtime snapshot
+    // verification below for hard-fail decisions.
     let mut unresolved_vst_instruments: Vec<String> = Vec::new();
     for track in &project.tracks {
         if track.midi_clips.is_empty() {
@@ -170,10 +173,10 @@ async fn export_mix_cmd(
         }
     }
     if !unresolved_vst_instruments.is_empty() {
-        return Err(format!(
-            "Export aborted: unresolved external instrument runtime binding(s): {}",
+        log::warn!(
+            "[Export] unresolved external instrument runtime binding(s) after ensure_loaded: {}",
             unresolved_vst_instruments.join("; ")
-        ));
+        );
     }
 
     // Refresh runtime snapshots used by OfflineBouncer.
@@ -213,9 +216,13 @@ async fn export_mix_cmd(
         }
     }
     if !unresolved_runtime_tracks.is_empty() {
+        let details = unresolved_runtime_tracks.join("; ");
+        log::error!(
+            "[Export] external FX runtime snapshot missing instrument slot(s): {}",
+            details
+        );
         return Err(format!(
-            "Export aborted: external FX runtime snapshot missing instrument slot(s): {}",
-            unresolved_runtime_tracks.join("; ")
+            "Export aborted: runtime VST instrument binding is incomplete ({details})"
         ));
     }
 
@@ -275,10 +282,10 @@ async fn export_mix_cmd(
         }
     }
     if !missing_registry_instances.is_empty() {
-        return Err(format!(
-            "Export aborted: plugin registry missing external runtime instance(s): {}",
+        log::warn!(
+            "[Export] plugin registry missing external runtime instance(s): {}",
             missing_registry_instances.join("; ")
-        ));
+        );
     }
     // Store the handle's producer as a Send-safe wrapper for the blocking task.
     // We'll use the AppHandle to send an IPC command to resume playback.
@@ -305,75 +312,20 @@ async fn export_mix_cmd(
         let mut project = project;
         let mut local_pool = local_pool;
 
-        // ── CRITICAL: Pre-render VST3 instrument MIDI tracks ──────────
-        // Tracks with MIDI clips but NO sampler config are VST3 instrument
-        // tracks (e.g. Serum). The built-in OfflineBouncer::pre_render_midi_tracks()
-        // only handles sampler-based instruments. We must pre-render VST3
-        // instrument tracks HERE where we have access to the PluginHost.
-        if false {
-            // ═══════════════════════════════════════════════════════════════
-            // CRITICAL: The bouncer's internal render loop operates at
-            // project_sample_rate, NOT export_sample_rate. It resamples
-            // the final mix at the very end. Pre-rendered audio must be
-            // registered at project SR so ClipScheduler plays it at the
-            // correct speed. Using export SR would cause a speed mismatch:
-            //   e.g. project=44100, export=48000 → notes play 8.8% too fast
-            //   = "notes sound earlier than they should"
-            // ═══════════════════════════════════════════════════════════════
-            let sample_rate = export_project_sr as f64;
-            let total_frames = (end_frame - start_frame).max(0) as usize;
-            // ═══════════════════════════════════════════════════════════════
-            // CRITICAL: CHUNK_FRAMES must NOT exceed the VST3 plugin's
-            // max_buffer_size (set during activate()). If it does,
-            // Vst3Instance::process() falls through to passthrough(), which
-            // copies silence input → silence output and the MIDI events
-            // are never actually processed by the plugin's DSP.
-            //
-            // Audio interfaces typically use 256–1024 frames. Using 512
-            // is a safe default that all plugins support.
-            // ═══════════════════════════════════════════════════════════════
-            const CHUNK_FRAMES: usize = 512;
+        // Pre-render MIDI-driven external instruments so offline bounce
+        // captures their output in the same project time domain.
+        // Tracks external slot IDs that were already pre-rendered into audio.
+        // These slots must be excluded from the runtime FX snapshot used by
+        // OfflineBouncer to avoid double-processing (instrument/fx).
+        let mut prerendered_external_slots_by_track: std::collections::HashMap<
+            usize,
+            std::collections::HashSet<uuid::Uuid>,
+        > = std::collections::HashMap::new();
 
-            // DIAGNOSTIC: Write export state to file for reliable debugging
-            {
-                use std::io::Write;
-                if let Ok(mut f) = std::fs::File::create("/tmp/dream_daw_export_diag.log") {
-                    let _ = writeln!(f, "=== Dream DAW Export Diagnostic ===");
-                    let _ = writeln!(f, "total_frames: {}", total_frames);
-                    let _ = writeln!(f, "start_frame: {}, end_frame: {}", start_frame, end_frame);
-                    let _ = writeln!(f, "sample_rate: {}", sample_rate);
-                    let _ = writeln!(f, "export_bpm: {}", export_bpm);
-                    let _ = writeln!(f, "num_tracks: {}", project.tracks.len());
-                    let _ = writeln!(f, "slot_instance_map entries: {}", slot_instance_map.len());
-                    for (slot, inst) in slot_instance_map.iter() {
-                        let _ = writeln!(f, "  slot {} -> instance {}", slot, inst);
-                    }
-                    let _ = writeln!(f, "");
-                    for (i, track) in project.tracks.iter().enumerate() {
-                        let _ = writeln!(f, "Track[{}] '{}': midi_clips={}, audio_clips={}, sampler={}, instrument={}, sample_rack={}",
-                            i, track.name,
-                            track.midi_clips.len(),
-                            track.clips.len(),
-                            track.sampler.is_some(),
-                            track.instrument.is_some(),
-                            track.sample_rack.is_some(),
-                        );
-                        if let Some(ref inst) = track.instrument {
-                            match inst {
-                                DeviceNode::Single(slot) => {
-                                    let bound = slot_instance_map.get(&slot.id).copied();
-                                    let _ = writeln!(f, "  instrument: Single(slot_id={}, plugin_id={:?}), bound_instance={:?}",
-                                        slot.id, slot.plugin_id, bound);
-                                }
-                                DeviceNode::Rack(rack) => {
-                                    let _ = writeln!(f, "  instrument: Rack with {} chains", rack.chains.len());
-                                }
-                            }
-                        }
-                    }
-                    let _ = writeln!(f, "");
-                }
-            }
+        {
+            let sample_rate = export_project_sr;
+            let total_frames = (end_frame - start_frame).max(0) as usize;
+            const CHUNK_FRAMES: usize = 512;
 
             if total_frames > 0 {
                 let mut vst3_rendered = 0usize;
@@ -418,13 +370,42 @@ async fn export_mix_cmd(
                         continue;
                     };
 
-                    let Some(instance_id) = slot_instance_map.get(&slot_id).copied() else {
-                        log::warn!(
-                            "[Export/VST3-MIDI] Track '{}': instrument slot {} not bound to any instance — skipping",
-                            track.name,
-                            slot_id
-                        );
-                        continue;
+                    let instance_id = if let Some(bound) = slot_instance_map.get(&slot_id).copied() {
+                        bound
+                    } else {
+                        // Fallback path for stale slot-id bindings after import/mutation:
+                        // runtime external FX snapshot is keyed by track index and may still
+                        // contain a valid external instrument instance for this track.
+                        let fallback = external_fx_snapshot
+                            .get(track_idx)
+                            .and_then(|slots| {
+                                slots
+                                    .iter()
+                                    .find(|slot| {
+                                        slot.instance_id.is_some()
+                                            && slot.internal_slot_index.is_none()
+                                    })
+                                    .and_then(|slot| slot.instance_id)
+                            });
+                        match fallback {
+                            Some(instance_id) => {
+                                log::warn!(
+                                    "[Export/VST3-MIDI] Track '{}': slot-id {} not bound; using runtime snapshot fallback instance={}",
+                                    track.name,
+                                    slot_id,
+                                    instance_id
+                                );
+                                instance_id
+                            }
+                            None => {
+                                log::warn!(
+                                    "[Export/VST3-MIDI] Track '{}': instrument slot {} not bound and no runtime fallback instance — skipping",
+                                    track.name,
+                                    slot_id
+                                );
+                                continue;
+                            }
+                        }
                     };
 
                     log::info!(
@@ -435,26 +416,6 @@ async fn export_mix_cmd(
                         slot_id,
                         total_frames
                     );
-
-                    // DIAGNOSTIC: Check if PluginHost actually contains this instance.
-                    {
-                        match plugin_host_arc.lock() {
-                            Ok(mut host) => {
-                                let has_instance = host.get_mut(instance_id).is_some();
-                                log::info!(
-                                    "[Export/VST3-MIDI] Track '{}': PluginHost.has_instance({}) = {}",
-                                    track.name, instance_id, has_instance
-                                );
-                                if !has_instance {
-                                    log::error!(
-                                        "[Export/VST3-MIDI] Track '{}': VST3 instance NOT FOUND in PluginHost! Plugin may be sandboxed.",
-                                        track.name
-                                    );
-                                }
-                            }
-                            Err(e) => log::error!("[Export/VST3-MIDI] PluginHost lock error: {}", e),
-                        }
-                    }
 
                     // ── Pre-render buffer by buffer ───────────────
                     let midi_clips = track.midi_clips.clone();
@@ -471,18 +432,6 @@ async fn export_mix_cmd(
 
                     let mut total_midi_events_sent = 0usize;
                     let mut chunk_index = 0usize;
-
-                    // Open diagnostic file in append mode for per-chunk data
-                    let mut diag_file = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/tmp/dream_daw_export_diag.log")
-                        .ok();
-                    if let Some(ref mut f) = diag_file {
-                        use std::io::Write;
-                        let _ = writeln!(f, "--- PRE-RENDER: track='{}', instance={}, playhead_start={} ---",
-                            track_name, instance_id, playhead);
-                    }
 
                     while frames_done < total_frames {
                         let remaining = total_frames - frames_done;
@@ -524,19 +473,7 @@ async fn export_mix_cmd(
                                 .then_with(|| a.data[0].cmp(&b.data[0]))
                         });
 
-                        // DIAGNOSTIC: Log MIDI events for first 10 chunks to file
-                        if chunk_index < 10 || !midi_events.is_empty() {
-                            total_midi_events_sent += midi_events.len();
-                            if let Some(ref mut f) = diag_file {
-                                use std::io::Write;
-                                let _ = writeln!(f, "  chunk[{}]: playhead={}, midi_events={}, schedule_notes={}",
-                                    chunk_index, playhead, midi_events.len(), schedule_scratch.len());
-                                for (ei, ev) in midi_events.iter().enumerate().take(8) {
-                                    let _ = writeln!(f, "    event[{}]: offset={}, data=[{:#04x},{:#04x},{:#04x}]",
-                                        ei, ev.sample_offset, ev.data[0], ev.data[1], ev.data[2]);
-                                }
-                            }
-                        }
+                        total_midi_events_sent += midi_events.len();
 
                         // ── Process through VST3 plugin ──────────
                         let mut chunk_left = vec![0.0f32; chunk_frames];
@@ -595,16 +532,6 @@ async fn export_mix_cmd(
                         out_right[frames_done..frames_done + chunk_frames]
                             .copy_from_slice(&chunk_right[..chunk_frames]);
 
-                        // DIAGNOSTIC: Write per-chunk peak to file
-                        if chunk_index < 10 {
-                            let chunk_peak = chunk_left.iter().chain(chunk_right.iter())
-                                .fold(0.0f32, |acc, &s| acc.max(s.abs()));
-                            if let Some(ref mut f) = diag_file {
-                                use std::io::Write;
-                                let _ = writeln!(f, "  chunk[{}]: output_peak = {:.6}", chunk_index, chunk_peak);
-                            }
-                        }
-
                         frames_done += chunk_frames;
                         playhead += chunk_frames as i64;
                         chunk_index += 1;
@@ -615,17 +542,11 @@ async fn export_mix_cmd(
                         track_name, total_midi_events_sent, chunk_index
                     );
 
-                    // Write final summary to diagnostic file
-                    {
-                        let total_peak = out_left.iter().chain(out_right.iter())
-                            .fold(0.0f32, |acc, &s| acc.max(s.abs()));
-                        if let Some(ref mut f) = diag_file {
-                            use std::io::Write;
-                            let _ = writeln!(f, "--- RESULT: total_midi_events={}, chunks={}, total_peak={:.6} ---",
-                                total_midi_events_sent, chunk_index, total_peak);
-                            let _ = writeln!(f, "");
-                        }
-                    }
+                    // Collect external slot IDs touched by this pre-render.
+                    // They will be excluded from runtime bounce processing only
+                    // if this pre-render actually produces non-silent audio.
+                    let mut pending_excluded_slots: std::collections::HashSet<uuid::Uuid> =
+                        std::collections::HashSet::new();
 
                     // ── FIX-2: Apply track insert FX chain to pre-rendered audio ──
                     // The instrument pre-render above produced raw Serum output.
@@ -729,7 +650,17 @@ async fn export_mix_cmd(
                                 fx_slots.len()
                             );
                         }
+
+                        // Record applied external FX slot IDs for potential exclusion.
+                        for fx_slot in &fx_slots {
+                            if slot_instance_map.contains_key(&fx_slot.id) {
+                                pending_excluded_slots.insert(fx_slot.id);
+                            }
+                        }
                     }
+
+                    // Instrument slot itself was pre-rendered; potentially exclude it.
+                    pending_excluded_slots.insert(slot_id);
 
                     // ── Check if anything was rendered ──────────
                     let peak = out_left
@@ -739,11 +670,14 @@ async fn export_mix_cmd(
 
                     if peak < 1e-7 {
                         log::warn!(
-                            "[Export/VST3-MIDI] Track '{}': pre-render produced silence (peak={:.2e})",
+                            "[Export/VST3-MIDI] Track '{}': pre-render produced silence (peak={:.2e}); keeping runtime VST instrument path enabled",
                             track_name,
                             peak
                         );
-                        // Still add the clip — silence is valid (e.g. if all notes are outside range)
+                        // Do NOT commit a silent pre-render clip and do NOT exclude
+                        // runtime external slots. Let OfflineBouncer render this track
+                        // through the normal runtime VST instrument chain.
+                        continue;
                     } else {
                         log::info!(
                             "[Export/VST3-MIDI] Track '{}': pre-render complete, peak={:.4}, {} frames",
@@ -769,6 +703,15 @@ async fn export_mix_cmd(
                         AbsoluteTime::new(rendered_frames as i64),
                     );
                     project.tracks[track_idx].clips.push(synth_clip);
+
+                    // Pre-render succeeded: exclude touched runtime external slots
+                    // to prevent double-processing during final bounce.
+                    if !pending_excluded_slots.is_empty() {
+                        prerendered_external_slots_by_track
+                            .entry(track_idx)
+                            .or_default()
+                            .extend(pending_excluded_slots.into_iter());
+                    }
                     vst3_rendered += 1;
                 }
 
@@ -790,7 +733,7 @@ async fn export_mix_cmd(
         //
         // BUG-E10 FIX: Use per-track synthetic keys to prevent cross-track
         // contamination when multiple tracks reference the same audio file.
-        if false {
+        if true {
             const FX_CHUNK_FRAMES: usize = 4096;
             let mut vst3_fx_rendered = 0usize;
             for track_idx in 0..project.tracks.len() {
@@ -815,7 +758,7 @@ async fn export_mix_cmd(
                     .filter_map(|slot| {
                         slot_instance_map
                             .get(&slot.id)
-                            .map(|&iid| (slot.name.clone(), iid))
+                            .map(|&iid| (slot.id, slot.name.clone(), iid))
                     })
                     .collect();
 
@@ -890,7 +833,7 @@ async fn export_mix_cmd(
                     buf_r.resize(padded_frames, 0.0);
 
                     // Process through each VST3 FX plugin in chain order.
-                    for (fx_name, fx_instance_id) in &vst3_fx {
+                    for (_fx_slot_id, fx_name, fx_instance_id) in &vst3_fx {
                         let mut fx_offset = 0usize;
                         while fx_offset < padded_frames {
                             let remaining = padded_frames - fx_offset;
@@ -952,6 +895,17 @@ async fn export_mix_cmd(
                     project.tracks[track_idx].name,
                     vst3_fx.len()
                 );
+
+                // Mark audio-track external FX slots that were pre-rendered so
+                // OfflineBouncer does not process them again.
+                {
+                    let slot_set = prerendered_external_slots_by_track
+                        .entry(track_idx)
+                        .or_default();
+                    for (slot_id, _name, _iid) in &vst3_fx {
+                        slot_set.insert(*slot_id);
+                    }
+                }
             }
 
             if vst3_fx_rendered > 0 {
@@ -959,6 +913,20 @@ async fn export_mix_cmd(
                     "[Export/AudioFX] Pre-rendered {} audio track(s) through VST3 FX chains",
                     vst3_fx_rendered
                 );
+            }
+        }
+
+        // Build bounce-specific runtime FX snapshot with pre-rendered external
+        // slots removed, preventing double-processing and instrument re-entry.
+        let mut external_fx_snapshot_for_bounce = Vec::clone(&external_fx_snapshot);
+        for (track_idx, excluded_slot_ids) in &prerendered_external_slots_by_track {
+            if let Some(track_slots) = external_fx_snapshot_for_bounce.get_mut(*track_idx) {
+                track_slots.retain(|slot| {
+                    let Some(slot_id) = slot.slot_id else {
+                        return true;
+                    };
+                    !excluded_slot_ids.contains(&slot_id)
+                });
             }
         }
 
@@ -970,7 +938,7 @@ async fn export_mix_cmd(
                 &mut local_pool,
                 None,
                 &plugin_registry_snapshot,
-                &external_fx_snapshot,
+                &external_fx_snapshot_for_bounce,
                 move |progress| {
                     let payload = serde_json::json!({
                         "jobId": &job_id_for_progress,

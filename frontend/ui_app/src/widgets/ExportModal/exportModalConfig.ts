@@ -53,6 +53,7 @@ export interface ExportPrefs {
     format: ExportFormat;
     sampleRate: SampleRate;
     bitDepth: BitDepth;
+    range: ExportRange;
     normalize: boolean;
     tailMs: number;
 }
@@ -76,7 +77,9 @@ export function beatsToBar(beats: number): number {
 export function loadExportPrefs(): ExportPrefs {
     try {
         const raw = localStorage.getItem(EXPORT_PREFS_KEY);
-        if (!raw) return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+        if (!raw) {
+            return { format: 'wav', sampleRate: 48000, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
+        }
         const parsed = JSON.parse(raw) as Partial<ExportPrefs>;
         return {
             format: (['wav', 'mp3'] as ExportFormat[]).includes(parsed.format as ExportFormat)
@@ -85,11 +88,13 @@ export function loadExportPrefs(): ExportPrefs {
                 ? (parsed.sampleRate as SampleRate) : 48000,
             bitDepth: ([16, 24, 32] as BitDepth[]).includes(parsed.bitDepth as BitDepth)
                 ? (parsed.bitDepth as BitDepth) : 24,
+            range: (['full', 'loop', 'selected'] as ExportRange[]).includes(parsed.range as ExportRange)
+                ? (parsed.range as ExportRange) : 'full',
             normalize: typeof parsed.normalize === 'boolean' ? parsed.normalize : false,
             tailMs: typeof parsed.tailMs === 'number' ? Math.max(0, Math.min(5000, parsed.tailMs)) : 0,
         };
     } catch {
-        return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+        return { format: 'wav', sampleRate: 48000, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
     }
 }
 

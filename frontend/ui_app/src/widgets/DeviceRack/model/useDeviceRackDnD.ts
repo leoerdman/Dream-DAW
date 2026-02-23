@@ -42,7 +42,9 @@ export function useDeviceRackDnD(
         statusErrorRef.current = statusError;
     }, [applyProjectDeltas, statusClear, statusError]);
 
+    // BUG-81 FIX: Only attach global listeners when a drag operation is active.
     useEffect(() => {
+        if (!draggingItem) return;
         const onMouseMove = (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
             const targetTrack = dropTargetTrackRef.current;
@@ -121,7 +123,7 @@ export function useDeviceRackDnD(
             window.removeEventListener('mousemove', onMouseMove, true);
             window.removeEventListener('mouseup', onMouseUp, true);
         };
-    }, [rackRef]);
+    }, [rackRef, draggingItem]);
 
     return {
         isDropActive,

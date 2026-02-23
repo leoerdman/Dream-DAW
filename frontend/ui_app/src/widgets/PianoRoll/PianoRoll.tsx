@@ -108,26 +108,12 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setGridDivision,
     } = usePianoRollLogic(props);
 
-    void isDragInProgressRef;
-    void setSelectedNotes;
-    void containerWidth;
-    void isEditorFocused;
-    void clipTranspose;
-    void setClipTranspose;
-    void laneValuesByNote;
-    void totalBeats;
-    void pitchRowIndex;
-    void currentGridInterval;
-    void beatsPerBar;
-    void yToPitch;
-    void copySelection;
-    void pasteClipboard;
-    void timeSignature;
-    void trackIndex;
-    void clipStartBeat;
-    void snapBeat;
-    void pianoPencilMode;
-    void snapEnabled;
+    void [
+        isDragInProgressRef, setSelectedNotes, containerWidth, isEditorFocused, clipTranspose,
+        setClipTranspose, laneValuesByNote, totalBeats, pitchRowIndex, currentGridInterval,
+        beatsPerBar, yToPitch, copySelection, pasteClipboard, timeSignature, trackIndex,
+        clipStartBeat, snapBeat, pianoPencilMode, snapEnabled,
+    ];
 
     const [scrollX, setScrollX] = useState(0);
     const [scrollY, setScrollY] = useState(0);

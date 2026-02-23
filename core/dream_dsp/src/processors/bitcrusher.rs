@@ -25,6 +25,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::DEFAULT_SAMPLE_RATE;
 
 pub struct BitcrusherProcessor {
     bit_depth: f32,
@@ -54,6 +55,7 @@ pub struct BitcrusherProcessor {
 
 impl BitcrusherProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             bit_depth: 16.0,
             downsample: 1.0,
@@ -107,7 +109,7 @@ impl BitcrusherProcessor {
 
 impl Default for BitcrusherProcessor {
     fn default() -> Self {
-        Self::new(44100.0)
+        Self::new(DEFAULT_SAMPLE_RATE)
     }
 }
 

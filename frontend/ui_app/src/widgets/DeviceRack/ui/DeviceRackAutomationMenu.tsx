@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type React from 'react';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
@@ -23,26 +24,40 @@ interface DeviceRackAutomationMenuProps {
 }
 
 export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackAutomationMenuProps) {
-    if (!logic.autoCtxMenu) return null;
+    const { autoCtxMenu, setAutoCtxMenu } = logic;
+    const menuRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!autoCtxMenu) return;
+        const handleClick = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setAutoCtxMenu(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [autoCtxMenu, setAutoCtxMenu]);
+
+    if (!autoCtxMenu) return null;
 
     const existingLane = Object.values(logic.automationLanes).find(
         (lane) =>
             lane.trackId === selectedTrackId &&
-            lane.paramKey === `${logic.autoCtxMenu!.deviceId}:${logic.autoCtxMenu!.paramName}`,
+            lane.paramKey === `${autoCtxMenu.deviceId}:${autoCtxMenu.paramName}`,
     );
 
     return (
         <div
+            ref={menuRef}
             onMouseDown={(e) => e.stopPropagation()}
             style={{
                 position: 'fixed',
-                left: logic.autoCtxMenu.x,
-                top: logic.autoCtxMenu.y,
+                left: autoCtxMenu.x,
+                top: autoCtxMenu.y,
                 zIndex: 'var(--z-menu)' as unknown as number,
                 background: 'var(--color-bg-elevated)',
                 border: 'var(--space-px) solid var(--color-divider)',
                 borderRadius: 'var(--radius-sm)',
-                padding: 4,
+                padding: 'var(--space-1)',
                 minWidth: 200,
                 boxShadow: '0 var(--space-2) var(--space-6) var(--color-overlay-dark)',
             }}
@@ -57,7 +72,7 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                     letterSpacing: '0.05em',
                 }}
             >
-                Automation: {logic.autoCtxMenu.paramName}
+                Automation: {autoCtxMenu.paramName}
             </div>
             {existingLane ? (
                 <button
@@ -80,8 +95,8 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                     onClick={() => {
                         logic.addAutomationLane(
                             selectedTrackId,
-                            logic.autoCtxMenu!.paramName,
-                            `${logic.autoCtxMenu!.deviceId}:${logic.autoCtxMenu!.paramName}`,
+                            autoCtxMenu.paramName,
+                            `${autoCtxMenu.deviceId}:${autoCtxMenu.paramName}`,
                         );
                         if (!useAutomationStore.getState().globalVisible) {
                             logic.toggleGlobalAutomation();

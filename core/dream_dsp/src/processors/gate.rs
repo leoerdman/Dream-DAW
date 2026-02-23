@@ -64,6 +64,7 @@ pub struct GateProcessor {
 
 impl GateProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             threshold_db: -30.0,
             attack_ms: 0.5,

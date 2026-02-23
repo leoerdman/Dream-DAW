@@ -102,6 +102,32 @@ export const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], Q
         { label: 'Playful', values: { semitones: 7, chance: 0.35 } },
         { label: 'Wild', values: { semitones: 12, chance: 0.7 } },
     ],
+    // BUG-68 FIX: Quick presets for new MIDI effect types.
+    midiChord: [
+        { label: 'Root', values: { root: 0, octaves: 1, inversion: 0 } },
+        { label: 'Spread', values: { root: 0, octaves: 2, inversion: 1 } },
+        { label: 'Wide', values: { root: 0, octaves: 3, inversion: 2 } },
+    ],
+    midiNoteLength: [
+        { label: 'Short', values: { length: 50, gate: 80 } },
+        { label: 'Normal', values: { length: 200, gate: 100 } },
+        { label: 'Long', values: { length: 800, gate: 120 } },
+    ],
+    midiCcControl: [
+        { label: 'Mod Wheel', values: { cc: 1, value: 64 } },
+        { label: 'Expression', values: { cc: 11, value: 127 } },
+        { label: 'Sustain', values: { cc: 64, value: 127 } },
+    ],
+    midiExpressionControl: [
+        { label: 'Soft', values: { cc: 11, value: 48 } },
+        { label: 'Normal', values: { cc: 11, value: 96 } },
+        { label: 'Full', values: { cc: 11, value: 127 } },
+    ],
+    midiArpeggiator: [
+        { label: 'Classic', values: { rate: 1, pattern: 0, octaves: 1, gate: 80 } },
+        { label: 'Wide', values: { rate: 0.5, pattern: 1, octaves: 2, gate: 90 } },
+        { label: 'Fast', values: { rate: 2, pattern: 2, octaves: 1, gate: 60 } },
+    ],
 };
 
 export function resolveQuickPresetParams(

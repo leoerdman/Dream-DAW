@@ -1,12 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     VB_W, VB_H, MARGIN_L, MARGIN_R,
-    freqToX, xToFreq, gainToY, bandDotY, isFilterOnlyType,
-    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams,
-    type EqBand8,
+    freqToX, gainToY, isFilterOnlyType,
+    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams, EQ_BAND_COLORS, EQ_RANDOM_POINT_COLORS,
 } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
+import { useEqSurfaceHandlers } from '@/widgets/DeviceRack/model/useEqSurfaceHandlers';
 import {
     EqBandContextMenu,
     EqBandOverlays,
@@ -42,6 +42,32 @@ type Props = {
     onParamGestureEnd?: (paramName: string) => void;
 };
 
+const EQ_BAND_COLOR_CACHE = new Map<string, string[]>();
+const EQ_BAND_COUNT = 8;
+
+function pickRandomBandColor(exclude?: string): string {
+    const colorPool: readonly string[] = EQ_RANDOM_POINT_COLORS;
+    const poolSize = colorPool.length;
+    if (poolSize <= 0) return 'var(--color-effect-eq)';
+    if (poolSize === 1) return colorPool[0] ?? 'var(--color-effect-eq)';
+    let next = colorPool[Math.floor(Math.random() * poolSize)] ?? 'var(--color-effect-eq)';
+    if (exclude && next === exclude) {
+        next = colorPool[(Math.floor(Math.random() * (poolSize - 1)) + 1) % poolSize] ?? next;
+    }
+    return next;
+}
+
+function buildInitialEqBandColors(deviceId: string): string[] {
+    const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
+    if (cached && cached.length === EQ_BAND_COUNT) {
+        const isLegacyDefaultPalette = cached.every((c, i) => c === EQ_BAND_COLORS[i]);
+        if (!isLegacyDefaultPalette) return [...cached];
+    }
+    const generated = Array.from({ length: EQ_BAND_COUNT }, (_, idx) => pickRandomBandColor(EQ_BAND_COLORS[idx]));
+    EQ_BAND_COLOR_CACHE.set(deviceId, generated);
+    return generated;
+}
+
 export function PluginGuiSurfaceEq({
     device,
     projectSampleRate,
@@ -64,11 +90,22 @@ export function PluginGuiSurfaceEq({
 }: Props): React.ReactNode {
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const eqTitle = normalizedInternalId === 'internal://effect/eq-three' ? 'Band EQ' : 'EQ';
+    const [eqBandColors, setEqBandColors] = useState<string[]>(() => buildInitialEqBandColors(device.id));
+
+    const assignRandomBandColor = useCallback((bandIdx: number) => {
+        setEqBandColors((prev) => {
+            const next = [...prev];
+            next[bandIdx] = pickRandomBandColor(prev[bandIdx] ?? EQ_BAND_COLORS[bandIdx]);
+            EQ_BAND_COLOR_CACHE.set(device.id, next);
+            return next;
+        });
+    }, [device.id]);
 
     const bands = useMemo(
-        () => parseBandsFromParams(device.params, eqBandFilterTypes),
-        [device.params, eqBandFilterTypes],
+        () => parseBandsFromParams(device.params, eqBandFilterTypes, eqBandColors),
+        [device.params, eqBandFilterTypes, eqBandColors],
     );
+
     const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
     const { curvePath, fillPath } = useMemo(
@@ -87,10 +124,22 @@ export function PluginGuiSurfaceEq({
     const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
+    const curveColor = 'var(--color-effect-eq)';
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
+    const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
+        eqSurfaceRef,
+        bands,
+        eqBandFilterTypes,
+        onParamChange,
+        setSelectedEqBand,
+        beginEqBandGesture,
+        setDragEqBand,
+        setEqContextMenu,
+        onBandCreated: assignRandomBandColor,
+    });
 
     return (
-        <div style={{ display: 'flex', gap: 6, height: '100%' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-1-5)', height: '100%' }}>
             <PluginGuiSurfaceEqControls
                 activeBandIsFilterOnly={activeFilterOnly}
                 freqParam={freqParam}
@@ -103,12 +152,13 @@ export function PluginGuiSurfaceEq({
                 onParamGestureEnd={onParamGestureEnd}
             />
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                 <div
                     data-no-drag
                     style={{
                         ...pluginPanelCardBaseStyle,
-                        background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-bg-panel) 86%, var(--color-bg-header) 14%) 0%, color-mix(in srgb, var(--color-bg-panel) 78%, var(--color-bg-header) 22%) 100%)',
+                        background: 'linear-gradient(180deg, color-mix(in srgb, #2b2b2b 94%, black) 0%, color-mix(in srgb, #232323 96%, black) 100%)',
+                        border: 'var(--space-px) solid color-mix(in srgb, #555 40%, transparent)',
                         overflow: 'hidden',
                         padding: 0,
                         position: 'relative',
@@ -122,102 +172,14 @@ export function PluginGuiSurfaceEq({
                         viewBox={`0 0 ${VB_W} ${VB_H}`}
                         preserveAspectRatio="none"
                         style={{ cursor: 'crosshair', display: 'block' }}
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (e.button === 2) return;
-                            const svg = eqSurfaceRef.current;
-                            if (!svg) return;
-                            const rect = svg.getBoundingClientRect();
-                            const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-                            const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-                            let nearest: EqBand8 | null = null;
-                            let nearestDist = Infinity;
-                            for (const band of bands) {
-                                if (!band.enabled) continue;
-                                const bx = freqToX(band.freq);
-                                const by = bandDotY(band);
-                                const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-                                if (dist < nearestDist) { nearestDist = dist; nearest = band; }
-                            }
-                            if (nearest && nearestDist < 25) {
-                                setSelectedEqBand(nearest.idx);
-                                beginEqBandGesture(nearest.idx);
-                                setDragEqBand(nearest.idx);
-                            }
-                        }}
-                        onDoubleClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const svg = eqSurfaceRef.current;
-                            if (!svg) return;
-                            const rect = svg.getBoundingClientRect();
-                            const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-                            const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-                            let clickedBand: EqBand8 | null = null;
-                            let clickedDist = Infinity;
-                            for (const band of bands) {
-                                if (!band.enabled) continue;
-                                const bx = freqToX(band.freq);
-                                const by = bandDotY(band);
-                                const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-                                if (dist < clickedDist) { clickedDist = dist; clickedBand = band; }
-                            }
-                            if (clickedBand && clickedDist < 20) {
-                                onParamChange(`B${clickedBand.idx}En`, 0);
-                                return;
-                            }
-                            const clickFreq = xToFreq(svgX);
-                            const disabledBands = bands.filter(b => !b.enabled);
-                            if (disabledBands.length === 0) return;
-                            let bestBand = disabledBands[0];
-                            let bestDelta = Infinity;
-                            for (const db of disabledBands) {
-                                const delta = Math.abs(Math.log2(clickFreq / db.freq));
-                                if (delta < bestDelta) { bestDelta = delta; bestBand = db; }
-                            }
-                            onParamChange(`B${bestBand.idx}Freq`, Math.round(clickFreq));
-                            const newBandFilterType = eqBandFilterTypes[bestBand.idx] ?? 'peaking';
-                            const newBandFilterOnly = newBandFilterType === 'lowpass' || newBandFilterType === 'highpass' || newBandFilterType === 'notch';
-                            if (newBandFilterOnly) {
-                                const clickQNorm = ((VB_H - 10) - svgY) / (VB_H - 20);
-                                const clampedQNorm = Math.max(0, Math.min(1, clickQNorm));
-                                const clickQ = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
-                                onParamChange(`B${bestBand.idx}Q`, Math.round(clickQ * 100) / 100);
-                            } else {
-                                const clickGain = ((VB_H / 2 - svgY) / (VB_H / 2 - 10)) * 24;
-                                const clampedGain = Math.max(-24, Math.min(24, clickGain));
-                                onParamChange(`B${bestBand.idx}Gain`, Math.round(clampedGain * 10) / 10);
-                            }
-                            onParamChange(`B${bestBand.idx}En`, 1);
-                            setSelectedEqBand(bestBand.idx);
-                        }}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const svg = eqSurfaceRef.current;
-                            if (!svg) return;
-                            const rect = svg.getBoundingClientRect();
-                            const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-                            const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-                            let nearest: EqBand8 | null = null;
-                            let nearestDist = Infinity;
-                            for (const band of bands) {
-                                if (!band.enabled) continue;
-                                const bx = freqToX(band.freq);
-                                const by = bandDotY(band);
-                                const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-                                if (dist < nearestDist) { nearestDist = dist; nearest = band; }
-                            }
-                            if (nearest && nearestDist < 30) {
-                                setEqContextMenu({ x: e.clientX, y: e.clientY, bandIdx: nearest.idx });
-                            }
-                        }}
+                        onMouseDown={handleMouseDown}
+                        onDoubleClick={handleDoubleClick}
+                        onContextMenu={handleContextMenu}
                     >
                         <defs>
                             <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 32%, transparent)" stopOpacity="0.24" />
-                                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 12%, transparent)" stopOpacity="0" />
+                                <stop offset="0%" stopColor={`color-mix(in srgb, ${curveColor} 38%, transparent)`} stopOpacity="0.24" />
+                                <stop offset="100%" stopColor={`color-mix(in srgb, ${curveColor} 12%, transparent)`} stopOpacity="0" />
                             </linearGradient>
                             <filter id={`eqCurveGlow-${device.id}`} x="-20%" y="-20%" width="140%" height="140%">
                                 <feGaussianBlur stdDeviation="1.2" result="blur" />
@@ -227,7 +189,7 @@ export function PluginGuiSurfaceEq({
                                 </feMerge>
                             </filter>
                         </defs>
-                        <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, var(--color-bg-panel) 88%, var(--color-bg-header) 12%)" />
+                        <rect x={MARGIN_L} y={4} width={VB_W - MARGIN_L - MARGIN_R} height={VB_H - 16} fill="color-mix(in srgb, #1f1f1f 96%, black)" />
                         {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                             <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)} stroke={db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 46%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 14%, transparent)'} strokeWidth={db === 0 ? 1.1 : 0.5} />
                         ))}
@@ -250,16 +212,15 @@ export function PluginGuiSurfaceEq({
                         <path
                             d={curvePath}
                             fill="none"
-                            stroke="color-mix(in srgb, var(--color-text-primary) 82%, var(--color-bg-panel) 18%)"
+                            stroke={curveColor}
                             strokeWidth="2.15"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            filter={`url(#eqCurveGlow-${device.id})`}
                             vectorEffect="non-scaling-stroke"
                             shapeRendering="geometricPrecision"
                         />
                         {enabledBands.length === 0 && (
-                            <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d32)" fontSize="10" fontFamily="Inter, sans-serif">
+                            <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d32)" fontSize="10" fontFamily="var(--font-sans)">
                                 Double-click to add EQ point
                             </text>
                         )}
@@ -280,10 +241,10 @@ export function PluginGuiSurfaceEq({
                         </svg>
                     </div>
                     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                        {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
+                        {[-18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                             <div key={`dblabel-${db}`} style={{
                                 position: 'absolute', left: `${((MARGIN_L + 2) / VB_W) * 100}%`, top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
-                                fontSize: 8, fontFamily: 'Inter, sans-serif',
+                                fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-sans)',
                                 color: db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 86%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 62%, transparent)',
                                 whiteSpace: 'nowrap', lineHeight: 1,
                             }}>
@@ -292,10 +253,17 @@ export function PluginGuiSurfaceEq({
                         ))}
                     </div>
                     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                        {EQ_FREQ_LABELS.map((fl) => (
+                        {EQ_FREQ_LABELS.map((fl, idx) => (
                             <div key={`flabel-${fl.freq}`} style={{
-                                position: 'absolute', left: `${(freqToX(fl.freq) / VB_W) * 100}%`, bottom: 2, transform: 'translateX(-50%)',
-                                fontSize: 8, fontFamily: 'Inter, sans-serif', color: 'color-mix(in srgb, var(--color-text-primary) 66%, transparent)', whiteSpace: 'nowrap', lineHeight: 1,
+                                position: 'absolute',
+                                left: `${(freqToX(fl.freq) / VB_W) * 100}%`,
+                                bottom: 2,
+                                transform: idx === 0
+                                    ? 'translateX(0)'
+                                    : idx === EQ_FREQ_LABELS.length - 1
+                                        ? 'translateX(-100%)'
+                                        : 'translateX(-50%)',
+                                fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-sans)', color: 'color-mix(in srgb, var(--color-text-primary) 66%, transparent)', whiteSpace: 'nowrap', lineHeight: 1,
                             }}>
                                 {fl.label}
                             </div>

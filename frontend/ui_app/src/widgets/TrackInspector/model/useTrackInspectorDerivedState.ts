@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { isTrackActive } from '@/shared/utils/routing';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { MeteringSnapshot } from '@/shared/api/engine';
@@ -72,7 +73,7 @@ export function useTrackInspectorDerivedState({
             id: 'master',
             name: 'Master',
             type: 'master',
-            color: 'var(--token-color-hex-3a3a3a)',
+            color: 'var(--token-color-hex-6b7280)',
             volume: masterVolume,
             pan: 0,
             isMuted: false,
@@ -154,7 +155,7 @@ export function useTrackInspectorDerivedState({
                 continue;
             }
             const persisted = Number.isFinite(track.height) ? track.height : trackHeight;
-            const resolved = Math.max(24, Math.min(120, Math.round(persisted)));
+            const resolved = clampTrackHeightPx(persisted);
             next[track.id] = rowHeightOverrides[track.id] ?? resolved;
         }
         next.master = rowHeightOverrides.master ?? trackHeight;

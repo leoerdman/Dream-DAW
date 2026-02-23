@@ -1,16 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — PianoRoll WebGL2 Renderer
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Renders the PianoRoll grid, notes, and playhead using WebGL2.
-// All coordinate uniforms are in CSS pixels; DPR scaling is done in shaders.
-//
-// 3 render passes per frame:
-//   1. Grid    — fullscreen triangle, procedural fragment shader
-//   2. Notes   — hardware-instanced SDF rounded rectangles
-//   3. Playhead — fullscreen triangle, distance-field glow
-//
-// ═══════════════════════════════════════════════════════════════════════════
 
 import { createProgram } from './PianoRollGLProgram';
 import { GRID_FS, GRID_VS, NOTE_FS, NOTE_VS, PLAYHEAD_FS, PLAYHEAD_VS } from './PianoRollGLShaders';
@@ -108,7 +95,6 @@ export class PianoRollGLRenderer {
         this.noteProgram = createProgram(gl, NOTE_VS, NOTE_FS);
         this.playheadProgram = createProgram(gl, PLAYHEAD_VS, PLAYHEAD_FS);
         this.cacheUniforms();
-        // Fullscreen quad VBO + VAO (replaces gl_VertexID trick for macOS compat)
         this.fullscreenVAO = this.createFullscreenQuadVao();
         this.noteVAO = this.createNoteVao();
         gl.enable(gl.BLEND);
@@ -154,8 +140,6 @@ export class PianoRollGLRenderer {
         gl.deleteVertexArray(this.fullscreenVAO);
     }
 
-    // ── Uniforms ────────────────────────────────────────────────────────
-
     private cacheUniforms(): void {
         const gl = this.gl;
         const gridNames = [
@@ -169,7 +153,6 @@ export class PianoRollGLRenderer {
         for (const name of gridNames) {
             this.gridUniforms[name] = gl.getUniformLocation(this.gridProgram, name);
         }
-        // u_scaleNotes is int[12] — cache individual locations
         for (let i = 0; i < 12; i++) {
             this.gridUniforms[`u_scaleNotes[${i}]`] = gl.getUniformLocation(this.gridProgram, `u_scaleNotes[${i}]`);
         }
@@ -187,17 +170,11 @@ export class PianoRollGLRenderer {
         this.playheadUniforms.u_dpr = gl.getUniformLocation(this.playheadProgram, 'u_dpr');
     }
 
-    // ── VAO ─────────────────────────────────────────────────────────────
-
-    // ── Fullscreen Quad VAO ──────────────────────────────────────────────
-
     private createFullscreenQuadVao(): WebGLVertexArrayObject {
         const gl = this.gl;
         const vao = gl.createVertexArray()!;
         gl.bindVertexArray(vao);
 
-        // Fullscreen quad: 2 triangles covering NDC [-1, 1]
-        // Each vertex: [x, y] in NDC
         const quadData = new Float32Array([
             -1, -1, 1, -1, -1, 1,  // triangle 1
             1, -1, 1, 1, -1, 1,  // triangle 2
@@ -217,7 +194,6 @@ export class PianoRollGLRenderer {
         const vao = gl.createVertexArray()!;
         gl.bindVertexArray(vao);
 
-        // Quad geometry (2 triangles)
         const quadData = new Float32Array([0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1]);
         this.quadVBO = gl.createBuffer()!;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
@@ -225,7 +201,6 @@ export class PianoRollGLRenderer {
         gl.enableVertexAttribArray(0);
         gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-        // Instance data: [startBeat, pitch, duration, velocity, flags] per note
         this.instanceVBO = gl.createBuffer()!;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceVBO);
         gl.bufferData(gl.ARRAY_BUFFER, 0, gl.DYNAMIC_DRAW);
@@ -240,8 +215,6 @@ export class PianoRollGLRenderer {
         gl.bindVertexArray(null);
         return vao;
     }
-
-    // ── Render Passes ───────────────────────────────────────────────────
 
     private renderGrid(v: ViewState, s: GridStyle): void {
         const gl = this.gl;
@@ -269,14 +242,12 @@ export class PianoRollGLRenderer {
         gl.uniform1f(this.gridUniforms.u_highlightScale!, v.highlightScale ? 1 : 0);
         gl.uniform1f(this.gridUniforms.u_scaleRoot!, v.scaleRoot);
 
-        // Upload scale notes as int[12]
         const scaleNotes = v.scaleNotes ?? DEFAULT_SCALE;
         for (let i = 0; i < 12; i++) {
             const loc = this.gridUniforms[`u_scaleNotes[${i}]`];
             if (loc) gl.uniform1i(loc, scaleNotes[i] ?? 0);
         }
 
-        // Fullscreen quad (6 verts from VBO)
         gl.bindVertexArray(this.fullscreenVAO);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
         gl.bindVertexArray(null);
@@ -309,7 +280,6 @@ export class PianoRollGLRenderer {
         gl.uniform2f(this.playheadUniforms.u_resolution!, v.canvasWidth, v.canvasHeight);
         gl.uniform1f(this.playheadUniforms.u_dpr!, v.dpr);
 
-        // Fullscreen quad (6 verts from VBO)
         gl.bindVertexArray(this.fullscreenVAO);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
         gl.bindVertexArray(null);

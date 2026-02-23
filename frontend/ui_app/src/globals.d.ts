@@ -9,6 +9,7 @@ interface Window {
     __dreamInAppDrag?: boolean;
     __dreamFlushPendingEdits?: () => Promise<void>;
     __dreamSelectedTrackId?: string;
+    __dreamOpenExportModal?: () => void;
 }
 
 declare module 'lodash.throttle' {

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import type { TimelineClip, BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
@@ -44,6 +44,31 @@ export function DawShellBottomPanel({
     onMidiEnvelopesChange,
     onGenerateVariation,
 }: DawShellBottomPanelProps) {
+    const settleRafRef = useRef<number | null>(null);
+
+    // Anti-jitter: freeze expensive panel/timeline reactions for one layout tick
+    // when switching panel mode or clip target, then resume after layout settles.
+    useEffect(() => {
+        window.dispatchEvent(new Event('dream:bottom-panel-resize-start'));
+        if (settleRafRef.current != null) {
+            cancelAnimationFrame(settleRafRef.current);
+            settleRafRef.current = null;
+        }
+        settleRafRef.current = requestAnimationFrame(() => {
+            settleRafRef.current = requestAnimationFrame(() => {
+                settleRafRef.current = null;
+                window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
+            });
+        });
+        return () => {
+            if (settleRafRef.current != null) {
+                cancelAnimationFrame(settleRafRef.current);
+                settleRafRef.current = null;
+            }
+            window.dispatchEvent(new Event('dream:bottom-panel-resize-end'));
+        };
+    }, [bottomPanelMode, selectedTimelineClip?.id]);
+
     return (
         <footer
             className="shrink-0 z-40 overflow-hidden"
@@ -52,6 +77,7 @@ export function DawShellBottomPanel({
                 minHeight: 'var(--daw-device-rack-min-height)',
                 borderTop: 'var(--space-px) solid var(--color-divider)',
                 position: 'relative',
+                contain: 'layout paint style',
             }}
         >
             {hasResizableClipEditor && (

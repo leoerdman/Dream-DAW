@@ -10,14 +10,9 @@ fn get_spectrum_data(
 
     // Drain all available samples from the ring buffer consumer
     let mut drained = 0usize;
-    loop {
-        match inner.consumer.pop() {
-            Ok(sample) => {
-                inner.analyzer.push(&[sample]);
-                drained += 1;
-            }
-            Err(_) => break,
-        }
+    while let Ok(sample) = inner.consumer.pop() {
+        inner.analyzer.push(&[sample]);
+        drained += 1;
     }
 
     if drained == 0 {

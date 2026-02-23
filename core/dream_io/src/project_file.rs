@@ -182,6 +182,9 @@ impl ProjectFile {
             Ok(data) => match Self::parse_project_document(&data) {
                 Ok(project) => project,
                 Err(err) => {
+                    if matches!(err, ProjectFileError::UnsupportedFormatVersion { .. }) {
+                        return Err(err);
+                    }
                     if bak_path.exists() {
                         log::warn!(
                             "Primary project file failed to parse ({}). Attempting backup: {}",
@@ -343,9 +346,23 @@ mod tests {
     };
     use dream_models::time::AbsoluteTime;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_NONCE: AtomicU64 = AtomicU64::new(0);
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("dream_daw_test_{name}.dream.json"))
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = TEST_NONCE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "dream_daw_test_{name}_{}_{}_{}.dream.json",
+            std::process::id(),
+            nonce,
+            seq
+        ))
     }
 
     #[test]

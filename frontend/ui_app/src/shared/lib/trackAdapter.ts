@@ -17,25 +17,25 @@ import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 // ── Track color palette (matches Rust TrackColor enum hex values) ─────────
 
 const TRACK_COLORS: Record<TrackColor, string> = {
-    Coral: 'var(--token-color-hex-f05c4d)',
-    Orange: 'var(--token-color-hex-ff8a1a)',
-    Gold: 'var(--token-color-hex-ffbf33)',
-    Yellow: 'var(--token-color-hex-ffe14d)',
-    Lime: 'var(--token-color-hex-a3d94d)',
-    Green: 'var(--token-color-hex-4dc775)',
-    Teal: 'var(--token-color-hex-4dc7b0)',
-    Cyan: 'var(--token-color-hex-4dc7cc)',
-    Sky: 'var(--token-color-hex-4da6e3)',
-    Blue: 'var(--token-color-hex-4d7ae3)',
-    Indigo: 'var(--token-color-hex-6b5ce3)',
-    Purple: 'var(--token-color-hex-9b59d9)',
-    Magenta: 'var(--token-color-hex-d94da6)',
-    Pink: 'var(--token-color-hex-e36b96)',
-    Rose: 'var(--token-color-hex-e66673)',
-    Slate: 'var(--token-color-hex-8c949e)',
+    Coral: '#F05C4D',
+    Orange: '#FF8A1A',
+    Gold: '#FFBF33',
+    Yellow: '#FFE14D',
+    Lime: '#A3D94D',
+    Green: '#4DC775',
+    Teal: '#4DC7B0',
+    Cyan: '#4DC7CC',
+    Sky: '#4DA6E3',
+    Blue: '#4D7AE3',
+    Indigo: '#6B5CE3',
+    Purple: '#9B59D9',
+    Magenta: '#D94DA6',
+    Pink: '#E36B96',
+    Rose: '#E66673',
+    Slate: '#8C949E',
 };
 
-const DEFAULT_TRACK_COLOR = 'var(--token-color-hex-667788)';
+const DEFAULT_TRACK_COLOR = '#667788';
 
 /**
  * Resolve a track color to a hex string.

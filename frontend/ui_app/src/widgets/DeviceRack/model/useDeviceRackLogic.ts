@@ -5,7 +5,6 @@ import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { PluginSlotRuntimeStatus, ProjectDelta } from '@/shared/api/engine';
-
 // Micro-hook imports
 import { useDeviceRackCore } from './useDeviceRackCore';
 import { useDeviceProbes } from './useDeviceProbes';
@@ -116,7 +115,9 @@ export function useDeviceRackLogic(
 
     // Build full chain with external parameters injected
     const { pluginCapability, pluginRuntimeBySlot, setPluginRuntimeBySlot, externalParamsBySlotId } = useDeviceProbes(
-        core.buildChain({}), // Dummy chain to start (or handle dependency better)
+        // BUG-24 FIX: Use empty external params for initial probe pass.
+        // buildChain is memoized via useCallback, so this is stable.
+        core.buildChain({}),
         selectedTrackId,
         core.selectedTrack
     );
@@ -145,7 +146,8 @@ export function useDeviceRackLogic(
         chain,
         selectedTrackId,
         trackForOps,
-        useEngineStore.getState().tracks.allIds,
+        // BUG-25 FIX: Use subscribed trackIds instead of stale getState().
+        trackIds,
         core.isMaster,
         core.setLocalParams
     );

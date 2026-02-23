@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { scrollSync } from '@/shared/lib/useScrollSync';
+import {
+    TIMELINE_RULER_HEIGHT_PX,
+    TRACK_HEIGHT_DEFAULT_PX,
+    TRACK_HEIGHT_MAX_PX,
+    TRACK_HEIGHT_MIN_PX,
+    TRACK_HEIGHT_STEP_PX,
+    clampTrackHeightPx,
+} from '@/shared/config/layoutConstants';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
@@ -21,12 +29,7 @@ type Result = {
     resetTrackHeights: () => void;
 };
 
-const TRACK_HEIGHT_DEFAULT = 48;
-const TRACK_HEIGHT_MIN = 24;
-const TRACK_HEIGHT_MAX = 120;
-const TRACK_HEIGHT_STEP = 1;
-const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
-const RULER_HEIGHT = 28;
+const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT_PX;
 
 export function useTrackHeightControls({
     tracksEntitySnapshot,
@@ -39,8 +42,8 @@ export function useTrackHeightControls({
     const tracksByIdSnapshot = tracksEntitySnapshot.byId;
 
     const clampTrackHeight = useCallback((height: number) => {
-        const snapped = Math.round(height / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
-        return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
+        const snapped = Math.round(height / TRACK_HEIGHT_STEP_PX) * TRACK_HEIGHT_STEP_PX;
+        return Math.max(TRACK_HEIGHT_MIN_PX, Math.min(TRACK_HEIGHT_MAX_PX, snapped));
     }, []);
 
     const resolveHeightTargetTrackIds = useCallback((target: EventTarget | null, clientY?: number) => {
@@ -63,12 +66,12 @@ export function useTrackHeightControls({
         if (timelineRoot && Number.isFinite(clientY)) {
             const rect = timelineRoot.getBoundingClientRect();
             const yInViewport = (clientY as number) - rect.top;
-            const yInTracks = yInViewport - RULER_HEIGHT + scrollSync.scrollY;
+            const yInTracks = yInViewport - TIMELINE_RULER_HEIGHT_PX + scrollSync.scrollY;
             if (yInTracks >= 0) {
                 let acc = 0;
                 for (const track of tracks) {
                     if (!track?.id || track.id === 'master') continue;
-                    const h = clampTrackHeight(typeof track.height === 'number' ? track.height : TRACK_HEIGHT_DEFAULT);
+                    const h = clampTrackHeight(typeof track.height === 'number' ? track.height : TRACK_HEIGHT_DEFAULT_PX);
                     const nextAcc = acc + h;
                     if (yInTracks < nextAcc) return [track.id];
                     acc = nextAcc;
@@ -113,8 +116,8 @@ export function useTrackHeightControls({
             const trackIds = resolveHeightTargetTrackIds(lastWheelEventTarget, lastWheelClientY);
             if (trackIds.length === 0) return;
             const current = tracksByIdSnapshot[trackIds[0]];
-            const currentHeight = clampTrackHeight(typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT);
-            const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP * steps);
+            const currentHeight = clampTrackHeight(typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT_PX);
+            const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP_PX * steps);
             if (nextHeight === currentHeight) return;
 
             applyTrackHeightsOptimistic(trackIds, nextHeight);
@@ -157,7 +160,7 @@ export function useTrackHeightControls({
             e.preventDefault();
             const trackIds = resolveHeightTargetTrackIds(e.target);
             if (trackIds.length === 0) return;
-            const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
+            const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT_PX);
             applyTrackHeightsOptimistic(trackIds, nextHeight);
             void Promise.all(
                 trackIds.map((id) =>
@@ -182,20 +185,22 @@ export function useTrackHeightControls({
     }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, tracksByIdSnapshot, resolveHeightTargetTrackIds]);
 
     const timelineTrackHeights = useMemo(() => {
-        const clamp = (h: number) => Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, Math.round(h)));
         return trackIdsSnapshot.map((trackId, idx) => {
             if (hiddenTrackIndices.has(idx)) return 0;
             const track = tracksByIdSnapshot[trackId];
             const persisted = Number.isFinite(track.height) ? track.height : TRACK_HEIGHT_BASE;
-            return clamp(persisted);
+            return clampTrackHeightPx(persisted);
         });
     }, [trackIdsSnapshot, tracksByIdSnapshot, hiddenTrackIndices]);
 
     const resetTrackHeights = useCallback(() => {
         const trackIds = trackIdsSnapshot.filter((id) => id && id !== 'master');
         if (trackIds.length === 0) return;
-        const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
+        const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT_PX);
         applyTrackHeightsOptimistic(trackIds, nextHeight);
+        // Notify UI consumers (TrackInspector local row overrides, etc.) to
+        // drop transient per-row heights and realign from engine state.
+        window.dispatchEvent(new Event('dream:track-heights-reset'));
         void Promise.all(
             trackIds.map((id) =>
                 engineApi

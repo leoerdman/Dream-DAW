@@ -55,17 +55,17 @@ export const PluginSettingsPanel = ({
     }, [device.params, paramSearch]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
             {device.source === 'vst' && (
                 <div style={{
                     border: 'var(--space-px) solid var(--color-divider)',
                     borderRadius: 'var(--radius-sm)',
                     background: 'color-mix(in srgb, var(--color-bg-header) 88%, var(--token-color-hex-0e1117))',
-                    padding: 8,
+                    padding: 'var(--space-2)',
                     display: 'grid',
-                    gap: 6,
+                    gap: 'var(--space-1-5)',
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
                         <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
                             External Plugin
                         </span>
@@ -153,7 +153,7 @@ export const PluginSettingsPanel = ({
                     }}>
                         Quick Presets
                     </span>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 'var(--space-1-5)', flexWrap: 'wrap' }}>
                         {quickPresets.map((preset) => (
                             <button
                                 key={preset.label}
@@ -239,9 +239,10 @@ export const PluginSettingsPanel = ({
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-xs)',
                 }}>
-                    <span>{device.params.length > 0 ? 'No parameters match filter' : 'No exported params'}</span>
+                    {/* BUG-47 FIX: Show actual total count when filter matches nothing */}
+                    <span>{device.params.length > 0 ? `No parameters match filter (${device.params.length} total)` : 'No exported params'}</span>
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                        {filteredParams.length} params
+                        {device.params.length} params
                     </span>
                 </div>
             )}

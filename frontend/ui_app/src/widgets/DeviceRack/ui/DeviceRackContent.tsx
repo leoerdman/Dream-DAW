@@ -52,7 +52,7 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                 style={{
                     display: 'flex',
                     alignItems: 'stretch',
-                    gap: 6,
+                    gap: 'var(--space-1-5)',
                     padding: 'var(--space-2-5)',
                     flex: 1,
                     minHeight: 0,

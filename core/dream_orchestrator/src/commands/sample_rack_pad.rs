@@ -196,9 +196,7 @@ impl Command for SetSampleRackPadSoloCommand {
         let any_soloed = rack.pads.iter().any(|p| p.is_soloed);
         let mut effective_pad_volumes = [0.0f32; 16];
         for (i, pad) in rack.pads.iter().enumerate().take(16) {
-            effective_pad_volumes[i] = if any_soloed && !pad.is_soloed {
-                0.0
-            } else if pad.is_muted {
+            effective_pad_volumes[i] = if (any_soloed && !pad.is_soloed) || pad.is_muted {
                 0.0
             } else {
                 pad.volume as f32

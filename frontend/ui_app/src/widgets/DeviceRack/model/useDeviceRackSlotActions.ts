@@ -77,21 +77,32 @@ export function useDeviceRackSlotActions({
         if (device.source === 'internal') {
             const trackIdx = trackIndexById.get(targetTrackId)
                 ?? (selectedTrack?.id === targetTrackId ? MASTER_TRACK_INDEX : -1);
+            // BUG-30 FIX: Guard against trackIdx === -1 — don't send invalid indices to backend.
+            if (trackIdx < 0) return;
             const ownerTrack = tracksById[targetTrackId];
             const ownerEffects = ownerTrack?.effects ?? selectedTrack?.effects ?? [];
             const ownerInstrumentId = ownerTrack?.instrumentId ?? selectedTrack?.instrumentId;
             const isInstrumentSlot = ownerInstrumentId === device.id;
             const effectSlotIdx = ownerEffects.findIndex((fx) => fx.id === device.id);
             const slotIdx = isInstrumentSlot ? INSTRUMENT_SLOT_INDEX : effectSlotIdx;
-            if (trackIdx >= 0 && slotIdx >= 0) {
+            if (slotIdx >= 0) {
                 void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed)
                     .catch((err: unknown) => console.error('[DeviceRack] bypassDevice failed:', err));
             }
         }
-    }, [localBypass, resolveTrackIdForSlot, setLocalBypass, applyProjectDeltas, trackIndexById, tracksById]);
+    }, [
+        localBypass,
+        resolveTrackIdForSlot,
+        setLocalBypass,
+        applyProjectDeltas,
+        trackIndexById,
+        tracksById,
+        selectedTrack?.id,
+        selectedTrack?.instrumentId,
+        selectedTrack?.effects,
+    ]);
 
     const ensureSlotRuntimeActive = useCallback(async (slotId: string) => {
-        if (!selectedTrack) return null;
         const targetTrackId = resolveTrackIdForSlot(slotId);
         if (!targetTrackId) return null;
         const known = pluginRuntimeBySlot[slotId];
@@ -113,6 +124,11 @@ export function useDeviceRackSlotActions({
             return status;
         } catch (err) {
             const firstMsg = errorMessage(err).toLowerCase();
+            if (firstMsg.includes('pluginslot not found')) {
+                // Slot may already be removed/replaced by recent delta; avoid noisy error toast.
+                statusClear();
+                return null;
+            }
             const shouldRescan = firstMsg.includes('cannot find native binary')
                 || firstMsg.includes('plugin not found')
                 || firstMsg.includes('failed to load plugin');
@@ -130,7 +146,7 @@ export function useDeviceRackSlotActions({
             statusError(`Plugin activation failed: ${errorMessage(err)}`);
             return null;
         }
-    }, [selectedTrack, resolveTrackIdForSlot, pluginRuntimeBySlot, statusError, statusClear, setPluginRuntimeBySlot]);
+    }, [resolveTrackIdForSlot, pluginRuntimeBySlot, statusError, statusClear, setPluginRuntimeBySlot]);
 
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         const targetTrackId = resolveTrackIdForSlot(slotId);

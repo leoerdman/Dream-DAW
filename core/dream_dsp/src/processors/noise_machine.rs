@@ -146,6 +146,7 @@ pub struct NoiseMachineProcessor {
 
 impl NoiseMachineProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         // BUG-012 FIX: DC blocker at ~5Hz for brown noise
         let brown_dc_coeff = (-std::f32::consts::TAU * 5.0 / sample_rate).exp();
         let mut proc = Self {

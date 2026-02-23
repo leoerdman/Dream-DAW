@@ -132,6 +132,7 @@ export const VirtualFileList = memo(function VirtualFileList({
         if (lastHandledEpochRef.current !== epoch) {
             // First scroll event after a reset — absorb it (may carry stale position)
             lastHandledEpochRef.current = epoch;
+            setScrollTop(0);
             return;
         }
         const el = fileListRef.current;
@@ -146,7 +147,6 @@ export const VirtualFileList = memo(function VirtualFileList({
         if (prevItemsRef.current !== items) {
             prevItemsRef.current = items;
             resetEpochRef.current++;
-            setScrollTop(0);
             if (fileListRef.current) {
                 fileListRef.current.scrollTop = 0;
             }

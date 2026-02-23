@@ -32,7 +32,7 @@ export function PluginGuiSurfaceSampler({
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',
                 height: '100%',
-                gap: 4,
+                gap: 'var(--space-1)',
                 borderRadius: 'var(--radius-lg)',
                 background: 'var(--surface-tab-inactive)',
                 overflow: 'hidden',
@@ -67,7 +67,7 @@ export function PluginGuiSurfaceSampler({
                     style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - var(--space-4))' }}
                 >
                     <defs>
-                        <linearGradient id="samplerWaveFill" x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id={`samplerWaveFill-${device.id}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="var(--token-color-hex-ffcc58)" stopOpacity="0.92" />
                             <stop offset="100%" stopColor="var(--token-color-hex-f0a62a)" stopOpacity="0.66" />
                         </linearGradient>
@@ -87,7 +87,7 @@ export function PluginGuiSurfaceSampler({
                     <line x1="0" y1="45" x2="1000" y2="45" stroke="var(--token-color-rgba-255-255-255-0d12)" strokeWidth="1" />
                     {samplerWaveformPath ? (
                         <>
-                            <path d={samplerWaveformPath} fill="url(#samplerWaveFill)" />
+                            <path d={samplerWaveformPath} fill={`url(#samplerWaveFill-${device.id})`} />
                             <path d={samplerWaveformPath} fill="none" stroke="var(--token-color-rgba-255-214-110-0d85)" strokeWidth="1" />
                         </>
                     ) : (
@@ -153,7 +153,7 @@ export function PluginGuiSurfaceSampler({
                 style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(${Math.min(8, Math.max(4, otherSamplerParams.length))}, minmax(0, 1fr))`,
-                    gap: 8,
+                    gap: 'var(--space-2)',
                     alignItems: 'center',
                     padding: 'var(--space-1) var(--space-2) var(--space-2) var(--space-2)',
                     background: 'var(--token-color-rgba-16-20-28-0d55)',

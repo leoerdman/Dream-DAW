@@ -10,7 +10,7 @@ export {
 export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlot['effectType']>> = {
     'internal://instrument/wave-synth': 'waveSynth',
     'internal://instrument/sampler': 'sampler',
-    'internal://instrument/sample-rack': 'sampler',
+    'internal://instrument/sample-rack': 'sample_rack',
     'internal://effect/eq-eight': 'eq',
     'internal://effect/channel-eq': 'eq',
     'internal://effect/eq-three': 'eq',
@@ -64,13 +64,16 @@ export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlo
 
     'internal://midi-fx/pitch': 'midiPitch',
     'internal://midi-fx/scale': 'midiScale',
-    'internal://midi-fx/chord': 'midiScale',
+    // BUG-33 FIX: Chord has its own type — not Scale.
+    'internal://midi-fx/chord': 'midiChord',
     'internal://midi-fx/velocity': 'midiVelocity',
-    'internal://midi-fx/note-length': 'midiVelocity',
-    'internal://midi-fx/cc-control': 'midiVelocity',
-    'internal://midi-fx/expression-control': 'midiVelocity',
+    // BUG-34/35/36 FIX: Note Length, CC Control, Expression Control have own types.
+    'internal://midi-fx/note-length': 'midiNoteLength',
+    'internal://midi-fx/cc-control': 'midiCcControl',
+    'internal://midi-fx/expression-control': 'midiExpressionControl',
     'internal://midi-fx/random': 'midiRandom',
-    'internal://midi-fx/arpeggiator': 'midiRandom',
+    // BUG-37 FIX: Arpeggiator has its own type with rate/pattern/octaves — not Random.
+    'internal://midi-fx/arpeggiator': 'midiArpeggiator',
 };
 
 export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
@@ -97,26 +100,56 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
         out: 32,
     },
     utility: { gain: 0, pan: 1, width: 2, mono: 3 },
-    compressor: { thr: 0, ratio: 1, atk: 2, rel: 3 },
-    delay: { time: 0, fb: 1, 'dry/wet': 2, mix: 2 },
-    reverb: { decay: 0, tone: 1, 'dry/wet': 2, mix: 2 },
-    chorus: { rate: 0, depth: 1, mix: 2 },
-    saturator: { drive: 0, tone: 1, mix: 2 },
-    limiter: { thr: 0, rel: 1, ceil: 2 },
-    gate: { thr: 0, atk: 1, hold: 2, rel: 3, range: 4 },
-    autoFilter: { cutoff: 0, res: 1, rate: 2, depth: 3, env: 4, type: 5, mix: 6 },
+    compressor: {
+        thr: 0, ratio: 1, atk: 2, rel: 3,
+        knee: 4, makeup: 5, mix: 6, 'sc hpf': 7, 'auto gain': 8, rms: 9,
+    },
+    delay: {
+        'time l': 0, 'time r': 1, fb: 2, 'dry/wet': 3, mix: 3,  // BUG-P02 FIX
+        filter: 4, pingpong: 5, 'mod rate': 6, 'mod depth': 7,
+        time: 0,    // Legacy alias
+    },
+    reverb: {
+        size: 0, damp: 1, 'dry/wet': 2, mix: 2,
+        predelay: 3, width: 4, 'low damp': 5, 'mod rate': 6, 'mod depth': 7, freeze: 8,
+        decay: 0,   // Legacy alias → room_size
+        tone: 1,    // Legacy alias → damping
+    },
+    chorus: { rate: 0, depth: 1, mix: 2, fb: 3, voices: 4, spread: 5, 'hp freq': 6 },
+    saturator: { drive: 0, tone: 1, mix: 2, mode: 3, output: 4, color: 5 },
+    limiter: { thr: 0, rel: 1, ceil: 2, lookahead: 3, 'auto rel': 4, link: 5 },
+    gate: { thr: 0, atk: 1, hold: 2, rel: 3, range: 4, 'sc hpf': 5, hysteresis: 6, duck: 7 },
+    autoFilter: {
+        cutoff: 0, res: 1, rate: 2, depth: 3, env: 4, type: 5, mix: 6,
+        'lfo shape': 7, drive: 8, 'env speed': 9,
+    },
     autoPan: { rate: 0, depth: 1, phase: 2, shape: 3, mix: 4 },
-    phaser: { rate: 0, depth: 1, fb: 2, stages: 3, center: 4, mix: 5 },
-    flanger: { rate: 0, depth: 1, fb: 2, delay: 3, mix: 4 },
-    distortion: { drive: 0, tone: 1, mix: 2, mode: 3 },
-    bitcrusher: { bits: 0, down: 1, mix: 2 },
-    noiseMachine: { level: 0, type: 1, stereo: 2, lpfreq: 3, hpfreq: 4, pan: 5 },
+    phaser: {
+        rate: 0, depth: 1, fb: 2, stages: 3, center: 4, mix: 5,
+        spread: 6, 'lfo shape': 7, range: 8,
+    },
+    flanger: {
+        rate: 0, depth: 1, fb: 2, delay: 3, mix: 4,
+        stereo: 5, 'lfo shape': 6, 'fb damp': 7, 'tz mode': 8,
+    },
+    distortion: { drive: 0, tone: 1, mix: 2, mode: 3, output: 4, 'cab sim': 5, tight: 6, bias: 7 },
+    bitcrusher: {
+        bits: 0, down: 1, mix: 2, jitter: 3,
+        'pre freq': 4, 'post freq': 5, stereo: 6, dither: 7,
+    },
+    noiseMachine: { level: 0, type: 1, stereo: 2, lpfreq: 3, hpfreq: 4, pan: 5 },   // BUG-P01 FIX: level=0, type=1
     analyzer: { reset: 0 },
     spectrum: { reset: 0 },
     midiPitch: { semitones: 0 },
     midiScale: { root: 0, mask: 1 },
     midiVelocity: { gain: 0, offset: 1 },
     midiRandom: { semitones: 0, chance: 1 },
+    // BUG-33/34/35/36/37 FIX: New MIDI effect runtime indices.
+    midiChord: { root: 0, octaves: 1, inversion: 2 },
+    midiNoteLength: { length: 0, gate: 1 },
+    midiCcControl: { cc: 0, value: 1 },
+    midiExpressionControl: { cc: 0, value: 1 },
+    midiArpeggiator: { rate: 0, pattern: 1, octaves: 2, gate: 3 },
 };
 
 export const EFFECT_PARAM_CATALOG = DEVICE_PARAM_PRESETS;

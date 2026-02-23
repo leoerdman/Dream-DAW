@@ -1,0 +1,20 @@
+import { Bot, Download, Eye, EyeOff, Settings } from 'lucide-react';
+import { PillSection } from './TransportAtoms';
+import { iconBtnStyle } from './TransportSectionStyles';
+import type { TransportRightSectionProps } from './TransportSectionTypes';
+
+export function TransportRightSection(props: TransportRightSectionProps) {
+    const { midiLedRef, pdcOpen, setPdcOpen, assistantOpen, onAssistantToggle, onOpenExport, onSettingsClick } = props;
+    return (
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+            <PillSection>
+                <span ref={midiLedRef} style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-status-success)', opacity: 0.35, boxShadow: '0 0 var(--space-2) color-mix(in srgb, var(--color-status-success) 75%, transparent)', transition: 'opacity 40ms linear' }} />
+                <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-midi-indicator)' }}>MIDI</span>
+                <button onClick={() => setPdcOpen((v) => !v)} title="Debug Panel" style={iconBtnStyle(pdcOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', pdcOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}>{pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                <button onClick={() => onAssistantToggle?.()} title="AI Assistant" style={iconBtnStyle(assistantOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)', assistantOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent')}><Bot size={15} /></button>
+                <button onClick={() => onOpenExport?.()} title="Export Audio (⇧⌘R)" style={iconBtnStyle('var(--color-text-secondary)', 'transparent')}><Download size={15} /></button>
+                <button onClick={onSettingsClick} title="Settings (⌘,)" style={iconBtnStyle('var(--color-text-secondary)', 'transparent')}><Settings size={15} /></button>
+            </PillSection>
+        </div>
+    );
+}

@@ -1,4 +1,5 @@
 export type InternalPluginKind = 'instrument' | 'effect';
+import { INTERNAL_INSTRUMENT_PLUGINS } from './internalInstrumentPlugins';
 
 export interface InternalPluginDefinition {
     id: string;
@@ -8,22 +9,7 @@ export interface InternalPluginDefinition {
     tags: string[];
 }
 
-export const INTERNAL_INSTRUMENT_PLUGINS: InternalPluginDefinition[] = [
-    {
-        id: 'internal://instrument/wave-synth',
-        name: 'Essence',
-        kind: 'instrument',
-        slotHint: 'instrument',
-        tags: ['internal', 'instrument', 'synth', 'wave'],
-    },
-    {
-        id: 'internal://instrument/sampler',
-        name: 'Sampler',
-        kind: 'instrument',
-        slotHint: 'instrument',
-        tags: ['internal', 'instrument', 'sampler'],
-    },
-];
+export { INTERNAL_INSTRUMENT_PLUGINS };
 
 export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
     {
@@ -401,7 +387,8 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
 
 export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'internal://instrument/simple-sine-synth': 'internal://instrument/wave-synth',
-    'internal://instrument/sample-rack': 'internal://instrument/sampler',
+    // Keep Sample Rack distinct from Sampler so dedicated UI/effectType can resolve.
+    'internal://instrument/sample-rack': 'internal://instrument/sample-rack',
     'internal://effect/glue-compressor': 'internal://effect/compressor',
     'internal://effect/simple-delay': 'internal://effect/delay',
     'internal://effect/filter-delay': 'internal://effect/delay',

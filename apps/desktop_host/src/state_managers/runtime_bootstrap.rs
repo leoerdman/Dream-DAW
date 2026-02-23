@@ -174,8 +174,10 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         log::warn!("Failed to persist resolved output device: {}", e);
     }
 
-    let mut playback_state = PlaybackState::default();
-    playback_state.sample_rate = bootstrap_project.sample_rate.max(1.0);
+    let playback_state = PlaybackState {
+        sample_rate: bootstrap_project.sample_rate.max(1.0),
+        ..PlaybackState::default()
+    };
     let _ = producer.push(EngineCommand::SetTimelineSampleRate(
         playback_state.sample_rate,
     ));

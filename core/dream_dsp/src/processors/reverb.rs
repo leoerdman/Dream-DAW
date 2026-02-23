@@ -171,6 +171,7 @@ pub struct ReverbProcessor {
 
 impl ReverbProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         // AUD-113 FIX: Pre-allocate ALL comb and allpass buffers at MAX_SUPPORTED_RATE
         // so that sync_sample_rate() never needs to resize (= zero heap allocs on RT thread).
         // Logical buf_size is adjusted on SR change; physical capacity stays fixed.

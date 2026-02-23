@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 interface UseTrackInspectorResizeArgs {
@@ -17,7 +18,7 @@ export function useTrackInspectorResize({
     const [resizingTrackId, setResizingTrackId] = useState<string | null>(null);
 
     const clampRowHeight = useCallback((raw: number) => {
-        return Math.max(24, Math.min(120, Math.round(raw)));
+        return clampTrackHeightPx(raw);
     }, []);
 
     const beginRowResize = useCallback((trackId: string, startHeight: number, startY: number) => {
@@ -48,6 +49,14 @@ export function useTrackInspectorResize({
             const finalTrackId = resizingTrackId;
             const finalHeight = clampRowHeight(resizeCurrentHeightRef.current || resizeStartHeightRef.current);
             setResizingTrackId(null);
+            // Release temporary local height override once drag is committed.
+            // The persisted store height becomes the single source of truth.
+            setRowHeightOverrides((prev) => {
+                if (!finalTrackId || !(finalTrackId in prev)) return prev;
+                const next = { ...prev };
+                delete next[finalTrackId];
+                return next;
+            });
             if (finalTrackId && finalTrackId !== 'master') {
                 applyTrackHeightOptimistic(finalTrackId, finalHeight);
                 void engineApi

@@ -62,6 +62,7 @@ pub struct ChorusProcessor {
 
 impl ChorusProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             buf_l: [[0.0; MAX_DELAY_SAMPLES]; MAX_VOICES],
             buf_r: [[0.0; MAX_DELAY_SAMPLES]; MAX_VOICES],

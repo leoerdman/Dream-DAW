@@ -6,6 +6,7 @@ import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { DeviceNodeBody } from '@/widgets/DeviceRack/ui/DeviceNodeBody';
 import { DeviceNodeHeader } from '@/widgets/DeviceRack/ui/DeviceNodeHeader';
+import { resolveDeviceCardWidth } from '@/widgets/DeviceRack/model/deviceCardSizing';
 
 interface DeviceNodeProps {
     device: DeviceSlot;
@@ -75,14 +76,13 @@ export const DeviceNode = ({
     onEnsureActive,
 }: DeviceNodeProps) => {
     const lastPointerTargetRef = useRef<HTMLElement | null>(null);
-    const isInstrumentSlot = device.effectType === 'instrument' || device.effectType === 'sampler' || device.effectType === 'waveSynth';
+    const isInstrumentSlot =
+        device.effectType === 'instrument'
+        || device.effectType === 'sampler'
+        || device.effectType === 'sample_rack'
+        || device.effectType === 'waveSynth';
     const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
-    const baseWidth =
-        device.source === 'internal' && device.effectType === 'waveSynth'
-            ? 980
-            : device.source === 'internal' && device.effectType === 'eq'
-                ? 540
-                : manifest.cardWidth;
+    const baseWidth = resolveDeviceCardWidth(device.source, device.effectType, manifest.cardWidth);
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = manifest.supportsSettings;
@@ -110,8 +110,8 @@ export const DeviceNode = ({
                 // Allow reordering from any non-interactive part of the card/header
                 // and never hijack controls (knobs, buttons, selects, text inputs).
                 if (
-                    target.closest('button, input, select, textarea, [data-no-drag], canvas, svg')
-                    || downTarget?.closest('button, input, select, textarea, [data-no-drag], canvas, svg')
+                    target.closest('button, input, select, textarea, [data-no-drag], canvas')
+                    || downTarget?.closest('button, input, select, textarea, [data-no-drag], canvas')
                 ) {
                     e.preventDefault();
                     return;
@@ -136,9 +136,9 @@ export const DeviceNode = ({
                 width: rackWidth,
                 display: 'flex',
                 flexDirection: 'row',
-                background: 'var(--token-color-hex-3a3a3a)',
+                background: 'var(--surface-card, var(--token-color-hex-3a3a3a))',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d7)' : 'var(--space-px) solid var(--token-color-hex-3a3a3a)',
+                border: isSelected ? 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d7)' : 'var(--space-px) solid var(--surface-card, var(--token-color-hex-3a3a3a))',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',

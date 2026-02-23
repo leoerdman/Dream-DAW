@@ -1,18 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Grid Store (Magnetic Snap & Quantization)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Global Zustand store managing the timeline's snap/quantize settings.
-//
-// Consumed by:
-//   - TransportBar (quantize selector)
-//   - Timeline (clip drag, drop, split, double-click)
-//   - DawShell (browser→timeline drag drop)
-//
-// All snap math is delegated to pure functions in `gridSnap.ts`.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { create } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -21,93 +6,9 @@ import {
     divisionToInterval,
     snapToGrid,
 } from '@/shared/lib/gridSnap';
-
-// ── Store Interface ──────────────────────────────────────────────────────
-
-export interface GridState {
-    /** Current grid division (1/4, 1/8, 1/16, etc.). Default: 1/4. */
-    division: GridDivision;
-
-    /** Triplet mode — multiplies interval by 2/3. */
-    triplet: boolean;
-
-    /** Whether magnetic snap is enabled (magnet toggle). */
-    snapEnabled: boolean;
-
-    /** True = fixed grid, false = adaptive grid mode. */
-    fixedMode: boolean;
-
-    /** Persisted fixed-grid numerator (usually 1). */
-    fixedNumerator: number;
-
-    /** Persisted fixed-grid denominator (1,2,4,8,16,32...). */
-    fixedDenominator: number;
-
-    /** Piano Roll pencil mode: single-click draw when enabled. */
-    pianoPencilMode: boolean;
-}
-
-export interface GridActions {
-    /** Set the grid division. */
-    setDivision: (d: GridDivision) => void;
-
-    /** Make grid finer (smaller interval). */
-    stepDivisionFiner: () => void;
-
-    /** Make grid coarser (larger interval). */
-    stepDivisionCoarser: () => void;
-
-    /** Toggle or set triplet mode. */
-    setTriplet: (t: boolean) => void;
-
-    /** Toggle or set magnetic snap on/off. */
-    setSnapEnabled: (enabled: boolean) => void;
-
-    /** Apply grid settings loaded from backend project (no write-back). */
-    applyProjectGrid: (cfg: {
-        numerator: number;
-        denominator: number;
-        ntoles: number;
-        snapToGrid: boolean;
-        fixed: boolean;
-    }) => void;
-
-    /** Cycle through divisions: 1/4 → 1/8 → 1/16 → 1/32 → OFF → 1/4. */
-    cycleDivision: () => void;
-
-    /**
-     * Snap a beat value to the nearest grid line.
-     *
-     * @param rawBeat - Unsnapped beat position
-     * @param beatsPerBar - Beats per bar (default 4 for 4/4)
-     * @param ppb - Pixels per beat (required for ADAPTIVE division)
-     * @returns Snapped beat (or rawBeat if division is OFF or snap disabled)
-     */
-    snapBeat: (rawBeat: number, beatsPerBar?: number, ppb?: number) => number;
-
-    /**
-     * Get the current grid interval in beats.
-     *
-     * @param beatsPerBar - Beats per bar (default 4)
-     * @param ppb - Pixels per beat (required for ADAPTIVE division)
-     * @returns Interval in beats (0 if OFF)
-     */
-    gridInterval: (beatsPerBar?: number, ppb?: number) => number;
-
-    /** Toggle/set Piano Roll pencil mode. */
-    setPianoPencilMode: (enabled: boolean) => void;
-
-    /** Convenience toggle for Transport button. */
-    togglePianoPencilMode: () => void;
-}
-
-export type GridStore = GridState & GridActions;
-
-// ── Cycle Order ──────────────────────────────────────────────────────────
-
+import type { GridStore } from '@/shared/stores/useGridStore.types';
 const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/1', '1/2', 'OFF'];
 const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32'];
-
 function denominatorToDivision(denominator: number): GridDivision {
     if (denominator <= 1) return '1/1';
     if (denominator <= 2) return '1/2';
@@ -116,9 +17,6 @@ function denominatorToDivision(denominator: number): GridDivision {
     if (denominator <= 16) return '1/16';
     return '1/32';
 }
-
-// ── Store Implementation ─────────────────────────────────────────────────
-
 export const useGridStore = create<GridStore>((set, get) => ({
     // ── State ──────────────────────────────────────────────────────────
     division: '1/1',
@@ -128,9 +26,8 @@ export const useGridStore = create<GridStore>((set, get) => ({
     fixedNumerator: 1,
     fixedDenominator: 1,
     pianoPencilMode: true,
-
+    pendingSync: null,
     // ── Actions ────────────────────────────────────────────────────────
-
     setDivision: (d: GridDivision) => {
         const nextFixed = d !== 'ADAPTIVE';
         const nextNumerator = 1;
@@ -147,12 +44,22 @@ export const useGridStore = create<GridStore>((set, get) => ({
                             : d === '1/32'
                                 ? 32
                                 : get().fixedDenominator;
+        const nextTriplet = false;
+        const pending = {
+            numerator: nextFixed ? nextNumerator : get().fixedNumerator,
+            denominator: nextFixed ? nextDenominator : get().fixedDenominator,
+            ntoles: nextTriplet ? 3 : 2,
+            snapToGrid: get().snapEnabled,
+            fixed: nextFixed,
+            expiresAtMs: Date.now() + 1500,
+        };
         set({
             division: d,
-            triplet: false,
+            triplet: nextTriplet,
             fixedMode: nextFixed,
             fixedNumerator: nextFixed ? nextNumerator : get().fixedNumerator,
             fixedDenominator: nextFixed ? nextDenominator : get().fixedDenominator,
+            pendingSync: pending,
         });
         const st = get();
         void engine
@@ -166,7 +73,6 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-division'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setDivision) failed:', err));
     },
-
     stepDivisionFiner: () => {
         const st = get();
         const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
@@ -178,7 +84,6 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const nextDivision = FIXED_DIVISION_ORDER[nextIndex];
         get().setDivision(nextDivision);
     },
-
     stepDivisionCoarser: () => {
         const st = get();
         const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
@@ -190,9 +95,19 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const nextDivision = FIXED_DIVISION_ORDER[nextIndex];
         get().setDivision(nextDivision);
     },
-
     setTriplet: (t: boolean) => {
-        set({ triplet: t });
+        const stBefore = get();
+        set({
+            triplet: t,
+            pendingSync: {
+                numerator: Math.max(1, Math.round(stBefore.fixedNumerator)),
+                denominator: Math.max(1, Math.round(stBefore.fixedDenominator)),
+                ntoles: t ? 3 : 2,
+                snapToGrid: stBefore.snapEnabled,
+                fixed: stBefore.fixedMode,
+                expiresAtMs: Date.now() + 1500,
+            },
+        });
         const st = get();
         void engine
             .setArrangementGridWithDeltas(
@@ -205,9 +120,19 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-triplet'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setTriplet) failed:', err));
     },
-
     setSnapEnabled: (enabled: boolean) => {
-        set({ snapEnabled: enabled });
+        const stBefore = get();
+        set({
+            snapEnabled: enabled,
+            pendingSync: {
+                numerator: Math.max(1, Math.round(stBefore.fixedNumerator)),
+                denominator: Math.max(1, Math.round(stBefore.fixedDenominator)),
+                ntoles: stBefore.triplet ? 3 : 2,
+                snapToGrid: enabled,
+                fixed: stBefore.fixedMode,
+                expiresAtMs: Date.now() + 1500,
+            },
+        });
         const st = get();
         void engine
             .setArrangementGridWithDeltas(
@@ -220,12 +145,24 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-snap-enabled'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setSnapEnabled) failed:', err));
     },
-
     applyProjectGrid: (cfg) => {
         const numerator = Math.max(1, Math.round(cfg.numerator || 1));
         const denominator = Math.max(1, Math.round(cfg.denominator || 16));
         const ntoles = Math.max(1, Math.round(cfg.ntoles || 2));
         const fixed = Boolean(cfg.fixed);
+        const snapToGrid = Boolean(cfg.snapToGrid);
+        const pending = get().pendingSync;
+        if (pending) {
+            const now = Date.now();
+            const matchesPending = pending.numerator === numerator
+                && pending.denominator === denominator
+                && pending.ntoles === ntoles
+                && pending.snapToGrid === snapToGrid
+                && pending.fixed === fixed;
+            if (!matchesPending && now < pending.expiresAtMs) {
+                return;
+            }
+        }
         const division: GridDivision = !fixed
             ? 'ADAPTIVE'
             : denominator === 1
@@ -244,13 +181,44 @@ export const useGridStore = create<GridStore>((set, get) => ({
         set({
             division,
             triplet: ntoles === 3,
-            snapEnabled: Boolean(cfg.snapToGrid),
+            snapEnabled: snapToGrid,
             fixedMode: fixed,
             fixedNumerator: numerator,
             fixedDenominator: denominator,
+            pendingSync: null,
         });
     },
-
+    applyUiPreferences: (cfg) => {
+        const nextDivision = cfg.division ?? get().division;
+        const nextTriplet = cfg.triplet ?? get().triplet;
+        const nextSnapEnabled = cfg.snapEnabled ?? get().snapEnabled;
+        const nextPianoPencilMode = cfg.pianoPencilMode ?? get().pianoPencilMode;
+        const nextFixed = nextDivision !== 'ADAPTIVE';
+        const nextNumerator = 1;
+        const nextDenominator = nextDivision === '1/1'
+            ? 1
+            : nextDivision === '1/2'
+                ? 2
+                : nextDivision === '1/4'
+                    ? 4
+                    : nextDivision === '1/8'
+                        ? 8
+                        : nextDivision === '1/16'
+                            ? 16
+                            : nextDivision === '1/32'
+                                ? 32
+                                : get().fixedDenominator;
+        set({
+            division: nextDivision,
+            triplet: Boolean(nextTriplet),
+            snapEnabled: Boolean(nextSnapEnabled),
+            fixedMode: nextFixed,
+            fixedNumerator: nextFixed ? nextNumerator : get().fixedNumerator,
+            fixedDenominator: nextFixed ? nextDenominator : get().fixedDenominator,
+            pianoPencilMode: Boolean(nextPianoPencilMode),
+            pendingSync: null,
+        });
+    },
     cycleDivision: () => {
         const { division, triplet } = get();
         // If triplet is on, first turn it off and keep same division
@@ -262,23 +230,19 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const next = CYCLE_ORDER[(idx + 1) % CYCLE_ORDER.length];
         get().setDivision(next);
     },
-
     snapBeat: (rawBeat: number, beatsPerBar: number = 4, ppb?: number) => {
         const { division, triplet, snapEnabled } = get();
         if (!snapEnabled) return Math.max(0, rawBeat);
         const interval = Math.max(0.001, divisionToInterval(division, beatsPerBar, triplet, ppb));
         return snapToGrid(rawBeat, interval);
     },
-
     gridInterval: (beatsPerBar: number = 4, ppb?: number) => {
         const { division, triplet } = get();
         return divisionToInterval(division, beatsPerBar, triplet, ppb);
     },
-
     setPianoPencilMode: (enabled: boolean) => {
         set({ pianoPencilMode: enabled });
     },
-
     togglePianoPencilMode: () => {
         const now = get().pianoPencilMode;
         set({ pianoPencilMode: !now });

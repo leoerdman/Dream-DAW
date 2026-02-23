@@ -33,6 +33,7 @@ pub struct AutoPanProcessor {
 
 impl AutoPanProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         Self {
             rate_hz: 1.0,
             depth: 0.7,

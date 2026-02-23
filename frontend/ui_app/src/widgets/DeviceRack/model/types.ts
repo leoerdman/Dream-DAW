@@ -23,6 +23,12 @@ export type DeviceEffectType =
     | 'midiScale'
     | 'midiVelocity'
     | 'midiRandom'
+    // BUG-33/34/35/36/37 FIX: New MIDI effect types.
+    | 'midiChord'
+    | 'midiNoteLength'
+    | 'midiCcControl'
+    | 'midiExpressionControl'
+    | 'midiArpeggiator'
     | 'vst'
     | 'instrument'
     | 'sampler'

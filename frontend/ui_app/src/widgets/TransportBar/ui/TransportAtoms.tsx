@@ -1,12 +1,5 @@
 import React from 'react';
-
-export const TRANSPORT_UI = {
-    sectionHeight: 26,
-    controlHeight: 24,
-    controlRadius: 'var(--radius-sm)',
-    controlBg: 'color-mix(in srgb, var(--color-bg-header) 88%, black 12%)',
-    controlBorder: 'var(--space-px) solid color-mix(in srgb, var(--color-control-border) 60%, transparent)',
-};
+import { TRANSPORT_UI } from './TransportUiTokens';
 
 export const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
     <div

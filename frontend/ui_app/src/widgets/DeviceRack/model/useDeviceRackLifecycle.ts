@@ -28,7 +28,6 @@ export function useDeviceRackLifecycle({
     // Stable key derived from chain IDs — prevents re-triggering when array ref changes
     const chainKey = useMemo(() => chain.map((d) => d.id).join(','), [chain]);
 
-    // ── Prune stale device selections & inline settings when chain changes ──
     useEffect(() => {
         const currentChain = chain;
         setSelectedDeviceIds((prev) => {

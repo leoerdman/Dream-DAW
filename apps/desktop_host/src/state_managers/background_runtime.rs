@@ -60,7 +60,7 @@ pub(crate) fn spawn_background_runtime_threads(
                 }
                 std::thread::sleep(Duration::from_millis(33)); // ~30fps
                 telemetry_tick_count += 1;
-                if telemetry_tick_count % 150 == 0 {
+                if telemetry_tick_count.is_multiple_of(150) {
                     log::debug!("[Telemetry] heartbeat tick={}", telemetry_tick_count);
                 }
 
@@ -105,6 +105,22 @@ pub(crate) fn spawn_background_runtime_threads(
                     let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
                     if let Ok(project) = pstate.project.lock() {
                         let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                    }
+                }
+
+                // Keep external FX runtime snapshot eventually consistent even when
+                // individual command paths rebuild only clip/routing snapshots.
+                // This prevents stale master/track VST chains in the audio thread.
+                if telemetry_tick_count.is_multiple_of(15) {
+                    let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
+                    let plugin_host_state: tauri::State<'_, PluginHostState> = telemetry_app.state();
+                    let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
+                    if let Ok(project) = pstate.project.lock() {
+                        let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+                        clip_pool_state.rebuild_external_fx_snapshot(
+                            &project,
+                            slot_instance_map.as_ref(),
+                        );
                     }
                 }
             }

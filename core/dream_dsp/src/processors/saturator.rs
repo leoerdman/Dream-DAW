@@ -24,6 +24,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::DEFAULT_SAMPLE_RATE;
 
 struct OnePole {
     state: f32,
@@ -82,6 +83,7 @@ pub struct SaturatorProcessor {
 
 impl SaturatorProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let sr = sample_rate;
         let cutoff = Self::tone_to_cutoff(50.0);
         // BUG-18 FIX: SR-dependent DC blocker coefficient.
@@ -172,7 +174,7 @@ impl SaturatorProcessor {
 
 impl Default for SaturatorProcessor {
     fn default() -> Self {
-        Self::new(44100.0)
+        Self::new(DEFAULT_SAMPLE_RATE)
     }
 }
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { DeviceSlot, QuickPreset } from '../model/types';
 import { resolveQuickPresetParams, randomParamValue, defaultParamForReset } from '../model/presets';
 
@@ -6,6 +6,11 @@ export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
     >({});
+
+    const snapshotsRef = useRef(paramSnapshotsByDevice);
+    useEffect(() => {
+        snapshotsRef.current = paramSnapshotsByDevice;
+    }, [paramSnapshotsByDevice]);
 
     const storeParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
         const snapshot: Record<string, number> = {};
@@ -17,22 +22,24 @@ export function useDeviceSnapshots(applyParamBatch: (device: DeviceSlot, entries
     }, []);
 
     const recallParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
-        const snapshot = paramSnapshotsByDevice[device.id]?.[slot];
+        // BUG-28 FIX: Read from ref instead of stale closure.
+        const snapshot = snapshotsRef.current[device.id]?.[slot];
         if (!snapshot) return;
-        const entries = Object.entries(snapshot).map(([paramName, value]) => ({ paramName, value }));
+        const entries = Object.entries(snapshot).map(([paramName, value]) => ({ paramName, value: value as number }));
         applyParamBatch(device, entries);
         setParamSnapshotsByDevice((prev) => ({
             ...prev,
             [device.id]: { ...(prev[device.id] ?? {}), active: slot },
         }));
-    }, [applyParamBatch, paramSnapshotsByDevice]);
+    }, [applyParamBatch]);
 
     const toggleParamSnapshot = useCallback((device: DeviceSlot) => {
-        const state = paramSnapshotsByDevice[device.id];
+        // BUG-28 FIX: Read from ref instead of stale closure.
+        const state = snapshotsRef.current[device.id];
         if (!state?.A || !state?.B) return;
         const next: 'A' | 'B' = state.active === 'A' ? 'B' : 'A';
         recallParamSnapshot(device, next);
-    }, [paramSnapshotsByDevice, recallParamSnapshot]);
+    }, [recallParamSnapshot]);
 
     const applyQuickPreset = useCallback((device: DeviceSlot, preset: QuickPreset) => {
         const entries = resolveQuickPresetParams(device, preset);

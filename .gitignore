@@ -1,58 +1,124 @@
-# ── macOS ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Dream DAW — .gitignore (Enterprise)
+# ═══════════════════════════════════════════════════════════════════
+
+# ── OS ────────────────────────────────────────────────────────────
 .DS_Store
+**/.DS_Store
+Thumbs.db
+Desktop.ini
+._*
 
-# ── Swift (Legacy Archive) ───────────────────────────────────
-/.build
-/Packages
-xcuserdata/
-DerivedData/
-.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
-*.xcodeproj/
-.build/
-Dream DAW - Main Folder
-SWIFT UI Archive/
-
-# ── Local logs/artifacts ──────────────────────────────────────
-.logs/
-
-# ── Generated reports & test artifacts ────────────────────────
-reports/
-
-# ── Rust ─────────────────────────────────────────────────────
-/target/
-**/target/
-**/*.rs.bk
-
-# ── IDE ──────────────────────────────────────────────────────
+# ── IDE / Editor ──────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.sublime-*
 
-# ── Node / pnpm ──────────────────────────────────────────────
+# ── Rust / Cargo ──────────────────────────────────────────────────
+/target/
+target_codex/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# ── Node / pnpm ───────────────────────────────────────────────────
 node_modules/
-dist/
 .pnpm-store/
 pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
 
-# ── Tauri ────────────────────────────────────────────────────
+# ── Vite / Frontend Build ────────────────────────────────────────
+dist/
+.vite/
+**/.vite/
+*.tsbuildinfo
+
+# ── Tauri Build Artifacts ─────────────────────────────────────────
 .tauri/
 src-tauri/target/
 *.app
 *.dmg
 *.deb
+*.msi
 *.AppImage
+*.exe
 
-# ── Project save artifacts ───────────────────────────────────
+# ── Build Artifacts / Binaries ────────────────────────────────────
+*.o
+*.so
+*.dylib
+*.dll
+
+# ── Swift / Xcode (Legacy Archive) ────────────────────────────────
+/.build
+.build/
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/
+*.xcodeproj/
+SWIFT UI Archive/
+Dream DAW - Main Folder
+
+# ── Logs ──────────────────────────────────────────────────────────
+*.log
+.logs/
+
+# ── Reports / Generated Audit Artifacts ───────────────────────────
+reports/
+docs/audits/
+docs/engineering/
+
+# ── Standalone Audit / Planning Docs (root level) ─────────────────
+ARCHITECTURE_AUDIT_*.md
+DEEP_AUDIT_*.md
+CHANGELOG_FROM_*.md
+AGENT_BRIDGE_TESTING.md
+AI_PRODUCER_MANIFEST.md
+PRODTOAPPS
+TESTAIAGENT.md
+TODO.md
+
+# ── Scripts (audit/test utilities — not part of the product) ──────
+scripts/
+
+# ── Project Save Artifacts ────────────────────────────────────────
 *.dream.bak
 *.dream.tmp
 
-# ── Plugin sandbox temp files ────────────────────────────────
+# ── Plugin Sandbox / Runtime Temp ─────────────────────────────────
 /tmp/dream_sandbox_*
 *.heartbeat
 
-# ── Misc ─────────────────────────────────────────────────────
-*.log
+# ── Audio Cache / Working Files ───────────────────────────────────
+*.peak_cache
+*.peakcache
+*.waveform_cache
+
+# ── Environment / Secrets ─────────────────────────────────────────
 .env
-.env.local
+.env.*
+!.env.example
+
+# ── AI / Agent Artifacts ──────────────────────────────────────────
+.gemini/
+.agents/
+_agents/
+.agent/
+_agent/
+.cursorignore
+.cursor/
+
+# ── Docs (generated / research — not product source) ──────────────
+docs/
+bitwig_*.md
+
+# ── Lock files (npm) ──────────────────────────────────────────────
+package-lock.json

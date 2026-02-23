@@ -366,7 +366,7 @@ async fn generate_midi_variation_cmd(
     let sampler_hint = request.track_context.sampler_sample_path
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(|s| format!(" (sampler: {})", s.split('/').last().unwrap_or(s)))
+        .map(|s| format!(" (sampler: {})", s.split('/').next_back().unwrap_or(s)))
         .unwrap_or_default();
 
     let system_prompt = "You are an expert music composer and MIDI programmer embedded in a professional DAW.\n\

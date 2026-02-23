@@ -194,7 +194,6 @@ pub fn import_internal_device_static_params(
     }
     if key == "internal://effect/noise-machine" {
         import_noise_machine_params(track, &params);
-        return;
     }
     // Spectrum is analysis-only — no runtime parameters needed.
 }

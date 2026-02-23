@@ -5,31 +5,21 @@ import type { ProjectDelta } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
-
-/**
- * Creates the native macOS application menu bar.
- *
- * @param onProjectChange - Callback fired after project state changes (new/open/save).
- */
 export function useNativeMenu(onProjectChange?: () => void) {
     const initialized = useRef(false);
     const onProjectChangeRef = useRef(onProjectChange);
-
     // Always keep ref current so menu actions use the latest callback
     useEffect(() => {
         onProjectChangeRef.current = onProjectChange;
     }, [onProjectChange]);
-
     useEffect(() => {
         if (initialized.current) return;
         initialized.current = true;
-
         buildNativeMenu(() => onProjectChangeRef.current?.()).catch((err) => {
             console.error('[useNativeMenu] Failed to build native menu:', err);
         });
     }, []);
 }
-
 async function buildNativeMenu(onProjectChange?: () => void) {
     const applyProjectDeltas = useEngineStore.getState().applyProjectDeltas;
     const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
@@ -56,7 +46,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             await PredefinedMenuItem.new({ item: 'Quit' }),
         ],
     });
-
     const newProjectItem = await MenuItem.new({
         id: 'file_new',
         text: 'New Project',
@@ -72,28 +61,21 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             }
         },
     });
-
     const openItem = await MenuItem.new({
         id: 'file_open',
         text: 'Open…',
         accelerator: 'CmdOrCtrl+O',
         action: async () => {
             try {
-                console.warn('[NativeMenu:Open] file picker opening...');
                 const path = await engineApi.pickProjectFile();
-                if (!path) { console.warn('[NativeMenu:Open] picker cancelled'); return; }
-                console.warn('[NativeMenu:Open] path=', path);
+                if (!path) { return; }
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
-                    console.warn('[NativeMenu:Open] importing ALS...');
                     const response = await engineApi.importAbletonProject(path);
                     await applyProjectDeltas(response.deltas, 'native-menu:open');
-                    console.warn('[NativeMenu:Open] ALS import done, snapshot applied');
                 } else {
-                    console.warn('[NativeMenu:Open] opening project...');
                     const response = await engineApi.openProject(path);
                     await applyProjectDeltas(response.deltas, 'native-menu:open');
-                    console.warn('[NativeMenu:Open] open done, snapshot applied');
                 }
                 // Eagerly activate external VST3 plugins and restore their saved state
                 engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -106,9 +88,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             }
         },
     });
-
     const recentSubmenu = await buildRecentSubmenu(applyProjectDeltas, onProjectChange);
-
     const saveItem = await MenuItem.new({
         id: 'file_save',
         text: 'Save',
@@ -134,23 +114,24 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             }
         },
     });
-
     const saveAsItem = await MenuItem.new({
         id: 'file_save_as',
         text: 'Save As…',
         accelerator: 'CmdOrCtrl+Shift+S',
         action: handleSaveAs,
     });
-
     const exportAudioItem = await MenuItem.new({
         id: 'file_export_audio',
         text: 'Export Audio…',
         accelerator: 'CmdOrCtrl+Shift+R',
         action: () => {
+            if (typeof window.__dreamOpenExportModal === 'function') {
+                window.__dreamOpenExportModal();
+                return;
+            }
             window.dispatchEvent(new CustomEvent('dream:open-export'));
         },
     });
-
     const fileSubmenu = await Submenu.new({
         text: 'File',
         items: [
@@ -165,7 +146,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             exportAudioItem,
         ],
     });
-
     const undoItem = await MenuItem.new({
         id: 'edit_undo',
         text: 'Undo',
@@ -182,7 +162,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             }
         },
     });
-
     const redoItem = await MenuItem.new({
         id: 'edit_redo',
         text: 'Redo',
@@ -199,7 +178,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             }
         },
     });
-
     const editSubmenu = await Submenu.new({
         text: 'Edit',
         items: [
@@ -212,7 +190,6 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             await PredefinedMenuItem.new({ item: 'SelectAll' }),
         ],
     });
-
     const windowSubmenu = await Submenu.new({
         text: 'Window',
         items: [
@@ -222,15 +199,12 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             await PredefinedMenuItem.new({ item: 'CloseWindow' }),
         ],
     });
-
     const menu = await Menu.new({
         items: [appSubmenu, fileSubmenu, editSubmenu, windowSubmenu],
     });
-
     await menu.setAsAppMenu();
     console.log('[NativeMenu] macOS menu bar initialized');
 }
-
 async function handleSaveAs() {
     try {
         const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
@@ -253,13 +227,11 @@ async function handleSaveAs() {
         useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
-
 async function buildRecentSubmenu(
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     onProjectChange?: () => void,
 ): Promise<Submenu> {
     const recentItems: (MenuItem | PredefinedMenuItem)[] = [];
-
     try {
         const recents = await engineApi.getRecentProjects();
         if (recents.length > 0) {
@@ -317,7 +289,6 @@ async function buildRecentSubmenu(
             }),
         );
     }
-
     return Submenu.new({
         text: 'Open Recent',
         items: recentItems,

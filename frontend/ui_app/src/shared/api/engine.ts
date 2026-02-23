@@ -1,4 +1,3 @@
-
 import { invoke } from '@tauri-apps/api/core';
 import type {
     DeltaMutationResponse,
@@ -49,11 +48,8 @@ export type {
     SplitClipResponse,
     SplitClipWithDeltasResponse,
 } from './projectDelta';
-
 export const play = () => invoke<void>('play');
-
 export const stop = () => invoke<void>('stop');
-
 export const togglePlayback = () => invoke<boolean>('toggle_playback');
 
 export const seek = (positionFrames: number) =>

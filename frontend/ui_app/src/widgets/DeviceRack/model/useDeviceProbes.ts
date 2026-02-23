@@ -111,7 +111,11 @@ export function useDeviceProbes(
                         const params = await engineApi.getExternalPluginParamsForSlot(selectedTrackId, device.id);
                         const mapped: PluginParam[] = params.map((p) => ({
                             name: p.name, min: p.min, max: p.max, step: p.step,
-                            suffix: '', value: p.value, defaultValue: (p.min + p.max) * 0.5,
+                            suffix: '',
+                            value: p.value,
+                            // BUG-29 NOTE: Midpoint default is inaccurate for log-scale params
+                            // (e.g. frequency). Ideal fix: have backend expose actual defaults.
+                            defaultValue: Number.isFinite(p.value) ? p.value : (p.min + p.max) * 0.5,
                         }));
                         return [device.id, mapped] as const;
                     } catch (err) {

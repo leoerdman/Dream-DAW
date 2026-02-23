@@ -66,6 +66,7 @@ pub struct DelayProcessor {
 
 impl DelayProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         // BUG-8 FIX: Pre-allocate at maximum possible size so we NEVER
         // resize on the audio thread. This covers SR up to 192kHz.
         // BUG-033 FIX: Round to next power-of-2 for bitwise AND masking in read_interp.

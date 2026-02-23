@@ -10,6 +10,7 @@ import { useTrackInspectorResize } from '@/widgets/TrackInspector/model/useTrack
 import { useTrackInspectorKeyboardShortcuts } from '@/widgets/TrackInspector/model/useTrackInspectorKeyboardShortcuts';
 import { useTrackInspectorDragDrop } from '@/widgets/TrackInspector/model/useTrackInspectorDragDrop';
 import { useTrackInspectorDerivedState } from '@/widgets/TrackInspector/model/useTrackInspectorDerivedState';
+import { useTrackInspectorHeightSync } from '@/widgets/TrackInspector/model/useTrackInspectorHeightSync';
 export interface UseTrackInspectorLogicProps {
     selectedTrackId: string;
     selectedTrackIds?: string[];
@@ -141,6 +142,14 @@ export function useTrackInspectorLogic({
         applyTrackHeightOptimistic,
         setRowHeightOverrides,
     });
+
+    useTrackInspectorHeightSync(
+        rowHeightOverrides,
+        resizingTrackId,
+        tracksByIdState,
+        trackHeight,
+        setRowHeightOverrides,
+    );
 
     const {
         contextMenu,

@@ -128,6 +128,12 @@ export interface AppSettings {
     browserShowSizeColumn: boolean;
     browserShowTypeColumn: boolean;
     browserLeftPaneWidth: number;
+    transportFollowPlayhead: boolean;
+    transportAutomationVisible: boolean;
+    transportPianoPencilMode: boolean;
+    arrangementGridDivision: string;
+    arrangementGridTriplet: boolean;
+    arrangementGridSnapEnabled: boolean;
 }
 
 /** Recent project entry. */

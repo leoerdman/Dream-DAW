@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { DeviceNode } from '@/widgets/DeviceRack/ui/DeviceNode';
@@ -16,10 +17,14 @@ export function DeviceSlot({
     logic: DeviceRackLogicOutput;
 }) {
     const { selectedTrack } = logic;
-    const effectIds = (selectedTrack?.effects ?? [])
-        .map((effect) => effect?.id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const effectIdSet = new Set(effectIds);
+    // BUG-49 FIX: Memoize effectIds and effectIdSet to prevent recreation every render.
+    const effectIds = useMemo(() =>
+        (selectedTrack?.effects ?? [])
+            .map((effect) => effect?.id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+        [selectedTrack?.effects],
+    );
+    const effectIdSet = useMemo(() => new Set(effectIds), [effectIds]);
     const canReorderThisDevice = effectIdSet.has(device.id);
     return (
         <div
@@ -33,8 +38,8 @@ export function DeviceSlot({
                 const rect = e.currentTarget.getBoundingClientRect();
                 const midX = rect.left + rect.width / 2;
                 const isLeftHalf = e.clientX < midX;
-                (e.currentTarget as HTMLElement).style.borderLeft = isLeftHalf ? 'var(--token-size-px-3) solid var(--token-color-hex-5ab2ff)' : '';
-                (e.currentTarget as HTMLElement).style.borderRight = !isLeftHalf ? 'var(--token-size-px-3) solid var(--token-color-hex-5ab2ff)' : '';
+                (e.currentTarget as HTMLElement).style.borderLeft = isLeftHalf ? 'var(--token-size-px-3) solid var(--color-accent-primary)' : '';
+                (e.currentTarget as HTMLElement).style.borderRight = !isLeftHalf ? 'var(--token-size-px-3) solid var(--color-accent-primary)' : '';
             }}
             onDragLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.borderLeft = '';
@@ -87,14 +92,21 @@ export function DeviceSlot({
                     logic.statusClear();
                 }}
                 onParamChange={(name, value) => {
-                    logic.setPluginParam(device.id, name, value);
-                    const gestureKey = selectedTrack ? `${selectedTrack.id}:${device.id}:${name.toLowerCase()}` : null;
-                    logic.sendInternalParam(device, name, value, {
+                    const canonicalName = device.params.find((p) => p.name.toLowerCase() === name.toLowerCase())?.name ?? name;
+                    logic.setPluginParam(device.id, canonicalName, value);
+                    const gestureKey = selectedTrack ? `${selectedTrack.id}:${device.id}:${canonicalName.toLowerCase()}` : null;
+                    logic.sendInternalParam(device, canonicalName, value, {
                         gestureKey: gestureKey && logic.activeParamGesturesRef.current.has(gestureKey) ? gestureKey : undefined,
                     });
                 }}
-                onParamGestureStart={(paramName, gestureGroupId) => logic.beginParamGesture(device.id, paramName, gestureGroupId)}
-                onParamGestureEnd={(paramName) => logic.endParamGesture(device.id, paramName)}
+                onParamGestureStart={(paramName, gestureGroupId) => {
+                    const canonicalName = device.params.find((p) => p.name.toLowerCase() === paramName.toLowerCase())?.name ?? paramName;
+                    logic.beginParamGesture(device.id, canonicalName, gestureGroupId);
+                }}
+                onParamGestureEnd={(paramName) => {
+                    const canonicalName = device.params.find((p) => p.name.toLowerCase() === paramName.toLowerCase())?.name ?? paramName;
+                    logic.endParamGesture(device.id, canonicalName);
+                }}
                 onApplyQuickPreset={(preset) => logic.applyQuickPreset(device, preset)}
                 onRandomize={() => logic.randomizeInternalPluginParams(device)}
                 onReset={() => logic.resetInternalPluginParams(device)}
@@ -184,7 +196,7 @@ export function EmptyState() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 8,
+                gap: 'var(--space-2)',
                 minHeight: 80,
                 color: 'var(--color-text-tertiary)',
             }}

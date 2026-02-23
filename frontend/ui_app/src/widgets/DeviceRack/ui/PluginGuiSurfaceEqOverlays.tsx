@@ -42,7 +42,7 @@ export function EqBandOverlays({
                 const leftPct = (bx / vbW) * 100;
                 const topPct = (by / vbH) * 100;
                 const isActive = dragEqBand === band.idx || selectedEqBand === band.idx;
-                const DOT_SIZE = isActive ? 16 : 14;
+                const DOT_SIZE = isActive ? 10 : 8;
                 const bandColor = band.color;
                 return (
                     <div
@@ -80,12 +80,12 @@ export function EqBandOverlays({
                                     position: 'absolute',
                                     left: '50%',
                                     top: '50%',
-                                    width: 28,
-                                    height: 28,
+                                    width: 18,
+                                    height: 18,
                                     transform: 'translate(-50%, -50%)',
                                     borderRadius: '50%',
                                     background: `color-mix(in srgb, ${bandColor} 18%, transparent)`,
-                                    border: `1.5px solid color-mix(in srgb, ${bandColor} 50%, transparent)`,
+                                    border: `var(--space-px) solid color-mix(in srgb, ${bandColor} 50%, transparent)`,
                                 }}
                             />
                         )}
@@ -110,9 +110,9 @@ export function EqBandOverlays({
                                     transform: 'translateX(-50%)',
                                     marginBottom: 4,
                                     color: bandColor,
-                                    fontSize: 10,
+                                    fontSize: 'var(--font-size-2xs)',
                                     fontWeight: 600,
-                                    fontFamily: 'Inter, sans-serif',
+                                    fontFamily: 'var(--font-sans)',
                                     whiteSpace: 'nowrap',
                                 }}
                             >
@@ -142,26 +142,39 @@ export function EqBandContextMenu({
     setEqContextMenu,
 }: ContextMenuProps): React.ReactNode {
     if (!eqContextMenu) return null;
+    // BUG-64 FIX: Guard against out-of-bounds bandIdx.
+    const activeBand = bands[eqContextMenu.bandIdx];
+    if (!activeBand) return null;
 
-    const MENU_HEIGHT = 200;
-    const SAFE_MARGIN = 60;
-    const flipUp = eqContextMenu.y + MENU_HEIGHT > window.innerHeight - SAFE_MARGIN;
+    const MENU_HEIGHT = 220;
+    const MENU_WIDTH = 140;
+    const SAFE_MARGIN = 16;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const left = Math.max(
+        SAFE_MARGIN,
+        Math.min(eqContextMenu.x, viewportW - MENU_WIDTH - SAFE_MARGIN),
+    );
+    const top = Math.max(
+        SAFE_MARGIN,
+        Math.min(eqContextMenu.y, viewportH - MENU_HEIGHT - SAFE_MARGIN),
+    );
 
     return (
         <div
             style={{
                 position: 'fixed',
-                left: eqContextMenu.x,
-                ...(flipUp
-                    ? { bottom: window.innerHeight - eqContextMenu.y }
-                    : { top: eqContextMenu.y }),
+                left,
+                top,
                 zIndex: 9999,
                 background: 'var(--color-bg-elevated)',
                 border: 'var(--space-px) solid color-mix(in srgb, var(--color-text-primary) 16%, transparent)',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-sm)',
                 padding: 'var(--space-1) 0',
                 boxShadow: '0 var(--space-2) var(--space-8) var(--token-color-rgba-0-0-0-0d6)',
                 minWidth: 120,
+                maxHeight: `min(${MENU_HEIGHT}px, calc(100vh - ${SAFE_MARGIN * 2}px))`,
+                overflowY: 'auto',
             }}
             onMouseDown={(e) => e.stopPropagation()}
         >
@@ -170,9 +183,9 @@ export function EqBandContextMenu({
                     key={type}
                     style={{
                         padding: 'var(--token-size-px-5) var(--space-3-5)',
-                        fontSize: 12,
+                        fontSize: 'var(--font-size-xs)',
                         color:
-                            bands[eqContextMenu.bandIdx].filterType === type
+                            activeBand.filterType === type
                                 ? 'var(--color-text-primary)'
                                 : 'color-mix(in srgb, var(--color-text-primary) 72%, transparent)',
                         cursor: 'pointer',

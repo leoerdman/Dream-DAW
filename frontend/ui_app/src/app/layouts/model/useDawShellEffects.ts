@@ -18,6 +18,10 @@ export function useDawShellGlobalShortcuts(args: {
     useEffect(() => {
         const openExportPanel = () => {
             setExportOpen(true);
+            if (typeof window.__dreamOpenExportModal === 'function') {
+                window.__dreamOpenExportModal();
+                return;
+            }
             window.dispatchEvent(new CustomEvent('dream:open-export'));
         };
 
@@ -40,6 +44,20 @@ export function useDawShellGlobalShortcuts(args: {
             }
 
             if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyR') {
+                e.preventDefault();
+                e.stopPropagation();
+                openExportPanel();
+                return;
+            }
+
+            if (isMod(e) && !e.shiftKey && e.altKey && e.code === 'KeyR') {
+                e.preventDefault();
+                e.stopPropagation();
+                window.location.reload();
+                return;
+            }
+
+            if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyE') {
                 e.preventDefault();
                 e.stopPropagation();
                 openExportPanel();

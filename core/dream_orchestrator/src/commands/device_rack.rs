@@ -250,10 +250,10 @@ impl Command for RemoveDeviceFromRackCommand {
 
         if self.auto_dissolve {
             let all_empty = rack.chains.iter().all(|c| c.devices.is_empty());
-            if all_empty {
-                if let Some(rack_pos) = track.effects.iter().position(|d| d.id() == rack_id) {
-                    track.effects.remove(rack_pos);
-                }
+            if all_empty
+                && let Some(rack_pos) = track.effects.iter().position(|d| d.id() == rack_id)
+            {
+                track.effects.remove(rack_pos);
             }
         }
 

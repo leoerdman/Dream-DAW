@@ -4,8 +4,19 @@ import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import {
+    BOTTOM_PANEL_HEIGHT_DEFAULT_PX,
+    BOTTOM_PANEL_HEIGHT_MAX_PX,
+    BOTTOM_PANEL_HEIGHT_MIN_PX,
+    BROWSER_WIDTH_DEFAULT_PX,
+    BROWSER_WIDTH_MAX_PX,
+    BROWSER_WIDTH_MIN_PX,
+    DEFAULT_BPM,
+} from '@/shared/config/layoutConstants';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
 import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
@@ -26,16 +37,12 @@ import {
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
+import { useDawShellUiPreferences } from './model/useDawShellUiPreferences';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
-const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
-
-// BUG-50 FIX: Type aliases moved to module level (were inside function body).
 type BottomPanelMode = 'rack' | 'clip';
 type MainViewMode = 'arrangement' | 'session';
-
 export const DawShell = () => {
-
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -63,9 +70,13 @@ export const DawShell = () => {
     });
     const [followPlayhead, setFollowPlayhead] = useState(true); // BUG-26 FIX: default true (match Ableton/Logic)
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
-    const [browserWidth, setBrowserWidth] = useState(() => Math.max(180, Math.min(600, 320))); // BUG-25 FIX: clamped [180, 600]
+    const [browserWidth, setBrowserWidth] = useState(
+        () => Math.max(BROWSER_WIDTH_MIN_PX, Math.min(BROWSER_WIDTH_MAX_PX, BROWSER_WIDTH_DEFAULT_PX)),
+    );
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
-    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(() => Math.max(100, Math.min(500, DEFAULT_BOTTOM_PANEL_HEIGHT))); // BUG-39 FIX: clamped [100, 500]
+    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(
+        () => Math.max(BOTTOM_PANEL_HEIGHT_MIN_PX, Math.min(BOTTOM_PANEL_HEIGHT_MAX_PX, BOTTOM_PANEL_HEIGHT_DEFAULT_PX)),
+    );
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
     const importFile = useEngineStore(s => s.importFile);
@@ -76,13 +87,15 @@ export const DawShell = () => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const tracksEntity = useEngineStore(s => s.tracks);
-    // PERF-FIX-1: removed transport.position_seconds subscription.
-    // It changed every telemetry tick (~30fps), causing the entire DawShell
-    // (2346 lines, all children) to re-render during playback.
-    // Playhead position is now read on-demand in useKeyboardShortcuts.
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const gridSnapEnabled = useGridStore((s) => s.snapEnabled);
+    const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
+    const settingsLoaded = useSettingsStore((s) => s.loaded);
+    const settings = useSettingsStore((s) => s.settings);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
     const mainSplitRef = useRef<HTMLElement>(null);
@@ -97,6 +110,18 @@ export const DawShell = () => {
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
+
+    useDawShellUiPreferences({
+        settingsLoaded,
+        settings,
+        followPlayhead,
+        automationVisible,
+        pianoPencilMode,
+        gridDivision,
+        gridTriplet,
+        gridSnapEnabled,
+        setFollowPlayhead,
+    });
 
     const activePanelTrackKey = selectedTrackId && selectedTrackId.length > 0
         ? selectedTrackId
@@ -118,23 +143,16 @@ export const DawShell = () => {
         [activePanelTrackKey],
     );
 
-    // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
     const { filePath: projectFilePath } = useProjectManager();
 
-    // ── Native macOS Menu Bar (File, Edit, Window) ──
-    // NOTE: onProjectChange callback not needed here.
-    // Native menu performs snapshot-delta sync through store actions.
     useNativeMenu();
 
-    // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
     useKeyboardShortcuts({
         selectedClipId,
         selectedClipIds,
         selectedTrackId,
         trackIds: tracksEntity.allIds,
         tracksById: tracksEntity.byId,
-        // PERF-FIX-1: playheadFrames is now read from the store on-demand
-        // inside the hook, not passed as a reactive prop.
         editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
@@ -152,20 +170,24 @@ export const DawShell = () => {
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
-    // BUG-55 FIX: Removed unnecessary wrapper — setRecordingState is already a stable reference.
     const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => {
         const next = !v;
         try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
         return next;
     }), []);
-    // selectedClipId is now a useMemo derived from selectedClipIds — no useEffect needed.
 
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
 
     useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
-        return () => window.removeEventListener('dream:open-export', onOpenExport as EventListener);
+        window.__dreamOpenExportModal = onOpenExport;
+        return () => {
+            window.removeEventListener('dream:open-export', onOpenExport as EventListener);
+            if (window.__dreamOpenExportModal === onOpenExport) {
+                delete window.__dreamOpenExportModal;
+            }
+        };
     }, []);
 
     useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });
@@ -179,13 +201,8 @@ export const DawShell = () => {
     useInitialLayoutSync();
     useProjectAutoRecovery();
 
-    // ── Engine state for Timeline ───────────────────────────────────
     const transportBpm = useEngineStore(s => s.transport.bpm);
     const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
-    // NOTE: transport.position_beats is intentionally NOT subscribed here.
-    // DawShell is the root layout (2327 lines). Subscribing to position_beats
-    // caused 30fps re-renders of the entire component tree. Timeline and
-    // PianoRoll now subscribe directly via useEngineStore.
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
@@ -210,7 +227,7 @@ export const DawShell = () => {
         trackIds: tracksEntity.allIds,
         tracksById: tracksEntity.byId,
         projectBpm,
-        transportBpm: transportBpm || 120,
+        transportBpm: transportBpm || DEFAULT_BPM,
         projectSampleRate,
         applyProjectDeltas,
     });
@@ -236,7 +253,6 @@ export const DawShell = () => {
         [timelineClips, midiNotesByClip, clipFadeCurves],
     );
 
-    // Keep a valid selected track at all times.
     useEffect(() => {
         if (tracksEntity.allIds.length === 0) {
             if (selectedTrackId !== 'master') queueMicrotask(() => setSelectedTrackId('master'));
@@ -254,7 +270,6 @@ export const DawShell = () => {
         trackIds,
         hiddenTrackIndices,
         trackCountRaw,
-        trackCount,
         selectedTrackIndex,
         selectedTrackIndices,
         selectedTimelineClip,
@@ -288,12 +303,7 @@ export const DawShell = () => {
         queuedStartBeatRef,
     });
 
-    // Memoize loop region beat values to avoid recomputing inline in JSX on every render
-    // (which would trigger spurious downstream effects during playback position updates).
-    // BUG-C3 FIX: Ensure BPM is always >= 1 to prevent division by zero in
-    // frameToBeat/beatToFrame conversions. The `||` fallback chain fails when
-    // BPM is exactly 0 (empty project), but 0 is never a valid BPM.
-    const _loopBpm = Math.max(1, projectBpm || transportBpm || 120);
+    const _loopBpm = Math.max(1, projectBpm || transportBpm || DEFAULT_BPM);
     const loopStartBeat = useMemo(
         () => frameToBeat(transportLoopStart, _loopBpm, projectSampleRate),
         [transportLoopStart, _loopBpm, projectSampleRate],
@@ -319,9 +329,6 @@ export const DawShell = () => {
         };
     }, [timelineClipsForView, tracksEntity]);
 
-    // BUG-B7 FIX: Only open the resolver on transition from 0 → N (not on every
-    // re-count). This prevents the panel from re-opening after the user dismisses
-    // it, e.g. when a clip is fixed and another simultaneously goes offline.
     const prevMissingTotalRef = useRef(0);
     useEffect(() => {
         const prev = prevMissingTotalRef.current;
@@ -334,8 +341,7 @@ export const DawShell = () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
     }, [selectedTimelineClip]);
-    const hasResizableClipEditor =
-        bottomPanelMode === 'clip' && (selectedTimelineClip?.type === 'midi' || selectedTimelineClip?.type === 'audio');
+    const hasResizableClipEditor = false;
 
     usePointerUpFinalizer({
         flushTrackControlFinals,
@@ -348,10 +354,6 @@ export const DawShell = () => {
         applyProjectDeltas,
     });
 
-    // ── Scroll sync ──────────────────────────────────────────────────
-    // Scroll is synchronized via the scrollSync singleton (useScrollSync.ts).
-    // NO React state here — avoids re-rendering the entire DawShell tree
-    // on every scroll frame. Timeline and TrackInspector subscribe directly.
     const {
         trackHeightBase: TRACK_HEIGHT_BASE,
         timelineTrackHeights,
@@ -372,14 +374,13 @@ export const DawShell = () => {
         queuedStartBeatRef,
     });
 
-    // Drop from AssetBrowser → Timeline
     const {
         dropBrowserItemOnTimeline,
         dropPluginOnTrack,
     } = useBrowserDnDOrchestrator({
         tracks: tracksEntity,
         projectBpm,
-        transportBpm: transportBpm || 120,
+        transportBpm: transportBpm || DEFAULT_BPM,
         projectSampleRate,
         importFile,
         applyProjectDeltas,
@@ -407,7 +408,7 @@ export const DawShell = () => {
         handleOpenMidiClip,
     } = useTimelineClipHandlers({
         projectBpm,
-        transportBpm: transportBpm || 120,
+        transportBpm: transportBpm || DEFAULT_BPM,
         projectSampleRate,
         timelineClipsForView,
         selectedClipIds,
@@ -430,7 +431,7 @@ export const DawShell = () => {
     });
 
     const timelineProps = useDawShellTimelineProps({
-        bpm: projectBpm || transportBpm || 120,
+        bpm: projectBpm || transportBpm || DEFAULT_BPM,
         clips: timelineClipsForView,
         editCursorBeat,
         editCursorTrackIndex,
@@ -444,7 +445,7 @@ export const DawShell = () => {
         loopStart: loopStartBeat,
         loopEnd: loopEndBeat,
         loopEnabled: transportLoopEnabled,
-        trackCount,
+        trackCount: trackCountRaw,
         trackHeight: TRACK_HEIGHT_BASE,
         trackHeights: timelineTrackHeights,
         onPlayheadChange: handlePlayheadChange,
@@ -543,7 +544,7 @@ export const DawShell = () => {
                 projectName={projectFilePath ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
                 selectedClipIds={selectedClipIds}
                 timelineClipsForView={timelineClipsForView}
-                bpm={projectBpm || transportBpm || 120}
+                bpm={projectBpm || transportBpm || DEFAULT_BPM}
                 sampleRate={projectSampleRate}
                 loopStartBeat={loopStartBeat}
                 loopEndBeat={loopEndBeat}

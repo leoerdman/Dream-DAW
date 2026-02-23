@@ -58,6 +58,7 @@ pub struct CompressorProcessor {
 
 impl CompressorProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             threshold_db: -18.0,
             ratio: 4.0,
@@ -148,12 +149,8 @@ impl CompressorProcessor {
         if x < 1e-10 {
             -96.0
         } else {
-            // BUG-036 FIX: Fast log2 approximation → dB.
-            // 20 * log10(x) = 20 * log2(x) / log2(10) ≈ 6.0206 * log2(x)
-            // Fast log2 via integer bit manipulation (~3x faster than log10).
-            let bits = x.to_bits() as i32;
-            let log2_approx = (bits as f32) * 1.192_092_9e-7 - 126.942_696;
-            log2_approx * 6.0206
+            // Use exact log10 here to keep threshold/knee behavior deterministic.
+            20.0 * x.log10()
         }
     }
 
@@ -171,6 +168,14 @@ impl CompressorProcessor {
         let threshold = self.threshold_db;
         let ratio = self.ratio;
         let knee = self.knee_db;
+        if knee <= 1.0e-6 {
+            // Hard-knee fallback prevents division-by-zero when knee = 0.
+            if input_db <= threshold {
+                return 0.0;
+            }
+            let over = input_db - threshold;
+            return -(over * (1.0 - 1.0 / ratio));
+        }
         let half_knee = knee * 0.5;
 
         if input_db < threshold - half_knee {

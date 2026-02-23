@@ -18,7 +18,8 @@ use dream_models::project::{
 
 use super::plugin_mapper::{
     ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
-    infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
+    MissingExternalPluginSlotSpec, infer_device_display_name,
+    make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
 };
 use super::xml_helpers::*;
@@ -254,8 +255,9 @@ pub fn parse_als_rack(
         .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroControls."))
     {
         let tag_name = macro_node.tag_name().name();
-        if let Some(idx) = parse_macro_index(tag_name, "MacroControls.") {
-            if idx < rack.macro_controls.len() {
+        if let Some(idx) = parse_macro_index(tag_name, "MacroControls.")
+            && idx < rack.macro_controls.len()
+        {
                 let display_name = macro_node
                     .children()
                     .find(|n| n.is_element() && n.has_tag_name("CustomName"))
@@ -274,7 +276,6 @@ pub fn parse_als_rack(
                 }
                 mc.value = value;
                 mc.default_value = value;
-            }
         }
     }
 
@@ -283,28 +284,24 @@ pub fn parse_als_rack(
         .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroDisplayNames."))
     {
         let tag_name = name_node.tag_name().name();
-        if let Some(idx) = parse_macro_index(tag_name, "MacroDisplayNames.") {
-            if idx < rack.macro_controls.len() {
-                if let Some(display_name) = name_node.attribute("Value") {
-                    if !display_name.is_empty() {
-                        rack.macro_controls[idx].name = display_name.to_string();
-                    }
-                }
-            }
+        if let Some(idx) = parse_macro_index(tag_name, "MacroDisplayNames.")
+            && idx < rack.macro_controls.len()
+            && let Some(display_name) = name_node.attribute("Value")
+            && !display_name.is_empty()
+        {
+            rack.macro_controls[idx].name = display_name.to_string();
         }
     }
-
     for default_node in group_device
         .children()
         .filter(|n| n.is_element() && n.tag_name().name().starts_with("MacroDefaults."))
     {
         let tag_name = default_node.tag_name().name();
-        if let Some(idx) = parse_macro_index(tag_name, "MacroDefaults.") {
-            if idx < rack.macro_controls.len() {
-                if let Some(value) = default_node.attribute("Value").and_then(parse_f64_value) {
-                    rack.macro_controls[idx].default_value = value;
-                }
-            }
+        if let Some(idx) = parse_macro_index(tag_name, "MacroDefaults.")
+            && idx < rack.macro_controls.len()
+            && let Some(value) = default_node.attribute("Value").and_then(parse_f64_value)
+        {
+            rack.macro_controls[idx].default_value = value;
         }
     }
 
@@ -607,17 +604,17 @@ fn resolve_external_plugin_device(
             vst3_path,
             vst2_path
         );
-        let node = make_missing_external_plugin_slot_with_metadata(
-            "external",
-            &preferred_name,
-            &user_name,
-            &vst2_name,
-            &vst2_path,
-            &vst3_name,
-            &vst3_path,
-            false,
-            Some(&meta),
-        );
+        let node = make_missing_external_plugin_slot_with_metadata(MissingExternalPluginSlotSpec {
+            kind: "external",
+            preferred_name: &preferred_name,
+            user_name: &user_name,
+            vst2_name,
+            vst2_path,
+            vst3_name,
+            vst3_path,
+            is_placeholder: false,
+            meta: Some(&meta),
+        });
         pending_macro_mappings.extend(collect_pending_macro_mappings_for_device(
             child_device,
             &node,

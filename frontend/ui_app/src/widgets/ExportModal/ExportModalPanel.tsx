@@ -117,7 +117,22 @@ export function ExportModalPanel({
             </SettingRow>
 
             {bounceError && (
-                <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 30%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', color: 'var(--color-status-error)' }}>
+                <div
+                    role="alert"
+                    style={{
+                        padding: 'var(--space-2) var(--space-3)',
+                        background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-error) 30%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-sm)',
+                        color: 'var(--color-status-error)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: 120,
+                        overflowY: 'auto',
+                    }}
+                >
+                    <strong style={{ display: 'block', marginBottom: 4 }}>Export failed</strong>
                     {bounceError}
                 </div>
             )}

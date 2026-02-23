@@ -1,20 +1,5 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * Dream DAW — Plugin Manifest (SSOT)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Centralized manifest for all plugin metadata: type classification,
- * display properties, UI capabilities, and card dimensions.
- *
- * This replaces the scattered inline maps that were previously
- * hardcoded across DeviceRack.tsx.
- */
-
-// ── Types ──
-
 export type PluginFormat = 'INT' | 'VST2' | 'VST3' | 'AU';
 export type PluginCategory = 'instrument' | 'effect' | 'midi-fx';
-
 export type DeviceEffectType =
     | 'eq'
     | 'compressor'
@@ -35,40 +20,32 @@ export type DeviceEffectType =
     | 'spectrum'
     | 'midiPitch'
     | 'midiScale'
+    | 'midiChord'
+    | 'midiNoteLength'
+    | 'midiCcControl'
+    | 'midiExpressionControl'
+    | 'midiArpeggiator'
     | 'midiVelocity'
     | 'midiRandom'
     | 'vst'
     | 'instrument'
     | 'sampler'
+    | 'sample_rack'
     | 'saturator'
     | 'waveSynth'
     | 'rack';
-
 export interface PluginManifestEntry {
-    /** Internal plugin ID (e.g. 'internal://instrument/sampler') */
     id: string;
-    /** Human-readable display name */
     name: string;
-    /** High-level category */
     category: PluginCategory;
-    /** Effect type for UI routing */
     effectType: DeviceEffectType;
-    /** Plugin format label shown in header badge */
     format: PluginFormat;
-    /** Whether the plugin has a native editor window (shows "UI" button) */
     hasEditor: boolean;
-    /** Default card width in pixels */
     cardWidth: number;
-    /** Whether the wrench / settings panel is available */
     supportsSettings: boolean;
-    /** Whether the plugin supports sidechain input */
     supportsSidechain: boolean;
 }
-
-// ── Internal Plugin Registry ──
-
 const INTERNAL_PLUGINS: PluginManifestEntry[] = [
-    // ─── Instruments ───
     {
         id: 'internal://instrument/wave-synth',
         name: 'Wave Synth',
@@ -91,8 +68,17 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── EQ ───
+    {
+        id: 'internal://instrument/sample-rack',
+        name: 'Sample Rack',
+        category: 'instrument',
+        effectType: 'sample_rack',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 720,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
     {
         id: 'internal://effect/eq-eight',
         name: 'EQ Eight',
@@ -126,8 +112,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Dynamics ───
     {
         id: 'internal://effect/compressor',
         name: 'Compressor',
@@ -194,8 +178,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: true,
     },
-
-    // ─── Time-Based ───
     {
         id: 'internal://effect/delay',
         name: 'Delay',
@@ -284,8 +266,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Reverb ───
     {
         id: 'internal://effect/reverb',
         name: 'Reverb',
@@ -341,8 +321,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Modulation ───
     {
         id: 'internal://effect/chorus',
         name: 'Chorus',
@@ -420,8 +398,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Saturation / Distortion ───
     {
         id: 'internal://effect/saturator',
         name: 'Saturator',
@@ -543,8 +519,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Utility ───
     {
         id: 'internal://effect/utility',
         name: 'Utility',
@@ -600,8 +574,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── Analyzers ───
     {
         id: 'internal://effect/noise-machine',
         name: 'Noise Machine',
@@ -635,8 +607,6 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
-
-    // ─── MIDI FX ───
     {
         id: 'internal://midi-fx/pitch',
         name: 'MIDI Pitch',
@@ -663,7 +633,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://midi-fx/chord',
         name: 'Chord',
         category: 'midi-fx',
-        effectType: 'midiScale',
+        effectType: 'midiChord',
         format: 'INT',
         hasEditor: false,
         cardWidth: 320,
@@ -685,7 +655,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://midi-fx/note-length',
         name: 'Note Length',
         category: 'midi-fx',
-        effectType: 'midiVelocity',
+        effectType: 'midiNoteLength',
         format: 'INT',
         hasEditor: false,
         cardWidth: 320,
@@ -696,7 +666,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://midi-fx/cc-control',
         name: 'CC Control',
         category: 'midi-fx',
-        effectType: 'midiVelocity',
+        effectType: 'midiCcControl',
         format: 'INT',
         hasEditor: false,
         cardWidth: 320,
@@ -707,7 +677,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://midi-fx/expression-control',
         name: 'Expression Control',
         category: 'midi-fx',
-        effectType: 'midiVelocity',
+        effectType: 'midiExpressionControl',
         format: 'INT',
         hasEditor: false,
         cardWidth: 320,
@@ -729,7 +699,7 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         id: 'internal://midi-fx/arpeggiator',
         name: 'Arpeggiator',
         category: 'midi-fx',
-        effectType: 'midiRandom',
+        effectType: 'midiArpeggiator',
         format: 'INT',
         hasEditor: false,
         cardWidth: 320,
@@ -737,16 +707,10 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSidechain: false,
     },
 ];
-
-// ── Lookup Index: pluginId → ManifestEntry ──
-
 const INTERNAL_INDEX = new Map<string, PluginManifestEntry>();
 for (const entry of INTERNAL_PLUGINS) {
     INTERNAL_INDEX.set(entry.id, entry);
 }
-
-// ── External Plugin Format Detection ──
-
 function detectFormat(pluginId: string): PluginFormat {
     const lower = pluginId.toLowerCase();
     if (lower.includes('.vst3') || lower.includes('vst3')) return 'VST3';
@@ -754,11 +718,6 @@ function detectFormat(pluginId: string): PluginFormat {
     if (lower.includes('.component') || lower.includes('audiounit')) return 'AU';
     return 'VST3'; // default for unknown external
 }
-
-/**
- * Detects the effectType for an external plugin from its name,
- * using heuristic keyword matching.
- */
 function detectExternalEffectType(name: string, isInstrument: boolean): DeviceEffectType {
     if (isInstrument) return 'instrument';
     const n = name.toLowerCase();
@@ -779,17 +738,17 @@ function detectExternalEffectType(name: string, isInstrument: boolean): DeviceEf
     if (n.includes('bitcrusher') || n.includes('bit-crusher')) return 'bitcrusher';
     if (n.includes('noise-machine') || n.includes('noise machine') || n.includes('noisemachine')) return 'noiseMachine';
     if (n.includes('spectrum')) return 'spectrum';
-    if (n.includes('arpeggiator')) return 'midiRandom';
-    if (n.includes('chord')) return 'midiScale';
-    if (n.includes('note length') || n.includes('cc control') || n.includes('expression control')) return 'midiVelocity';
+    if (n.includes('arpeggiator')) return 'midiArpeggiator';
+    if (n.includes('chord')) return 'midiChord';
+    if (n.includes('note length')) return 'midiNoteLength';
+    if (n.includes('cc control')) return 'midiCcControl';
+    if (n.includes('expression control')) return 'midiExpressionControl';
     return 'vst';
 }
-
-// ── Default card widths by effectType (for externals without exact manifest entry) ──
-
 const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     waveSynth: 560,
     sampler: 520,
+    sample_rack: 520,
     instrument: 420,
     eq: 420,
     compressor: 520,
@@ -809,15 +768,17 @@ const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     spectrum: 520,
     midiPitch: 320,
     midiScale: 320,
+    midiChord: 320,
+    midiNoteLength: 320,
+    midiCcControl: 320,
+    midiExpressionControl: 320,
+    midiArpeggiator: 320,
     midiVelocity: 320,
     midiRandom: 320,
     utility: 360,
     vst: 160,
     rack: 720,
 };
-
-// ── Public API ──
-
 export interface ResolvedPlugin {
     effectType: DeviceEffectType;
     format: PluginFormat;
@@ -828,25 +789,12 @@ export interface ResolvedPlugin {
     category: PluginCategory;
     displayName: string;
 }
-
-/**
- * Resolves full plugin metadata from a plugin ID and name.
- *
- * For internal plugins, returns the exact manifest entry.
- * For external plugins, infers metadata from the plugin ID and name.
- *
- * @param pluginId   Plugin identifier (e.g. 'internal://effect/eq-eight' or '/Library/.../Serum.vst3')
- * @param name       Display name of the plugin
- * @param source     'internal' | 'vst' | 'missing' | 'unknown'
- * @param isInstrumentSlot  Whether the slot is in the instrument position on the track
- */
 export function resolvePlugin(
     pluginId: string,
     name: string,
     source: 'internal' | 'vst' | 'missing' | 'unknown',
     isInstrumentSlot = false,
 ): ResolvedPlugin {
-    // 1. Try normalized internal lookup (supports alias IDs from importers/legacy projects).
     const normalizedInternalId = normalizeInternalPluginId(pluginId);
     const internal = INTERNAL_INDEX.get(normalizedInternalId) ?? INTERNAL_INDEX.get(pluginId);
     if (internal) {
@@ -861,17 +809,11 @@ export function resolvePlugin(
             displayName: internal.name,
         };
     }
-
-    // 2. External plugin — infer from ID and name
     const format = source === 'internal' ? 'INT' as PluginFormat : detectFormat(pluginId);
     const isVstFormat = format === 'VST2' || format === 'VST3' || format === 'AU';
     const effectType = detectExternalEffectType(name, isInstrumentSlot);
     const category: PluginCategory = isInstrumentSlot ? 'instrument' : 'effect';
-    // External VST/AU plugins use native editor windows — the card is only
-    // a compact header (bypass, UI, sidechain). Use a uniform width for
-    // consistent visual appearance regardless of detected effectType.
     const cardWidth = isVstFormat ? 200 : (EFFECT_TYPE_DEFAULT_WIDTHS[effectType] ?? 200);
-
     return {
         effectType,
         format,
@@ -883,19 +825,10 @@ export function resolvePlugin(
         displayName: name,
     };
 }
-
-/**
- * Returns the effectType to pluginId mapping (legacy compatibility).
- * Use `resolvePlugin()` for new code.
- */
 export function getEffectTypeByPluginId(pluginId: string): DeviceEffectType | undefined {
     const normalizedInternalId = normalizeInternalPluginId(pluginId);
     return INTERNAL_INDEX.get(normalizedInternalId)?.effectType ?? INTERNAL_INDEX.get(pluginId)?.effectType;
 }
-
-/**
- * Format badge color for the header.
- */
 export function formatBadgeColor(format: PluginFormat): string {
     switch (format) {
         case 'VST3': return 'var(--token-color-hex-2ecc71)';

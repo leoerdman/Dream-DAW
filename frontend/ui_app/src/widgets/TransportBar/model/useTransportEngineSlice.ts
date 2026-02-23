@@ -31,6 +31,7 @@ export const useTransportEngineSlice = () =>
             loopStartFrames: s.transport.loop_start,
             loopEndFrames: s.transport.loop_end,
             sampleRate: s.transport.sample_rate,
+            enginePlay: s.play,
             togglePlay: s.togglePlay,
             engineStop: s.stop,
             engineSetBpm: s.setBpm,
@@ -59,7 +60,9 @@ export function usePositionRef(timeSigNum: number) {
     const posRef = useRef<HTMLSpanElement | null>(null);
     const posBeatsRef = useRef(0);
     const timeSigNumRef = useRef(timeSigNum);
-    timeSigNumRef.current = timeSigNum;
+    useEffect(() => {
+        timeSigNumRef.current = timeSigNum;
+    }, [timeSigNum]);
 
     useEffect(() => {
         const unsub = useEngineStore.subscribe((state) => {
@@ -82,4 +85,3 @@ export function usePositionRef(timeSigNum: number) {
 
     return { posRef, posBeatsRef, readPosBeats };
 }
-

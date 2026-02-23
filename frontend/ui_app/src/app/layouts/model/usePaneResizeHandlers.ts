@@ -1,6 +1,10 @@
 import { useCallback } from 'react';
-
-const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
+import {
+    BOTTOM_PANEL_HEIGHT_MAX_PX,
+    BOTTOM_PANEL_HEIGHT_MIN_PX,
+    BROWSER_WIDTH_MAX_PX,
+    BROWSER_WIDTH_MIN_PX,
+} from '@/shared/config/layoutConstants';
 
 type Args = {
     mainSplitRef: React.RefObject<HTMLElement | null>;
@@ -35,7 +39,7 @@ export function usePaneResizeHandlers({
         };
 
         const onMove = (me: MouseEvent) => {
-            const nextWidth = Math.max(240, Math.min(520, Math.round(me.clientX - rootRect.left)));
+            const nextWidth = Math.max(BROWSER_WIDTH_MIN_PX, Math.min(BROWSER_WIDTH_MAX_PX, Math.round(me.clientX - rootRect.left)));
             pendingWidth = nextWidth;
             if (rafId === null) {
                 rafId = window.requestAnimationFrame(flushWidth);
@@ -59,8 +63,8 @@ export function usePaneResizeHandlers({
     const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        const minHeight = DEFAULT_BOTTOM_PANEL_HEIGHT;
-        const maxHeight = Math.round(window.innerHeight * 0.72);
+        const minHeight = BOTTOM_PANEL_HEIGHT_MIN_PX;
+        const maxHeight = Math.min(BOTTOM_PANEL_HEIGHT_MAX_PX, Math.round(window.innerHeight * 0.72));
 
         let rafId: number | null = null;
         let pendingHeight: number | null = null;

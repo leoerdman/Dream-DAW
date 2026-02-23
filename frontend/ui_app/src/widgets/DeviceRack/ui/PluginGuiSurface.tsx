@@ -10,6 +10,7 @@ import { PluginGuiSurfaceFallback } from '@/widgets/DeviceRack/ui/PluginGuiSurfa
 import { PluginGuiSurfaceEq } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceEq';
 import { deriveEqBandFilterTypes } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import { useEqBandDragEffect } from '@/widgets/DeviceRack/model/useEqBandDragEffect';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 
 /* ── Module-level EQ filter type cache (persists across component remounts) ── */
@@ -64,8 +65,10 @@ export const PluginGuiSurface = ({
     // ── Spectrum analyzer state ──
     const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
     const [spectrumData, setSpectrumData] = useState<number[] | null>(null);
+    const lastSpectrumRef = useRef<number[] | null>(null);
 
     // Poll spectrum data from the Rust FFT engine at ~20fps when enabled
+    // BUG-P17 FIX: Check active flag BEFORE invoke to prevent stale result stacking on rapid toggle.
     useEffect(() => {
         if (!eqSpectrumEnabled) { setSpectrumData(null); return; }
         let active = true;
@@ -73,15 +76,32 @@ export const PluginGuiSurface = ({
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
                 while (active) {
+                    if (!active) break; // Pre-invoke guard
                     const data = await invoke<number[]>('get_spectrum_data');
                     if (!active) break;
-                    setSpectrumData(data);
+                    if (Array.isArray(data) && data.length > 0) {
+                        const prev = lastSpectrumRef.current;
+                        if (prev && prev.length === data.length) {
+                            const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
+                            lastSpectrumRef.current = smoothed;
+                            setSpectrumData(smoothed);
+                        } else {
+                            lastSpectrumRef.current = data;
+                            setSpectrumData(data);
+                        }
+                    } else {
+                        lastSpectrumRef.current = null;
+                        setSpectrumData(null);
+                    }
                     await new Promise(r => setTimeout(r, 50)); // ~20fps
                 }
             } catch { /* silence errors when component unmounts */ }
         };
         poll();
-        return () => { active = false; };
+        return () => {
+            active = false;
+            lastSpectrumRef.current = null;
+        };
     }, [eqSpectrumEnabled]);
     // SSOT: canonical source of sample rate — consumed by EQ biquad curve renderer
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
@@ -89,6 +109,8 @@ export const PluginGuiSurface = ({
     useEffect(() => {
         const samplePath = device.samplePath?.trim();
         if (!samplePath) {
+            // BUG-80 FIX: Clear stale waveform when device/sample changes.
+            setWaveformPeaks(null);
             return;
         }
         let cancelled = false;
@@ -170,100 +192,14 @@ export const PluginGuiSurface = ({
         onParamGestureEnd?.(`B${bandIdx}Q`);
     }, [onParamGestureEnd]);
 
-    useEffect(() => {
-        if (dragEqBand === null) return;
-        const bandIdx = dragEqBand;
-        let lastFreq = Number.NaN;
-        let lastGain = Number.NaN;
-        let lastQ = Number.NaN;
-        let lastQSentAt = 0;
-        let rafId: number | null = null;
-        let latestEvent: MouseEvent | null = null;
-
-        const flushMove = () => {
-            rafId = null;
-            const e = latestEvent;
-            if (!e) return;
-            const surface = eqSurfaceRef.current;
-            if (!surface) return;
-            const rect = surface.getBoundingClientRect();
-            const xNorm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-            const yNorm = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-            // ── Convert mouse position to SVG viewBox coordinates ──
-            const VB_H_DRAG = 200;
-            const VB_W_DRAG = 480;
-            const MARGIN_L_DRAG = 8;
-            const MARGIN_R_DRAG = 8;
-            const plotW_DRAG = VB_W_DRAG - MARGIN_L_DRAG - MARGIN_R_DRAG;
-            const svgY = (yNorm / rect.height) * VB_H_DRAG;
-            const svgX = xNorm * VB_W_DRAG;
-
-            // ── Frequency: account for MARGIN_L in viewBox ──
-            const freqNorm = Math.max(0, Math.min(1, (svgX - MARGIN_L_DRAG) / plotW_DRAG));
-            const minF = Math.log10(20);
-            const maxF = Math.log10(20000);
-            const freq = Math.pow(10, minF + freqNorm * (maxF - minF));
-            const roundedFreq = Math.round(freq);
-            if (roundedFreq !== lastFreq) {
-                lastFreq = roundedFreq;
-                onParamChange(`B${bandIdx}Freq`, roundedFreq);
-            }
-
-            // ── Y axis: Q for filter-only (LP/HP/Notch), Gain for peaking/shelf ──
-            const filterType = resolvedEqBandFilterTypes[bandIdx] ?? 'peaking';
-            const filterOnly = filterType === 'lowpass' || filterType === 'highpass' || filterType === 'notch';
-            if (filterOnly) {
-                // Invert qToY: norm = ((VB_H-10) - svgY) / (VB_H-20)
-                const qNorm = ((VB_H_DRAG - 10) - svgY) / (VB_H_DRAG - 20);
-                const clampedQNorm = Math.max(0, Math.min(1, qNorm));
-                const q = Math.exp(Math.log(0.1) + clampedQNorm * (Math.log(18) - Math.log(0.1)));
-                // HP/LP/Notch are most expensive during drag because both Freq and Q update.
-                // Gate Q updates to lower UI/backend pressure while preserving final value on mouseup.
-                const roundedQ = Math.round(q * 10) / 10;
-                const now = performance.now();
-                const qChangedEnough = Number.isNaN(lastQ) || Math.abs(roundedQ - lastQ) >= 0.2;
-                const qSendWindowOpen = now - lastQSentAt >= 80;
-                if (roundedQ !== lastQ && (qChangedEnough || qSendWindowOpen)) {
-                    lastQ = roundedQ;
-                    lastQSentAt = now;
-                    onParamChange(`B${bandIdx}Q`, roundedQ);
-                }
-            } else {
-                const gainValue = ((VB_H_DRAG / 2 - svgY) / (VB_H_DRAG / 2 - 10)) * 24;
-                const roundedGain = Math.max(-24, Math.min(24, gainValue));
-                const quantizedGain = Math.round(roundedGain * 10) / 10;
-                if (quantizedGain !== lastGain) {
-                    lastGain = quantizedGain;
-                    onParamChange(`B${bandIdx}Gain`, quantizedGain);
-                }
-            }
-        };
-        const onMove = (e: MouseEvent) => {
-            latestEvent = e;
-            if (rafId != null) return;
-            rafId = window.requestAnimationFrame(flushMove);
-        };
-        const onUp = () => {
-            if (rafId != null) {
-                window.cancelAnimationFrame(rafId);
-                rafId = null;
-            }
-            // Commit latest cursor point before ending gesture.
-            flushMove();
-            endEqBandGesture(bandIdx);
-            setDragEqBand(null);
-        };
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-        return () => {
-            if (rafId != null) {
-                window.cancelAnimationFrame(rafId);
-                rafId = null;
-            }
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-    }, [dragEqBand, onParamChange, endEqBandGesture, resolvedEqBandFilterTypes]);
+    useEqBandDragEffect({
+        dragEqBand,
+        eqSurfaceRef,
+        resolvedEqBandFilterTypes,
+        onParamChange,
+        endEqBandGesture,
+        setDragEqBand,
+    });
 
     // Close context menu on click outside
     useEffect(() => {

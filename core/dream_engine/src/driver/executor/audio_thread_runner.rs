@@ -661,7 +661,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     right[..c].copy_from_slice(&external_right[..c]);
 
                                                     // DIAG: Log VST instrument output peak
-                                                    if _vst_diag_counter % 200 == 0 {
+                                                    if _vst_diag_counter.is_multiple_of(200) {
                                                         let peak_l = left[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
                                                         let peak_r = right[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
                                                         if peak_l > 1e-6 || peak_r > 1e-6 {
@@ -734,7 +734,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
                         // DIAG: Log graph output peak before master FX
-                        if _vst_diag_counter % 200 == 0 {
+                        if _vst_diag_counter.is_multiple_of(200) {
                             let peak_l = graph_out_left[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
                             let peak_r = graph_out_right[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
                             if peak_l > 1e-6 || peak_r > 1e-6 {

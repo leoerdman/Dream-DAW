@@ -49,22 +49,11 @@ export function DeviceNodeHeader({
     return (
         <div
             data-device-drag-handle="true"
-            draggable={false}
-            onDragStart={(e) => {
-                // Reorder drag is owned by DeviceNode root.
-                // Keep header non-draggable to avoid nested drag-source conflicts.
-                e.preventDefault();
-                return;
-            }}
-            onDragEnd={(e) => {
-                e.preventDefault();
-                return;
-            }}
             style={{
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 6,
+                gap: 'var(--space-1-5)',
                 padding: 'var(--space-2) 0',
                 borderRight: 'var(--space-px) solid var(--color-divider)',
                 background: 'var(--surface-tab-inactive)',
@@ -79,6 +68,7 @@ export function DeviceNodeHeader({
             }}
         >
             <button
+                data-no-drag
                 draggable={false}
                 onClick={onToggle}
                 title={device.isEnabled ? 'Disable' : 'Enable'}
@@ -99,6 +89,7 @@ export function DeviceNodeHeader({
             />
             {showUiButton && (
                 <button
+                    data-no-drag
                     draggable={false}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -138,6 +129,7 @@ export function DeviceNodeHeader({
             )}
             {showRecoverAction && (
                 <button
+                    data-no-drag
                     draggable={false}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -156,7 +148,7 @@ export function DeviceNodeHeader({
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 0,
-                        fontSize: 8,
+                        fontSize: 'var(--font-size-micro)',
                         fontWeight: 800,
                         color: 'var(--token-color-hex-ff6464)',
                     }}
@@ -166,6 +158,7 @@ export function DeviceNodeHeader({
             )}
             {supportsSettingsToggle && (
                 <button
+                    data-no-drag
                     draggable={false}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -218,7 +211,7 @@ export function DeviceNodeHeader({
             </span>
             <span
                 style={{
-                    fontSize: 6,
+                    fontSize: 'var(--font-size-micro)',
                     color: formatBadgeColor(resolvedPluginFormat),
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     flexShrink: 0,

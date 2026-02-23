@@ -3,82 +3,66 @@ import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
-
-const pluginPanelLayoutStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateRows: 'var(--token-size-px-90) auto',
-    gap: 'var(--plugin-grid-gap)',
-    height: '100%',
-};
-
-const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: 'var(--space-px) solid var(--plugin-card-border)',
-    borderRadius: 'var(--plugin-card-radius)',
-    padding: 'var(--plugin-card-pad-y) var(--plugin-card-pad-x)',
-    display: 'grid',
-    gridTemplateRows: '1fr auto',
-    gap: 'var(--plugin-card-gap)',
-    background: 'var(--plugin-card-bg-main)',
-};
-
-const pluginPanelTitleStyle: React.CSSProperties = {
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--plugin-title-color)',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-};
-
-const pluginPanelMetaStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--plugin-meta-color)',
-    fontFamily: 'var(--font-mono)',
-};
-
-interface AnalyzerMidiHandlers {
-    onParamChange: (paramName: string, value: number) => void;
-    onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
-    onParamGestureEnd?: (paramName: string) => void;
-}
+import {
+    pluginPanelCardBaseStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
+    safeParamValue,
+    PLUGIN_TITLE_MAP,
+    type SurfaceHandlers,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 export function renderStandardAnalyzerMidiSurface(
     device: DeviceSlot,
-    handlers: AnalyzerMidiHandlers,
+    handlers: SurfaceHandlers,
 ): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
-    if (!(device.effectType === 'analyzer' || device.effectType === 'spectrum' || device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom')) {
+    // BUG-76 FIX: Include all MIDI effect types including new ones (chord, noteLength, ccControl, expressionControl, arpeggiator).
+    const ANALYZER_MIDI_TYPES = new Set(['analyzer', 'spectrum', 'midiPitch', 'midiScale', 'midiVelocity', 'midiRandom', 'midiChord', 'midiNoteLength', 'midiCcControl', 'midiExpressionControl', 'midiArpeggiator']);
+    if (!ANALYZER_MIDI_TYPES.has(device.effectType)) {
         return null;
     }
 
-    const title = device.effectType === 'analyzer' || device.effectType === 'spectrum'
-        ? (normalizedInternalId === 'internal://effect/spectrum' ? 'Spectrum' : 'Analyzer')
-        : device.effectType === 'midiPitch'
-            ? 'MIDI Pitch'
-            : device.effectType === 'midiScale'
-                ? (normalizedInternalId === 'internal://midi-fx/chord' ? 'Chord' : 'MIDI Scale')
-                : device.effectType === 'midiVelocity'
-                    ? (normalizedInternalId === 'internal://midi-fx/note-length' ? 'Note Length' : normalizedInternalId === 'internal://midi-fx/cc-control' ? 'CC Control' : normalizedInternalId === 'internal://midi-fx/expression-control' ? 'Expression Control' : 'MIDI Velocity')
-                    : (normalizedInternalId === 'internal://midi-fx/arpeggiator' ? 'Arpeggiator' : 'MIDI Random');
+    // BUG-P14 FIX: Clean title resolution via PLUGIN_TITLE_MAP + effectType fallback.
+    const EFFECT_TYPE_LABELS: Record<string, string> = {
+        analyzer: 'Analyzer', spectrum: 'Spectrum', midiPitch: 'MIDI Pitch',
+        midiScale: 'MIDI Scale', midiVelocity: 'MIDI Velocity', midiRandom: 'MIDI Random',
+        // BUG-83 FIX: Labels for new MIDI effect types.
+        midiChord: 'MIDI Chord', midiNoteLength: 'MIDI Note Length',
+        midiCcControl: 'MIDI CC Control', midiExpressionControl: 'MIDI Expression',
+        midiArpeggiator: 'MIDI Arpeggiator',
+    };
+    const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? EFFECT_TYPE_LABELS[device.effectType] ?? device.effectType;
+
     const spectrumBars = Array.from({ length: 24 }).map((_, idx) => {
         const t = idx / 23;
         const h = 18 + Math.sin((idx + 1) * 0.62) * 9 + (1 - Math.abs(0.5 - t) * 2) * 20;
         return { x: 8 + idx * 13, h: Math.max(4, h) };
     });
-    const semitones = device.params.find((p) => p.name.toLowerCase() === 'semitones')?.value ?? 0;
-    const root = device.params.find((p) => p.name.toLowerCase() === 'root')?.value ?? 0;
-    const chance = device.params.find((p) => p.name.toLowerCase() === 'chance')?.value ?? 0;
-    const velGain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 1;
-    const velOffset = device.params.find((p) => p.name.toLowerCase() === 'offset')?.value ?? 0;
-    const isNoteLength = normalizedInternalId === 'internal://midi-fx/note-length';
-    const isCcControl = normalizedInternalId === 'internal://midi-fx/cc-control';
-    const isExpressionControl = normalizedInternalId === 'internal://midi-fx/expression-control';
-    const isArp = normalizedInternalId === 'internal://midi-fx/arpeggiator';
+
+    // BUG-P4 FIX: NaN-safe param reads
+    const semitones = safeParamValue(device, 'semitones', 0);
+    const root = safeParamValue(device, 'root', 0);
+    const chance = safeParamValue(device, 'chance', 0);
+    const velGain = safeParamValue(device, 'gain', 1);
+    const velOffset = safeParamValue(device, 'offset', 0);
+    const lengthMs = safeParamValue(device, 'length', 200);
+    const gatePct = safeParamValue(device, 'gate', 100);
+    const ccNumber = safeParamValue(device, 'cc', 1);
+    const ccValue = safeParamValue(device, 'value', 64);
+    const arpPattern = safeParamValue(device, 'pattern', 0);
+    const arpOctaves = safeParamValue(device, 'octaves', 1);
+    const chordOctaves = safeParamValue(device, 'octaves', 1);
+    const chordInversion = safeParamValue(device, 'inversion', 0);
     const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const activeRoot = Math.max(0, Math.min(11, Math.round(root) % 12));
+
+    // BUG-P18 FIX: NaN-safe VU levels
+    const safeVuL = Number.isFinite(device.vuLevelL) ? device.vuLevelL : -100;
+    const safeVuR = Number.isFinite(device.vuLevelR) ? device.vuLevelR : -100;
 
     return (
         <div data-no-drag style={pluginPanelLayoutStyle}>
@@ -95,21 +79,21 @@ export function renderStandardAnalyzerMidiSurface(
                 {device.effectType === 'analyzer' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: 'var(--space-1) var(--space-2)', height: 80, background: 'var(--token-color-rgba-8-10-14-0d7)', borderRadius: 'var(--radius-md)' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <div style={{ fontSize: 9, color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK L</div>
+                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK L</div>
                             <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelL) / 60) * 100))}%`, background: device.vuLevelL > -3 ? 'var(--color-error)' : device.vuLevelL > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuL) / 60) * 100))}%`, background: safeVuL > -3 ? 'var(--color-error)' : safeVuL > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
-                                {device.vuLevelL > -100 ? device.vuLevelL.toFixed(1) : '-∞'}
+                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                                {safeVuL > -100 ? safeVuL.toFixed(1) : '-∞'}
                             </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <div style={{ fontSize: 9, color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK R</div>
+                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK R</div>
                             <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelR) / 60) * 100))}%`, background: device.vuLevelR > -3 ? 'var(--color-error)' : device.vuLevelR > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuR) / 60) * 100))}%`, background: safeVuR > -3 ? 'var(--color-error)' : safeVuR > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
-                                {device.vuLevelR > -100 ? device.vuLevelR.toFixed(1) : '-∞'}
+                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                                {safeVuR > -100 ? safeVuR.toFixed(1) : '-∞'}
                             </div>
                         </div>
                     </div>
@@ -132,24 +116,23 @@ export function renderStandardAnalyzerMidiSurface(
                 )}
                 {device.effectType === 'midiVelocity' && (
                     <div style={{ display: 'grid', gap: 6, height: 46 }}>
-                        {isNoteLength ? (
-                            <>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.max(0, Math.min(100, velGain * 50)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
-                                </div>
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>Gate {(velGain * 100).toFixed(0)}%</div>
-                            </>
-                        ) : (
-                            <>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
-                                </div>
-                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1e2430)', overflow: 'hidden', position: 'relative' }}>
-                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-rgba-255-255-255-0d2)' }} />
-                                    <div style={{ position: 'absolute', left: `calc(${Math.max(0, Math.min(100, (velOffset + 64) / 128 * 100)).toFixed(1)}% - var(--token-size-px-5))`, top: -2, width: 10, height: 12, borderRadius: 'var(--radius-md)', background: isCcControl || isExpressionControl ? 'var(--token-color-hex-8ecb7c)' : 'var(--token-color-hex-d9a25c)' }} />
-                                </div>
-                            </>
-                        )}
+                        <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
+                        </div>
+                        <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1e2430)', overflow: 'hidden', position: 'relative' }}>
+                            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-rgba-255-255-255-0d2)' }} />
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    left: `calc(${Math.max(0, Math.min(100, ((velOffset + 127) / 254) * 100)).toFixed(1)}% - var(--token-size-px-5))`,
+                                    top: -2,
+                                    width: 10,
+                                    height: 12,
+                                    borderRadius: 'var(--radius-md)',
+                                    background: 'var(--token-color-hex-d9a25c)',
+                                }}
+                            />
+                        </div>
                     </div>
                 )}
                 {device.effectType === 'midiRandom' && (
@@ -158,9 +141,51 @@ export function renderStandardAnalyzerMidiSurface(
                             <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                         </div>
                         <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-mono)' }}>
-                            {isArp
-                                ? `Arp Gate ${(chance * 100).toFixed(0)}% | Steps ${Math.max(1, Math.round(Math.abs(semitones) || 8))}`
-                                : `Chance ${(chance * 100).toFixed(0)}% | Range ±${Math.abs(semitones).toFixed(0)} st`}
+                            {`Chance ${(chance * 100).toFixed(0)}% | Range ±${Math.abs(semitones).toFixed(0)} st`}
+                        </div>
+                    </div>
+                )}
+                {device.effectType === 'midiChord' && (
+                    <div style={{ display: 'grid', gap: 6, height: 46 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 3 }}>
+                            {noteNames.map((n, idx) => (
+                                <div key={n} style={{ borderRadius: 'var(--radius-sm)', border: idx === activeRoot ? 'var(--space-px) solid var(--token-color-hex-8bc27a)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d14)', background: idx === activeRoot ? 'var(--token-color-rgba-139-194-122-0d22)' : 'var(--token-color-rgba-160-180-210-0d1)', color: idx === activeRoot ? 'var(--token-color-hex-d9f3d1)' : 'var(--token-color-hex-a8b7cd)', fontSize: 'var(--font-size-2xs)', textAlign: 'center', padding: 'var(--token-size-px-3) 0' }}>
+                                    {n}
+                                </div>
+                            ))}
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                            {`Oct ${Math.max(1, Math.round(chordOctaves))} | Inv ${Math.max(0, Math.round(chordInversion))}`}
+                        </div>
+                    </div>
+                )}
+                {device.effectType === 'midiNoteLength' && (
+                    <div style={{ display: 'grid', gap: 6, height: 46 }}>
+                        <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(0, Math.min(100, lengthMs / 20)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                            {`Len ${lengthMs.toFixed(0)}ms | Gate ${gatePct.toFixed(0)}%`}
+                        </div>
+                    </div>
+                )}
+                {(device.effectType === 'midiCcControl' || device.effectType === 'midiExpressionControl') && (
+                    <div style={{ display: 'grid', gap: 6, height: 46 }}>
+                        <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1e2430)', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(0, Math.min(100, (ccValue / 127) * 100)).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-8ecb7c)' }} />
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                            {`CC ${Math.max(0, Math.min(127, Math.round(ccNumber)))} | Val ${Math.max(0, Math.min(127, Math.round(ccValue)))}`}
+                        </div>
+                    </div>
+                )}
+                {device.effectType === 'midiArpeggiator' && (
+                    <div style={{ display: 'grid', alignItems: 'center', gap: 4, height: 46 }}>
+                        <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(0, Math.min(100, gatePct / 2)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-mono)' }}>
+                            {`Rate x${safeParamValue(device, 'rate', 1).toFixed(2)} | Pattern ${Math.max(0, Math.round(arpPattern))} | Oct ${Math.max(1, Math.round(arpOctaves))}`}
                         </div>
                     </div>
                 )}

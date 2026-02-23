@@ -1,20 +1,52 @@
 import React from 'react';
 import { BrowserGlyph } from './AssetBrowserPrimitives';
-import type { AssetBrowserLogic } from '../model/assetBrowserTypes';
+import type { BrowserCategory } from '../model/useAssetBrowserLogic';
 
-export function AssetBrowserSidebar({ logic }: { logic: AssetBrowserLogic }) {
-    let currentSection: string | null = null;
+interface AssetBrowserSidebarProps {
+    categories: BrowserCategory[];
+    collapsedSections: Set<string>;
+    selectedCategoryId: string;
+    toggleSection: (sectionId: string) => void;
+    handleAddFolder: () => void;
+    setSelectedCategoryId: (categoryId: string) => void;
+    fileListRef: React.RefObject<HTMLDivElement | null>;
+    handleRemoveFolder: (folderPath: string) => void;
+    setCollectionLabels: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+    saveCollectionLabels: (labels: Record<string, string>) => void;
+}
+
+export function AssetBrowserSidebar({
+    categories,
+    collapsedSections,
+    selectedCategoryId,
+    toggleSection,
+    handleAddFolder,
+    setSelectedCategoryId,
+    fileListRef,
+    handleRemoveFolder,
+    setCollectionLabels,
+    saveCollectionLabels,
+}: AssetBrowserSidebarProps) {
+    const parentSectionByCategory = new Map<string, string | null>();
+    let activeSection: string | null = null;
+    for (const category of categories) {
+        if (category.kind === 'section') {
+            activeSection = category.id;
+        } else {
+            parentSectionByCategory.set(category.id, activeSection);
+        }
+    }
+
     return (
         <div className="scrollbar-hide" style={sidebarStyle}>
-            {logic.categories.map((cat) => {
+            {categories.map((cat) => {
                 if (cat.kind === 'section') {
-                    const collapsed = cat.id === 'sec-collections' ? false : logic.collapsedSections.has(cat.id);
-                    currentSection = cat.id;
+                    const collapsed = cat.id === 'sec-collections' ? false : collapsedSections.has(cat.id);
                     const addTopGap = cat.id === 'sec-library' || cat.id === 'sec-folders';
                     const isBrowserSection = cat.id === 'sec-collections';
                     return (
                         <div key={cat.id} style={{ marginTop: addTopGap ? 10 : 0 }}>
-                            <button onClick={isBrowserSection ? undefined : () => logic.toggleSection(cat.id)} style={{ ...sectionButtonStyle, cursor: isBrowserSection ? 'default' : 'pointer' }}>
+                            <button onClick={isBrowserSection ? undefined : () => toggleSection(cat.id)} style={{ ...sectionButtonStyle, cursor: isBrowserSection ? 'default' : 'pointer' }}>
                                 <span style={sectionIconCellStyle}><BrowserGlyph name={cat.icon} size={11} /></span>
                                 <span style={sectionTitleStyle}>{cat.title}</span>
                                 {!isBrowserSection && (
@@ -27,13 +59,13 @@ export function AssetBrowserSidebar({ logic }: { logic: AssetBrowserLogic }) {
                     );
                 }
 
-                const parentSectionId = currentSection;
-                if (parentSectionId && logic.collapsedSections.has(parentSectionId)) return null;
-                const isSelected = logic.selectedCategoryId === cat.id;
+                const parentSectionId = parentSectionByCategory.get(cat.id);
+                if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
+                const isSelected = selectedCategoryId === cat.id;
 
                 if (cat.id === 'addFolder') {
                     return (
-                        <button key={cat.id} onClick={logic.handleAddFolder} style={addFolderButtonStyle}>
+                        <button key={cat.id} onClick={handleAddFolder} style={addFolderButtonStyle}>
                             <span style={sectionIconCellStyle}><BrowserGlyph name={cat.icon} size={12} /></span>
                             <span>Add Fol…</span>
                         </button>
@@ -44,19 +76,19 @@ export function AssetBrowserSidebar({ logic }: { logic: AssetBrowserLogic }) {
                     <button
                         key={cat.id}
                         onClick={() => {
-                            logic.setSelectedCategoryId(cat.id);
-                            if (logic.fileListRef.current) logic.fileListRef.current.scrollTop = 0;
+                            setSelectedCategoryId(cat.id);
+                            if (fileListRef.current) fileListRef.current.scrollTop = 0;
                         }}
                         onContextMenu={cat.removable ? (e) => {
                             e.preventDefault();
-                            if (cat.folderPath && confirm(`Remove "${cat.title}" from browser?`)) logic.handleRemoveFolder(cat.folderPath);
+                            if (cat.folderPath && confirm(`Remove "${cat.title}" from browser?`)) handleRemoveFolder(cat.folderPath);
                         } : (cat.id.startsWith('collection-') ? (e) => {
                             e.preventDefault();
                             const next = window.prompt('Rename collection', cat.title)?.trim();
                             if (!next) return;
-                            logic.setCollectionLabels((prev) => {
+                            setCollectionLabels((prev) => {
                                 const next2 = { ...prev, [cat.id]: next };
-                                logic.saveCollectionLabels(next2);
+                                saveCollectionLabels(next2);
                                 return next2;
                             });
                         } : undefined)}

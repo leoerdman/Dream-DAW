@@ -5,9 +5,15 @@ import { canDropInZone } from '@/shared/lib/dndMatrix';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 
+type DeviceRackDropTrack = {
+    id: string;
+    track_type?: string;
+    instrument?: unknown;
+} | null;
+
 export function useDeviceRackDnD(
     rackRef: React.RefObject<HTMLDivElement | null>,
-    selectedTrack: any,
+    selectedTrack: DeviceRackDropTrack,
     onDropPluginToTrack: ((item: BrowserDragItem, trackId: string) => Promise<void>) | undefined,
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear?: () => void,
@@ -16,7 +22,7 @@ export function useDeviceRackDnD(
     const [isDropActive, setIsDropActive] = useState(false);
     const draggingItem = useDragStore((s) => s.draggingItem);
 
-    const dropTargetTrackRef = useRef<any>(selectedTrack);
+    const dropTargetTrackRef = useRef<DeviceRackDropTrack>(selectedTrack);
     const onDropPluginToTrackRef = useRef(onDropPluginToTrack);
     const applyProjectDeltasRef = useRef(applyProjectDeltas);
     const statusClearRef = useRef(statusClear);

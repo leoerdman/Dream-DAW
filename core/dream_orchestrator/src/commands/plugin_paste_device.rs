@@ -11,6 +11,7 @@ use crate::error::{OrchestratorError, OrchestratorResult};
 #[derive(Debug, Clone, Copy)]
 pub struct RuntimeAddDevice {
     pub track_id: Uuid,
+    pub track_index: u16,
     pub slot_index: u8,
     pub effect_type: u8,
 }
@@ -45,14 +46,15 @@ impl Command for PasteDeviceToTrackCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
-        let track = project
+        let track_index = project
             .tracks
-            .iter_mut()
-            .find(|t| t.id == self.track_id)
+            .iter()
+            .position(|t| t.id == self.track_id)
             .ok_or_else(|| OrchestratorError::NotFound {
                 entity: "Track",
                 id: self.track_id.to_string(),
             })?;
+        let track = &mut project.tracks[track_index];
 
         let hint = self.slot_hint.as_deref().unwrap_or("auto").to_lowercase();
         let plugin_id = self.pasted_node.plugin_id();
@@ -126,6 +128,7 @@ impl Command for PasteDeviceToTrackCommand {
             {
                 runtime_add = Some(RuntimeAddDevice {
                     track_id: track.id,
+                    track_index: track_index as u16,
                     slot_index: internal_slot_index,
                     effect_type,
                 });

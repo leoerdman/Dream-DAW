@@ -72,10 +72,6 @@ fn add_plugin_to_track_impl(
         .runtime_waveform_code
         .map(|waveform| (track_index, waveform));
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    
     let plugin_load_error = load_external_slot_best_effort(
         new_slot_id,
         &effective_plugin_id,
@@ -83,10 +79,6 @@ fn add_plugin_to_track_impl(
         &plugin_host_state,
         "add_plugin_to_track_cmd",
     );
-    
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
     
     if let Some((runtime_track_index, runtime_slot_index, effect_type)) = runtime_add {
         push_command(&handle, EngineCommand::AddDevice {
@@ -109,9 +101,13 @@ fn add_plugin_to_track_impl(
         effective_plugin_name,
         if use_instrument { "instrument" } else { "effect" }
     );
-    
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    sync_plugin_runtime_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &plugin_host_state,
+        &app,
+        true,
+    )?;
     
     if let Some(err_msg) = plugin_load_error {
         return Err(err_msg);
@@ -236,13 +232,7 @@ fn remove_plugin_from_track_cmd(
     let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let runtime_remove_slot = cmd_result.runtime_remove_slot;
     let runtime_track_index = cmd_result.track_index as u16;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
-    clip_pool_state.rebuild_routing_only(&project);
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
     
     if let Some(slot_index) = runtime_remove_slot {
         push_command(&handle, EngineCommand::RemoveDevice {
@@ -256,9 +246,13 @@ fn remove_plugin_from_track_cmd(
         payload.track_id,
         payload.slot_id
     );
-    
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    sync_plugin_runtime_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &plugin_host_state,
+        &app,
+        true,
+    )?;
     Ok(())
 }
 
@@ -299,20 +293,14 @@ fn set_internal_plugin_param_cmd(
     let sampler_lfo_target = result.sampler_lfo_target;
     let sampler_pulse_width = result.sampler_pulse_width;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let project_name = project.name.clone();
-    if should_commit_snapshot {
-        // Expensive cold-path rebuilds are deferred during live gestures.
-        // Real-time audio updates are already applied via EngineCommand path below.
-        clip_pool_state.rebuild_routing_only(&project);
-        rebuild_automation_snapshot_from_project(&project, &automation_runtime);
-        rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
-    } else {
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    }
+    finalize_internal_param_update(
+        &project_state,
+        &clip_pool_state,
+        &automation_runtime,
+        &handle,
+        &app,
+        should_commit_snapshot,
+    )?;
 
     if sampler_command_needed
         && let Some(cfg) = &sampler_cfg_for_rt

@@ -86,12 +86,39 @@ async fn export_mix_cmd(
     // ── VST3 instrument pre-render: clone host + slot map for spawn_blocking ──
     let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    // NOTE: VST3 FX are NOT passed to bounce() — PluginInstanceArc is shared
-    // with the RT audio thread, and calling process() from the offline thread
-    // corrupts plugin state (rapid spurious audio, missing tracks).
-    // VST3 MIDI instrument tracks are pre-rendered above via plugin_host_arc.
-    // Audio track VST3 FX are applied via the pre-render FX loop (lines 2006+).
-    // Only native device_chain FX are processed inside bounce().
+
+    // ── ENTERPRISE FIX: Stop playback before VST pre-render ────────────
+    // The RT audio thread shares PluginInstanceArc with this export thread.
+    // Both call process() on the same VST instances concurrently, which
+    // corrupts oscillator/envelope state and produces silence in the export.
+    // Solution: stop playback so the RT thread no longer touches VST plugins.
+    let was_playing = {
+        let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        state.is_playing
+    };
+    if was_playing {
+        push_command(&handle, EngineCommand::SetPlay(false))?;
+        {
+            let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            state.is_playing = false;
+        }
+        log::info!("[Export] Stopped playback to prevent VST state corruption during export");
+        // Allow the RT audio thread to finish its current buffer cycle
+        // before we start processing VST plugins from the export thread.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    // Clone the command producer so we can resume playback from spawn_blocking.
+    let cmd_producer = {
+        let producer_guard = handle.producer.lock().map_err(|e| e.to_string())?;
+        // We can't clone the producer, but we need it for post-export.
+        // Instead, pass the was_playing flag and resume via the app handle.
+        drop(producer_guard);
+        was_playing
+    };
+    // Store the handle's producer as a Send-safe wrapper for the blocking task.
+    // We'll use the AppHandle to send an IPC command to resume playback.
+    let app_for_resume = app.clone();
 
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
 
@@ -106,6 +133,9 @@ async fn export_mix_cmd(
     let job_id_for_finish = job_id.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let export_sample_rate = cfg.sample_rate;
+        let export_bpm = cfg.bpm;
+        let _export_start_frame = cfg.start_frame;
+        let export_project_sr = cfg.project_sample_rate;
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = std::sync::Arc::clone(&cancel_flag);
         let mut project = project;
@@ -117,9 +147,69 @@ async fn export_mix_cmd(
         // only handles sampler-based instruments. We must pre-render VST3
         // instrument tracks HERE where we have access to the PluginHost.
         {
-            let sample_rate = export_sample_rate;
+            // ═══════════════════════════════════════════════════════════════
+            // CRITICAL: The bouncer's internal render loop operates at
+            // project_sample_rate, NOT export_sample_rate. It resamples
+            // the final mix at the very end. Pre-rendered audio must be
+            // registered at project SR so ClipScheduler plays it at the
+            // correct speed. Using export SR would cause a speed mismatch:
+            //   e.g. project=44100, export=48000 → notes play 8.8% too fast
+            //   = "notes sound earlier than they should"
+            // ═══════════════════════════════════════════════════════════════
+            let sample_rate = export_project_sr as f64;
             let total_frames = (end_frame - start_frame).max(0) as usize;
-            const CHUNK_FRAMES: usize = 4096;
+            // ═══════════════════════════════════════════════════════════════
+            // CRITICAL: CHUNK_FRAMES must NOT exceed the VST3 plugin's
+            // max_buffer_size (set during activate()). If it does,
+            // Vst3Instance::process() falls through to passthrough(), which
+            // copies silence input → silence output and the MIDI events
+            // are never actually processed by the plugin's DSP.
+            //
+            // Audio interfaces typically use 256–1024 frames. Using 512
+            // is a safe default that all plugins support.
+            // ═══════════════════════════════════════════════════════════════
+            const CHUNK_FRAMES: usize = 512;
+
+            // DIAGNOSTIC: Write export state to file for reliable debugging
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::File::create("/tmp/dream_daw_export_diag.log") {
+                    let _ = writeln!(f, "=== Dream DAW Export Diagnostic ===");
+                    let _ = writeln!(f, "total_frames: {}", total_frames);
+                    let _ = writeln!(f, "start_frame: {}, end_frame: {}", start_frame, end_frame);
+                    let _ = writeln!(f, "sample_rate: {}", sample_rate);
+                    let _ = writeln!(f, "export_bpm: {}", export_bpm);
+                    let _ = writeln!(f, "num_tracks: {}", project.tracks.len());
+                    let _ = writeln!(f, "slot_instance_map entries: {}", slot_instance_map.len());
+                    for (slot, inst) in slot_instance_map.iter() {
+                        let _ = writeln!(f, "  slot {} -> instance {}", slot, inst);
+                    }
+                    let _ = writeln!(f, "");
+                    for (i, track) in project.tracks.iter().enumerate() {
+                        let _ = writeln!(f, "Track[{}] '{}': midi_clips={}, audio_clips={}, sampler={}, instrument={}, sample_rack={}",
+                            i, track.name,
+                            track.midi_clips.len(),
+                            track.clips.len(),
+                            track.sampler.is_some(),
+                            track.instrument.is_some(),
+                            track.sample_rack.is_some(),
+                        );
+                        if let Some(ref inst) = track.instrument {
+                            match inst {
+                                DeviceNode::Single(slot) => {
+                                    let bound = slot_instance_map.get(&slot.id).copied();
+                                    let _ = writeln!(f, "  instrument: Single(slot_id={}, plugin_id={:?}), bound_instance={:?}",
+                                        slot.id, slot.plugin_id, bound);
+                                }
+                                DeviceNode::Rack(rack) => {
+                                    let _ = writeln!(f, "  instrument: Rack with {} chains", rack.chains.len());
+                                }
+                            }
+                        }
+                    }
+                    let _ = writeln!(f, "");
+                }
+            }
 
             if total_frames > 0 {
                 let mut vst3_rendered = 0usize;
@@ -174,12 +264,33 @@ async fn export_mix_cmd(
                     };
 
                     log::info!(
-                        "[Export/VST3-MIDI] Pre-rendering track '{}': {} clips, instance={}, {} frames",
+                        "[Export/VST3-MIDI] Pre-rendering track '{}': {} clips, instance={}, slot_id={}, {} frames",
                         track.name,
                         track.midi_clips.len(),
                         instance_id,
+                        slot_id,
                         total_frames
                     );
+
+                    // DIAGNOSTIC: Check if PluginHost actually contains this instance.
+                    {
+                        match plugin_host_arc.lock() {
+                            Ok(mut host) => {
+                                let has_instance = host.get_mut(instance_id).is_some();
+                                log::info!(
+                                    "[Export/VST3-MIDI] Track '{}': PluginHost.has_instance({}) = {}",
+                                    track.name, instance_id, has_instance
+                                );
+                                if !has_instance {
+                                    log::error!(
+                                        "[Export/VST3-MIDI] Track '{}': VST3 instance NOT FOUND in PluginHost! Plugin may be sandboxed.",
+                                        track.name
+                                    );
+                                }
+                            }
+                            Err(e) => log::error!("[Export/VST3-MIDI] PluginHost lock error: {}", e),
+                        }
+                    }
 
                     // ── Pre-render buffer by buffer ───────────────
                     let midi_clips = track.midi_clips.clone();
@@ -193,6 +304,21 @@ async fn export_mix_cmd(
                     > = Vec::new();
                     let mut frames_done = 0usize;
                     let mut playhead = start_frame;
+
+                    let mut total_midi_events_sent = 0usize;
+                    let mut chunk_index = 0usize;
+
+                    // Open diagnostic file in append mode for per-chunk data
+                    let mut diag_file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/dream_daw_export_diag.log")
+                        .ok();
+                    if let Some(ref mut f) = diag_file {
+                        use std::io::Write;
+                        let _ = writeln!(f, "--- PRE-RENDER: track='{}', instance={}, playhead_start={} ---",
+                            track_name, instance_id, playhead);
+                    }
 
                     while frames_done < total_frames {
                         let remaining = total_frames - frames_done;
@@ -234,11 +360,25 @@ async fn export_mix_cmd(
                                 .then_with(|| a.data[0].cmp(&b.data[0]))
                         });
 
+                        // DIAGNOSTIC: Log MIDI events for first 10 chunks to file
+                        if chunk_index < 10 || !midi_events.is_empty() {
+                            total_midi_events_sent += midi_events.len();
+                            if let Some(ref mut f) = diag_file {
+                                use std::io::Write;
+                                let _ = writeln!(f, "  chunk[{}]: playhead={}, midi_events={}, schedule_notes={}",
+                                    chunk_index, playhead, midi_events.len(), schedule_scratch.len());
+                                for (ei, ev) in midi_events.iter().enumerate().take(8) {
+                                    let _ = writeln!(f, "    event[{}]: offset={}, data=[{:#04x},{:#04x},{:#04x}]",
+                                        ei, ev.sample_offset, ev.data[0], ev.data[1], ev.data[2]);
+                                }
+                            }
+                        }
+
                         // ── Process through VST3 plugin ──────────
                         let mut chunk_left = vec![0.0f32; chunk_frames];
                         let mut chunk_right = vec![0.0f32; chunk_frames];
 
-                        // Lock plugin host, process one chunk, release immediately.
+                        // Lock plugin host, set transport context, process one chunk, release.
                         {
                             let silence_l = vec![0.0f32; chunk_frames];
                             let silence_r = vec![0.0f32; chunk_frames];
@@ -247,6 +387,19 @@ async fn export_mix_cmd(
 
                             match plugin_host_arc.lock() {
                                 Ok(mut host) => {
+                                    // Set transport context so the VST knows tempo and position.
+                                    let _ = host.set_transport_context(
+                                        instance_id,
+                                        TransportContext {
+                                            sample_rate: export_project_sr,
+                                            position_samples: playhead,
+                                            tempo: export_bpm,
+                                            is_playing: true,
+                                            is_recording: false,
+                                            time_sig_numerator: 4,
+                                            time_sig_denominator: 4,
+                                        },
+                                    );
                                     if let Err(e) = host.process_with_sidechain(
                                         instance_id,
                                         &inputs,
@@ -278,8 +431,36 @@ async fn export_mix_cmd(
                         out_right[frames_done..frames_done + chunk_frames]
                             .copy_from_slice(&chunk_right[..chunk_frames]);
 
+                        // DIAGNOSTIC: Write per-chunk peak to file
+                        if chunk_index < 10 {
+                            let chunk_peak = chunk_left.iter().chain(chunk_right.iter())
+                                .fold(0.0f32, |acc, &s| acc.max(s.abs()));
+                            if let Some(ref mut f) = diag_file {
+                                use std::io::Write;
+                                let _ = writeln!(f, "  chunk[{}]: output_peak = {:.6}", chunk_index, chunk_peak);
+                            }
+                        }
+
                         frames_done += chunk_frames;
                         playhead += chunk_frames as i64;
+                        chunk_index += 1;
+                    }
+
+                    log::info!(
+                        "[Export/VST3-MIDI] Track '{}': pre-render complete, total_midi_events_sent={}, chunks={}",
+                        track_name, total_midi_events_sent, chunk_index
+                    );
+
+                    // Write final summary to diagnostic file
+                    {
+                        let total_peak = out_left.iter().chain(out_right.iter())
+                            .fold(0.0f32, |acc, &s| acc.max(s.abs()));
+                        if let Some(ref mut f) = diag_file {
+                            use std::io::Write;
+                            let _ = writeln!(f, "--- RESULT: total_midi_events={}, chunks={}, total_peak={:.6} ---",
+                                total_midi_events_sent, chunk_index, total_peak);
+                            let _ = writeln!(f, "");
+                        }
                     }
 
                     // ── FIX-2: Apply track insert FX chain to pre-rendered audio ──
@@ -414,7 +595,7 @@ async fn export_mix_cmd(
                     // BEFORE out_left is moved into ClipAudio.
                     let rendered_frames = out_left.len();
                     let clip_audio =
-                        ClipAudio::new(synth_path.clone(), vec![out_left, out_right], sample_rate);
+                        ClipAudio::new(synth_path.clone(), vec![out_left, out_right], sample_rate as u32);
                     let _ = local_pool.insert(clip_audio);
 
                     let synth_clip = AudioClip::new(
@@ -647,6 +828,15 @@ async fn export_mix_cmd(
                 },
             )
             .map_err(|e| e.to_string());
+
+        // ── Resume playback if it was playing before export ──────────
+        if cmd_producer {
+            log::info!("[Export] Resuming playback after export");
+            // Use the app handle to invoke the 'play' IPC command.
+            // This is safer than trying to push directly to the command queue
+            // from inside spawn_blocking.
+            let _ = app_for_resume.emit("export_resume_playback", ());
+        }
 
         match result {
             Ok(_) => {

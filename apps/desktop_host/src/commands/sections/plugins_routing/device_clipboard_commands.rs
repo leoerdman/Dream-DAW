@@ -18,9 +18,13 @@ fn copy_device_from_track_cmd(
     let device_uuid = Uuid::parse_str(&device_id)
         .map_err(|_| format!("Invalid device_id: {device_id}"))?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let device_node = find_device_node_on_track(&project, track_uuid, device_uuid)
-        .ok_or_else(|| format!("Device not found on track {track_id}: {device_id}"))?;
+    let device_node = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveDeviceNodeOnTrackQuery {
+            track_id: track_uuid,
+            device_id: device_uuid,
+        },
+    )?;
 
     let device_name = device_node.name().to_owned();
     let mut clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
@@ -76,24 +80,12 @@ fn paste_device_to_track_impl(
         "paste_device_to_track_cmd",
     );
 
-    // Rebuild engine state.
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
-    plugin_host_state.publish_registry();
-
     // Send AddDevice engine command for internal effects.
     if let Some(runtime_add) = runtime_add
-        && let Some(runtime_track_index) = project
-            .tracks
-            .iter()
-            .position(|t| t.id == runtime_add.track_id)
         && let Err(e) = push_command(
             handle,
             EngineCommand::AddDevice {
-                track_index: runtime_track_index as u16,
+                track_index: runtime_add.track_index,
                 slot_index: runtime_add.slot_index,
                 effect_type: runtime_add.effect_type,
             },
@@ -101,7 +93,7 @@ fn paste_device_to_track_impl(
     {
         log::error!(
             "[IPC] Failed to push AddDevice command for track {}: {}",
-            runtime_track_index,
+            runtime_add.track_index,
             e
         );
     }
@@ -110,8 +102,13 @@ fn paste_device_to_track_impl(
         "[IPC] paste_device_to_track_cmd(track={track_id}, slot={})",
         if use_instrument { "instrument" } else { "effect" }
     );
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(app))?;
+    sync_plugin_runtime_and_mark_dirty(
+        project_state,
+        clip_pool_state,
+        plugin_host_state,
+        app,
+        true,
+    )?;
 
     Ok((result, plugin_load_error))
 }

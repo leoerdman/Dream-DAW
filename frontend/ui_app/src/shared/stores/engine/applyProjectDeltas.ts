@@ -186,7 +186,6 @@ export function applyProjectDeltasToState(
         }
         // Delta kind intentionally ignored by local reducer. Keep state stable
         // and avoid forcing heavyweight full-project refreshes.
-        // eslint-disable-next-line no-console
         console.warn(`[Delta] Unhandled delta ignored (${reason}): ${delta.kind}`);
     }
 

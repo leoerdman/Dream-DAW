@@ -1,52 +1,9 @@
-use dream_models::project::{DeviceNode, PluginSlot, Project};
+use dream_models::project::{PluginSlot, Project};
 use dream_plugins::PluginHost;
 use tauri::State;
 use uuid::Uuid;
 
-use crate::{ClipPoolState, PluginHostState, ProjectState};
-
-pub fn bind_runtime_instance_for_plugin_slots(
-    project: &Project,
-    plugin_id: &str,
-    instance_id: Uuid,
-    plugin_host_state: &State<'_, PluginHostState>,
-) {
-    fn visit_node(
-        node: &DeviceNode,
-        plugin_id: &str,
-        instance_id: Uuid,
-        plugin_host_state: &State<'_, PluginHostState>,
-    ) {
-        match node {
-            DeviceNode::Single(slot) => {
-                if slot.plugin_id == plugin_id {
-                    if !plugin_host_state.slot_instance_snapshot().contains_key(&slot.id) {
-                        plugin_host_state.bind_slot_instance(slot.id, instance_id);
-                    }
-                }
-            }
-            DeviceNode::Rack(rack) => {
-                for chain in &rack.chains {
-                    for child in &chain.devices {
-                        visit_node(child, plugin_id, instance_id, plugin_host_state);
-                    }
-                }
-            }
-        }
-    }
-
-    for track in &project.tracks {
-        if let Some(inst) = &track.instrument {
-            visit_node(inst, plugin_id, instance_id, plugin_host_state);
-        }
-        for node in &track.effects {
-            visit_node(node, plugin_id, instance_id, plugin_host_state);
-        }
-    }
-    for node in &project.master_track.effects {
-        visit_node(node, plugin_id, instance_id, plugin_host_state);
-    }
-}
+use crate::{AudioEngineHandle, AutomationRuntime, ClipPoolState, PluginHostState, ProjectState};
 
 pub fn apply_imported_external_state_blob(
     host: &mut PluginHost,
@@ -104,39 +61,6 @@ pub fn apply_imported_external_state_blob(
     Ok(())
 }
 
-pub fn collect_external_slot_refs(project: &Project) -> Vec<(Uuid, String)> {
-    fn collect_external_slots_from_node(node: &DeviceNode, out: &mut Vec<(Uuid, String)>) {
-        match node {
-            DeviceNode::Single(slot) => {
-                if !slot.plugin_id.starts_with("internal://") && !slot.plugin_id.is_empty() {
-                    out.push((slot.id, slot.plugin_id.clone()));
-                }
-            }
-            DeviceNode::Rack(rack) => {
-                for chain in &rack.chains {
-                    for child in &chain.devices {
-                        collect_external_slots_from_node(child, out);
-                    }
-                }
-            }
-        }
-    }
-
-    let mut external_slots: Vec<(Uuid, String)> = Vec::new();
-    for track in &project.tracks {
-        if let Some(inst) = &track.instrument {
-            collect_external_slots_from_node(inst, &mut external_slots);
-        }
-        for fx in &track.effects {
-            collect_external_slots_from_node(fx, &mut external_slots);
-        }
-    }
-    for fx in &project.master_track.effects {
-        collect_external_slots_from_node(fx, &mut external_slots);
-    }
-    external_slots
-}
-
 pub fn sync_external_fx_snapshot(
     project: &Project,
     clip_pool_state: &State<'_, ClipPoolState>,
@@ -154,6 +78,19 @@ pub fn sync_external_fx_snapshot_from_state(
 ) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     sync_external_fx_snapshot(&project, clip_pool_state, plugin_host_state);
+    Ok(())
+}
+
+pub fn sync_routing_and_mark_dirty(
+    project_state: &State<'_, ProjectState>,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
 
@@ -223,5 +160,50 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     plugin_host_state.publish_registry();
     drop(project);
     project_state.mark_dirty(&project_name, Some(app))?;
+    Ok(())
+}
+
+pub fn finalize_external_param_update(
+    project_state: &State<'_, ProjectState>,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+    automation_runtime: &State<'_, AutomationRuntime>,
+    app: &tauri::AppHandle,
+    should_commit_snapshot: bool,
+) -> Result<(), String> {
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    if !should_commit_snapshot {
+        return Ok(());
+    }
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    plugin_host_state.publish_registry();
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
+    Ok(())
+}
+
+pub fn finalize_internal_param_update(
+    project_state: &State<'_, ProjectState>,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    automation_runtime: &State<'_, AutomationRuntime>,
+    handle: &State<'_, AudioEngineHandle>,
+    app: &tauri::AppHandle,
+    should_commit_snapshot: bool,
+) -> Result<(), String> {
+    if should_commit_snapshot {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project_name = project.name.clone();
+        clip_pool_state.rebuild_routing_only(&project);
+        crate::state_managers::rebuild_automation_snapshot_from_project(&project, automation_runtime);
+        crate::state_managers::rebuild_sampler_snapshot_from_project(&project, clip_pool_state, handle);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(app))?;
+    } else {
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    }
     Ok(())
 }

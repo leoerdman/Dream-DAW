@@ -14,7 +14,7 @@ export function TransportLeftSection(props: {
     commitBpm: () => void;
     setBpmEditing: (next: boolean) => void;
     bpm: number;
-    bpmRef: React.RefObject<HTMLInputElement>;
+    bpmRef: React.RefObject<HTMLInputElement | null>;
     valueChipStyle: React.CSSProperties;
     cycleTimeSignature: () => void;
     timeSigNum: number;
@@ -103,7 +103,7 @@ export function TransportCenterSection(props: {
 
 export function TransportRightSection(props: {
     onOpenExport?: () => void;
-    midiLedRef: React.RefObject<HTMLSpanElement>;
+    midiLedRef: React.RefObject<HTMLSpanElement | null>;
     trackCount: number;
     pdcOpen: boolean;
     setPdcOpen: (next: boolean | ((prev: boolean) => boolean) ) => void;
@@ -139,4 +139,3 @@ const iconBtnStyle = (color: string, background: string): React.CSSProperties =>
     color,
     cursor: 'pointer',
 });
-

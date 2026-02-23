@@ -25,6 +25,7 @@ import { useDeviceRackDnD } from './useDeviceRackDnD';
 import { useDeviceRackSlotActions } from './useDeviceRackSlotActions';
 import { useDeviceRackLifecycle } from './useDeviceRackLifecycle';
 import type { AutomationLane } from '@/shared/stores/useAutomationStore';
+import type { DeviceSlot, QuickPreset } from './types';
 
 // --- Types ---
 type AutoCtxMenuState = {
@@ -36,8 +37,8 @@ type AutoCtxMenuState = {
 
 // The returned type interface remains identical to the original file to avoid breaking `DeviceRack.tsx`
 export interface DeviceRackLogicOutput {
-    chain: any[];
-    selectedTrack: any;
+    chain: DeviceSlot[];
+    selectedTrack: ReturnType<typeof useDeviceRackCore>['selectedTrack'];
     selectedTrackId: string;
     selectedDeviceIds: string[];
     isMaster: boolean;
@@ -46,7 +47,7 @@ export interface DeviceRackLogicOutput {
     outLevelL: number;
     outLevelR: number;
     isDropActive: boolean;
-    draggingItem: any;
+    draggingItem: BrowserDragItem | null;
     sidechainOptions: Array<{ id: string; name: string }>;
     pluginCapability: Record<string, { supported: boolean; reason?: string }>;
     pluginRuntimeBySlot: Record<string, PluginSlotRuntimeStatus>;
@@ -57,27 +58,27 @@ export interface DeviceRackLogicOutput {
     automationLanes: Record<string, AutomationLane>;
     rackRef: React.RefObject<HTMLDivElement | null>;
     activeParamGesturesRef: React.RefObject<Set<string>>;
-    toggleDevice: (device: any) => void;
+    toggleDevice: (device: DeviceSlot) => void;
     selectDevice: (deviceId: string, additive: boolean) => void;
     setPluginParam: (deviceId: string, paramName: string, value: number) => void;
-    sendInternalParam: (device: any, paramName: string, value: number, options?: { gestureKey?: string; forcePushUndo?: boolean }) => void;
+    sendInternalParam: (device: DeviceSlot, paramName: string, value: number, options?: { gestureKey?: string; forcePushUndo?: boolean }) => void;
     beginParamGesture: (deviceId: string, paramName: string, gestureGroupId?: string) => void;
     endParamGesture: (deviceId: string, paramName: string) => void;
-    applyQuickPreset: (device: any, preset: any) => void;
-    randomizeInternalPluginParams: (device: any) => void;
-    resetInternalPluginParams: (device: any) => void;
-    storeParamSnapshot: (device: any, slot: 'A' | 'B') => void;
-    recallParamSnapshot: (device: any, slot: 'A' | 'B') => void;
-    toggleParamSnapshot: (device: any) => void;
-    applyQuickUtilityScene: (device: any, scene: 'center' | 'mono' | 'wide') => void;
+    applyQuickPreset: (device: DeviceSlot, preset: QuickPreset) => void;
+    randomizeInternalPluginParams: (device: DeviceSlot) => void;
+    resetInternalPluginParams: (device: DeviceSlot) => void;
+    storeParamSnapshot: (device: DeviceSlot, slot: 'A' | 'B') => void;
+    recallParamSnapshot: (device: DeviceSlot, slot: 'A' | 'B') => void;
+    toggleParamSnapshot: (device: DeviceSlot) => void;
+    applyQuickUtilityScene: (device: DeviceSlot, scene: 'center' | 'mono' | 'wide') => void;
     ensureSlotRuntimeActive: (slotId: string) => Promise<PluginSlotRuntimeStatus | null>;
     setPluginSidechainSource: (slotId: string, sourceTrackId: string) => Promise<void>;
     handleParamContextMenu: (e: React.MouseEvent, paramName: string, deviceId: string) => void;
     setAutoCtxMenu: React.Dispatch<React.SetStateAction<AutoCtxMenuState>>;
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-    addAutomationLane: any;
-    removeAutomationLane: any;
-    toggleGlobalAutomation: any;
+    addAutomationLane: (trackId: string, paramName: string, paramKey: string, color?: string) => string;
+    removeAutomationLane: (laneId: string) => void;
+    toggleGlobalAutomation: () => void;
     statusClear: () => void;
     statusError: (msg: string) => void;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
@@ -109,6 +110,17 @@ export function useDeviceRackLogic(
 
     // --- Core Data ---
     const core = useDeviceRackCore(selectedTrackId);
+    const trackEffectRefs = (core.selectedTrack?.effects ?? [])
+        .map((fx) => fx.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        .map((id) => ({ id }));
+    const trackForOps = core.selectedTrack
+        ? {
+            id: core.selectedTrack.id,
+            track_type: core.selectedTrack.track_type,
+            effects: trackEffectRefs,
+        }
+        : null;
 
     // Build full chain with external parameters injected
     const { pluginCapability, pluginRuntimeBySlot, setPluginRuntimeBySlot, externalParamsBySlotId } = useDeviceProbes(
@@ -122,7 +134,7 @@ export function useDeviceRackLogic(
     const gestures = useDeviceParamGestures(
         chain,
         selectedTrackId,
-        core.selectedTrack,
+        trackForOps,
         useEngineStore.getState().projectTracks,
         core.isMaster,
         core.setLocalParams
@@ -135,7 +147,7 @@ export function useDeviceRackLogic(
     useDeviceKeyboardShortcuts(
         core.selectedDeviceIds,
         core.setSelectedDeviceIds,
-        core.selectedTrack,
+        trackForOps,
         core.setInlineSettingsOpen,
         applyProjectDeltas,
         statusClear,
@@ -171,10 +183,20 @@ export function useDeviceRackLogic(
         setPluginSidechainSource,
         sidechainOptions,
     } = useDeviceRackSlotActions({
-        selectedTrack: core.selectedTrack as any,
+        selectedTrack: core.selectedTrack
+            ? {
+                id: core.selectedTrack.id,
+                name: core.selectedTrack.name ?? 'Track',
+                effects: trackEffectRefs,
+            }
+            : null,
         localBypass: core.localBypass,
         setLocalBypass: core.setLocalBypass,
-        projectTracks: projectTracks as any,
+        projectTracks: projectTracks.map((track) => ({
+            id: track.id,
+            name: track.name,
+            effects: track.effects ?? [],
+        })),
         pluginRuntimeBySlot,
         setPluginRuntimeBySlot,
         applyProjectDeltas,
@@ -182,16 +204,26 @@ export function useDeviceRackLogic(
         statusClear,
     });
 
+    const { setSelectedDeviceIds, setLocalParams } = core;
+
     const selectDevice = useCallback((deviceId: string, additive: boolean) => {
-        core.setSelectedDeviceIds((prev) => {
+        setSelectedDeviceIds((prev) => {
             if (!additive) return [deviceId];
             return prev.includes(deviceId) ? prev.filter((id) => id !== deviceId) : [...prev, deviceId];
         });
-    }, [core.setSelectedDeviceIds]);
+    }, [setSelectedDeviceIds]);
 
     const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {
-        core.setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
-    }, [core.setLocalParams]);
+        setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
+    }, [setLocalParams]);
+
+    const toggleDeviceSafe = useCallback((device: DeviceSlot) => {
+        toggleDevice({
+            id: device.id,
+            isEnabled: device.isEnabled,
+            source: device.source === 'internal' ? 'internal' : 'external',
+        });
+    }, [toggleDevice]);
 
     useDeviceRackLifecycle({
         selectedTrackId,
@@ -225,7 +257,7 @@ export function useDeviceRackLogic(
         automationLanes,
         rackRef,
         activeParamGesturesRef: gestures.activeParamGesturesRef,
-        toggleDevice,
+        toggleDevice: toggleDeviceSafe,
         selectDevice,
         setPluginParam,
         sendInternalParam: gestures.sendInternalParam,

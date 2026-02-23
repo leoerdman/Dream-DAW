@@ -19,12 +19,13 @@ async fn move_clip_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(())
 }
@@ -58,12 +59,13 @@ async fn move_clip_with_deltas_cmd(
         new_position: new_position_frames,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -91,12 +93,13 @@ async fn resize_clip_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(())
 }
@@ -129,12 +132,13 @@ async fn resize_clip_with_deltas_cmd(
         new_duration: new_duration_frames,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(DeltaMutationResponse { deltas })
 }
@@ -161,12 +165,13 @@ async fn split_clip_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(SplitClipResponse {
         left_id: result.left_id.to_string(),
@@ -198,12 +203,13 @@ async fn split_clip_with_deltas_cmd(
         split_frame,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(SplitClipWithDeltasResponse {
         left_id: result.left_id.to_string(),
@@ -231,12 +237,13 @@ async fn delete_clip_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     clip_pool_state.evict_unused_clips(&project_state);
 
@@ -265,12 +272,13 @@ async fn delete_clip_with_deltas_cmd(
         track_index: result.track_index,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
     clip_pool_state.evict_unused_clips(&project_state);
 
     Ok(DeltaMutationResponse { deltas })
@@ -297,12 +305,13 @@ async fn duplicate_clip_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(DuplicateClipResponse {
         new_id: result.new_id.to_string(),
@@ -336,12 +345,13 @@ async fn duplicate_clip_with_deltas_cmd(
         new_position: result.new_position_frames,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     Ok(DuplicateClipWithDeltasResponse {
         new_id: result.new_id.to_string(),
@@ -366,12 +376,13 @@ async fn merge_clips_cmd(
 
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::FullSnapshot,
+    )?;
 
     Ok(MergeClipsResponse {
         new_id: result.new_id.to_string(),
@@ -403,12 +414,13 @@ async fn merge_clips_with_deltas_cmd(
         new_clip_id: result.new_id,
     }];
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::FullSnapshot,
+    )?;
 
     Ok(MergeClipsWithDeltasResponse {
         new_id: result.new_id.to_string(),

@@ -62,8 +62,6 @@ interface TimelineProps {
     fitHorizontalToken?: number;
 }
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
@@ -431,7 +429,8 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.setClips(clipData);
         // BUG-A FIX: Immediately re-apply clip selection AFTER setClips to prevent
-        // deselection on fetchProject. setClips resets all clip.selected flags to false,
+        // deselection after snapshot/delta project swaps. setClips resets all
+        // clip.selected flags to false,
         // so we must re-apply the selection atomically within the same effect.
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates]);

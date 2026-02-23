@@ -42,7 +42,7 @@ export function useArrangementTrackViewModel({
     setBottomPanelMode,
     applyProjectDeltas,
 }: Args): Result {
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [collapsedOverrides, setCollapsedOverrides] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (projectTracks.length === 0) {
@@ -79,7 +79,7 @@ export function useArrangementTrackViewModel({
         return `${name} · ${deviceCount} devices`;
     }, [projectTracks, selectedTrackId]);
 
-    useEffect(() => {
+    const baseCollapsedGroups = useMemo(() => {
         const collapsed = new Set<string>();
         for (const track of projectTracks) {
             const normalized = (track.track_type ?? '').toLowerCase();
@@ -87,29 +87,32 @@ export function useArrangementTrackViewModel({
                 collapsed.add(track.id);
             }
         }
-        setCollapsedGroups(collapsed);
+        return collapsed;
     }, [projectTracks]);
 
+    const collapsedGroups = useMemo(() => {
+        const merged = new Set(baseCollapsedGroups);
+        for (const [groupId, isCollapsed] of Object.entries(collapsedOverrides)) {
+            if (isCollapsed) merged.add(groupId);
+            else merged.delete(groupId);
+        }
+        return merged;
+    }, [baseCollapsedGroups, collapsedOverrides]);
+
     const toggleGroupCollapse = useCallback((groupId: string) => {
-        setCollapsedGroups((prev) => {
-            const next = new Set(prev);
-            let expanded = true;
-            if (next.has(groupId)) {
-                next.delete(groupId);
-                expanded = true;
-            } else {
-                next.add(groupId);
-                expanded = false;
-            }
-            void engineApi
-                .setGroupExpandedWithDeltas(groupId, expanded)
-                .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
-                .catch((err) => {
-                    console.error('[DawShell] setGroupExpanded failed:', err);
-                });
-            return next;
-        });
-    }, [applyProjectDeltas]);
+        const currentlyCollapsed = collapsedGroups.has(groupId);
+        const expanded = currentlyCollapsed;
+        setCollapsedOverrides((prev) => ({
+            ...prev,
+            [groupId]: !currentlyCollapsed,
+        }));
+        void engineApi
+            .setGroupExpandedWithDeltas(groupId, expanded)
+            .then((response) => applyProjectDeltas(response.deltas, 'daw-shell:set-group-expanded'))
+            .catch((err) => {
+                console.error('[DawShell] setGroupExpanded failed:', err);
+            });
+    }, [applyProjectDeltas, collapsedGroups]);
 
     const trackIds = useMemo(() => projectTracks.map((track) => track.id), [projectTracks]);
     const hiddenTrackIndices = useMemo(() => {

@@ -1,21 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════════
-// useAssetBrowserLogic — extracted state/effects/callbacks from AssetBrowser
-// ═══════════════════════════════════════════════════════════════════════
-//
-// All React hooks (state, refs, effects, callbacks, memos) extracted here.
-// AssetBrowser.tsx becomes a pure *rendering* component.
-//
-// ═══════════════════════════════════════════════════════════════════════
-
 import { useState, useCallback, useMemo, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
-import {
-    STATIC_CATEGORIES,
-} from './assetBrowserSchema';
+import { STATIC_CATEGORIES } from './assetBrowserSchema';
 import type { BrowserCategory, BrowserItem, PluginGroupedRow } from './assetBrowserSchema';
 export type { BrowserCategory, BrowserItem, PluginGroupedRow } from './assetBrowserSchema';
 export {
@@ -46,16 +35,12 @@ import {
 } from './assetBrowserItemPipeline';
 import { useAssetBrowserEffects } from './useAssetBrowserEffects';
 
-// ── Hook ────────────────────────────────────────────────────
-
 export function useAssetBrowserLogic() {
-    // ── Store selectors ─────────────────────────────────────
     const settings = useSettingsStore((s) => s.settings);
     const settingsLoaded = useSettingsStore((s) => s.loaded);
     const updateAllSettings = useSettingsStore((s) => s.updateAllSettings);
     const projectTracks = useEngineStore((s) => s.projectTracks);
 
-    // ── State ───────────────────────────────────────────────
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const [collectionItems, setCollectionItems] = useState<Record<CollectionId, Set<string>>>(loadCollections);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: BrowserItem } | null>(null);
@@ -93,7 +78,6 @@ export function useAssetBrowserLogic() {
     const [folderItems, setFolderItems] = useState<BrowserFileEntry[]>([]);
     const [folderScanPath, setFolderScanPath] = useState<string | null>(null);
 
-    // ── Refs ─────────────────────────────────────────────────
     const contextMenuRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const fileListRef = useRef<HTMLDivElement>(null);
@@ -110,12 +94,10 @@ export function useAssetBrowserLogic() {
     const previewRequestToken = useRef<number>(0);
     const isPreviewPlayingRef = useRef(false);
 
-    // ── Computed: scan state ────────────────────────────────
     const scanLoading = sampleScanLoading || pluginScanLoading || folderScanLoading;
     const scanError = sampleScanError || pluginScanError || folderScanError;
     const isSamplesCategory = ['samples', 'all', 'drums'].includes(selectedCategoryId);
 
-    // ── Dynamic categories ──────────────────────────────────
     const categories = useMemo<BrowserCategory[]>(() => {
         const folderCats: BrowserCategory[] = userFolders.map((p, i) => {
             const name = p.split('/').pop() || p;
@@ -150,7 +132,6 @@ export function useAssetBrowserLogic() {
             ? userLibraryFolder
             : activeCategory?.folderPath || null;
 
-    // ── Browser items ───────────────────────────────────────
     const realBrowserItems: BrowserItem[] = useMemo(
         () => mapRealBrowserItems(realFiles),
         [realFiles],
@@ -166,7 +147,6 @@ export function useAssetBrowserLogic() {
         [folderItems, expandedFolders, folderChildrenCache, loadingFolders],
     );
 
-    // ── Filtered & sorted items ─────────────────────────────
     const items = useMemo(() => computeBrowserItems({
         selectedCategoryId,
         debouncedQuery,
@@ -197,7 +177,6 @@ export function useAssetBrowserLogic() {
         sourceFilter,
     ]);
 
-    // ── Plugin grouped rows ─────────────────────────────────
     const pluginGroupedRows = useMemo<PluginGroupedRow[]>(
         () => buildPluginGroupedRows(selectedCategoryId, items),
         [selectedCategoryId, items],
@@ -215,8 +194,6 @@ export function useAssetBrowserLogic() {
         const firstChar = selected.name.trim().charAt(0).toUpperCase();
         return /^[A-Z]$/.test(firstChar) ? firstChar : '#';
     }, [selectedCategoryId, selectedItemId, items]);
-
-    // ── Callbacks ───────────────────────────────────────────
 
     const persistBrowserPrefs = useCallback((patch: {
         browserShowSizeColumn?: boolean;
@@ -554,6 +531,15 @@ export function useAssetBrowserLogic() {
         window.addEventListener('mouseup', onUp);
     }, [persistBrowserPrefs]);
 
+    const setItemRowRef = useCallback((id: string, element: HTMLDivElement | null) => {
+        itemRowRefs.current[id] = element;
+    }, []);
+
+    const getAudioDurationSec = useCallback((path: string) => audioDurationSecRef.current[path], []);
+    const setPreviewPlaying = useCallback((isPlaying: boolean) => {
+        isPreviewPlayingRef.current = isPlaying;
+    }, []);
+
     useAssetBrowserEffects({
         leftPaneWidth,
         leftPaneWidthRef,
@@ -609,7 +595,6 @@ export function useAssetBrowserLogic() {
         itemRowRefs,
     });
 
-    // ── Return ──────────────────────────────────────────────
     return {
         // Refs
         contextMenuRef,
@@ -683,6 +668,9 @@ export function useAssetBrowserLogic() {
         pluginBrowserItems,
         triggerPluginScan,
         focusResults,
+        setItemRowRef,
+        getAudioDurationSec,
+        setPreviewPlaying,
         saveCollections,
         saveCollectionLabels,
         engineApi,

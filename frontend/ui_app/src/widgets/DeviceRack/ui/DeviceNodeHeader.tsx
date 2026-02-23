@@ -1,5 +1,6 @@
 import type React from 'react';
 import { formatBadgeColor } from '@/shared/config/pluginManifest';
+import type { PluginFormat } from '@/shared/config/pluginManifest';
 import type * as engineApi from '@/shared/api/engine';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 
@@ -38,6 +39,10 @@ export function DeviceNodeHeader({
     onOpenSettings,
     onSelect,
 }: DeviceNodeHeaderProps) {
+    const resolvedPluginFormat: PluginFormat = (
+        pluginFormat === 'INT' || pluginFormat === 'VST2' || pluginFormat === 'VST3' || pluginFormat === 'AU'
+    ) ? pluginFormat : 'INT';
+
     return (
         <div
             draggable
@@ -220,7 +225,7 @@ export function DeviceNodeHeader({
             <span
                 style={{
                     fontSize: 6,
-                    color: formatBadgeColor(pluginFormat as any),
+                    color: formatBadgeColor(resolvedPluginFormat),
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     flexShrink: 0,
                     opacity: 0.6,

@@ -1,6 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { beatToFrame, resolveSampleRate } from '../../shared/lib/audioMath';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useState, useRef, useCallback } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
@@ -15,20 +13,9 @@ import {
 } from './model/transportBarDomain';
 import { DebugPanel } from './ui/DebugPanel';
 import { useTransportDebugPanel } from './model/useTransportDebugPanel';
-import {
-    Play,
-    Square,
-    Circle,
-    Rewind,
-    RotateCcw,
-    ArrowRight,
-    Music,
-    Settings,
-    Eye,
-    EyeOff,
-    Pencil,
-    Bot,
-} from 'lucide-react';
+import { useMidiActivityLed } from './model/useMidiActivityLed';
+import { useTransportRecording } from './model/useTransportRecording';
+import { TransportCenterSection, TransportLeftSection, TransportRightSection } from './ui/TransportSections';
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -81,7 +68,7 @@ export const TransportBar = ({
     const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
     const togglePianoPencilMode = useGridStore((s) => s.togglePianoPencilMode);
 
-    const [isRecording, setIsRecording] = useState(false);
+    const { isRecording, handleRecordToggle, stopRecordingIfNeeded } = useTransportRecording(projectTracks, onRecordingStateChange);
     const [bpmEditing, setBpmEditing] = useState(false);
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
@@ -96,8 +83,7 @@ export const TransportBar = ({
     const position = computeTransportPosition(posBeats, timeSigNum);
 
     const tapTimestamps = useRef<number[]>([]);
-    const midiLedRef = useRef<HTMLSpanElement>(null);
-    const midiLedTimerRef = useRef<number | null>(null);
+    const { midiLedRef } = useMidiActivityLed();
     const {
         pdcOpen,
         setPdcOpen,
@@ -178,283 +164,66 @@ export const TransportBar = ({
         cursor: 'pointer',
     };
 
-    const handleRecordToggle = useCallback(async () => {
-        const armedTrackIndex = Math.max(0, projectTracks.findIndex((t) => t.is_armed));
-        try {
-            if (!isRecording) {
-                await engineApi.startRecording();
-                setIsRecording(true);
-                onRecordingStateChange?.({ active: true, trackIndex: armedTrackIndex });
-            } else {
-                await engineApi.stopRecording();
-                setIsRecording(false);
-                onRecordingStateChange?.({ active: false, trackIndex: armedTrackIndex });
-            }
-        } catch (err) {
-            console.error('[TransportBar] Recording toggle failed:', err);
-        }
-    }, [projectTracks, isRecording, onRecordingStateChange]);
-
-    useEffect(() => {
-        let unlisten: UnlistenFn | null = null;
-        let cancelled = false;
-
-        void listen<Record<string, unknown>>('midi_event_received', () => {
-            const led = midiLedRef.current;
-            if (!led) return;
-            led.style.opacity = '1';
-            if (midiLedTimerRef.current !== null) {
-                window.clearTimeout(midiLedTimerRef.current);
-            }
-            midiLedTimerRef.current = window.setTimeout(() => {
-                if (midiLedRef.current) midiLedRef.current.style.opacity = '0.35';
-            }, 50);
-        }).then((fn) => {
-            if (cancelled) fn(); else unlisten = fn;
-        }).catch((err) => {
-            console.error('[TransportBar] midi_event_received listener failed:', err);
-        });
-
-        return () => {
-            cancelled = true;
-            if (midiLedTimerRef.current !== null) {
-                window.clearTimeout(midiLedTimerRef.current);
-                midiLedTimerRef.current = null;
-            }
-            if (unlisten) unlisten();
-        };
-    }, []);
-
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <PillSection>
-                        <ControlButton label="Tap" onClick={handleTapTempo} />
-                        {bpmEditing ? (
-                            <input
-                                ref={bpmRef}
-                                type="text"
-                                value={bpmText}
-                                onChange={(e) => setBpmText(e.target.value)}
-                                onBlur={commitBpm}
-                                onKeyDown={(e) => e.key === 'Enter' && commitBpm()}
-                                autoFocus
-                                style={{
-                                    width: 56,
-                                    background: valueChipStyle.background,
-                                    color: 'var(--color-text-primary)',
-                                    border: '1px solid var(--color-accent-primary)',
-                                    borderRadius: 'var(--radius-xs)',
-                                    fontFamily: valueChipStyle.fontFamily,
-                                    fontSize: valueChipStyle.fontSize,
-                                    fontWeight: valueChipStyle.fontWeight,
-                                    textAlign: 'center',
-                                    padding: '2px 6px',
-                                    outline: 'none',
-                                }}
-                            />
-                        ) : (
-                            <button
-                                onClick={() => { setBpmEditing(true); setBpmText(bpm.toFixed(2)); }}
-                                style={valueChipStyle}
-                            >
-                                {bpm.toFixed(2)}
-                            </button>
-                        )}
-                        <button onClick={cycleTimeSignature} style={valueChipStyle} title="Time Signature">
-                            {timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 1px' }}>/</span>{timeSigDen}
-                        </button>
-                    </PillSection>
+                <TransportLeftSection
+                    handleTapTempo={handleTapTempo}
+                    bpmEditing={bpmEditing}
+                    bpmText={bpmText}
+                    setBpmText={setBpmText}
+                    commitBpm={commitBpm}
+                    setBpmEditing={setBpmEditing}
+                    bpm={bpm}
+                    bpmRef={bpmRef}
+                    valueChipStyle={valueChipStyle}
+                    cycleTimeSignature={cycleTimeSignature}
+                    timeSigNum={timeSigNum}
+                    timeSigDen={timeSigDen}
+                    keyEnabled={keyEnabled}
+                    keyTonic={keyTonic}
+                    keyMode={keyMode}
+                    cycleKeyTonic={cycleKeyTonic}
+                    cycleKeyMode={cycleKeyMode}
+                />
 
-                    <PillSection>
-                        <TransportBtn
-                            icon={<Music size={13} fill={keyEnabled ? 'currentColor' : 'none'} />}
-                            title="Enable Key"
-                            isActive={keyEnabled}
-                            activeColor="var(--color-accent-primary)"
-                            onClick={() => {
-                                const next = !keyEnabled;
-                                void engineApi
-                                    .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
-                                    .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
-                            }}
-                        />
-                        <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} />
-                        <ControlButton label={KEY_MODES[keyMode]} onClick={cycleKeyMode} />
-                    </PillSection>
-                </div>
+                <TransportCenterSection
+                    isPlaying={isPlaying}
+                    togglePlay={togglePlay}
+                    engineStop={engineStop}
+                    isRecording={isRecording}
+                    handleRecordToggle={handleRecordToggle}
+                    stopRecordingIfNeeded={stopRecordingIfNeeded}
+                    isLooping={isLooping}
+                    loopStartFrames={loopStartFrames}
+                    loopEndFrames={loopEndFrames}
+                    sampleRate={sampleRate}
+                    bpm={bpm}
+                    posBeats={posBeats}
+                    timeSigNum={timeSigNum}
+                    engineSetLoop={engineSetLoop}
+                    followPlayhead={followPlayhead}
+                    onFollowPlayheadChange={onFollowPlayheadChange}
+                    pianoPencilMode={pianoPencilMode}
+                    togglePianoPencilMode={togglePianoPencilMode}
+                    automationVisible={automationVisible}
+                    onAutomationToggle={onAutomationToggle}
+                    onFitTimelineHorizontally={onFitTimelineHorizontally}
+                    onResetTrackHeights={onResetTrackHeights}
+                    posString={posString}
+                    valueChipStyle={valueChipStyle}
+                />
 
-                <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-                    <PillSection>
-                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind to Start" onClick={() => { void engineApi.seekToBeat(0); }} />
-                        <TransportBtn
-                            icon={<Play size={13} fill="currentColor" />}
-                            title="Play"
-                            isActive={isPlaying}
-                            activeColor="var(--color-status-success)"
-                            activeBackground={false}
-                            onClick={() => {
-                                void engineApi.stopPreview().catch((err) => {
-                                    console.warn('[TransportBar] stopPreview before play failed:', err);
-                                });
-                                togglePlay();
-                            }}
-                        />
-                        <TransportBtn
-                            icon={<Square size={13} fill="currentColor" />}
-                            title="Stop"
-                            onClick={() => {
-                                engineStop();
-                                if (isRecording) {
-                                    engineApi.stopRecording().catch((err) => console.error('[TransportBar] stopRecording failed:', err));
-                                    setIsRecording(false);
-                                    onRecordingStateChange?.({
-                                        active: false,
-                                        trackIndex: Math.max(0, projectTracks.findIndex((t) => t.is_armed)),
-                                    });
-                                }
-                            }}
-                        />
-                        <TransportBtn
-                            icon={<Circle size={12} fill="currentColor" />}
-                            title="Record"
-                            isActive={isRecording}
-                            activeColor="var(--color-status-record)"
-                            className={isRecording ? 'animate-pulse-record' : ''}
-                            onClick={() => { void handleRecordToggle(); }}
-                        />
-                        <TransportBtn
-                            icon={<RotateCcw size={13} />}
-                            title="Toggle Loop"
-                            isActive={isLooping}
-                            activeColor="var(--color-accent-primary)"
-                            onClick={() => {
-                                const newEnabled = !isLooping;
-                                if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
-                                    const sr = resolveSampleRate(sampleRate);
-                                    const currentBpm = bpm || 120;
-                                    const startF = beatToFrame(posBeats, currentBpm, sr);
-                                    const endF = beatToFrame(posBeats + timeSigNum, currentBpm, sr);
-                                    void engineSetLoop(true, startF, endF);
-                                } else {
-                                    void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
-                                }
-                            }}
-                        />
-                        <TransportBtn
-                            icon={<ArrowRight size={13} strokeWidth={followPlayhead ? 3 : 2} />}
-                            title="Follow Playhead"
-                            isActive={followPlayhead}
-                            activeColor="var(--color-accent-primary)"
-                            onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
-                        />
-                        <TransportBtn
-                            icon={<Pencil size={13} />}
-                            title="Pencil Mode"
-                            isActive={pianoPencilMode}
-                            activeColor="var(--color-accent-primary)"
-                            onClick={togglePianoPencilMode}
-                        />
-                        <TransportBtn
-                            icon={
-                                <svg width={13} height={13} viewBox="0 0 16 16" fill="none">
-                                    <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                                    <text x="8" y="12" textAnchor="middle" fill="currentColor" fontSize="10" fontWeight="700" fontFamily="system-ui">A</text>
-                                </svg>
-                            }
-                            title="Automation (A)"
-                            isActive={automationVisible}
-                            activeColor="var(--color-accent-primary)"
-                            onClick={() => onAutomationToggle?.()}
-                        />
-                        <ControlButton label="W" onClick={() => onFitTimelineHorizontally?.()} />
-                        <ControlButton label="H" onClick={() => onResetTrackHeights?.()} />
-                        <span style={{ ...valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>
-                            {posString}
-                        </span>
-                    </PillSection>
-                </div>
-
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-                    <PillSection>
-                        <ControlButton label="Bounce" onClick={() => onOpenExport?.()} />
-                        <span
-                            ref={midiLedRef}
-                            style={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                background: 'var(--color-status-success)',
-                                opacity: 0.35,
-                                boxShadow: '0 0 8px color-mix(in srgb, var(--color-status-success) 75%, transparent)',
-                                transition: 'opacity 40ms linear',
-                            }}
-                        />
-                        <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-midi-indicator)' }}>MIDI</span>
-                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                            {projectTracks.length} Tracks
-                        </span>
-                        <button
-                            onClick={() => setPdcOpen((v) => !v)}
-                            title="Debug Panel"
-                            style={{
-                                width: 24,
-                                height: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: pdcOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent',
-                                border: 'none',
-                                borderRadius: 'var(--radius-xs)',
-                                color: pdcOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            {pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}
-                        </button>
-                        <button
-                            onClick={() => onAssistantToggle?.()}
-                            title="AI Assistant"
-                            style={{
-                                width: 24,
-                                height: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: assistantOpen
-                                    ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)'
-                                    : 'transparent',
-                                border: 'none',
-                                borderRadius: 'var(--radius-xs)',
-                                color: assistantOpen
-                                    ? 'var(--color-accent-primary)'
-                                    : 'var(--color-text-secondary)',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            <Bot size={15} />
-                        </button>
-                        <button
-                            onClick={onSettingsClick}
-                            title="Settings (⌘,)"
-                            style={{
-                                width: 24,
-                                height: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                background: 'transparent',
-                                border: 'none',
-                                borderRadius: 'var(--radius-xs)',
-                                color: 'var(--color-text-secondary)',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            <Settings size={15} />
-                        </button>
-                    </PillSection>
-                </div>
+                <TransportRightSection
+                    onOpenExport={onOpenExport}
+                    midiLedRef={midiLedRef}
+                    trackCount={projectTracks.length}
+                    pdcOpen={pdcOpen}
+                    setPdcOpen={setPdcOpen}
+                    assistantOpen={assistantOpen}
+                    onAssistantToggle={onAssistantToggle}
+                    onSettingsClick={onSettingsClick}
+                />
                 {pdcOpen && (
                     <DebugPanel
                         panelRef={pdcPanelRef}
@@ -489,74 +258,3 @@ export const TransportBar = ({
         </div>
     );
 };
-
-const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
-    <div
-        style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '0 8px',
-            margin: '0 4px',
-            height: 26,
-            borderRadius: 'var(--radius-md)',
-            background: 'color-mix(in srgb, var(--color-bg-panel) 80%, transparent)',
-            border: '1px solid var(--color-divider)',
-            ...style,
-        }}
-    >
-        {children}
-    </div>
-);
-
-const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () => void; dimmed?: boolean }) => (
-    <button
-        onClick={onClick}
-        className="btn-control"
-        style={{
-            fontFamily: 'var(--font-mono)',
-            opacity: dimmed ? 0.35 : 1,
-        }}
-    >
-        {label}
-    </button>
-);
-
-const TransportBtn = ({
-    icon,
-    title,
-    isActive,
-    activeColor,
-    activeBackground = true,
-    onClick,
-    className,
-}: {
-    icon: React.ReactNode;
-    title: string;
-    isActive?: boolean;
-    activeColor?: string;
-    activeBackground?: boolean;
-    onClick: () => void;
-    className?: string;
-}) => (
-    <button
-        onClick={onClick}
-        title={title}
-        className={className}
-        style={{
-            width: 22,
-            height: 22,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: isActive && activeBackground ? `color-mix(in srgb, ${activeColor} 15%, transparent)` : 'transparent',
-            border: 'none',
-            borderRadius: 'var(--radius-xs)',
-            color: isActive ? activeColor : 'var(--color-text-secondary)',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)',
-        }}
-    >
-        {icon}
-    </button>
-);

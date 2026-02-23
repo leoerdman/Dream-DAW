@@ -209,10 +209,9 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     // ── Keyboard Shortcuts ────────────────────────────────────────────
     // NOTE: Cmd+N and Cmd+O are handled exclusively by the native macOS
     // menu (useNativeMenu) via Tauri accelerators. Registering them here
-    // too would cause duplicate handlers: both would call pickProjectFile,
-    // openProject, and fetchProject concurrently, creating a race where
-    // the stale-response guard discards the first result, leaving the UI
-    // stuck on stale tracks.
+    // too would cause duplicate handlers: both would call pickProjectFile/openProject
+    // and apply overlapping snapshot deltas concurrently, creating a race where
+    // stale updates can win and leave UI state behind.
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {

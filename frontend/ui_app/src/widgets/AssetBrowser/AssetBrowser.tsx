@@ -7,27 +7,83 @@ import { AssetBrowserOverlays } from './ui/AssetBrowserOverlays';
 
 export const AssetBrowser = () => {
     const logic = useAssetBrowserLogic();
+    const {
+        debouncedQuery,
+        setDebouncedQuery,
+        searchRef,
+        handleBrowserKeyDown,
+        splitRootRef,
+        leftPaneWidth,
+        categories,
+        collapsedSections,
+        selectedCategoryId,
+        toggleSection,
+        handleAddFolder,
+        setSelectedCategoryId,
+        fileListRef,
+        handleRemoveFolder,
+        setCollectionLabels,
+        saveCollectionLabels,
+        beginSplitResize,
+        columnMenuPos,
+        columnMenuRef,
+        toggleSizeColumn,
+        toggleTypeColumn,
+        showSizeColumn,
+        showTypeColumn,
+        contextMenu,
+        contextMenuRef,
+        collectionItems,
+        saveCollections,
+        setCollectionItems,
+        setContextMenu,
+    } = logic;
 
     return (
         <div data-testid="asset-browser" style={rootStyle}>
             <div style={searchBarWrapStyle}>
                 <AssetSearchInput
-                    debouncedQuery={logic.debouncedQuery}
-                    setDebouncedQuery={logic.setDebouncedQuery}
-                    searchRef={logic.searchRef}
-                    handleBrowserKeyDown={logic.handleBrowserKeyDown}
+                    debouncedQuery={debouncedQuery}
+                    setDebouncedQuery={setDebouncedQuery}
+                    searchRef={searchRef}
+                    handleBrowserKeyDown={handleBrowserKeyDown}
                 />
             </div>
 
-            <div style={splitLayoutStyle} ref={logic.splitRootRef}>
-                <div style={{ ...leftPaneWrapStyle, width: logic.leftPaneWidth }}>
-                    <AssetBrowserSidebar logic={logic} />
+            <div style={splitLayoutStyle} ref={splitRootRef}>
+                <div style={{ ...leftPaneWrapStyle, width: leftPaneWidth }}>
+                    <AssetBrowserSidebar
+                        categories={categories}
+                        collapsedSections={collapsedSections}
+                        selectedCategoryId={selectedCategoryId}
+                        toggleSection={toggleSection}
+                        handleAddFolder={handleAddFolder}
+                        setSelectedCategoryId={setSelectedCategoryId}
+                        fileListRef={fileListRef}
+                        handleRemoveFolder={handleRemoveFolder}
+                        setCollectionLabels={setCollectionLabels}
+                        saveCollectionLabels={saveCollectionLabels}
+                    />
                 </div>
-                <div onMouseDown={logic.beginSplitResize} style={splitHandleStyle} />
+                <div onMouseDown={beginSplitResize} style={splitHandleStyle} />
                 <AssetBrowserMainPane logic={logic} />
             </div>
 
-            <AssetBrowserOverlays logic={logic} />
+            <AssetBrowserOverlays
+                columnMenuPos={columnMenuPos}
+                columnMenuRef={columnMenuRef}
+                toggleSizeColumn={toggleSizeColumn}
+                toggleTypeColumn={toggleTypeColumn}
+                showSizeColumn={showSizeColumn}
+                showTypeColumn={showTypeColumn}
+                contextMenu={contextMenu}
+                contextMenuRef={contextMenuRef}
+                collectionItems={collectionItems}
+                selectedCategoryId={selectedCategoryId}
+                saveCollections={saveCollections}
+                setCollectionItems={setCollectionItems}
+                setContextMenu={setContextMenu}
+            />
         </div>
     );
 };
@@ -64,4 +120,3 @@ const splitHandleStyle: React.CSSProperties = {
     background: 'transparent',
     flexShrink: 0,
 };
-

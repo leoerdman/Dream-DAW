@@ -2,7 +2,7 @@ import { memo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { TypeIcon } from './AssetBrowserPrimitives';
-import { renderHighlightedMatch } from './AssetBrowserRows';
+import { renderHighlightedMatch } from './AssetBrowserRowUtils';
 import type { RowBaseProps } from './AssetBrowserRows';
 
 export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
@@ -28,7 +28,7 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
 
 export const PluginGroupItemRow = memo(function PluginGroupItemRow({
     item, ROW_HEIGHT, isSelected, debouncedQuery, showTypeColumn, showSizeColumn,
-    audioDurationSecRef, isPreviewPlayingRef, itemRowRefs, setSelectedItemId, syncPreviewForItem, setContextMenu, fileListRef,
+    getAudioDurationSec, isPreviewPlayingRef, bindItemRowRef, setSelectedItemId, syncPreviewForItem, setContextMenu, fileListRef,
 }: RowBaseProps & { ROW_HEIGHT: number }) {
     const isAudio = item.type === 'audio';
     const isPlugin = item.type === 'plugin';
@@ -36,11 +36,11 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
     const pluginTypeLabel = item.pluginSource === 'internal' ? 'Internal' : item.pluginSource === 'vst3' ? 'VST3' : item.pluginSource === 'vst2' ? 'VST2' : item.pluginSource === 'au' ? 'AU' : (item.format || 'Plugin');
     const typeLabel = item.isDirectory ? 'Folder' : (item.type === 'audio' ? (item.format || 'Audio').toUpperCase() : (item.type === 'plugin' ? pluginTypeLabel : (item.format || item.type)));
     const sizeLabel = item.sizeBytes && !item.isDirectory ? (item.sizeBytes >= 1024 * 1024 ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(item.sizeBytes / 1024)} KB`) : '';
-    void audioDurationSecRef;
+    void getAudioDurationSec;
 
     return (
         <div
-            ref={(el) => { itemRowRefs.current[item.id] = el; }}
+            ref={(el) => bindItemRowRef(item.id, el)}
             onClick={() => {
                 setContextMenu(null);
                 if (isSelected) {

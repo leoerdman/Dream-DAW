@@ -5,8 +5,8 @@
 // Pure functions that convert ts-rs generated types (from Rust SSOT) into
 // the UI-friendly `ProjectTrack` shape consumed by React components.
 //
-// This eliminates the 70+ line inline type assertion in fetchProject and
-// prevents drift between the Rust model and the TypeScript UI layer.
+// This eliminates large inline payload assertions in project hydration paths
+// and prevents drift between the Rust model and the TypeScript UI layer.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 

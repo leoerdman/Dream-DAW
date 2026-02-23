@@ -1,0 +1,64 @@
+import type * as React from 'react';
+import type { AudioFileEntry, BrowserFileEntry } from '@/shared/api/engine';
+import type { BrowserItem } from './assetBrowserSchema';
+
+type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
+
+export interface UseAssetBrowserEffectsParams {
+    leftPaneWidth: number;
+    leftPaneWidthRef: React.MutableRefObject<number>;
+    setUserFolders: SetState<string[]>;
+    prevCategoryRef: React.MutableRefObject<string>;
+    selectedCategoryId: string;
+    setSourceFilter: SetState<number>;
+    setFormatFilter: SetState<number>;
+    setAudioFilter: SetState<number>;
+    setSizeFilter: SetState<number>;
+    setPluginSourceFilter: SetState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external'>;
+    searchRef: React.RefObject<HTMLInputElement | null>;
+    setDebouncedQuery: SetState<string>;
+    fileListRef: React.RefObject<HTMLDivElement | null>;
+    setExpandedFolders: SetState<Set<string>>;
+    setFolderChildrenCache: SetState<Map<string, BrowserItem[]>>;
+    contextMenu: { x: number; y: number; item: BrowserItem } | null;
+    contextMenuRef: React.RefObject<HTMLDivElement | null>;
+    setContextMenu: SetState<{ x: number; y: number; item: BrowserItem } | null>;
+    setCurrentProjectFolder: SetState<string | null>;
+    settingsLoaded: boolean;
+    settings: {
+        browserShowSizeColumn: boolean;
+        browserShowTypeColumn: boolean;
+        browserLeftPaneWidth: number;
+    };
+    setShowSizeColumn: SetState<boolean>;
+    setShowTypeColumn: SetState<boolean>;
+    setLeftPaneWidth: SetState<number>;
+    isSamplesCategory: boolean;
+    scanTriggeredRef: React.MutableRefObject<boolean>;
+    setSampleScanLoading: SetState<boolean>;
+    setSampleScanError: SetState<string | null>;
+    setRealFiles: SetState<AudioFileEntry[]>;
+    pluginScanNonce: number;
+    pluginScanned: boolean;
+    setPluginScanError: SetState<string | null>;
+    setPluginScanLoading: SetState<boolean>;
+    setPluginFiles: SetState<BrowserFileEntry[]>;
+    setPluginScanned: SetState<boolean>;
+    activeFolderPath: string | null;
+    folderScanPath: string | null;
+    setFolderScanPath: SetState<string | null>;
+    setFolderScanLoading: SetState<boolean>;
+    setFolderScanError: SetState<string | null>;
+    setFolderItems: SetState<BrowserFileEntry[]>;
+    prevActiveFolderRef: React.MutableRefObject<string | null>;
+    setLoadingFolders: SetState<Set<string>>;
+    items: BrowserItem[];
+    selectedItemId: string | null;
+    setSelectedItemId: SetState<string | null>;
+    columnMenuPos: { x: number; y: number } | null;
+    columnMenuRef: React.RefObject<HTMLDivElement | null>;
+    setColumnMenuPos: SetState<{ x: number; y: number } | null>;
+    prevCatForPreviewRef: React.MutableRefObject<string>;
+    isPreviewPlayingRef: React.MutableRefObject<boolean>;
+    itemRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+}

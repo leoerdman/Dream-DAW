@@ -1,16 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — AutomationLane (SVG Breakpoint Editor)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Renders automation breakpoints as an SVG overlay on each track row.
-// Supports:
-//   - Linear, Bézier, and step interpolation curves
-//   - Click-to-add breakpoints
-//   - Drag-to-move breakpoints
-//   - Visual feedback for selection and hover
-//   - Translucent fill below the curve
-//
-// ═══════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import throttle from 'lodash.throttle';
 import {
@@ -20,8 +7,8 @@ import {
 } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
+import { AutomationLaneSvg } from './AutomationLaneSvg';
 
-// ── Types ────────────────────────────────────────────────────────────────
 
 interface AutomationLaneProps {
     /** Lane data from the automation store. */
@@ -35,14 +22,12 @@ interface AutomationLaneProps {
     /** Scroll offset in beats. */
     scrollOffsetBeats: number;
 }
-// ── Constants ────────────────────────────────────────────────────────────
 
 const BP_RADIUS = 5;
 const BP_RADIUS_HOVER = 7;
 const LINE_WIDTH = 1.5;
 const FILL_OPACITY = 0.12;
 const CURVE_TENSION_DEFAULT = 0.35;
-// ── Component ────────────────────────────────────────────────────────────
 
 export const AutomationLane = memo(function AutomationLane({
     lane,
@@ -104,7 +89,6 @@ export const AutomationLane = memo(function AutomationLane({
             .catch((err) => console.error('[AutomationLane] setAutomationPoints final push failed:', err));
     }, [buildEnginePoints, lane.trackId, lane.paramKey]);
 
-    // ── Coordinate Conversion ──────────────────────────────────────
 
     const beatToX = useCallback(
         (beat: number) => (beat - scrollOffsetBeats) * pixelsPerBeat,
@@ -130,7 +114,6 @@ export const AutomationLane = memo(function AutomationLane({
         [pixelsPerBeat, scrollOffsetBeats, height],
     );
 
-    // ── Path Builder ────────────────────────────────────────────────
 
     const buildPath = useCallback(
         (bps: AutomationBreakpoint[], forFill: boolean): string => {
@@ -171,7 +154,6 @@ export const AutomationLane = memo(function AutomationLane({
         [beatToX, valueToPxY, height],
     );
 
-    // ── Event Handlers ──────────────────────────────────────────────
 
     const handleSvgClick = useCallback(
         (e: React.MouseEvent) => {
@@ -262,8 +244,6 @@ export const AutomationLane = memo(function AutomationLane({
         ],
     );
 
-    // ── Render ──────────────────────────────────────────────────────
-
     if (!lane.visible) return null;
 
     const bps = lane.breakpoints;
@@ -271,148 +251,36 @@ export const AutomationLane = memo(function AutomationLane({
     const fillPath = buildPath(bps, true);
 
     return (
-        <svg
-            ref={svgRef}
+        <AutomationLaneSvg
+            svgRef={svgRef}
+            lane={lane}
             width={width}
             height={height}
-            onClick={handleSvgClick}
-            style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                cursor: 'crosshair',
-                pointerEvents: 'all',
+            bps={bps}
+            fillPath={fillPath}
+            linePath={linePath}
+            selectedBreakpoints={selectedBreakpoints}
+            hoveredBp={hoveredBp}
+            curveDragBp={curveDragBp}
+            beatToX={beatToX}
+            valueToPxY={valueToPxY}
+            bpRadius={BP_RADIUS}
+            bpRadiusHover={BP_RADIUS_HOVER}
+            lineWidth={LINE_WIDTH}
+            fillOpacity={FILL_OPACITY}
+            onSvgClick={handleSvgClick}
+            onLineMouseDown={handleLineMouseDown}
+            onBpMouseDown={handleBpMouseDown}
+            onBpDblClick={handleBpDblClick}
+            onBpCurveToggle={(bpId) => {
+                const bp = bps.find((item) => item.id === bpId);
+                if (!bp) return;
+                const next = bp.curve === 'linear' ? 'bezier' : bp.curve === 'bezier' ? 'step' : 'linear';
+                setBreakpointCurve(lane.id, bp.id, next);
+                flushPointsToEngine();
             }}
-        >
-            {/* Fill below curve */}
-            {fillPath && (
-                <path
-                    d={fillPath}
-                    fill={lane.color}
-                    opacity={FILL_OPACITY}
-                />
-            )}
-
-            {/* Curve line */}
-            {linePath && (
-                <path
-                    d={linePath}
-                    fill="none"
-                    stroke={lane.color}
-                    strokeWidth={LINE_WIDTH}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    onMouseDown={(e) => {
-                        const localX = e.nativeEvent.offsetX;
-                        const localY = e.nativeEvent.offsetY;
-                        let bestIdx = -1;
-                        let bestDist = Number.POSITIVE_INFINITY;
-                        for (let i = 0; i < bps.length - 1; i++) {
-                            const x1 = beatToX(bps[i].beat);
-                            const x2 = beatToX(bps[i + 1].beat);
-                            if (localX < Math.min(x1, x2) - 8 || localX > Math.max(x1, x2) + 8) continue;
-                            const t = Math.abs(x2 - x1) < 1e-6 ? 0 : (localX - x1) / (x2 - x1);
-                            const y1 = valueToPxY(bps[i].value);
-                            const y2 = valueToPxY(bps[i + 1].value);
-                            const y = y1 + (y2 - y1) * Math.max(0, Math.min(1, t));
-                            const dist = Math.abs(localY - y);
-                            if (dist < bestDist) {
-                                bestDist = dist;
-                                bestIdx = i;
-                            }
-                        }
-                        if (bestIdx >= 0) {
-                            handleLineMouseDown(e, bps[bestIdx].id);
-                        }
-                    }}
-                />
-            )}
-
-            {/* Bézier segment tension handles */}
-            {bps.map((bp, idx) => {
-                if (bp.curve !== 'bezier') return null;
-                const next = bps[idx + 1];
-                if (!next) return null;
-                const x1 = beatToX(bp.beat);
-                const y1 = valueToPxY(bp.value);
-                const x2 = beatToX(next.beat);
-                const y2 = valueToPxY(next.value);
-                const t = Math.max(0.05, Math.min(0.95, bp.tension ?? 0.5));
-                const mx = x1 + (x2 - x1) * t;
-                const my = y1 + (y2 - y1) * 0.5;
-                const active = curveDragBp === bp.id;
-                return (
-                    <g key={`curve-handle-${bp.id}`}>
-                        <line
-                            x1={x1}
-                            y1={y1}
-                            x2={mx}
-                            y2={my}
-                            stroke={lane.color}
-                            strokeOpacity={active ? 0.9 : 0.45}
-                            strokeWidth={1}
-                            strokeDasharray="3 2"
-                        />
-                        <circle
-                            cx={mx}
-                            cy={my}
-                            r={active ? 5.2 : 4}
-                            fill={active ? '#ffffff' : lane.color}
-                            fillOpacity={active ? 1 : 0.85}
-                            stroke={lane.color}
-                            strokeWidth={1}
-                            style={{ cursor: 'ns-resize' }}
-                            onMouseDown={(e) => handleLineMouseDown(e, bp.id)}
-                        />
-                    </g>
-                );
-            })}
-
-            {/* Breakpoint dots */}
-            {bps.map((bp) => {
-                const x = beatToX(bp.beat);
-                const y = valueToPxY(bp.value);
-                const isSelected = selectedBreakpoints.has(bp.id);
-                const isHover = hoveredBp === bp.id;
-                const r = isHover ? BP_RADIUS_HOVER : BP_RADIUS;
-
-                return (
-                    <circle
-                        key={bp.id}
-                        cx={x}
-                        cy={y}
-                        r={r}
-                        fill={isSelected ? '#fff' : lane.color}
-                        stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
-                        strokeWidth={isSelected ? 2 : 1}
-                        style={{
-                            cursor: 'grab',
-                            transition: `r var(--transition-micro)`,
-                            filter: isHover
-                                ? `drop-shadow(0 0 4px ${lane.color})`
-                                : undefined,
-                            opacity: curveDragBp === bp.id ? 0.9 : 1,
-                        }}
-                        onMouseDown={(e) => handleBpMouseDown(e, bp.id)}
-                        onDoubleClick={(e) => handleBpDblClick(e, bp.id)}
-                        onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const next =
-                                bp.curve === 'linear'
-                                    ? 'bezier'
-                                    : bp.curve === 'bezier'
-                                        ? 'step'
-                                        : 'linear';
-                            setBreakpointCurve(lane.id, bp.id, next);
-                            flushPointsToEngine();
-                        }}
-                        onMouseEnter={() => setHoveredBp(bp.id)}
-                        onMouseLeave={() => setHoveredBp(null)}
-                    />
-                );
-            })}
-        </svg>
+            onHoverChange={setHoveredBp}
+        />
     );
 });
 

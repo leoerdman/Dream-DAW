@@ -2,10 +2,15 @@ import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { ProjectDelta } from '@/shared/api/engine';
 
+type DeviceTrackRef = {
+    id: string;
+    effects: Array<{ id: string }>;
+} | null;
+
 export function useDeviceKeyboardShortcuts(
     selectedDeviceIds: string[],
     setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>>,
-    selectedTrack: any,
+    selectedTrack: DeviceTrackRef,
     setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>,
     statusClear: () => void,

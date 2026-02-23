@@ -15,12 +15,13 @@ async fn paint_track_clips_with_track_color_cmd(
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
     if changed {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        clip_pool_state.rebuild_clips_only(&project);
-        rebuild_midi_snapshot_from_project(&project, &handle);
-        let project_name = project.name.clone();
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
+        rebuild_clip_views_and_mark_dirty(
+            &project_state,
+            &clip_pool_state,
+            &handle,
+            &app,
+            ClipRebuildMode::ClipsOnly,
+        )?;
     }
 
     Ok(())
@@ -36,22 +37,12 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
-    let before_colors = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found: {track_id}"))?;
-        let mut map = std::collections::HashMap::new();
-        for clip in &track.clips {
-            map.insert(clip.id, clip.color_hex.clone());
-        }
-        for clip in &track.midi_clips {
-            map.insert(clip.id, clip.color_hex.clone());
-        }
-        map
-    };
+    let before_colors = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveTrackClipColorsQuery {
+            track_id: track_uuid,
+        },
+    )?;
 
     paint_track_clips_with_track_color_cmd(
         track_id,
@@ -62,32 +53,25 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
     )
     .await?;
 
-    let deltas = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == track_uuid)
-            .ok_or_else(|| format!("Track not found after paint: {track_uuid}"))?;
-        let mut out = Vec::new();
-        for clip in &track.clips {
-            if before_colors.get(&clip.id) != Some(&clip.color_hex) {
-                out.push(dream_models::delta::ProjectDelta::ClipColorChanged {
-                    clip_id: clip.id,
-                    color: clip.color_hex.clone(),
-                });
+    let after_colors = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveTrackClipColorsQuery {
+            track_id: track_uuid,
+        },
+    )?;
+
+    let deltas = after_colors
+        .into_iter()
+        .filter_map(|(clip_id, color)| {
+            if before_colors.get(&clip_id) == Some(&color) {
+                return None;
             }
-        }
-        for clip in &track.midi_clips {
-            if before_colors.get(&clip.id) != Some(&clip.color_hex) {
-                out.push(dream_models::delta::ProjectDelta::ClipColorChanged {
-                    clip_id: clip.id,
-                    color: clip.color_hex.clone(),
-                });
-            }
-        }
-        out
-    };
+            Some(dream_models::delta::ProjectDelta::ClipColorChanged {
+                clip_id,
+                color,
+            })
+        })
+        .collect();
 
     Ok(DeltaMutationResponse {
         deltas,
@@ -128,11 +112,7 @@ async fn resolve_missing_file_cmd(
         });
     }
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
     Ok(())
 }
 
@@ -170,21 +150,16 @@ async fn resolve_missing_file_with_deltas_cmd(
     }
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
-    let updated_clip = project
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter())
-        .find(|c| c.id == clip_uuid)
-        .ok_or_else(|| format!("Audio clip not found after resolve: {clip_uuid}"))?;
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    let updated_clip = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveAudioClipStateQuery { clip_id: clip_uuid },
+    )?;
+    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ClipFilePathChanged {
             clip_id: clip_uuid,
-            file_path: updated_clip.file_path.clone(),
+            file_path: updated_clip.file_path,
             is_offline: updated_clip.is_offline,
         }],
     })
@@ -223,12 +198,7 @@ async fn set_automation_points_cmd(
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_automation_and_mark_dirty(&project_state, &automation_runtime, &app)?;
 
     log::debug!(
         "[IPC] set_automation_points_cmd track={} param={} points={}",
@@ -292,10 +262,7 @@ async fn arm_track_cmd(
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    project_state.mark_dirty_current(Some(&app))?;
     Ok(())
 }
 

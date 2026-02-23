@@ -3,43 +3,74 @@ import {
     COLLECTION_ICONS,
     COLLECTION_IDS,
     COLLECTION_LABELS_DEFAULT,
+    type CollectionId,
 } from '../model/assetBrowserUtils';
-import type { AssetBrowserLogic } from '../model/assetBrowserTypes';
+import type { BrowserItem } from '../model/useAssetBrowserLogic';
 
-export function AssetBrowserOverlays({ logic }: { logic: AssetBrowserLogic }) {
+interface AssetBrowserOverlaysProps {
+    columnMenuPos: { x: number; y: number } | null;
+    columnMenuRef: React.RefObject<HTMLDivElement | null>;
+    toggleSizeColumn: () => void;
+    toggleTypeColumn: () => void;
+    showSizeColumn: boolean;
+    showTypeColumn: boolean;
+    contextMenu: { x: number; y: number; item: BrowserItem } | null;
+    contextMenuRef: React.RefObject<HTMLDivElement | null>;
+    collectionItems: Record<CollectionId, Set<string>>;
+    selectedCategoryId: string;
+    saveCollections: (collections: Record<CollectionId, Set<string>>) => void;
+    setCollectionItems: React.Dispatch<React.SetStateAction<Record<CollectionId, Set<string>>>>;
+    setContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; item: BrowserItem } | null>>;
+}
+
+export function AssetBrowserOverlays({
+    columnMenuPos,
+    columnMenuRef,
+    toggleSizeColumn,
+    toggleTypeColumn,
+    showSizeColumn,
+    showTypeColumn,
+    contextMenu,
+    contextMenuRef,
+    collectionItems,
+    selectedCategoryId,
+    saveCollections,
+    setCollectionItems,
+    setContextMenu,
+}: AssetBrowserOverlaysProps) {
     return (
         <>
-            {logic.columnMenuPos && (
+            {columnMenuPos && (
                 <div
-                    ref={logic.columnMenuRef}
-                    style={columnMenuContainerStyle(logic.columnMenuPos.x, logic.columnMenuPos.y)}
+                    ref={columnMenuRef}
+                    style={columnMenuContainerStyle(columnMenuPos.x, columnMenuPos.y)}
                 >
-                    <button onClick={logic.toggleSizeColumn} style={columnMenuItemStyle}>
-                        <span style={columnMenuCheckStyle}>{logic.showSizeColumn ? '✓' : ''}</span>
+                    <button onClick={toggleSizeColumn} style={columnMenuItemStyle}>
+                        <span style={columnMenuCheckStyle}>{showSizeColumn ? '✓' : ''}</span>
                         Size
                     </button>
-                    <button onClick={logic.toggleTypeColumn} style={columnMenuItemStyle}>
-                        <span style={columnMenuCheckStyle}>{logic.showTypeColumn ? '✓' : ''}</span>
+                    <button onClick={toggleTypeColumn} style={columnMenuItemStyle}>
+                        <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>
                         Type
                     </button>
                 </div>
             )}
 
-            {logic.contextMenu && logic.contextMenu.item.path && (
+            {contextMenu && contextMenu.item.path && (
                 <div
-                    ref={logic.contextMenuRef}
+                    ref={contextMenuRef}
                     onClick={(e) => e.stopPropagation()}
-                    style={contextMenuStyle(logic.contextMenu.x, logic.contextMenu.y)}
+                    style={contextMenuStyle(contextMenu.x, contextMenu.y)}
                 >
                     {COLLECTION_IDS.map((collId) => {
-                        const path = logic.contextMenu!.item.path!;
-                        const isInCollection = logic.collectionItems[collId].has(path);
-                        const isInCollectionView = logic.selectedCategoryId === collId;
+                        const path = contextMenu.item.path!;
+                        const isInCollection = collectionItems[collId].has(path);
+                        const isInCollectionView = selectedCategoryId === collId;
                         return (
                             <button
                                 key={collId}
                                 onClick={() => {
-                                    logic.setCollectionItems((prev) => {
+                                    setCollectionItems((prev) => {
                                         const next = {
                                             'collection-red': new Set(prev['collection-red']),
                                             'collection-yellow': new Set(prev['collection-yellow']),
@@ -47,10 +78,10 @@ export function AssetBrowserOverlays({ logic }: { logic: AssetBrowserLogic }) {
                                         };
                                         if (isInCollection) next[collId].delete(path);
                                         else next[collId].add(path);
-                                        logic.saveCollections(next);
+                                        saveCollections(next);
                                         return next;
                                     });
-                                    logic.setContextMenu(null);
+                                    setContextMenu(null);
                                 }}
                                 style={contextMenuItemStyle}
                                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)'; }}
@@ -133,4 +164,3 @@ const contextMenuItemStyle: React.CSSProperties = {
     borderRadius: 'var(--radius-sm)',
     textAlign: 'left',
 };
-

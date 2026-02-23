@@ -123,10 +123,8 @@ fn close_plugin_window_for_slot(
                             external_state_blob: Some(live_b64),
                             external_state_blob_kind: Some("ProcessorState".to_string()),
                         };
-                    if execute_orchestrator_command(&project_state, &cmd).unwrap_or(false)
-                        && let Ok(project) = project_state.project.lock()
-                    {
-                        let _ = project_state.mark_dirty(&project.name, Some(&app));
+                    if execute_orchestrator_command(&project_state, &cmd).unwrap_or(false) {
+                        let _ = project_state.mark_dirty_current(Some(&app));
                     }
                 }
             }
@@ -262,20 +260,14 @@ fn set_external_plugin_param_for_slot_cmd(
     .map_err(|e| e.to_string())?;
     execute_orchestrator_command(&project_state, &lane_cmd)?;
 
-    let project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    if should_commit_snapshot {
-        // Expensive snapshot rebuilds are deferred during live gestures.
-        rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
-        clip_pool_state.rebuild_external_fx_snapshot(
-            &project_mut,
-            plugin_host_state.slot_instance_snapshot().as_ref(),
-        );
-        plugin_host_state.publish_registry();
-        let project_name = project_mut.name.clone();
-        drop(project_mut);
-        project_state.mark_dirty(&project_name, Some(&app))?;
-    }
+    finalize_external_param_update(
+        &project_state,
+        &clip_pool_state,
+        &plugin_host_state,
+        &automation_runtime,
+        &app,
+        should_commit_snapshot,
+    )?;
 
     log::debug!(
         "[IPC] set_external_plugin_param_for_slot_cmd(track={}, slot={}, idx={}, value={:.4}, commit={})",
@@ -506,8 +498,6 @@ fn get_external_plugin_params_for_slot(
     }
     drop(host);
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
-    plugin_host_state.publish_registry();
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
     Ok(params)
 }

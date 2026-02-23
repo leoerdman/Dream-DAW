@@ -56,8 +56,10 @@ struct SplitTrackToStemsPayload {
 #[path = "clip_mutators/helpers.rs"]
 mod helpers;
 use helpers::{
-    build_local_pool_for_project, collect_added_track_and_clip_deltas, find_audio_clip_delta_state,
-    place_bounced_file_on_new_track, place_stem_files_on_new_tracks,
+    build_local_pool_for_project, collect_added_track_and_clip_deltas, place_bounced_file_on_new_track,
+    place_stem_files_on_new_tracks,
+    rebuild_automation_and_mark_dirty, rebuild_clip_snapshot_and_mark_dirty,
+    rebuild_clip_views_and_mark_dirty, rebuild_clips_only_and_mark_dirty, ClipRebuildMode,
 };
 
 #[path = "clip_mutators/jobs.rs"]

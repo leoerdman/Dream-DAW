@@ -189,7 +189,8 @@ async function executeToolInner(
                     const response = await engineApi.deleteTrackWithDeltas(idx);
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-delete-tracks-batch');
                     deleted += 1;
-                } catch {
+                } catch (err) {
+                    console.warn('[toolExecutor] delete_tracks_batch: skip index', idx, err);
                 }
             }
             return JSON.stringify({ success: true, requested: normalized.length, deleted });

@@ -36,11 +36,7 @@ fn set_sampler_sample_cmd(
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     let (track_index, sampler_cfg) = (result.track_index, result.sampler_cfg);
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_routing_only(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    sync_routing_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
     handle
         .sampler_samples
         .set_track_sample(track_index, Some(sample_arc));
@@ -163,53 +159,63 @@ fn eager_activate_external_plugins(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<serde_json::Value, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let external_slots = collect_external_slot_refs(&project);
+    let external_slots = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ListExternalPluginSlotsQuery,
+    )?;
 
     let total = external_slots.len();
     let mut loaded = 0u32;
     let mut failed = 0u32;
     let skipped = 0u32;
 
-    for (slot_id, plugin_id) in &external_slots {
-        match plugin_host_state.ensure_loaded_instance_for_slot(*slot_id, plugin_id) {
+    for slot in &external_slots {
+        match plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id) {
             Ok(instance_id) => {
                 loaded += 1;
                 log::info!(
                     "[EagerActivate] Slot {} plugin '{}' active as instance {} ({}/{})",
-                    slot_id,
-                    plugin_id,
+                    slot.slot_id,
+                    slot.plugin_id,
                     instance_id,
                     loaded,
                     total
                 );
 
                 // Restore the per-slot saved state (preset, knob positions, etc.)
-                // Uses slot UUID lookup to ensure multi-instance plugins each get
-                // their own unique state blob (not the first match by plugin_id).
-                if let Some(slot) = find_project_plugin_slot_by_slot_id(&project, *slot_id) {
-                    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
-                        let mut host = match plugin_host_state.host.lock() {
-                            Ok(h) => h,
-                            Err(e) => {
-                                log::warn!(
-                                    "[EagerActivate] Host lock failed for state restore of '{}': {}",
-                                    plugin_id, e
-                                );
-                                continue;
-                            }
-                        };
-                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+                if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+                    let mut host = match plugin_host_state.host.lock() {
+                        Ok(h) => h,
+                        Err(e) => {
                             log::warn!(
-                                "[EagerActivate] State restore failed for '{}' (slot {}): {}",
-                                slot.name, slot_id, err
+                                "[EagerActivate] Host lock failed for state restore of '{}': {}",
+                                slot.plugin_id, e
                             );
-                        } else {
-                            log::info!(
-                                "[EagerActivate] Restored state for '{}' (slot {})",
-                                slot.name, slot_id
-                            );
+                            continue;
                         }
+                    };
+                    let mut slot_restore =
+                        dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
+                    slot_restore.id = slot.slot_id;
+                    slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
+                    slot_restore.external_parameter_count = slot.external_parameter_count;
+                    slot_restore.external_state_blob = slot.external_state_blob.clone();
+                    slot_restore.external_state_blob_kind = slot.external_state_blob_kind.clone();
+                    slot_restore.external_preset_blob = slot.external_preset_blob.clone();
+                    slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
+
+                    if let Err(err) =
+                        apply_imported_external_state_blob(&mut host, instance_id, &slot_restore)
+                    {
+                        log::warn!(
+                            "[EagerActivate] State restore failed for '{}' (slot {}): {}",
+                            slot_restore.name, slot.slot_id, err
+                        );
+                    } else {
+                        log::info!(
+                            "[EagerActivate] Restored state for '{}' (slot {})",
+                            slot_restore.name, slot.slot_id
+                        );
                     }
                 }
             }
@@ -218,7 +224,7 @@ fn eager_activate_external_plugins(
                 failed += 1;
                 log::warn!(
                     "[EagerActivate] Failed to activate '{}': {}",
-                    plugin_id,
+                    slot.plugin_id,
                     err
                 );
             }
@@ -232,7 +238,7 @@ fn eager_activate_external_plugins(
         failed
     );
 
-    sync_external_fx_snapshot(&project, &clip_pool_state, &plugin_host_state);
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
 
     Ok(serde_json::json!({
         "total": total,

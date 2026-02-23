@@ -53,7 +53,7 @@ use dream_models::midi::{MidiClip, MidiNote, SampleRackConfig};
 use dream_models::project::{AudioClip, PluginSlot, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::PluginFormat;
-use dream_plugins::{MidiEvent as PluginMidiEvent, PluginSandboxSnapshot};
+use dream_plugins::{MidiEvent as PluginMidiEvent, PluginSandboxSnapshot, TransportContext};
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

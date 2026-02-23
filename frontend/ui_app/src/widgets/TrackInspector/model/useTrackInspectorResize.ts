@@ -68,7 +68,7 @@ export function useTrackInspectorResize({
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
         };
-    }, [resizingTrackId, clampRowHeight, applyTrackHeightOptimistic]);
+    }, [resizingTrackId, clampRowHeight, applyTrackHeightOptimistic, setRowHeightOverrides]);
 
     return {
         resizingTrackId,

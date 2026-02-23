@@ -3,42 +3,7 @@ import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { BrowserGlyph, TypeIcon } from './AssetBrowserPrimitives';
 import type { BrowserItem } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
-
-// ── Shared Helpers ──────────────────────────────────────────
-
-export function renderHighlightedMatch(name: string, query: string): React.ReactNode {
-    if (!query.trim()) return name;
-    const q = query.trim().toLowerCase();
-    const lower = name.toLowerCase();
-    const idx = lower.indexOf(q);
-    if (idx < 0) {
-        const initials = q.split('');
-        const parts: React.ReactNode[] = [];
-        let cursor = 0;
-        for (const ch of initials) {
-            const pos = lower.indexOf(ch, cursor);
-            if (pos < 0) return name;
-            if (pos > cursor) parts.push(name.slice(cursor, pos));
-            parts.push(
-                <span key={pos} style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
-                    {name[pos]}
-                </span>,
-            );
-            cursor = pos + 1;
-        }
-        if (cursor < name.length) parts.push(name.slice(cursor));
-        return <>{parts}</>;
-    }
-    return (
-        <>
-            {name.slice(0, idx)}
-            <span style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>
-                {name.slice(idx, idx + q.length)}
-            </span>
-            {name.slice(idx + q.length)}
-        </>
-    );
-}
+import { renderHighlightedMatch } from './AssetBrowserRowUtils';
 
 // ── Props & Shared Logic ────────────────────────────────────
 
@@ -48,9 +13,9 @@ export interface RowBaseProps {
     debouncedQuery: string;
     showTypeColumn: boolean;
     showSizeColumn: boolean;
-    audioDurationSecRef: React.RefObject<Record<string, number>>;
+    getAudioDurationSec: (path: string) => number | undefined;
     isPreviewPlayingRef: React.RefObject<boolean>;
-    itemRowRefs: React.RefObject<Record<string, HTMLDivElement | null>>;
+    bindItemRowRef: (id: string, element: HTMLDivElement | null) => void;
     setSelectedItemId: (id: string | null) => void;
     syncPreviewForItem: (item: BrowserItem | null) => void;
     setContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; item: BrowserItem } | null>>;
@@ -68,9 +33,9 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     debouncedQuery,
     showTypeColumn,
     showSizeColumn,
-    audioDurationSecRef,
+    getAudioDurationSec,
     isPreviewPlayingRef,
-    itemRowRefs,
+    bindItemRowRef,
     setSelectedItemId,
     syncPreviewForItem,
     setContextMenu,
@@ -103,9 +68,11 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             : `${Math.round(item.sizeBytes / 1024)} KB`)
         : '';
 
+    const audioDurationSec = isAudio && item.path ? getAudioDurationSec(item.path) : undefined;
+
     return (
         <div
-            ref={(el) => { itemRowRefs.current[item.id] = el; }}
+            ref={(el) => bindItemRowRef(item.id, el)}
             onClick={() => {
                 setContextMenu(null);
                 if (item.isDirectory && item.path) {
@@ -202,12 +169,12 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             }}>
                 {debouncedQuery.trim() ? renderHighlightedMatch(item.name, debouncedQuery) : item.name}
             </span>
-            {isAudio && item.path && audioDurationSecRef.current[item.path] != null && (
+            {typeof audioDurationSec === 'number' && (
                 <span style={{
                     minWidth: 26, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)',
                     fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0,
                 }}>
-                    {`${Math.round(audioDurationSecRef.current[item.path])}s`}
+                    {`${Math.round(audioDurationSec)}s`}
                 </span>
             )}
             {showTypeColumn && (

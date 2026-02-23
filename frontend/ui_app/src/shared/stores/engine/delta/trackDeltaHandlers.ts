@@ -50,7 +50,8 @@ function patchSampleRackPad(
     return true;
 }
 
-export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
+export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
+    void env;
     if (delta.kind === 'TrackVolumeChanged') {
         patchTrack(state, delta.data.track_id, { volume: delta.data.volume });
         return true;

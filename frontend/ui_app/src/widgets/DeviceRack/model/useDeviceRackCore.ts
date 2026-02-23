@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import type { DeviceSlot } from '../model/types';
@@ -7,11 +7,39 @@ import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { EFFECT_PARAM_CATALOG, INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID, internalParamIdForControl } from '../model/deviceRackCatalog';
 import type { PluginParam } from '../model/types';
 
+type AutomationLanePoint = { value?: number };
+type AutomationLane = { param_id?: string; points?: AutomationLanePoint[] };
+type SampleRackPad = { sample_path?: string };
+type SampleRackConfig = { pads?: SampleRackPad[] };
+
+type DeviceNodeModel = {
+    id?: string;
+    name?: string;
+    type?: string;
+    plugin_id?: string;
+    is_bypassed?: boolean;
+    sidechain_source_track_id?: string | null;
+    supports_sidechain_input?: boolean;
+    sampleRackConfig?: SampleRackConfig;
+    sample_rack?: SampleRackConfig;
+    sampler_config?: { sample_path?: string };
+};
+
+type SelectedTrackModel = {
+    id: string;
+    name?: string;
+    track_type: string;
+    automation_lanes?: AutomationLane[];
+    sample_rack?: SampleRackConfig;
+    instrument?: DeviceNodeModel | null;
+    effects?: DeviceNodeModel[];
+} | null;
+
 export function useDeviceRackCore(selectedTrackId: string) {
-    const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
-    const [localParams, setLocalParams] = useState<Record<string, number>>({});
-    const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
-    const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
+    const [localBypassByTrack, setLocalBypassByTrack] = useState<Record<string, Record<string, boolean>>>({});
+    const [localParamsByTrack, setLocalParamsByTrack] = useState<Record<string, Record<string, number>>>({});
+    const [selectedDeviceIdsByTrack, setSelectedDeviceIdsByTrack] = useState<Record<string, string[]>>({});
+    const [inlineSettingsOpenByTrack, setInlineSettingsOpenByTrack] = useState<Record<string, Record<string, boolean>>>({});
 
     const { tracksById, trackIds, meters } = useEngineStore(useShallow((s) => ({
         tracksById: s.tracks.byId,
@@ -19,11 +47,53 @@ export function useDeviceRackCore(selectedTrackId: string) {
         meters: s.meters,
     })));
 
-    // SSOT: Clear local state on track change
-    useEffect(() => {
-        setLocalBypass({});
-        setLocalParams({});
-        setSelectedDeviceIds([]);
+    const localBypass = localBypassByTrack[selectedTrackId] ?? {};
+    const localParams = localParamsByTrack[selectedTrackId] ?? {};
+    const selectedDeviceIds = selectedDeviceIdsByTrack[selectedTrackId] ?? [];
+    const inlineSettingsOpen = inlineSettingsOpenByTrack[selectedTrackId] ?? {};
+
+    const setLocalBypass: React.Dispatch<React.SetStateAction<Record<string, boolean>>> = useCallback((update) => {
+        setLocalBypassByTrack((prev) => {
+            const current = prev[selectedTrackId] ?? {};
+            const nextValue = typeof update === 'function'
+                ? update(current)
+                : update;
+            if (nextValue === current) return prev;
+            return { ...prev, [selectedTrackId]: nextValue };
+        });
+    }, [selectedTrackId]);
+
+    const setLocalParams: React.Dispatch<React.SetStateAction<Record<string, number>>> = useCallback((update) => {
+        setLocalParamsByTrack((prev) => {
+            const current = prev[selectedTrackId] ?? {};
+            const nextValue = typeof update === 'function'
+                ? update(current)
+                : update;
+            if (nextValue === current) return prev;
+            return { ...prev, [selectedTrackId]: nextValue };
+        });
+    }, [selectedTrackId]);
+
+    const setSelectedDeviceIds: React.Dispatch<React.SetStateAction<string[]>> = useCallback((update) => {
+        setSelectedDeviceIdsByTrack((prev) => {
+            const current = prev[selectedTrackId] ?? [];
+            const nextValue = typeof update === 'function'
+                ? update(current)
+                : update;
+            if (nextValue === current) return prev;
+            return { ...prev, [selectedTrackId]: nextValue };
+        });
+    }, [selectedTrackId]);
+
+    const setInlineSettingsOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>> = useCallback((update) => {
+        setInlineSettingsOpenByTrack((prev) => {
+            const current = prev[selectedTrackId] ?? {};
+            const nextValue = typeof update === 'function'
+                ? update(current)
+                : update;
+            if (nextValue === current) return prev;
+            return { ...prev, [selectedTrackId]: nextValue };
+        });
     }, [selectedTrackId]);
 
     const isMaster = selectedTrackId === 'master';
@@ -44,7 +114,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
         () => trackIds.map((id) => tracksById[id]).find((t) => t?.track_type === 'Master') ?? null,
         [trackIds, tracksById],
     );
-    const selectedTrack = isMaster ? masterProjectTrack : (tracksById[selectedTrackId] ?? null);
+    const selectedTrack = (isMaster ? masterProjectTrack : (tracksById[selectedTrackId] ?? null)) as SelectedTrackModel;
 
     const staticLaneValueByParamId = useMemo(() => {
         const map = new Map<string, number>();
@@ -73,12 +143,14 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 is_bypassed: false,
                 source: 'internal',
                 sampleRackConfig: selectedTrack.sample_rack,
+                sidechain_source_track_id: null,
+                supports_sidechain_input: false,
             }] : []),
             ...(!selectedTrack.sample_rack && selectedTrack.instrument ? [selectedTrack.instrument] : []),
             ...(selectedTrack.effects ?? []),
         ];
 
-        return nodes.map((node: any): DeviceSlot | null => {
+        return nodes.map((node): DeviceSlot | null => {
             const id = node.id ?? '';
             const name = node.name ?? 'Unknown';
             const pluginId = node.plugin_id ?? '';
@@ -137,9 +209,9 @@ export function useDeviceRackCore(selectedTrackId: string) {
             let waveformIndex: number | undefined;
             if (effectType === 'sampler' || node.type === 'SampleRack') {
                 const samplePath = (() => {
-                    const rack = node.sampleRackConfig as { pads?: Array<{ sample_path?: string }> } | undefined;
+                    const rack = node.sampleRackConfig;
                     if (rack && Array.isArray(rack.pads) && rack.pads.length > 0) return rack.pads[0]?.sample_path ?? '';
-                    const inst = selectedTrack?.instrument as { sampler_config?: { sample_path?: string } } | null | undefined;
+                    const inst = selectedTrack?.instrument;
                     return inst?.sampler_config?.sample_path ?? '';
                 })();
                 waveformIndex = waveformIndexFromSamplePath(samplePath);

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import throttle from 'lodash.throttle';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
@@ -11,13 +10,10 @@ import { AgentActionIndicator } from '@/widgets/AgentActionIndicator/AgentAction
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
-import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
-import { useSettingsStore } from '@/shared/stores/useSettingsStore';
-import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
-import { beatDurationToFrames, beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { EmptyClipEditor, SampleClipEditor, SessionWorkspace } from './DawShellPanels';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
@@ -36,20 +32,10 @@ import {
     useTelemetryBootstrap,
 } from './model/useDawShellEffects';
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
-
-type ThrottledSender<T> = ((payload: T) => void) & {
-    cancel: () => void;
-    flush: () => void;
-};
+import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 
 const TrackInspector = lazy(async () => ({
     default: (await import('@/widgets/TrackInspector/TrackInspector')).TrackInspector,
-}));
-const DeviceRack = lazy(async () => ({
-    default: (await import('@/widgets/DeviceRack/DeviceRack')).DeviceRack,
-}));
-const PianoRoll = lazy(async () => ({
-    default: (await import('@/widgets/PianoRoll/PianoRoll')).PianoRoll,
 }));
 const SettingsPanel = lazy(async () => ({
     default: (await import('@/widgets/SettingsPanel/SettingsPanel')).SettingsPanel,
@@ -63,6 +49,7 @@ const BlockingJobPopup = lazy(async () => ({
 const MissingAssetsPanel = lazy(async () => ({
     default: (await import('@/widgets/MissingAssetsPanel/MissingAssetsPanel')).MissingAssetsPanel,
 }));
+import { DawShellBottomPanel } from './DawShellBottomPanel';
 
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
 
@@ -96,25 +83,12 @@ export const DawShell = () => {
         trackIndex: 0,
     });
     const [followPlayhead, setFollowPlayhead] = useState(false);
-    const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
-    const [clipFadeCurves, setClipFadeCurves] = useState<Record<string, { fadeInCurve: number; fadeOutCurve: number }>>({});
-    const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
-    const midiSaveThrottlesRef = useRef<Map<string, ThrottledSender<MidiNote[]>>>(new Map());
-    const midiEnvelopeSaveThrottlesRef = useRef<
-        Map<string, ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>>
-    >(new Map());
-    const latestMidiEnvelopesRef = useRef<
-        Record<string, Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>
-    >({});
-    const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
-    const dirtyMidiNotesClipIdsRef = useRef<Set<string>>(new Set());
-    const dirtyMidiEnvelopeClipIdsRef = useRef<Set<string>>(new Set());
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
@@ -226,6 +200,28 @@ export const DawShell = () => {
     const projectBpm = useEngineStore(s => s.projectBpm);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
+    const {
+        midiNotesByClip,
+        clipFadeCurves,
+        setClipFadeCurves,
+        aiVariationBusy,
+        handleGenerateMidiVariation,
+        handlePianoRollNotesChange,
+        handlePianoRollEnvelopesChange,
+        latestMidiEnvelopesRef,
+        latestMidiNotesRef,
+        dirtyMidiNotesClipIdsRef,
+        dirtyMidiEnvelopeClipIdsRef,
+        serializeMidiNotesToFrames,
+        flushMidiThrottles,
+    } = useDawShellMidiPersistence({
+        timelineClips,
+        projectTracks,
+        projectBpm,
+        transportBpm: transportBpm || 120,
+        projectSampleRate,
+        applyProjectDeltas,
+    });
     const timelineClipsForView = useMemo(
         () =>
             timelineClips.map((clip) => {
@@ -362,172 +358,6 @@ export const DawShell = () => {
     }, [selectedTimelineClip]);
     const hasResizableClipEditor =
         bottomPanelMode === 'clip' && (selectedTimelineClip?.type === 'midi' || selectedTimelineClip?.type === 'audio');
-    const handleGenerateMidiVariation = useCallback(async () => {
-        if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
-        const clip = selectedTimelineClip;
-        const notes = midiNotesByClip[clip.id] ?? [];
-        const track = projectTracks[clip.trackIndex];
-        const bpm = projectBpm || transportBpm || 120;
-        // Time signature: beatsPerBar is always 4/4 for now (the backend transport
-        // state does not include time signature yet — when it does, read it here)
-        const beatsPerBarVal = 4;
-        const sampleRate = projectSampleRate;
-
-        // Use the same model as the chat panel — claude-sonnet-4-5 via OpenRouter.
-        // Falls back to the user's configured openRouterModel if set.
-        const settingsModel = useSettingsStore.getState().settings.openRouterModel;
-        const variationModel = (settingsModel && settingsModel !== 'openai/gpt-4o-mini')
-            ? settingsModel
-            : 'minimax/minimax-m2.5';
-
-        setAiVariationBusy(true);
-        try {
-            const variedNotes = await engineApi.generateMidiVariation({
-                bpm,
-                beatsPerBar: beatsPerBarVal,
-                clipName: clip.name,
-                clipDurationBeats: clip.durationBeats,
-                notes,
-                trackContext: {
-                    trackName: track?.name ?? `Track ${clip.trackIndex + 1}`,
-                    trackType: track?.track_type ?? 'Midi',
-                    instrumentName: track?.instrument?.name ?? null,
-                    effectNames: (track?.effects ?? []).map((e) => e.name),
-                    samplerSamplePath: track?.sampler?.sample_path ?? null,
-                },
-                model: variationModel,
-            });
-
-            const normalizedForUi: MidiNote[] = variedNotes.map((n, idx) => ({
-                id: `ai_${Date.now()}_${idx}`,
-                pitch: n.pitch,
-                velocity: n.velocity,
-                startBeat: n.startBeat,
-                durationBeats: n.durationBeats,
-            }));
-
-            setMidiNotesByClip((prev) => ({ ...prev, [clip.id]: normalizedForUi }));
-            const response = await engineApi.updateMidiClipWithDeltas(
-                clip.id,
-                normalizedForUi.map((n) => ({
-                    pitch: n.pitch,
-                    velocity: n.velocity,
-                    startFrames: Math.max(0, beatToFrame(n.startBeat, bpm, sampleRate)),
-                    durationFrames: Math.max(1, beatDurationToFrames(n.durationBeats, bpm, sampleRate)),
-                })),
-            );
-            await applyProjectDeltas(response.deltas, 'daw-shell:midi-variation');
-        } catch (err) {
-            console.error('[DawShell] AI MIDI variation failed:', err);
-            const message = err instanceof Error ? err.message : 'Unknown AI error';
-            window.alert(`Не удалось сгенерировать вариацию: ${message}`);
-        } finally {
-            setAiVariationBusy(false);
-        }
-    }, [
-        selectedTimelineClip,
-        midiNotesByClip,
-        projectTracks,
-        projectBpm,
-        transportBpm,
-        projectSampleRate,
-        applyProjectDeltas,
-    ]);
-
-    const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
-        const bpm = projectBpm || transportBpm || 120;
-        const sr = projectSampleRate;
-        return notes.map((n) => ({
-            pitch: n.pitch,
-            velocity: n.velocity,
-            startFrames: Math.max(0, beatToFrame(n.startBeat, bpm, sr)),
-            durationFrames: Math.max(1, beatDurationToFrames(n.durationBeats, bpm, sr)),
-        }));
-    }, [projectBpm, transportBpm, projectSampleRate]);
-
-    const flushMidiThrottles = useCallback(() => {
-        midiSaveThrottlesRef.current.forEach((send) => send.flush());
-        midiEnvelopeSaveThrottlesRef.current.forEach((send) => send.flush());
-    }, []);
-
-    useEffect(() => {
-        const incoming: Record<string, MidiNote[]> = {};
-        for (const clip of timelineClips) {
-            if (clip.type !== 'midi') continue;
-            if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
-                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? [];
-            } else {
-                incoming[clip.id] = (clip.midiNotes ?? []).map((n) => ({
-                    id: n.id ?? `${clip.id}-${n.pitch}-${n.startBeat}`,
-                    pitch: n.pitch,
-                    startBeat: n.startBeat,
-                    durationBeats: n.durationBeats,
-                    velocity: n.velocity,
-                }));
-            }
-        }
-        // BUG-C15 FIX: Only update state if the incoming data actually differs.
-        // Replacing the entire map on every timelineClips change forces PianoRoll
-        // to re-render even when the currently edited clip's notes are identical.
-        setMidiNotesByClip((prev) => {
-            const prevKeys = Object.keys(prev);
-            const incomingKeys = Object.keys(incoming);
-            if (prevKeys.length !== incomingKeys.length) return incoming;
-            for (const key of incomingKeys) {
-                if (prev[key] !== incoming[key]) {
-                    // Only replace if truly different (reference check is sufficient
-                    // since dirty clips keep their ref and clean clips get new arrays).
-                    return incoming;
-                }
-            }
-            return prev; // No change — skip re-render
-        });
-    }, [timelineClips]);
-
-    useEffect(() => {
-        latestMidiNotesRef.current = midiNotesByClip;
-    }, [midiNotesByClip]);
-
-    useEffect(() => {
-        const activeMidiClipIds = new Set(
-            timelineClips.filter((clip) => clip.type === 'midi').map((clip) => clip.id)
-        );
-        for (const [clipId, send] of midiSaveThrottlesRef.current.entries()) {
-            if (!activeMidiClipIds.has(clipId)) {
-                send.cancel();
-                midiSaveThrottlesRef.current.delete(clipId);
-                dirtyMidiNotesClipIdsRef.current.delete(clipId);
-            }
-        }
-        for (const [clipId, send] of midiEnvelopeSaveThrottlesRef.current.entries()) {
-            if (!activeMidiClipIds.has(clipId)) {
-                send.cancel();
-                midiEnvelopeSaveThrottlesRef.current.delete(clipId);
-                dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
-            }
-        }
-    }, [timelineClips]);
-
-    useEffect(() => {
-        const midiSaveThrottles = midiSaveThrottlesRef.current;
-        const midiEnvelopeSaveThrottles = midiEnvelopeSaveThrottlesRef.current;
-        const dirtyMidiNotes = dirtyMidiNotesClipIdsRef.current;
-        const dirtyMidiEnvelopes = dirtyMidiEnvelopeClipIdsRef.current;
-        return () => {
-            midiSaveThrottles.forEach((send) => send.cancel());
-            midiEnvelopeSaveThrottles.forEach((send) => send.cancel());
-            midiSaveThrottles.clear();
-            midiEnvelopeSaveThrottles.clear();
-            dirtyMidiNotes.clear();
-            dirtyMidiEnvelopes.clear();
-        };
-    }, []);
-
-    // ── Final unthrottled sends on pointer release ──
-    // PERF-FIX-7: Use a ref for selectedTimelineClip so this effect doesn't
-    // re-register the global listener on every clip selection change.
-    const selectedTimelineClipRef = useRef(selectedTimelineClip);
-    selectedTimelineClipRef.current = selectedTimelineClip;
 
     usePointerUpFinalizer({
         flushTrackControlFinals,
@@ -828,44 +658,9 @@ export const DawShell = () => {
                                         ghostNotes={[]} // TODO: wire up ghost notes from adjacent clips
                                         midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
                                         trackIndex={selectedTimelineClip.trackIndex}
-                                        onNotesChange={(notes) => {
-                                            const clipId = selectedTimelineClip.id;
-                                            setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
-                                            latestMidiNotesRef.current[clipId] = notes;
-                                            dirtyMidiNotesClipIdsRef.current.add(clipId);
-                                            let send = midiSaveThrottlesRef.current.get(clipId);
-                                            if (!send) {
-                                                send = throttle((toSend: MidiNote[]) => {
-                                                    void engineApi
-                                                        .updateMidiClipWithDeltas(
-                                                            clipId,
-                                                            serializeMidiNotesToFrames(toSend),
-                                                            { pushUndoStep: false },
-                                                        )
-                                                        .then((response) => applyProjectDeltas(response.deltas, 'midi-notes:throttle'))
-                                                        .catch((err) => console.error('[DawShell] updateMidiClip failed:', err));
-                                                }, 80) as ThrottledSender<MidiNote[]>;
-                                                midiSaveThrottlesRef.current.set(clipId, send);
-                                            }
-                                            send(notes);
-                                        }}
-                                        onSetMidiEnvelopes={(envelopes) => {
-                                            const clipId = selectedTimelineClip.id;
-                                            latestMidiEnvelopesRef.current[clipId] = envelopes;
-
-                                            let send = midiEnvelopeSaveThrottlesRef.current.get(clipId);
-                                            if (!send) {
-                                                send = throttle((toSend) => {
-                                                    void engineApi
-                                                        .setMidiClipEnvelopes(clipId, toSend, { pushUndoStep: false })
-                                                        .catch((err) => console.error('[DawShell] setMidiClipEnvelopes failed:', err));
-                                                }, 100) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
-                                                midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
-                                            }
-                                            dirtyMidiEnvelopeClipIdsRef.current.add(clipId);
-                                            send(envelopes);
-                                        }}
-                                        onGenerateVariation={handleGenerateMidiVariation}
+                                        onNotesChange={(notes) => handlePianoRollNotesChange(selectedTimelineClip, notes)}
+                                        onSetMidiEnvelopes={(envelopes) => handlePianoRollEnvelopesChange(selectedTimelineClip, envelopes)}
+                                        onGenerateVariation={() => handleGenerateMidiVariation(selectedTimelineClip)}
                                         aiVariationBusy={aiVariationBusy}
                                         clipStartBeat={selectedTimelineClip.startBeat}
                                         totalBars={selectedMidiTotalBars}

@@ -1,0 +1,223 @@
+import type { ReactNode } from 'react';
+import {
+    BIT_DEPTHS,
+    FORMATS,
+    SAMPLE_RATES,
+    type BitDepth,
+    type ExportFormat,
+    type ExportRange,
+    type SampleRate,
+} from './exportModalConfig';
+
+interface RangeInfo {
+    startBar: number;
+    endBar: number;
+    durationBeats: number;
+    durationFormatted: string;
+}
+
+interface ExportModalPanelProps {
+    isSubmitting: boolean;
+    onClose: () => void;
+    projectName: string;
+    format: ExportFormat;
+    setFormat: (v: ExportFormat) => void;
+    exportSampleRate: SampleRate;
+    setExportSampleRate: (v: SampleRate) => void;
+    bitDepth: BitDepth;
+    setBitDepth: (v: BitDepth) => void;
+    rangeOptions: { value: ExportRange; label: string }[];
+    exportRange: ExportRange;
+    setExportRange: (v: ExportRange) => void;
+    rangeInfo: RangeInfo;
+    normalize: boolean;
+    setNormalize: (v: boolean) => void;
+    tailMs: number;
+    setTailMs: (v: number) => void;
+    bounceError: string | null;
+    onBounce: () => void;
+}
+
+export function ExportModalPanel({
+    isSubmitting,
+    onClose,
+    projectName,
+    format,
+    setFormat,
+    exportSampleRate,
+    setExportSampleRate,
+    bitDepth,
+    setBitDepth,
+    rangeOptions,
+    exportRange,
+    setExportRange,
+    rangeInfo,
+    normalize,
+    setNormalize,
+    tailMs,
+    setTailMs,
+    bounceError,
+    onBounce,
+}: ExportModalPanelProps) {
+    return (
+        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 'var(--z-modal-content)' as unknown as number, width: 440, background: 'var(--color-bg-panel)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 16px 64px var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-lg)', cursor: 'pointer', padding: '2px 6px' }}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                Project: <strong style={{ color: 'var(--color-text-primary)' }}>{projectName}</strong>
+            </div>
+
+            <SettingRow label="Format">
+                <ChipGroup options={FORMATS.map((f) => ({ value: f.value, label: f.label }))} value={format} onChange={setFormat} />
+            </SettingRow>
+
+            <SettingRow label="Sample Rate">
+                <ChipGroup options={SAMPLE_RATES} value={exportSampleRate} onChange={setExportSampleRate} />
+            </SettingRow>
+
+            {format === 'wav' && (
+                <SettingRow label="Bit Depth">
+                    <ChipGroup options={BIT_DEPTHS} value={bitDepth} onChange={setBitDepth} />
+                </SettingRow>
+            )}
+
+            <SettingRow label="Range">
+                <ChipGroup options={rangeOptions} value={exportRange} onChange={setExportRange} />
+            </SettingRow>
+
+            {rangeInfo.durationBeats > 0 && (
+                <div style={{ padding: '8px 12px', background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-mono)' }}>
+                    <span>Bar {rangeInfo.startBar}–{rangeInfo.endBar}</span>
+                    <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{rangeInfo.durationFormatted}</span>
+                </div>
+            )}
+
+            <SettingRow label="Normalize">
+                <ToggleSwitch checked={normalize} onChange={setNormalize} />
+            </SettingRow>
+
+            <SettingRow label="Tail (ms)">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                        type="range"
+                        min={0}
+                        max={5000}
+                        step={100}
+                        value={tailMs}
+                        onChange={(e) => setTailMs(Number(e.target.value))}
+                        style={{ width: 120, accentColor: 'var(--color-accent-primary)' }}
+                    />
+                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', minWidth: 40 }}>
+                        {tailMs}ms
+                    </span>
+                </div>
+            </SettingRow>
+
+            {bounceError && (
+                <div style={{ padding: '8px 12px', background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-status-error) 30%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', color: 'var(--color-status-error)' }}>
+                    {bounceError}
+                </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+                <button
+                    onClick={onClose}
+                    disabled={isSubmitting}
+                    style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-control-border)', background: 'transparent', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 500, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1 }}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={onBounce}
+                    disabled={isSubmitting}
+                    style={{ padding: '8px 20px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1, transition: 'all var(--transition-fast)' }}
+                >
+                    {isSubmitting ? 'Starting...' : 'Bounce'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+const SettingRow = ({ label, children }: { label: string; children: ReactNode }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 500, color: 'var(--color-text-secondary)' }}>{label}</span>
+        {children}
+    </div>
+);
+
+function ChipGroup<T extends string | number>({
+    options,
+    value,
+    onChange,
+}: {
+    options: { value: T; label: string }[];
+    value: T;
+    onChange: (v: T) => void;
+}) {
+    return (
+        <div style={{ display: 'flex', gap: 4 }}>
+            {options.map((opt) => {
+                const isActive = opt.value === value;
+                return (
+                    <button
+                        key={String(opt.value)}
+                        onClick={() => onChange(opt.value)}
+                        style={{
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            border: isActive ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-control-border)',
+                            background: isActive ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)' : 'transparent',
+                            color: isActive ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all var(--transition-linear)',
+                        }}
+                    >
+                        {opt.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+const ToggleSwitch = ({
+    checked,
+    onChange,
+}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+}) => (
+    <button
+        onClick={() => onChange(!checked)}
+        style={{
+            width: 36,
+            height: 20,
+            borderRadius: 'var(--radius-xl)',
+            border: 'none',
+            background: checked ? 'var(--color-accent-primary)' : 'var(--color-control-bg)',
+            position: 'relative',
+            cursor: 'pointer',
+            transition: 'background var(--transition-fast)',
+        }}
+    >
+        <div
+            style={{
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                background: 'var(--color-text-on-accent)',
+                position: 'absolute',
+                top: 3,
+                left: checked ? 19 : 3,
+                transition: 'left var(--transition-fast)',
+                boxShadow: '0 1px 3px var(--color-overlay-dark)',
+            }}
+        />
+    </button>
+);

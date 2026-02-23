@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
@@ -28,17 +28,9 @@ export function useDeviceRackLifecycle({
     // Stable key derived from chain IDs — prevents re-triggering when array ref changes
     const chainKey = useMemo(() => chain.map((d) => d.id).join(','), [chain]);
 
-    // Ref to read chain inside effects without adding unstable array to deps
-    const chainRef = useRef(chain);
-    chainRef.current = chain;
-
-    // Ref to read openEditorsByTrack without circular deps
-    const openEditorsRef = useRef(openEditorsByTrack);
-    openEditorsRef.current = openEditorsByTrack;
-
     // ── Prune stale device selections & inline settings when chain changes ──
     useEffect(() => {
-        const currentChain = chainRef.current;
+        const currentChain = chain;
         setSelectedDeviceIds((prev) => {
             const filtered = prev.filter((id) => currentChain.some((d) => d.id === id));
             return filtered.length === prev.length ? prev : filtered;
@@ -56,8 +48,7 @@ export function useDeviceRackLifecycle({
             }
             return changed ? next : prev;
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chainKey, setSelectedDeviceIds, setInlineSettingsOpen]);
+    }, [chain, chainKey, setSelectedDeviceIds, setInlineSettingsOpen]);
 
     // ── Close editors when switching tracks ──
     useEffect(() => {
@@ -65,7 +56,7 @@ export function useDeviceRackLifecycle({
         prevTrackIdRef.current = selectedTrackId;
         if (prevId === selectedTrackId) return;
 
-        const prevSlots = openEditorsRef.current[prevId];
+        const prevSlots = openEditorsByTrack[prevId];
         if (prevSlots && prevSlots.size > 0 && prevId) {
             for (const slotId of prevSlots) {
                 engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
@@ -76,8 +67,7 @@ export function useDeviceRackLifecycle({
                 openEditorsByTrack: { ...s.openEditorsByTrack, [prevId]: new Set<string>() },
             }));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedTrackId]);
+    }, [selectedTrackId, openEditorsByTrack, prevTrackIdRef]);
 
     useEffect(() => {
         cleanupGestures();

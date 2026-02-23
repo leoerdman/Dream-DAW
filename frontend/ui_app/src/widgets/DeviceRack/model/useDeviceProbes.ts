@@ -16,7 +16,7 @@ function useVstSlotKey(chain: DeviceSlot[]): string {
 export function useDeviceProbes(
     chain: DeviceSlot[],
     _selectedTrackId: string,
-    selectedTrack: any,
+    selectedTrack: { id: string } | null,
 ) {
     const [pluginCapability, setPluginCapability] = useState<Record<string, { supported: boolean; reason?: string }>>({});
     const [pluginRuntimeBySlot, setPluginRuntimeBySlot] = useState<Record<string, engineApi.PluginSlotRuntimeStatus>>({});

@@ -1,5 +1,64 @@
 use super::*;
 
+pub(super) enum ClipRebuildMode {
+    ClipsOnly,
+    FullSnapshot,
+}
+
+pub(super) fn rebuild_clip_views_and_mark_dirty(
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    handle: &tauri::State<'_, AudioEngineHandle>,
+    app: &tauri::AppHandle,
+    mode: ClipRebuildMode,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    match mode {
+        ClipRebuildMode::ClipsOnly => clip_pool_state.rebuild_clips_only(&project),
+        ClipRebuildMode::FullSnapshot => clip_pool_state.rebuild_snapshot(&project),
+    }
+    rebuild_midi_snapshot_from_project(&project, handle);
+    drop(project);
+    project_state.mark_dirty_current(Some(app))?;
+    Ok(())
+}
+
+pub(super) fn rebuild_clips_only_and_mark_dirty(
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    clip_pool_state.rebuild_clips_only(&project);
+    drop(project);
+    project_state.mark_dirty_current(Some(app))?;
+    Ok(())
+}
+
+pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty_current(Some(app))?;
+    Ok(())
+}
+
+pub(super) fn rebuild_automation_and_mark_dirty(
+    project_state: &tauri::State<'_, ProjectState>,
+    automation_runtime: &tauri::State<'_, AutomationRuntime>,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    rebuild_automation_snapshot_from_project(&project, automation_runtime);
+    drop(project);
+    project_state.mark_dirty_current(Some(app))?;
+    Ok(())
+}
+
 pub(super) fn build_local_pool_for_project(
     project: &Project,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
@@ -57,35 +116,6 @@ pub(super) fn build_local_pool_for_project(
     Ok(local_pool)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct AudioClipDeltaState {
-    pub(super) source_offset: i64,
-    pub(super) fade_in_frames: i64,
-    pub(super) fade_out_frames: i64,
-    pub(super) is_warped: bool,
-    pub(super) warp_mode: Option<i32>,
-    pub(super) warp_base_bpm: f64,
-}
-
-pub(super) fn find_audio_clip_delta_state(
-    project: &Project,
-    clip_id: Uuid,
-) -> Option<AudioClipDeltaState> {
-    for track in &project.tracks {
-        if let Some(clip) = track.clips.iter().find(|clip| clip.id == clip_id) {
-            return Some(AudioClipDeltaState {
-                source_offset: clip.source_offset.sample_frame,
-                fade_in_frames: clip.fade_in_frames,
-                fade_out_frames: clip.fade_out_frames,
-                is_warped: clip.is_warped,
-                warp_mode: clip.warp_mode,
-                warp_base_bpm: clip.warp_base_bpm,
-            });
-        }
-    }
-    None
-}
-
 pub(super) fn place_bounced_file_on_new_track(
     project_state: &tauri::State<'_, ProjectState>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
@@ -111,10 +141,11 @@ pub(super) fn place_bounced_file_on_new_track(
         });
     }
 
-    let (project_sr, project_name) = {
-        let p = project_state.project.lock().map_err(|e| e.to_string())?;
-        (p.sample_rate.max(1.0), p.name.clone())
-    };
+    let project_sr = execute_orchestrator_query(
+        project_state,
+        &dream_orchestrator::queries::ResolveProjectSampleRateQuery,
+    )?
+    .max(1.0);
 
     let source_sr = decoded.sample_rate.max(1) as f64;
     let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
@@ -131,11 +162,13 @@ pub(super) fn place_bounced_file_on_new_track(
 
     let insert_result = execute_orchestrator_command(project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    clip_pool_state.rebuild_snapshot(&project);
-    rebuild_midi_snapshot_from_project(&project, handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(app))?;
+    rebuild_clip_views_and_mark_dirty(
+        project_state,
+        clip_pool_state,
+        handle,
+        app,
+        ClipRebuildMode::FullSnapshot,
+    )?;
     Ok(insert_result)
 }
 
@@ -182,10 +215,11 @@ pub(super) fn place_stem_files_on_new_tracks(
         }
     }
 
-    let (project_sr, project_name) = {
-        let p = project_state.project.lock().map_err(|e| e.to_string())?;
-        (p.sample_rate.max(1.0), p.name.clone())
-    };
+    let project_sr = execute_orchestrator_query(
+        project_state,
+        &dream_orchestrator::queries::ResolveProjectSampleRateQuery,
+    )?
+    .max(1.0);
 
     let mut stems_input = Vec::new();
     for stem in metas {
@@ -206,11 +240,13 @@ pub(super) fn place_stem_files_on_new_tracks(
 
     execute_orchestrator_command(project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    clip_pool_state.rebuild_snapshot(&project);
-    rebuild_midi_snapshot_from_project(&project, handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(app))?;
+    rebuild_clip_views_and_mark_dirty(
+        project_state,
+        clip_pool_state,
+        handle,
+        app,
+        ClipRebuildMode::FullSnapshot,
+    )?;
     Ok(())
 }
 

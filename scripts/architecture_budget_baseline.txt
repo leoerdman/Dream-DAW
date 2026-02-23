@@ -22,8 +22,6 @@ ts frontend/ui_app/src/shared/config/pluginManifest.ts 859
 # Libraries
 ts frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts 1201
 ts frontend/ui_app/src/shared/lib/TimelineEngine.ts 1947
-ts frontend/ui_app/src/shared/lib/ViewportMachine.ts 348
-ts frontend/ui_app/src/shared/lib/ViewportMatrix.ts 409
 ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
 # Widgets — AssetBrowser
 ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 690
@@ -31,29 +29,12 @@ ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 690
 ts frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx 502
 ts frontend/ui_app/src/widgets/AssistantChat/AssistantChat.tsx 736
 # Widgets — DeviceRack
-ts frontend/ui_app/src/widgets/DeviceRack/EssenceSynth.tsx 406
-ts frontend/ui_app/src/widgets/DeviceRack/StandardPluginControls.tsx 377
-ts frontend/ui_app/src/widgets/DeviceRack/model/deviceRackCatalog.ts 383
 # Widgets — ExportModal
-ts frontend/ui_app/src/widgets/ExportModal/ExportModal.tsx 667
-# Widgets — FileMenu
-ts frontend/ui_app/src/widgets/FileMenu/FileMenu.tsx 364
 # Widgets — PianoRoll
 ts frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx 2035
 ts frontend/ui_app/src/widgets/PianoRoll/model/usePianoRollLogic.ts 1400
 ts frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx 496
-# Widgets — PluginWindow
-ts frontend/ui_app/src/widgets/PluginWindow/PluginWindow.tsx 321
-# Widgets — SampleRack
-ts frontend/ui_app/src/widgets/SampleRack/SampleRack.tsx 350
 # Widgets — SettingsPanel
-ts frontend/ui_app/src/widgets/SettingsPanel/SettingsPanel.tsx 778
 # Widgets — StatusBar
-ts frontend/ui_app/src/widgets/StatusBar/StatusBar.tsx 470
 # Widgets — Timeline
-ts frontend/ui_app/src/widgets/Timeline/AutomationLane.tsx 419
-ts frontend/ui_app/src/widgets/Timeline/ClipFadeHandles.tsx 346
-ts frontend/ui_app/src/widgets/Timeline/ClipRenderer.tsx 356
 ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
-# Widgets — TransportBar
-ts frontend/ui_app/src/widgets/TransportBar/TransportBar.tsx 572

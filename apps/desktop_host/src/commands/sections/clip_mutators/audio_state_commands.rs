@@ -1,3 +1,13 @@
+fn resolve_audio_clip_state(
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_id: Uuid,
+) -> Result<dream_orchestrator::queries::AudioClipState, String> {
+    execute_orchestrator_query(
+        project_state,
+        &dream_orchestrator::queries::ResolveAudioClipStateQuery { clip_id },
+    )
+}
+
 /// Update a clip's source offset (slip editing).
 #[tauri::command]
 async fn set_clip_source_offset_cmd(
@@ -23,16 +33,7 @@ async fn set_clip_source_offset_cmd(
     // Clamp against the REAL clip pool to prevent reading past the decoded buffer.
     {
         let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-        let clip_file_path = {
-            let project = project_state.project.lock().map_err(|e| e.to_string())?;
-            project
-                .tracks
-                .iter()
-                .flat_map(|t| t.clips.iter())
-                .find(|c| c.id == clip_uuid)
-                .map(|c| c.file_path.clone())
-                .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
-        };
+        let clip_file_path = resolve_audio_clip_state(&project_state, clip_uuid)?.file_path;
         let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
         if let Some(audio) = pool.get(&clip_file_path) {
             let max_offset = (audio.num_frames as i64).saturating_sub(1).max(0);
@@ -47,11 +48,11 @@ async fn set_clip_source_offset_cmd(
         }
     }
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clips_only_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &app,
+    )?;
     Ok(())
 }
 
@@ -64,11 +65,7 @@ async fn set_clip_source_offset_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let before_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
-    };
+    let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     set_clip_source_offset_cmd(
         clip_id,
@@ -79,11 +76,7 @@ async fn set_clip_source_offset_with_deltas_cmd(
     )
     .await?;
 
-    let after_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found after source-offset update: {clip_uuid}"))?
-    };
+    let after_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     let mut deltas = Vec::new();
     if before_state.source_offset != after_state.source_offset {
@@ -129,11 +122,11 @@ async fn set_clip_pitch_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clips_only_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &app,
+    )?;
     Ok(())
 }
 
@@ -177,11 +170,11 @@ async fn set_clip_warp_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clips_only_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &app,
+    )?;
     Ok(())
 }
 
@@ -194,11 +187,7 @@ async fn set_clip_warp_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let clip_uuid =
         Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let before_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found: {}", payload.clip_id))?
-    };
+    let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     set_clip_warp_cmd(
         payload,
@@ -208,11 +197,7 @@ async fn set_clip_warp_with_deltas_cmd(
     )
     .await?;
 
-    let after_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found after warp update: {clip_uuid}"))?
-    };
+    let after_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     let mut deltas = Vec::new();
     if before_state.is_warped != after_state.is_warped
@@ -253,12 +238,13 @@ async fn set_clip_fades_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
     Ok(())
 }
 
@@ -273,11 +259,7 @@ async fn set_clip_fades_with_deltas_cmd(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
-    let before_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?
-    };
+    let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     set_clip_fades_cmd(
         clip_id,
@@ -290,11 +272,7 @@ async fn set_clip_fades_with_deltas_cmd(
     )
     .await?;
 
-    let after_state = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_audio_clip_delta_state(&project, clip_uuid)
-            .ok_or_else(|| format!("Audio clip not found after fades update: {clip_uuid}"))?
-    };
+    let after_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     let mut deltas = Vec::new();
     if before_state.fade_in_frames != after_state.fade_in_frames
@@ -330,12 +308,13 @@ async fn set_clip_muted_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
     Ok(())
@@ -358,12 +337,13 @@ async fn set_clip_muted_with_deltas_cmd(
 
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_clips_only(&project);
-    rebuild_midi_snapshot_from_project(&project, &handle);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
 
     let mut deltas = Vec::new();
     if changed {
@@ -400,12 +380,13 @@ async fn set_clips_muted_cmd(
     let applied = execute_orchestrator_command(&project_state, &cmd)?;
 
     if applied > 0 {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let project_name = project.name.clone();
-        clip_pool_state.rebuild_clips_only(&project);
-        rebuild_midi_snapshot_from_project(&project, &handle);
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
+        rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
     }
 
     log::info!(
@@ -444,12 +425,13 @@ async fn set_clips_muted_with_deltas_cmd(
     let applied = execute_orchestrator_command(&project_state, &cmd)?;
 
     if applied > 0 {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let project_name = project.name.clone();
-        clip_pool_state.rebuild_clips_only(&project);
-        rebuild_midi_snapshot_from_project(&project, &handle);
-        drop(project);
-        project_state.mark_dirty(&project_name, Some(&app))?;
+        rebuild_clip_views_and_mark_dirty(
+        &project_state,
+        &clip_pool_state,
+        &handle,
+        &app,
+        ClipRebuildMode::ClipsOnly,
+    )?;
     }
 
     let deltas = parsed_ids

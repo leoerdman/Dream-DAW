@@ -3,19 +3,18 @@
 // core/dream_importers/src/routing_helpers.rs
 // ═══════════════════════════════════════════════════════════════════════
 use dream_importers::routing_helpers::{
-    find_project_plugin_slot_by_slot_id,
     diagnose_external_plugin_reference,
-    find_device_node_on_track,
 };
 use dream_models::project::builtin_effect_type_from_plugin_id;
 mod plugins_routing_helpers;
 use plugins_routing_helpers::{
     apply_imported_external_state_blob,
-    collect_external_slot_refs,
+    finalize_external_param_update,
+    finalize_internal_param_update,
     load_external_slot_best_effort,
     load_external_slots_best_effort,
-    sync_external_fx_snapshot,
     sync_external_fx_snapshot_from_state,
+    sync_routing_and_mark_dirty,
     sync_plugin_runtime_and_mark_dirty,
 };
 

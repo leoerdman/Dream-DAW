@@ -89,8 +89,8 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                     showTypeColumn={logic.showTypeColumn}
                     showSizeColumn={logic.showSizeColumn}
                     debouncedQuery={logic.debouncedQuery}
-                    audioDurationSecRef={logic.audioDurationSecRef}
-                    itemRowRefs={logic.itemRowRefs}
+                    getAudioDurationSec={logic.getAudioDurationSec}
+                    setItemRowRef={logic.setItemRowRef}
                     fileListRef={logic.fileListRef}
                     handleBrowserKeyDown={logic.handleBrowserKeyDown}
                     pluginGroupedRows={logic.pluginGroupedRows}
@@ -111,7 +111,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                             const next = !logic.previewEnabled;
                             logic.setPreviewEnabled(next);
                             if (!next) {
-                                logic.isPreviewPlayingRef.current = false;
+                                logic.setPreviewPlaying(false);
                                 logic.engineApi.stopPreview().catch((err) => {
                                     console.warn('[AssetBrowser] stopPreview(toggle) failed:', err);
                                 });
@@ -119,7 +119,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                             }
                             const selected = logic.items.find((i) => i.id === logic.selectedItemId);
                             if (selected?.type === 'audio' && selected.path) {
-                                logic.isPreviewPlayingRef.current = true;
+                                logic.setPreviewPlaying(true);
                                 logic.engineApi.previewAudioFile(selected.path).catch((err) => {
                                     console.warn('[AssetBrowser] previewAudioFile(toggle) failed:', err);
                                 });
@@ -274,4 +274,3 @@ const previewToggleStyle: React.CSSProperties = {
     justifyContent: 'center',
     fontSize: 'var(--font-size-2xs)',
 };
-

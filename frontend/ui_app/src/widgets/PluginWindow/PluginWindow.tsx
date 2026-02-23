@@ -1,22 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — PluginWindow (Detachable Floating Plugin GUI)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// LEVIATHAN Epic 4: Floating window for plugin GUIs.
-// Renders as a draggable, resizable overlay above the DAW shell.
-//
-// Features:
-//   - Draggable title bar
-//   - Close button (returns to inline view)
-//   - Bypass toggle
-//   - Plugin parameter view (knobs/sliders)
-//   - Preset navigation
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { useState, useCallback, useRef, memo, type ReactNode } from 'react';
-
-// ── Types ────────────────────────────────────────────────────────────────
 
 interface PluginWindowProps {
     /** Plugin instance ID. */
@@ -46,13 +28,11 @@ interface PluginWindowProps {
     children?: ReactNode;
 }
 
-// ── Constants ────────────────────────────────────────────────────────────
 
 const TITLE_BAR_HEIGHT = 32;
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 
-// ── Component ────────────────────────────────────────────────────────────
 
 export const PluginWindow = memo(function PluginWindow({
     pluginId,
@@ -71,8 +51,6 @@ export const PluginWindow = memo(function PluginWindow({
 }: PluginWindowProps) {
     const [position, setPosition] = useState({ x: initialX, y: initialY });
     const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-
-    // ── Dragging ─────────────────────────────────────────────────────
 
     const handleDragStart = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -100,8 +78,6 @@ export const PluginWindow = memo(function PluginWindow({
         window.addEventListener('mouseup', onUp);
     }, [position]);
 
-    // ── Header colors ────────────────────────────────────────────────
-
     const headerGradient = 'var(--plugin-header-effect)'; // Unified dark header
     const accentColor = 'var(--color-accent-primary)';    // Unified blue accent
 
@@ -124,7 +100,6 @@ export const PluginWindow = memo(function PluginWindow({
                 overflow: 'hidden',
             }}
         >
-            {/* ── Title Bar ── */}
             <div
                 onMouseDown={handleDragStart}
                 style={{
@@ -140,7 +115,6 @@ export const PluginWindow = memo(function PluginWindow({
                     userSelect: 'none',
                 }}
             >
-                {/* Plugin type indicator */}
                 <div style={{
                     width: 8,
                     height: 8,
@@ -150,7 +124,6 @@ export const PluginWindow = memo(function PluginWindow({
                     transition: 'all var(--transition-fast)',
                 }} />
 
-                {/* Plugin name */}
                 <span style={{
                     flex: 1,
                     fontSize: 'var(--font-size-sm)',
@@ -163,7 +136,6 @@ export const PluginWindow = memo(function PluginWindow({
                     {pluginName}
                 </span>
 
-                {/* Preset navigation */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)' }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); onPrevPreset?.(); }}
@@ -190,7 +162,6 @@ export const PluginWindow = memo(function PluginWindow({
                     </button>
                 </div>
 
-                {/* Bypass toggle */}
                 <button
                     onClick={(e) => { e.stopPropagation(); onToggleBypass(); }}
                     title={isBypassed ? 'Enable Plugin' : 'Bypass Plugin'}
@@ -211,7 +182,6 @@ export const PluginWindow = memo(function PluginWindow({
                     ⏻
                 </button>
 
-                {/* Close button */}
                 <button
                     onClick={(e) => { e.stopPropagation(); onClose(); }}
                     title="Close Plugin Window"
@@ -235,7 +205,6 @@ export const PluginWindow = memo(function PluginWindow({
                 </button>
             </div>
 
-            {/* ── Plugin Body ── */}
             <div style={{
                 flex: 1,
                 display: 'flex',
@@ -301,8 +270,6 @@ export const PluginWindow = memo(function PluginWindow({
         </div>
     );
 });
-
-// ── Shared styles ────────────────────────────────────────────────────────
 
 const presetBtnStyle: React.CSSProperties = {
     width: 16,

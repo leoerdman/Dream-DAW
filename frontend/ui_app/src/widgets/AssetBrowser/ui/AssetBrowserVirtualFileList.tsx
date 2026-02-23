@@ -71,8 +71,8 @@ export const VirtualFileList = memo(function VirtualFileList({
     showTypeColumn,
     showSizeColumn,
     debouncedQuery,
-    audioDurationSecRef,
-    itemRowRefs,
+    getAudioDurationSec,
+    setItemRowRef,
     fileListRef,
     handleBrowserKeyDown,
     pluginGroupedRows,
@@ -92,8 +92,8 @@ export const VirtualFileList = memo(function VirtualFileList({
     showTypeColumn: boolean;
     showSizeColumn: boolean;
     debouncedQuery: string;
-    audioDurationSecRef: React.RefObject<Record<string, number>>;
-    itemRowRefs: React.RefObject<Record<string, HTMLDivElement | null>>;
+    getAudioDurationSec: (path: string) => number | undefined;
+    setItemRowRef: (id: string, element: HTMLDivElement | null) => void;
     fileListRef: React.RefObject<HTMLDivElement | null>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
     pluginGroupedRows: PluginGroupedRow[];
@@ -180,9 +180,9 @@ export const VirtualFileList = memo(function VirtualFileList({
                                 debouncedQuery={debouncedQuery}
                                 showTypeColumn={showTypeColumn}
                                 showSizeColumn={showSizeColumn}
-                                audioDurationSecRef={audioDurationSecRef}
+                                getAudioDurationSec={getAudioDurationSec}
                                 isPreviewPlayingRef={isPreviewPlayingRef}
-                                itemRowRefs={itemRowRefs}
+                                bindItemRowRef={setItemRowRef}
                                 setSelectedItemId={setSelectedItemId}
                                 syncPreviewForItem={syncPreviewForItem}
                                 setContextMenu={setContextMenu}
@@ -206,9 +206,9 @@ export const VirtualFileList = memo(function VirtualFileList({
                                     debouncedQuery={debouncedQuery}
                                     showTypeColumn={showTypeColumn}
                                     showSizeColumn={showSizeColumn}
-                                    audioDurationSecRef={audioDurationSecRef}
+                                    getAudioDurationSec={getAudioDurationSec}
                                     isPreviewPlayingRef={isPreviewPlayingRef}
-                                    itemRowRefs={itemRowRefs}
+                                    bindItemRowRef={setItemRowRef}
                                     setSelectedItemId={setSelectedItemId}
                                     syncPreviewForItem={syncPreviewForItem}
                                     setContextMenu={setContextMenu}

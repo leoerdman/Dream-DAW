@@ -6,11 +6,16 @@ import { clampAndSnapParamValue } from '../model/presets';
 import { RUNTIME_PARAM_INDEX_BY_EFFECT, internalParamIdForControl } from '../model/deviceRackCatalog';
 import type { AdaptiveSender, PendingGestureCommit } from './useDeviceParamGestureTypes';
 
+type DeviceParamTrack = {
+    id: string;
+    effects: Array<{ id: string }>;
+} | null;
+
 export function useDeviceParamGestures(
     chain: DeviceSlot[],
     _selectedTrackId: string,
-    selectedTrack: any,
-    projectTracks: any[],
+    selectedTrack: DeviceParamTrack,
+    projectTracks: Array<{ id: string }>,
     isMaster: boolean,
     setLocalParams: React.Dispatch<React.SetStateAction<Record<string, number>>>
 ) {
@@ -142,7 +147,7 @@ export function useDeviceParamGestures(
             const trackIdx = isMaster
                 ? MASTER_TRACK_INDEX
                 : projectTracks.findIndex((t) => t.id === selectedTrack.id);
-            const effectSlotIdx = selectedTrack.effects.findIndex((fx: any) => fx.id === device.id);
+            const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             const pushPluginParam = (paramIndex: number, paramValue: number) => {
                 if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return;
                 void engineApi.setDeviceParam(trackIdx, effectSlotIdx, paramIndex, paramValue).catch((err) => {

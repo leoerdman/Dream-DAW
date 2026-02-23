@@ -57,6 +57,9 @@ bash scripts/ssot_guard.sh
 echo "[11/14] Delta IPC guard"
 bash scripts/delta_ipc_guard.sh
 
+echo "[11b/14] Delta contract guard"
+bash scripts/delta_contract_guard.sh
+
 echo "[12/14] Frontend type-check (no emit)"
 pnpm -C frontend/ui_app exec tsc --noEmit
 

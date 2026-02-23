@@ -1,0 +1,102 @@
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+
+export type ExportFormat = 'wav' | 'mp3';
+export type SampleRate = 44100 | 48000 | 96000;
+export type BitDepth = 16 | 24 | 32;
+export type ExportRange = 'full' | 'loop' | 'selected';
+
+export interface MarqueeSelection {
+    startBeat: number;
+    endBeat: number;
+    startTrack: number;
+    endTrack: number;
+}
+
+export interface ExportModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    projectName?: string;
+    selectedClipIds?: string[];
+    allClips?: TimelineClip[];
+    bpm?: number;
+    sampleRate?: number;
+    loopStartBeat?: number;
+    loopEndBeat?: number;
+    marqueeSelection?: MarqueeSelection | null;
+}
+
+export const FORMATS: { value: ExportFormat; label: string; desc: string }[] = [
+    { value: 'wav', label: 'WAV', desc: 'Uncompressed, highest quality' },
+    { value: 'mp3', label: 'MP3', desc: 'Compressed, smaller files (320 kbps)' },
+];
+
+export const SAMPLE_RATES: { value: SampleRate; label: string }[] = [
+    { value: 44100, label: '44.1 kHz' },
+    { value: 48000, label: '48 kHz' },
+    { value: 96000, label: '96 kHz' },
+];
+
+export const BIT_DEPTHS: { value: BitDepth; label: string }[] = [
+    { value: 16, label: '16-bit' },
+    { value: 24, label: '24-bit' },
+    { value: 32, label: '32-bit Float' },
+];
+
+export const DIALOG_FILTERS: Record<ExportFormat, { name: string; extensions: string[] }[]> = {
+    wav: [{ name: 'WAV Audio', extensions: ['wav'] }],
+    mp3: [{ name: 'MP3 Audio', extensions: ['mp3'] }],
+};
+
+export const EXPORT_PREFS_KEY = 'dream_daw_export_prefs';
+
+export interface ExportPrefs {
+    format: ExportFormat;
+    sampleRate: SampleRate;
+    bitDepth: BitDepth;
+    normalize: boolean;
+    tailMs: number;
+}
+
+export function beatsToFrames(beats: number, bpm: number, sampleRate: number): number {
+    return Math.round((beats / bpm) * 60 * sampleRate);
+}
+
+export function formatDuration(seconds: number): string {
+    const totalMs = Math.round(seconds * 1000);
+    const mins = Math.floor(totalMs / 60000);
+    const secs = Math.floor((totalMs % 60000) / 1000);
+    const tenths = Math.floor((totalMs % 1000) / 100);
+    return `${mins}:${String(secs).padStart(2, '0')}.${tenths}`;
+}
+
+export function beatsToBar(beats: number): number {
+    return Math.floor(beats / 4) + 1;
+}
+
+export function loadExportPrefs(): ExportPrefs {
+    try {
+        const raw = localStorage.getItem(EXPORT_PREFS_KEY);
+        if (!raw) return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+        const parsed = JSON.parse(raw) as Partial<ExportPrefs>;
+        return {
+            format: (['wav', 'mp3'] as ExportFormat[]).includes(parsed.format as ExportFormat)
+                ? (parsed.format as ExportFormat) : 'wav',
+            sampleRate: ([44100, 48000, 96000] as SampleRate[]).includes(parsed.sampleRate as SampleRate)
+                ? (parsed.sampleRate as SampleRate) : 48000,
+            bitDepth: ([16, 24, 32] as BitDepth[]).includes(parsed.bitDepth as BitDepth)
+                ? (parsed.bitDepth as BitDepth) : 24,
+            normalize: typeof parsed.normalize === 'boolean' ? parsed.normalize : false,
+            tailMs: typeof parsed.tailMs === 'number' ? Math.max(0, Math.min(5000, parsed.tailMs)) : 0,
+        };
+    } catch {
+        return { format: 'wav', sampleRate: 48000, bitDepth: 24, normalize: false, tailMs: 0 };
+    }
+}
+
+export function saveExportPrefs(prefs: ExportPrefs): void {
+    try {
+        localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+        // noop
+    }
+}

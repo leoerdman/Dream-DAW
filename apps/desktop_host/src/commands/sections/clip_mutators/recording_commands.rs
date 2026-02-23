@@ -15,14 +15,10 @@ async fn start_recording_cmd(
         return Err("Recording already in progress".to_string());
     }
 
-    let armed_track_index = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        project
-            .tracks
-            .iter()
-            .position(|t| t.is_armed)
-            .ok_or_else(|| "No armed tracks".to_string())?
-    };
+    let armed_track_index = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolveArmedTrackIndexQuery,
+    )?;
 
     let output_dir = std::env::temp_dir().join("dream_daw_recordings");
     let start_frame = handle.master_clock.position();
@@ -116,12 +112,7 @@ async fn stop_recording_cmd(
         source_sample_rate: decoded.sample_rate,
     };
     execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
-    drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
 
     Ok(())
 }
-

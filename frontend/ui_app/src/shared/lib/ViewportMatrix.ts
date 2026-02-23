@@ -1,88 +1,31 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — ViewportMatrix (Canvas Camera)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Pure f64-precision camera for the Canvas timeline engine.
-// Mirrors Rust `Viewport` in `core/dream_renderer/src/viewport.rs`.
-//
-// This class owns ALL zoom/scroll state and is the SINGLE SOURCE OF TRUTH
-// for converting between screen pixels ↔ beats and tracks.
-// It has ZERO React dependencies — it is consumed by TimelineEngine.
-//
-// Architecture:
-//   1. Stores scroll (px), zoom (pixels-per-beat), and viewport dimensions
-//   2. Provides coordinate conversion: screen ↔ beats, screen ↔ track
-//   3. Provides visible range (for clip/grid culling)
-//   4. Implements Ableton-style mouse-anchor zoom (focal point stays fixed)
-//   5. Exposes a DOMMatrix for canvas ctx.setTransform()
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ── Constants ─────────────────────────────────────────────────────────────
-
-/** Absolute zoom bounds (pixels per beat). */
-export const MIN_PPB = 4;
-export const MAX_PPB = 400;
-
-/** Default zoom level. */
-export const DEFAULT_PPB = 20;
-
-/** Zoom sensitivity for Ctrl+Wheel. */
-const ZOOM_SENSITIVITY = 0.004;
-
-/** Scroll sensitivity for Wheel (px per delta unit). */
-const SCROLL_SENSITIVITY = 1.0;
-
-// ── Types ─────────────────────────────────────────────────────────────────
-
-export interface ViewportConfig {
-    totalBeats: number;
-    trackCount: number;
-    trackHeight: number;
-    /** Optional per-track heights (length == trackCount). */
-    trackHeights?: number[];
-    rulerHeight: number;
-    initialPpb?: number;
-}
-
-export interface ViewportSnapshot {
-    scrollX: number;
-    scrollY: number;
-    ppb: number;
-    viewportWidth: number;
-    viewportHeight: number;
-}
-
-export interface VisibleRange {
-    startBeat: number;
-    endBeat: number;
-    startTrack: number;
-    endTrack: number;
-}
-
-// ── Class ─────────────────────────────────────────────────────────────────
+import {
+    DEFAULT_PPB,
+    MAX_PPB,
+    MIN_PPB,
+    SCROLL_SENSITIVITY,
+    ZOOM_SENSITIVITY,
+    type ViewportConfig,
+    type ViewportSnapshot,
+    type VisibleRange,
+} from './viewportTypes';
+import { buildTrackOffsets, trackIndexAtOffsetY } from './viewportTrackMath';
+export { DEFAULT_PPB, MAX_PPB, MIN_PPB, type ViewportConfig, type ViewportSnapshot, type VisibleRange } from './viewportTypes';
 
 export class ViewportMatrix {
-    // ── Internal state (f64 precision) ────────────────────────────────
-    private _scrollX = 0;         // horizontal scroll in pixels
-    private _scrollY = 0;         // vertical scroll in pixels
-    private _ppb: number;         // pixels per beat (zoom level)
-    private _viewportW = 0;       // canvas width in CSS pixels
-    private _viewportH = 0;       // canvas height in CSS pixels
+    private _scrollX = 0;
+    private _scrollY = 0;
+    private _ppb: number;
+    private _viewportW = 0;
+    private _viewportH = 0;
 
-    // ── Config ────────────────────────────────────────────────────────
     private _totalBeats: number;
     private _trackCount: number;
     private _trackHeight: number;
     private _trackHeights: number[] | null = null;
-    /** Track boundary offsets in track-space (0..contentHeight). Length = trackCount + 1. */
     private _trackOffsets: number[] = [];
     private _rulerHeight: number;
 
-    // ── Dirty flag — signals TimelineEngine to re-draw ────────────────
     private _dirty = true;
-
-    // ── Optional callback for React cold-path sync ────────────────────
     private _onFlush: ((snapshot: ViewportSnapshot) => void) | null = null;
     private _flushTimer: ReturnType<typeof setTimeout> | null = null;
     private static readonly FLUSH_DEBOUNCE_MS = 150;
@@ -96,23 +39,15 @@ export class ViewportMatrix {
         this.setTrackHeights(config.trackHeights ?? null);
     }
 
-    /** Set per-track heights. Pass null to revert to uniform trackHeight. */
     setTrackHeights(heights: number[] | null): void {
         if (heights && heights.length !== this._trackCount) {
-            // Soft-fail: ignore invalid arrays to avoid corrupting camera math.
             return;
         }
-        // SCROLL DESYNC FIX: Allow height 0 for hidden/collapsed tracks.
-        // Previously Math.max(1, ...) converted 0→1, adding N extra pixels
-        // (N = hidden track count) to canvasContentHeight, while the DOM
-        // TrackInspector renders 0 height for the same tracks → scroll drift.
         this._trackHeights = heights ? heights.map((h) => Math.max(0, Math.round(h))) : null;
         this._rebuildTrackOffsets();
         this._clampScroll();
         this._markDirty();
     }
-
-    // ── Getters ───────────────────────────────────────────────────────
 
     get scrollX(): number { return this._scrollX; }
     get scrollY(): number { return this._scrollY; }
@@ -135,14 +70,11 @@ export class ViewportMatrix {
         };
     }
 
-    // ── Canvas width of the entire arrangement ────────────────────────
-
     get canvasContentWidth(): number {
         return this._totalBeats * this._ppb;
     }
 
     get canvasContentHeight(): number {
-        // Sum of per-track heights if available, else uniform.
         if (this._trackOffsets.length === this._trackCount + 1) {
             return this._trackOffsets[this._trackCount] ?? (this._trackCount * this._trackHeight);
         }
@@ -168,8 +100,6 @@ export class ViewportMatrix {
         return this._trackHeights ? (this._trackHeights[idx] ?? this._trackHeight) : this._trackHeight;
     }
 
-    // ── Viewport dimensions ───────────────────────────────────────────
-
     setViewportSize(width: number, height: number): void {
         if (width === this._viewportW && height === this._viewportH) return;
         this._viewportW = width;
@@ -177,8 +107,6 @@ export class ViewportMatrix {
         this._clampScroll();
         this._markDirty();
     }
-
-    // ── Config updates ────────────────────────────────────────────────
 
     updateConfig(config: Partial<ViewportConfig>): void {
         let changed = false;
@@ -195,7 +123,6 @@ export class ViewportMatrix {
             changed = true;
         }
         if (config.trackHeights !== undefined) {
-            // Defer to setter so offsets rebuild consistently.
             this.setTrackHeights(config.trackHeights ?? null);
             changed = false; // setTrackHeights already clamped + marked dirty
         }
@@ -209,8 +136,6 @@ export class ViewportMatrix {
             this._markDirty();
         }
     }
-
-    // ── Coordinate conversion ─────────────────────────────────────────
 
     /** Convert screen clientX → beat position (f64 precision). */
     screenToBeats(clientX: number, canvasRect: DOMRect): number {
@@ -243,8 +168,6 @@ export class ViewportMatrix {
         };
     }
 
-    // ── Visible range (for culling) ───────────────────────────────────
-
     getVisibleRange(): VisibleRange {
         const startBeat = Math.max(0, this._scrollX / this._ppb);
         const endBeat = (this._scrollX + this._viewportW) / this._ppb;
@@ -255,37 +178,12 @@ export class ViewportMatrix {
     }
 
     private _rebuildTrackOffsets(): void {
-        const offsets: number[] = new Array(this._trackCount + 1);
-        offsets[0] = 0;
-        for (let i = 0; i < this._trackCount; i++) {
-            const h = this._trackHeights ? (this._trackHeights[i] ?? this._trackHeight) : this._trackHeight;
-            // SCROLL DESYNC FIX: Allow 0-height tracks (collapsed/hidden).
-            offsets[i + 1] = offsets[i] + Math.max(0, Math.round(h));
-        }
-        this._trackOffsets = offsets;
+        this._trackOffsets = buildTrackOffsets(this._trackCount, this._trackHeight, this._trackHeights);
     }
 
     private _trackIndexAtOffsetY(offsetY: number): number {
-        if (this._trackCount <= 0) return 0;
-        const y = Math.max(0, Math.min(this.canvasContentHeight - 0.0001, offsetY));
-
-        // Binary search over boundary offsets.
-        const offsets = this._trackOffsets;
-        if (offsets.length !== this._trackCount + 1) {
-            return Math.max(0, Math.min(this._trackCount - 1, Math.floor(y / this._trackHeight)));
-        }
-
-        let lo = 0;
-        let hi = this._trackCount;
-        while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if ((offsets[mid + 1] ?? 0) <= y) lo = mid + 1;
-            else hi = mid;
-        }
-        return Math.max(0, Math.min(this._trackCount - 1, lo));
+        return trackIndexAtOffsetY(offsetY, this._trackCount, this.canvasContentHeight, this._trackOffsets, this._trackHeight);
     }
-
-    // ── Scroll ────────────────────────────────────────────────────────
 
     scrollBy(deltaX: number, deltaY: number): void {
         this._scrollX += deltaX * SCROLL_SENSITIVITY;
@@ -314,8 +212,6 @@ export class ViewportMatrix {
         }
     }
 
-    // ── Zoom (Ableton-style mouse-anchor) ─────────────────────────────
-
     /**
      * Zoom in/out anchored at a screen X position.
      * The beat under the focal point stays fixed after zoom.
@@ -324,14 +220,12 @@ export class ViewportMatrix {
         const focalLocalX = focalScreenX - canvasRect.left;
         const beatAtFocal = (focalLocalX + this._scrollX) / this._ppb;
 
-        // Compute new ppb
         const factor = Math.exp(-deltaY * ZOOM_SENSITIVITY);
         const newPpb = Math.max(MIN_PPB, Math.min(MAX_PPB, this._ppb * factor));
 
         if (newPpb === this._ppb) return;
         this._ppb = newPpb;
 
-        // Adjust scroll so the focal beat stays at the same screen position
         this._scrollX = beatAtFocal * this._ppb - focalLocalX;
         this._clampScroll();
         this._markDirty();
@@ -346,36 +240,25 @@ export class ViewportMatrix {
         this._markDirty();
     }
 
-    // ── Wheel handler (to be called by TimelineEngine) ────────────────
-
     handleWheel(e: WheelEvent, canvasRect: DOMRect): void {
         e.preventDefault();
 
         if (e.ctrlKey || e.metaKey) {
-            // Zoom
             this.zoomAtScreenX(e.deltaY, e.clientX, canvasRect);
         } else if (e.shiftKey) {
-            // Force horizontal scroll
             this.scrollBy(e.deltaY, 0);
         } else {
-            // Standard scroll
             this.scrollBy(e.deltaX, e.deltaY);
         }
     }
-
-    // ── Dirty flag ────────────────────────────────────────────────────
 
     clearDirty(): void {
         this._dirty = false;
     }
 
-    // ── React cold-path sync ──────────────────────────────────────────
-
     setFlushCallback(cb: (snapshot: ViewportSnapshot) => void): void {
         this._onFlush = cb;
     }
-
-    // ── Cleanup ───────────────────────────────────────────────────────
 
     destroy(): void {
         if (this._flushTimer) {
@@ -384,8 +267,6 @@ export class ViewportMatrix {
         }
         this._onFlush = null;
     }
-
-    // ── Private ───────────────────────────────────────────────────────
 
     private _clampScroll(): void {
         const maxScrollX = Math.max(0, this.canvasContentWidth - this._viewportW);

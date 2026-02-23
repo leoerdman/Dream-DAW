@@ -1,28 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — ViewportMachine (Zero-Render Viewport Engine)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// A **vanilla TypeScript** class that owns the timeline's scroll & zoom state.
-// It writes CSS custom properties directly to the DOM, bypassing React's
-// render cycle entirely. React only receives updates via a debounced
-// `flushToReact()` call — used for waveform mip-level selection and clip
-// culling, which are "cold-path" operations that can tolerate ~150ms delay.
-//
-// Architecture:
-//   wheel event → ViewportMachine.onWheel() → CSS vars → GPU compositing
-//   (no React re-render, no layout reflow, sub-millisecond)
-//
-//   150ms idle → flushToReact() → Zustand set() → waveform re-render
-//   (cold path, only when user stops scrolling/zooming)
-//
-// CSS Variables written to the container element:
-//   --vp-scroll-x     Horizontal scroll offset in pixels
-//   --vp-scroll-y     Vertical scroll offset in pixels (for track scrolling)
-//   --vp-ppb          Pixels per beat (zoom level)
-//
-// ═══════════════════════════════════════════════════════════════════════════
 
-// ── Constants ────────────────────────────────────────────────────────────
 
 /** Minimum pixels per beat — maximum zoom in. */
 const MIN_PPB = 4;
@@ -42,7 +18,6 @@ const SCROLL_SPEED_X = 1.0;
 /** Vertical scroll speed multiplier. */
 const SCROLL_SPEED_Y = 1.0;
 
-// ── Types ────────────────────────────────────────────────────────────────
 
 export interface ViewportSnapshot {
     /** Current horizontal scroll offset in pixels within the virtual canvas. */
@@ -77,10 +52,8 @@ export interface ViewportMachineConfig {
     onFrameUpdate?: (snapshot: ViewportSnapshot) => void;
 }
 
-// ── ViewportMachine Class ────────────────────────────────────────────────
 
 export class ViewportMachine {
-    // ── State (mutable, NOT reactive) ────────────────────────────
     private _scrollX = 0;
     private _scrollY = 0;
     private _ppb = 20;
@@ -90,15 +63,12 @@ export class ViewportMachine {
     private _trackCount: number;
     private _trackHeight: number;
 
-    // ── DOM reference ────────────────────────────────────────────
     private _container: HTMLElement | null = null;
 
-    // ── Debounce timer ───────────────────────────────────────────
     private _flushTimer: ReturnType<typeof setTimeout> | null = null;
     private _onFlush: ViewportMachineConfig['onFlush'];
     private _onFrameUpdate: ViewportMachineConfig['onFrameUpdate'];
 
-    // ── Bound handler (so we can remove it) ──────────────────────
     private _boundWheel: (e: WheelEvent) => void;
 
     constructor(config: ViewportMachineConfig) {
@@ -113,7 +83,6 @@ export class ViewportMachine {
         this._boundWheel = this._handleWheel.bind(this);
     }
 
-    // ── Public API ───────────────────────────────────────────────
 
     /** Attach to a DOM container. Starts listening for wheel events. */
     attach(container: HTMLElement): void {
@@ -147,7 +116,6 @@ export class ViewportMachine {
     updateViewportSize(width: number, height: number): void {
         this._viewportWidth = width;
         this._viewportHeight = height;
-        // Re-clamp scroll in case viewport grew
         this._clampScroll();
         this._applyCSS();
     }
@@ -163,7 +131,6 @@ export class ViewportMachine {
         };
     }
 
-    // ── Getters for hot-path access ──────────────────────────────
 
     get scrollX(): number { return this._scrollX; }
     get scrollY(): number { return this._scrollY; }
@@ -171,7 +138,6 @@ export class ViewportMachine {
     get viewportWidth(): number { return this._viewportWidth; }
     get viewportHeight(): number { return this._viewportHeight; }
 
-    // ── Coordinate Conversion (f64 precision — no early rounding) ─
 
     /**
      * Convert a screen X position (clientX) to beats.
@@ -233,7 +199,6 @@ export class ViewportMachine {
         if (anchorClientX !== undefined && this._container) {
             this._applyAnchoredZoom(newPpb, anchorClientX);
         } else {
-            // Zoom centered on viewport
             const centerBeat = (this._scrollX + this._viewportWidth / 2) / this._ppb;
             this._ppb = newPpb;
             this._scrollX = centerBeat * newPpb - this._viewportWidth / 2;
@@ -244,17 +209,13 @@ export class ViewportMachine {
         this._onFrameUpdate?.(this.snapshot);
     }
 
-    // ── Private: Wheel Handler ───────────────────────────────────
 
     private _handleWheel(e: WheelEvent): void {
-        // Always prevent default to kill native scroll
         e.preventDefault();
 
         if (e.ctrlKey || e.metaKey) {
-            // ── ZOOM (Ctrl/Cmd + Wheel) ─────────────────────────
             this._handleZoom(e);
         } else {
-            // ── SCROLL ──────────────────────────────────────────
             this._handleScroll(e);
         }
     }
@@ -267,7 +228,6 @@ export class ViewportMachine {
         );
         if (Math.abs(newPpb - this._ppb) < 0.001) return;
 
-        // ── Mouse-Anchor Zoom (Ableton-style) ───────────────
         this._applyAnchoredZoom(newPpb, e.clientX);
 
         this._clampScroll();
@@ -287,22 +247,16 @@ export class ViewportMachine {
             return;
         }
 
-        // Mouse position relative to container
         const mouseX = clientX - rect.left;
 
-        // Beat under mouse at OLD zoom
         const mouseBeat = (this._scrollX + mouseX) / this._ppb;
 
-        // Apply new zoom
         this._ppb = newPpb;
 
-        // Compute new scrollX so the same beat stays under the mouse
         this._scrollX = mouseBeat * newPpb - mouseX;
     }
 
     private _handleScroll(e: WheelEvent): void {
-        // Trackpads give both deltaX and deltaY. Mice give only deltaY.
-        // For horizontal scroll: use deltaX (trackpad swipe) OR Shift+deltaY (mouse).
         const dx = e.shiftKey ? e.deltaY * SCROLL_SPEED_X : e.deltaX * SCROLL_SPEED_X;
         const dy = e.shiftKey ? 0 : e.deltaY * SCROLL_SPEED_Y;
 
@@ -315,7 +269,6 @@ export class ViewportMachine {
         this._onFrameUpdate?.(this.snapshot);
     }
 
-    // ── Private: CSS Variable Application ────────────────────────
 
     /** Write current state to CSS custom properties — triggers GPU compositing. */
     private _applyCSS(): void {
@@ -327,7 +280,6 @@ export class ViewportMachine {
         el.style.setProperty('--vp-ppb', String(this._ppb));
     }
 
-    // ── Private: Scroll Clamping ─────────────────────────────────
 
     private _clampScroll(): void {
         const maxScrollX = Math.max(0, this._totalBeats * this._ppb - this._viewportWidth);
@@ -336,7 +288,6 @@ export class ViewportMachine {
         this._scrollY = Math.max(0, Math.min(maxScrollY, this._scrollY));
     }
 
-    // ── Private: Debounced React Flush ───────────────────────────
 
     private _scheduleFlush(): void {
         if (this._flushTimer) clearTimeout(this._flushTimer);

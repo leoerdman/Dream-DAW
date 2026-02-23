@@ -11,7 +11,8 @@ function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<Project
     state.changed = true;
 }
 
-export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, _env: DeltaEnv): boolean {
+export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
+    void env;
     if (delta.kind === 'PluginBypassChanged') {
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;

@@ -167,7 +167,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
         set((s) => {
             let nextProjectBpm = snapshotMeta?.bpm ?? s.projectBpm;
-            let nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
+            const nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
             let nextTransport = s.transport;
             let nextKeySigEnabled = snapshotMeta?.keySigEnabled ?? s.keySigEnabled;
             let nextKeySigTonic = snapshotMeta?.keySigTonic ?? s.keySigTonic;

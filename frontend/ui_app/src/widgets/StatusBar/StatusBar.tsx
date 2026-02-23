@@ -13,13 +13,12 @@
  */
 
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-import { useGridStore } from '@/shared/stores/useGridStore';
-import { resolveSampleRate, secondsToBeat } from '@/shared/lib/audioMath';
+import { secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
 import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
 import { panelModeBtnStyle } from './ui/statusBarStyles';
-import { GridMenu, HistorySection, InlineMessage, StatusRightSection } from './ui/statusBarSections';
+import { HistorySection, InlineMessage } from './ui/statusBarSections';
 
 interface StatusBarProps {
     projectEnd?: string;
@@ -39,16 +38,10 @@ export const StatusBar = ({
 }: StatusBarProps) => {
     // Live engine data
     const {
-        isPlaying,
         positionSeconds,
         bpm,
-        connected,
-        projectSampleRate,
-        trackCount,
         latestHistory,
         projectHistory,
-        pluginSandbox,
-        reloadCrashedSandboxPlugins,
     } = useStatusEngineSlice();
 
     // Status bar messages
@@ -56,14 +49,7 @@ export const StatusBar = ({
     const statusSeverity = useStatusStore((s) => s.severity);
     const statusClear = useStatusStore((s) => s.clear);
 
-    // Live values from engine store
-    const sampleRate = resolveSampleRate(projectSampleRate);
-    const gridDivision = useGridStore((s) => s.division);
-    const gridTriplet = useGridStore((s) => s.triplet);
-    const setGridDivision = useGridStore((s) => s.setDivision);
-    const [gridOpen, setGridOpen] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
-    const gridRef = useRef<HTMLDivElement | null>(null);
     const historyRef = useRef<HTMLDivElement | null>(null);
 
     // Compute bar.beat.sub from live playhead
@@ -72,21 +58,6 @@ export const StatusBar = ({
     const beat = Math.floor(totalBeats % 4) + 1;
     const sub = Math.floor((totalBeats % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
-    const crashedSandboxCount = pluginSandbox?.instances.filter(
-        (inst) => inst.status === 'crashed' || inst.status === 'timed_out' || inst.bypass_requested,
-    ).length ?? 0;
-
-    useEffect(() => {
-        if (!gridOpen) return;
-        const onDown = (e: MouseEvent) => {
-            if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
-                setGridOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', onDown);
-        return () => document.removeEventListener('mousedown', onDown);
-    }, [gridOpen]);
-
     useEffect(() => {
         if (!historyOpen) return;
         const onDown = (e: MouseEvent) => {
@@ -126,11 +97,13 @@ export const StatusBar = ({
                         <div style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: 4,
+                            gap: 2,
                             border: '1px solid var(--color-control-border)',
-                            borderRadius: 'var(--radius-lg)',
+                            borderRadius: 'var(--radius-md)',
                             padding: 2,
-                            background: 'var(--color-bg-header)',
+                            height: 24,
+                            background: 'var(--color-control-bg)',
+                            boxShadow: 'inset 0 1px 0 color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
                             marginRight: 2,
                         }}>
                             <button
@@ -186,27 +159,6 @@ export const StatusBar = ({
                 {statusMessage && (
                     <InlineMessage statusMessage={statusMessage} statusSeverity={statusSeverity} onClear={statusClear} />
                 )}
-
-                <StatusRightSection
-                    connected={connected}
-                    isPlaying={isPlaying}
-                    trackCount={trackCount}
-                    bpm={bpm}
-                    sampleRate={sampleRate}
-                    pluginSandbox={pluginSandbox}
-                    crashedSandboxCount={crashedSandboxCount}
-                    onReloadCrashed={reloadCrashedSandboxPlugins}
-                    gridMenu={(
-                        <GridMenu
-                            gridRef={gridRef}
-                            gridOpen={gridOpen}
-                            setGridOpen={setGridOpen}
-                            gridDivision={gridDivision}
-                            gridTriplet={gridTriplet}
-                            setGridDivision={setGridDivision}
-                        />
-                    )}
-                />
             </div>
         </div>
     );

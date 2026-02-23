@@ -28,7 +28,7 @@ export function AssistantChatComposer({
     onStop,
     onSend,
 }: AssistantChatComposerProps) {
-    const voiceIcon = isListening ? MicOff : Mic;
+    const VoiceIcon = isListening ? MicOff : Mic;
     const voiceTitle = isListening ? 'Click to stop' : 'Voice input';
     const voiceClass = `assistant-voice-btn${isListening ? ' listening' : ''}`;
 
@@ -36,7 +36,7 @@ export function AssistantChatComposer({
         <>
             <div className="assistant-input-area">
                 <button className={voiceClass} onClick={onToggleVoice} title={voiceTitle}>
-                    {voiceIcon({ size: 14 })}
+                    <VoiceIcon size={14} />
                 </button>
 
                 <textarea
@@ -76,4 +76,3 @@ export function AssistantChatComposer({
         </>
     );
 }
-

@@ -89,6 +89,10 @@ export const DawShell = () => {
         endTrack: number;
     } | null>(null);
 
+    useEffect(() => {
+        document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
+    }, [bottomPanelHeightPx]);
+
     const activePanelTrackKey = selectedTrackId && selectedTrackId.length > 0
         ? selectedTrackId
         : 'master';

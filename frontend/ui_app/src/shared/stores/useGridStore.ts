@@ -51,6 +51,12 @@ export interface GridActions {
     /** Set the grid division. */
     setDivision: (d: GridDivision) => void;
 
+    /** Make grid finer (smaller interval). */
+    stepDivisionFiner: () => void;
+
+    /** Make grid coarser (larger interval). */
+    stepDivisionCoarser: () => void;
+
     /** Toggle or set triplet mode. */
     setTriplet: (t: boolean) => void;
 
@@ -100,6 +106,16 @@ export type GridStore = GridState & GridActions;
 // ── Cycle Order ──────────────────────────────────────────────────────────
 
 const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/1', '1/2', 'OFF'];
+const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32'];
+
+function denominatorToDivision(denominator: number): GridDivision {
+    if (denominator <= 1) return '1/1';
+    if (denominator <= 2) return '1/2';
+    if (denominator <= 4) return '1/4';
+    if (denominator <= 8) return '1/8';
+    if (denominator <= 16) return '1/16';
+    return '1/32';
+}
 
 // ── Store Implementation ─────────────────────────────────────────────────
 
@@ -149,6 +165,30 @@ export const useGridStore = create<GridStore>((set, get) => ({
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-division'))
             .catch((err) => console.error('[GridStore] setArrangementGrid(setDivision) failed:', err));
+    },
+
+    stepDivisionFiner: () => {
+        const st = get();
+        const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
+            ? st.division
+            : denominatorToDivision(st.fixedDenominator);
+        const currentIndex = FIXED_DIVISION_ORDER.indexOf(baseDivision);
+        const safeIndex = currentIndex < 0 ? 0 : currentIndex;
+        const nextIndex = Math.min(FIXED_DIVISION_ORDER.length - 1, safeIndex + 1);
+        const nextDivision = FIXED_DIVISION_ORDER[nextIndex];
+        get().setDivision(nextDivision);
+    },
+
+    stepDivisionCoarser: () => {
+        const st = get();
+        const baseDivision = FIXED_DIVISION_ORDER.includes(st.division)
+            ? st.division
+            : denominatorToDivision(st.fixedDenominator);
+        const currentIndex = FIXED_DIVISION_ORDER.indexOf(baseDivision);
+        const safeIndex = currentIndex < 0 ? 0 : currentIndex;
+        const nextIndex = Math.max(0, safeIndex - 1);
+        const nextDivision = FIXED_DIVISION_ORDER[nextIndex];
+        get().setDivision(nextDivision);
     },
 
     setTriplet: (t: boolean) => {

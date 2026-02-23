@@ -116,6 +116,10 @@ async fn export_mix_cmd(
         drop(producer_guard);
         was_playing
     };
+    // Snapshot runtime plugin state used by OfflineBouncer.
+    // This keeps offline export timing aligned with realtime graph processing.
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
     // Store the handle's producer as a Send-safe wrapper for the blocking task.
     // We'll use the AppHandle to send an IPC command to resume playback.
     let app_for_resume = app.clone();
@@ -146,7 +150,7 @@ async fn export_mix_cmd(
         // tracks (e.g. Serum). The built-in OfflineBouncer::pre_render_midi_tracks()
         // only handles sampler-based instruments. We must pre-render VST3
         // instrument tracks HERE where we have access to the PluginHost.
-        {
+        if false {
             // ═══════════════════════════════════════════════════════════════
             // CRITICAL: The bouncer's internal render loop operates at
             // project_sample_rate, NOT export_sample_rate. It resamples
@@ -626,7 +630,7 @@ async fn export_mix_cmd(
         //
         // BUG-E10 FIX: Use per-track synthetic keys to prevent cross-track
         // contamination when multiple tracks reference the same audio file.
-        {
+        if false {
             const FX_CHUNK_FRAMES: usize = 4096;
             let mut vst3_fx_rendered = 0usize;
             for track_idx in 0..project.tracks.len() {
@@ -798,20 +802,15 @@ async fn export_mix_cmd(
             }
         }
 
-        // Pass empty plugin maps: VST3 FX are now pre-rendered above, native FX
-        // are handled by device_chain inside render_routing_aware.
-        let no_plugins: std::collections::HashMap<
-            uuid::Uuid,
-            dream_engine::driver::PluginInstanceArc,
-        > = std::collections::HashMap::new();
-        let no_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = Vec::new();
+        // Use runtime plugin snapshots for continuous, timeline-accurate export.
+        // This avoids per-clip pre-render drift and keeps track alignment stable.
         let result = bouncer
             .bounce(
                 &mut project,
                 &mut local_pool,
                 None,
-                &no_plugins,
-                &no_fx,
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let payload = serde_json::json!({
                         "jobId": &job_id_for_progress,

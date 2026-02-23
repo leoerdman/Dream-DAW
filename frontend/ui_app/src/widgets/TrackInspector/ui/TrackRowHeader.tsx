@@ -55,6 +55,8 @@ export function TrackRowHeader({
             : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
     const indentW = !isMaster && depth > 0 ? Math.min(layout.maxIndentPx, depth * layout.indentStepPx) : 0;
     const stripeW = !isMaster && depth > 0 ? layout.groupStripeWidthPx : 0;
+    // Master gets extra base padding to visually align text with other tracks
+    const basePaddingLeft = (mixerFocusMode ? 5 : 4) + indentW + (isMaster ? 4 : 0);
 
     return (
         <div
@@ -87,7 +89,7 @@ export function TrackRowHeader({
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center',
-                    padding: `2px ${mixerFocusMode ? 8 : 6}px 2px ${(mixerFocusMode ? 5 : 4) + indentW}px`,
+                    padding: `2px ${mixerFocusMode ? 8 : 6}px 2px ${basePaddingLeft}px`,
                     background: headerBgColor,
                     gap: 1,
                     position: 'relative',

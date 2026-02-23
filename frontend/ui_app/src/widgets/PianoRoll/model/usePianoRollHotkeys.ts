@@ -87,6 +87,7 @@ export function usePianoRollHotkeys({
                 if (!hasSelected) return;
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
                 setSelectedNotes(new Set());
                 return;

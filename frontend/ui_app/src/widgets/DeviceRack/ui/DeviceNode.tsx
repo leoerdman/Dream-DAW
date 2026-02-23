@@ -82,7 +82,9 @@ export const DeviceNode = ({
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = manifest.supportsSettings;
-    const showUiButton = manifest.hasEditor;
+    // For external plugins, prefer the backend-reported editorSupported flag
+    // (it queries the actual VST3 IEditController). Fall back to manifest.hasEditor.
+    const showUiButton = editorSupported ?? manifest.hasEditor;
     const nativeEditorOpen = isNativeEditorOpen ?? false;
     const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
 

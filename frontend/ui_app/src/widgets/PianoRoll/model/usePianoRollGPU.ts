@@ -1,24 +1,21 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — usePianoRollGPU Hook
+// Dream DAW — usePianoRollGPU Hook (Main-Thread WebGL2)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// React hook that bridges the main thread to the PianoRoll OffscreenCanvas
-// Worker. Handles:
-// - Worker lifecycle (create on mount, destroy on unmount)
-// - OffscreenCanvas transfer via transferControlToOffscreen()
-// - Note data serialization to Float32Array (zero-copy transfer)
-// - View/style synchronization on zoom/scroll/color changes
-// - Scale notes computation for GPU scale highlighting
-// - Fallback to 2D canvas if OffscreenCanvas or WebGL2 unavailable
+// Renders the PianoRoll grid, notes, and playhead using WebGL2 directly on
+// the main thread. No OffscreenCanvas or Web Worker — maximum compatibility
+// with Tauri WKWebView on macOS.
 //
-// All coordinate values are passed in CSS pixels. The shaders apply DPR
-// scaling internally so Retina displays render correctly.
+// The PianoRollGLRenderer is instantiated once per canvas and renders
+// via requestAnimationFrame. State changes set a dirty flag and trigger
+// a re-render on the next frame.
 //
+// All coordinate values are in CSS pixels. DPR scaling is done in shaders.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
-import type { WorkerInMessage, WorkerOutMessage } from '@/widgets/PianoRoll/worker/PianoRollWorker';
+import { PianoRollGLRenderer } from '@/widgets/PianoRoll/worker/PianoRollGLRenderer';
 
 export interface UsePianoRollGPUProps {
     notes: MidiNote[];
@@ -111,18 +108,6 @@ function packNotes(
     return data;
 }
 
-/** Detect whether OffscreenCanvas + WebGL2 are available. */
-function canUseGPU(): boolean {
-    try {
-        if (typeof OffscreenCanvas === 'undefined') return false;
-        const testCanvas = new OffscreenCanvas(1, 1);
-        const gl = testCanvas.getContext('webgl2');
-        return !!gl;
-    } catch {
-        return false;
-    }
-}
-
 // ── Hook ────────────────────────────────────────────────────────────────
 
 export function usePianoRollGPU({
@@ -147,112 +132,137 @@ export function usePianoRollGPU({
     clipBeats,
 }: UsePianoRollGPUProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const workerRef = useRef<Worker | null>(null);
-    const transferredRef = useRef(false);
-    const gpuAvailable = canUseGPU();
+    const rendererRef = useRef<PianoRollGLRenderer | null>(null);
+    const animFrameRef = useRef<number | null>(null);
+    const dirtyRef = useRef(true);
+    const [gpuAvailable, setGpuAvailable] = useState(true); // optimistic, verified on first mount
+    const initedRef = useRef(false);
 
-    // ── Worker lifecycle ──
+    // ── Schedule render on next frame ──
+    const scheduleRender = useCallback(() => {
+        dirtyRef.current = true;
+        if (animFrameRef.current === null) {
+            animFrameRef.current = requestAnimationFrame(() => {
+                animFrameRef.current = null;
+                if (dirtyRef.current && rendererRef.current) {
+                    dirtyRef.current = false;
+                    rendererRef.current.render();
+                }
+            });
+        }
+    }, []);
+
+    // ── Renderer lifecycle (main-thread WebGL2) ──
     useEffect(() => {
-        if (gpuAvailable !== true) return;
-
+        if (!gpuAvailable || initedRef.current) return;
         const canvas = canvasRef.current;
-        if (!canvas || transferredRef.current) return;
+        if (!canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
 
         try {
-            const offscreen = canvas.transferControlToOffscreen();
-            transferredRef.current = true;
-
-            const worker = new Worker(
-                new URL('../worker/PianoRollWorker.ts', import.meta.url),
-                { type: 'module' },
-            );
-
-            worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
-                if (event.data.type === 'error') {
-                    console.error('[PianoRollGPU] Worker error:', event.data.message);
-                }
-            };
-
             const dpr = window.devicePixelRatio || 1;
-            worker.postMessage(
-                { type: 'init', canvas: offscreen, dpr } satisfies WorkerInMessage,
-                [offscreen],
-            );
+            canvas.width = Math.ceil(canvasWidth * dpr);
+            canvas.height = Math.ceil(canvasHeight * dpr);
 
-            workerRef.current = worker;
+            const gl = canvas.getContext('webgl2', {
+                alpha: false,
+                antialias: false,
+                desynchronized: true,
+                powerPreference: 'high-performance',
+            });
+
+            if (!gl) {
+                console.warn('[PianoRollGPU] WebGL2 context unavailable, falling back to SVG');
+                setGpuAvailable(false);
+                return;
+            }
+
+            const renderer = new PianoRollGLRenderer(gl);
+            renderer.setView({ dpr });
+            rendererRef.current = renderer;
+            initedRef.current = true;
+            scheduleRender();
 
             return () => {
-                worker.postMessage({ type: 'destroy' } satisfies WorkerInMessage);
-                worker.terminate();
-                workerRef.current = null;
+                if (animFrameRef.current !== null) {
+                    cancelAnimationFrame(animFrameRef.current);
+                    animFrameRef.current = null;
+                }
+                renderer.destroy();
+                rendererRef.current = null;
+                initedRef.current = false;
+                // Lose the context explicitly to free the WebGL slot
+                const ext = gl.getExtension('WEBGL_lose_context');
+                if (ext) ext.loseContext();
             };
         } catch (err) {
-            console.error('[PianoRollGPU] Failed to init OffscreenCanvas:', err);
+            console.warn('[PianoRollGPU] WebGL2 init failed, falling back to SVG:', err);
+            setGpuAvailable(false);
+            initedRef.current = false;
         }
-    }, [gpuAvailable]);
+    }, [gpuAvailable, canvasWidth, canvasHeight, scheduleRender]);
 
     // ── Resize ──
     useEffect(() => {
-        const worker = workerRef.current;
-        if (!worker || canvasWidth <= 0 || canvasHeight <= 0) return;
+        const canvas = canvasRef.current;
+        const renderer = rendererRef.current;
+        if (!renderer || !canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
+
         const dpr = window.devicePixelRatio || 1;
-        worker.postMessage({
-            type: 'resize',
-            width: canvasWidth,
-            height: canvasHeight,
+        canvas.width = Math.ceil(canvasWidth * dpr);
+        canvas.height = Math.ceil(canvasHeight * dpr);
+        renderer.setView({
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
             dpr,
-        } satisfies WorkerInMessage);
-    }, [canvasWidth, canvasHeight]);
+        });
+        scheduleRender();
+    }, [canvasWidth, canvasHeight, scheduleRender]);
 
     // ── Upload notes ──
     useEffect(() => {
-        const worker = workerRef.current;
-        if (!worker) return;
+        const renderer = rendererRef.current;
+        if (!renderer) return;
         const data = packNotes(notes, ghostNotes, selectedNotes);
-        worker.postMessage(
-            { type: 'updateNotes', data } satisfies WorkerInMessage,
-            [data.buffer], // Transfer ownership (zero-copy)
-        );
-    }, [notes, ghostNotes, selectedNotes]);
+        renderer.uploadNotes(data);
+        scheduleRender();
+    }, [notes, ghostNotes, selectedNotes, scheduleRender]);
 
     // ── View updates (CSS pixels — shaders apply DPR internally) ──
     useEffect(() => {
-        const worker = workerRef.current;
-        if (!worker) return;
+        const renderer = rendererRef.current;
+        if (!renderer) return;
 
         const dpr = window.devicePixelRatio || 1;
         const playheadX = playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats
             ? playheadBeat * pixelsPerBeat
             : -1;
 
-        worker.postMessage({
-            type: 'updateView',
-            view: {
-                dpr,
-                pixelsPerBeat,
-                noteHeight,
-                scrollX,
-                scrollY,
-                canvasWidth: Math.ceil(canvasWidth * dpr),
-                canvasHeight: Math.ceil(canvasHeight * dpr),
-                beatsPerBar,
-                gridInterval,
-                totalBeats,
-                totalPitches,
-                highlightScale,
-                scaleRoot,
-                scaleNotes: scaleSetToArray(scaleNotes),
-                playheadX,
-            },
-        } satisfies WorkerInMessage);
+        renderer.setView({
+            dpr,
+            pixelsPerBeat,
+            noteHeight,
+            scrollX,
+            scrollY,
+            canvasWidth: Math.ceil(canvasWidth * dpr),
+            canvasHeight: Math.ceil(canvasHeight * dpr),
+            beatsPerBar,
+            gridInterval,
+            totalBeats,
+            totalPitches,
+            highlightScale,
+            scaleRoot,
+            scaleNotes: scaleSetToArray(scaleNotes),
+            playheadX,
+        });
+        scheduleRender();
     }, [pixelsPerBeat, noteHeight, scrollX, scrollY, canvasWidth, canvasHeight,
         beatsPerBar, gridInterval, totalBeats, totalPitches,
-        highlightScale, scaleRoot, scaleNotes, playheadBeat, clipBeats]);
+        highlightScale, scaleRoot, scaleNotes, playheadBeat, clipBeats, scheduleRender]);
 
     // ── Style (color) updates ──
     useEffect(() => {
-        const worker = workerRef.current;
-        if (!worker) return;
+        const renderer = rendererRef.current;
+        if (!renderer) return;
         const noteColor = hexToRGB(color);
         // Root row tint: mix accent color at 12% opacity
         const rootRowColor: [number, number, number] = [
@@ -269,11 +279,9 @@ export function usePianoRollGPU({
         // Out-of-scale: very dim
         const outScaleRowColor: [number, number, number] = [0.065, 0.065, 0.07];
 
-        worker.postMessage({
-            type: 'updateStyle',
-            style: { noteColor, rootRowColor, scaleRowColor, outScaleRowColor },
-        } satisfies WorkerInMessage);
-    }, [color]);
+        renderer.setStyle({ noteColor, rootRowColor, scaleRowColor, outScaleRowColor });
+        scheduleRender();
+    }, [color, scheduleRender]);
 
     return {
         gpuCanvasRef: canvasRef,

@@ -1,6 +1,7 @@
 import * as engine from '@/shared/api/engine';
 import { beatDurationToFrames, beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { isModKey, resolveSplitFrame } from './utils';
 
@@ -34,6 +35,22 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
             });
         }
         onTogglePlayback();
+        return true;
+    }
+
+    if (isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'Digit1') {
+        if (inDeviceRack) return true;
+        e.preventDefault();
+        e.stopPropagation();
+        useGridStore.getState().stepDivisionFiner();
+        return true;
+    }
+
+    if (isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'Digit2') {
+        if (inDeviceRack) return true;
+        e.preventDefault();
+        e.stopPropagation();
+        useGridStore.getState().stepDivisionCoarser();
         return true;
     }
 

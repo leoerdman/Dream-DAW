@@ -48,8 +48,8 @@ export function DawShellBottomPanel({
         <footer
             className="shrink-0 z-40 overflow-hidden"
             style={{
-                height: hasResizableClipEditor ? `${bottomPanelHeightPx}px` : 'var(--daw-device-rack-height)',
-                minHeight: hasResizableClipEditor ? 'var(--daw-device-rack-height)' : 'var(--daw-device-rack-min-height)',
+                height: `var(--daw-bottom-panel-height, ${bottomPanelHeightPx}px)`,
+                minHeight: 'var(--daw-device-rack-min-height)',
                 borderTop: '1px solid var(--color-divider)',
                 position: 'relative',
             }}

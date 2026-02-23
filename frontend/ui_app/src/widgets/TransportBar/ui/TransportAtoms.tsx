@@ -1,17 +1,25 @@
 import React from 'react';
 
+export const TRANSPORT_UI = {
+    sectionHeight: 26,
+    controlHeight: 24,
+    controlRadius: 'var(--radius-sm)',
+    controlBg: 'color-mix(in srgb, var(--color-bg-header) 88%, black 12%)',
+    controlBorder: '1px solid color-mix(in srgb, var(--color-control-border) 60%, transparent)',
+};
+
 export const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
     <div
         style={{
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            padding: '0 8px',
-            margin: '0 4px',
-            height: 26,
-            borderRadius: 'var(--radius-md)',
-            background: 'color-mix(in srgb, var(--color-bg-panel) 80%, transparent)',
-            border: '1px solid var(--color-divider)',
+            padding: '0 4px',
+            margin: '0 2px',
+            height: TRANSPORT_UI.sectionHeight,
+            borderRadius: 0,
+            background: 'transparent',
+            border: 'none',
             ...style,
         }}
     >
@@ -24,7 +32,24 @@ export const ControlButton = ({ label, onClick, dimmed }: { label: string; onCli
         onClick={onClick}
         className="btn-control"
         style={{
+            height: TRANSPORT_UI.controlHeight,
+            minHeight: TRANSPORT_UI.controlHeight,
+            minWidth: TRANSPORT_UI.controlHeight,
+            border: TRANSPORT_UI.controlBorder,
+            borderRadius: TRANSPORT_UI.controlRadius,
+            background: TRANSPORT_UI.controlBg,
             fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            color: 'var(--color-text-primary)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 8px',
+            lineHeight: 1,
+            verticalAlign: 'middle',
+            margin: 0,
+            appearance: 'none',
             opacity: dimmed ? 0.35 : 1,
         }}
     >
@@ -54,15 +79,20 @@ export const TransportBtn = ({
         title={title}
         className={className}
         style={{
-            width: 22,
-            height: 22,
-            display: 'flex',
+            width: TRANSPORT_UI.controlHeight,
+            height: TRANSPORT_UI.controlHeight,
+            display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: isActive && activeBackground ? `color-mix(in srgb, ${activeColor} 15%, transparent)` : 'transparent',
-            border: 'none',
-            borderRadius: 'var(--radius-xs)',
-            color: isActive ? activeColor : 'var(--color-text-secondary)',
+            background: TRANSPORT_UI.controlBg,
+            border: TRANSPORT_UI.controlBorder,
+            borderRadius: TRANSPORT_UI.controlRadius,
+            padding: 0,
+            lineHeight: 1,
+            verticalAlign: 'middle',
+            margin: 0,
+            appearance: 'none',
+            color: isActive ? activeColor : 'var(--color-text-primary)',
             cursor: 'pointer',
             transition: 'all var(--transition-fast)',
         }}
@@ -70,4 +100,3 @@ export const TransportBtn = ({
         {icon}
     </button>
 );
-

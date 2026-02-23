@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
@@ -16,6 +16,7 @@ import { useTransportDebugPanel } from './model/useTransportDebugPanel';
 import { useMidiActivityLed } from './model/useMidiActivityLed';
 import { useTransportRecording } from './model/useTransportRecording';
 import { TransportCenterSection, TransportLeftSection, TransportRightSection } from './ui/TransportSections';
+import { TRANSPORT_UI } from './ui/TransportAtoms';
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -33,7 +34,6 @@ interface TransportBarProps {
 
 export const TransportBar = ({
     onSettingsClick,
-    onOpenExport,
     onRecordingStateChange,
     followPlayhead = false,
     onFollowPlayheadChange,
@@ -68,6 +68,9 @@ export const TransportBar = ({
     } = useTransportEngineSlice();
     const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
     const togglePianoPencilMode = useGridStore((s) => s.togglePianoPencilMode);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const setGridDivision = useGridStore((s) => s.setDivision);
 
     const { isRecording, handleRecordToggle, stopRecordingIfNeeded } = useTransportRecording(armedTrackIndex, onRecordingStateChange);
     const [bpmEditing, setBpmEditing] = useState(false);
@@ -76,6 +79,10 @@ export const TransportBar = ({
 
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
+    const [keyMenuOpen, setKeyMenuOpen] = useState(false);
+    const keyMenuRef = useRef<HTMLDivElement | null>(null);
+    const [gridOpen, setGridOpen] = useState(false);
+    const gridRef = useRef<HTMLDivElement | null>(null);
 
     const keyEnabled = storeKeySigEnabled;
     const keyTonic = resolveKeyTonicIndex(storeKeySigTonic);
@@ -137,33 +144,66 @@ export const TransportBar = ({
         setBpmEditing(false);
     };
 
-    const cycleKeyTonic = () => {
-        const next = (keyTonic + 1) % KEY_TONICS.length;
+    const setKeyTonicAt = (index: number) => {
+        const next = Math.max(0, Math.min(KEY_TONICS.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-tonic'));
     };
-    const cycleKeyMode = () => {
-        const next = (keyMode + 1) % KEY_MODES.length;
+    const setKeyModeAt = (index: number) => {
+        const next = Math.max(0, Math.min(KEY_MODES.length - 1, index));
         void engineApi
             .setKeySignatureWithDeltas(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-mode'));
+    };
+    const toggleKeyEnabled = () => {
+        const next = !keyEnabled;
+        void engineApi
+            .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
+            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
     };
     const cycleTimeSignature = () => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length);
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
     const valueChipStyle: React.CSSProperties = {
         fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--font-size-sm)',
-        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+        fontSize: 'var(--font-size-xs)',
+        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
         color: 'var(--color-text-primary)',
-        background: 'var(--color-bg-input)',
-        borderRadius: 'var(--radius-xs)',
-        padding: '2px 8px',
+        background: TRANSPORT_UI.controlBg,
+        borderRadius: TRANSPORT_UI.controlRadius,
+        padding: '0 8px',
         minWidth: 56,
+        height: TRANSPORT_UI.controlHeight,
+        lineHeight: `${TRANSPORT_UI.controlHeight}px`,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         textAlign: 'center',
-        border: 'none',
+        border: TRANSPORT_UI.controlBorder,
         cursor: 'pointer',
     };
+
+    useEffect(() => {
+        if (!keyMenuOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (keyMenuRef.current && !keyMenuRef.current.contains(e.target as Node)) {
+                setKeyMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [keyMenuOpen]);
+
+    useEffect(() => {
+        if (!gridOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
+                setGridOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [gridOpen]);
 
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
@@ -184,8 +224,18 @@ export const TransportBar = ({
                     keyEnabled={keyEnabled}
                     keyTonic={keyTonic}
                     keyMode={keyMode}
-                    cycleKeyTonic={cycleKeyTonic}
-                    cycleKeyMode={cycleKeyMode}
+                    keyMenuRef={keyMenuRef}
+                    keyMenuOpen={keyMenuOpen}
+                    setKeyMenuOpen={setKeyMenuOpen}
+                    onToggleKeyEnabled={toggleKeyEnabled}
+                    onSelectKeyTonic={setKeyTonicAt}
+                    onSelectKeyMode={setKeyModeAt}
+                    gridRef={gridRef}
+                    gridOpen={gridOpen}
+                    setGridOpen={setGridOpen}
+                    gridDivision={gridDivision}
+                    gridTriplet={gridTriplet}
+                    setGridDivision={setGridDivision}
                 />
 
                 <TransportCenterSection
@@ -216,9 +266,7 @@ export const TransportBar = ({
                 />
 
                 <TransportRightSection
-                    onOpenExport={onOpenExport}
                     midiLedRef={midiLedRef}
-                    trackCount={trackCount}
                     pdcOpen={pdcOpen}
                     setPdcOpen={setPdcOpen}
                     assistantOpen={assistantOpen}

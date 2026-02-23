@@ -157,8 +157,10 @@ export function useDeviceRackCore(selectedTrackId: string) {
             const isBypassed = localBypass[id] ?? (node.is_bypassed ?? false);
             const isEnabled = !isBypassed;
 
-            const isVst = pluginId.startsWith('vst://') || pluginId.startsWith('au://') || pluginId.startsWith('clap://');
             const isMissing = pluginId.startsWith('missing://');
+            // External = any plugin that is NOT internal:// and NOT missing://.
+            // Covers: vst://, au://, clap://, path-based IDs (/Library/.../*.vst3), etc.
+            const isVst = !pluginId.startsWith('internal://') && !isMissing && pluginId.length > 0;
 
             const normalizedId = normalizeInternalPluginId(pluginId);
             const internalPlugin = normalizedId ? getInternalPluginById(normalizedId) : null;

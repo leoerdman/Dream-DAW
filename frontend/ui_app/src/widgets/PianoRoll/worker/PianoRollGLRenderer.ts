@@ -55,16 +55,16 @@ export interface ViewState {
 }
 
 const DEFAULT_STYLE: GridStyle = {
-    whiteRowColor: [0.12, 0.12, 0.14],
-    blackRowColor: [0.08, 0.08, 0.10],
-    rootRowColor: [0.15, 0.12, 0.18],
-    scaleRowColor: [0.10, 0.10, 0.14],
-    outScaleRowColor: [0.06, 0.06, 0.07],
-    barLineColor: [0.40, 0.40, 0.45],
-    beatLineColor: [0.28, 0.28, 0.32],
-    subLineColor: [0.18, 0.18, 0.20],
-    cLineColor: [0.45, 0.45, 0.50],
-    noteColor: [0.35, 0.55, 0.90],
+    whiteRowColor: [0.125, 0.128, 0.150],   // Warm dark grey with slight blue
+    blackRowColor: [0.085, 0.088, 0.105],   // Deeper dark with subtle blue
+    rootRowColor: [0.16, 0.13, 0.20],       // Rich purple-tinted root
+    scaleRowColor: [0.11, 0.112, 0.145],    // Subtle blue-tinted scale
+    outScaleRowColor: [0.058, 0.058, 0.068],// Very dim out-of-scale
+    barLineColor: [0.42, 0.43, 0.50],       // Crisp blue-grey bar lines
+    beatLineColor: [0.30, 0.31, 0.36],      // Mid-tone beat lines
+    subLineColor: [0.20, 0.20, 0.24],       // Subtle subdivisions
+    cLineColor: [0.48, 0.50, 0.56],         // Prominent C note borders
+    noteColor: [0.35, 0.55, 0.90],          // Vibrant blue notes
 };
 
 const DEFAULT_SCALE = [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1]; // Major
@@ -78,6 +78,8 @@ export class PianoRollGLRenderer {
     private noteUniforms: Record<string, WebGLUniformLocation | null> = {};
     private playheadUniforms: Record<string, WebGLUniformLocation | null> = {};
     private noteVAO: WebGLVertexArrayObject;
+    private fullscreenVAO: WebGLVertexArrayObject; // Fullscreen quad VAO
+    private fullscreenQuadVBO!: WebGLBuffer;       // Fullscreen quad vertex data
     private quadVBO!: WebGLBuffer;
     private instanceVBO!: WebGLBuffer;
     private instanceCount = 0;
@@ -106,6 +108,8 @@ export class PianoRollGLRenderer {
         this.noteProgram = createProgram(gl, NOTE_VS, NOTE_FS);
         this.playheadProgram = createProgram(gl, PLAYHEAD_VS, PLAYHEAD_FS);
         this.cacheUniforms();
+        // Fullscreen quad VBO + VAO (replaces gl_VertexID trick for macOS compat)
+        this.fullscreenVAO = this.createFullscreenQuadVao();
         this.noteVAO = this.createNoteVao();
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -145,7 +149,9 @@ export class PianoRollGLRenderer {
         gl.deleteProgram(this.playheadProgram);
         gl.deleteBuffer(this.quadVBO);
         gl.deleteBuffer(this.instanceVBO);
+        gl.deleteBuffer(this.fullscreenQuadVBO);
         gl.deleteVertexArray(this.noteVAO);
+        gl.deleteVertexArray(this.fullscreenVAO);
     }
 
     // ── Uniforms ────────────────────────────────────────────────────────
@@ -182,6 +188,29 @@ export class PianoRollGLRenderer {
     }
 
     // ── VAO ─────────────────────────────────────────────────────────────
+
+    // ── Fullscreen Quad VAO ──────────────────────────────────────────────
+
+    private createFullscreenQuadVao(): WebGLVertexArrayObject {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        // Fullscreen quad: 2 triangles covering NDC [-1, 1]
+        // Each vertex: [x, y] in NDC
+        const quadData = new Float32Array([
+            -1, -1, 1, -1, -1, 1,  // triangle 1
+            1, -1, 1, 1, -1, 1,  // triangle 2
+        ]);
+        this.fullscreenQuadVBO = gl.createBuffer()!;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fullscreenQuadVBO);
+        gl.bufferData(gl.ARRAY_BUFFER, quadData, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0); // a_position at location 0
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindVertexArray(null);
+        return vao;
+    }
 
     private createNoteVao(): WebGLVertexArrayObject {
         const gl = this.gl;
@@ -247,8 +276,10 @@ export class PianoRollGLRenderer {
             if (loc) gl.uniform1i(loc, scaleNotes[i] ?? 0);
         }
 
-        // Fullscreen triangle (3 verts, no VBO needed)
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        // Fullscreen quad (6 verts from VBO)
+        gl.bindVertexArray(this.fullscreenVAO);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.bindVertexArray(null);
     }
 
     private renderNotes(v: ViewState, s: GridStyle): void {
@@ -278,7 +309,9 @@ export class PianoRollGLRenderer {
         gl.uniform2f(this.playheadUniforms.u_resolution!, v.canvasWidth, v.canvasHeight);
         gl.uniform1f(this.playheadUniforms.u_dpr!, v.dpr);
 
-        // Fullscreen triangle (no VBO or VAO needed)
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        // Fullscreen quad (6 verts from VBO)
+        gl.bindVertexArray(this.fullscreenVAO);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.bindVertexArray(null);
     }
 }

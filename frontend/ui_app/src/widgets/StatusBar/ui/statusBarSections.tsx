@@ -1,6 +1,5 @@
 import { StatusGroup, StatusLabel, StatusText } from './statusBarParts';
-import { ALL_DIVISIONS, type GridDivision } from '@/shared/lib/gridSnap';
-import type { ReactNode, RefObject } from 'react';
+import type { RefObject } from 'react';
 
 interface HistoryEventItem {
     seq: number;
@@ -121,131 +120,21 @@ export function InlineMessage({ statusMessage, statusSeverity, onClear }: Inline
     );
 }
 
-interface GridMenuProps {
-    gridRef: RefObject<HTMLDivElement | null>;
-    gridOpen: boolean;
-    setGridOpen: (open: boolean) => void;
-    gridDivision: GridDivision;
-    gridTriplet: boolean;
-    setGridDivision: (division: GridDivision) => void;
-}
-
-export function GridMenu({
-    gridRef,
-    gridOpen,
-    setGridOpen,
-    gridDivision,
-    gridTriplet,
-    setGridDivision,
-}: GridMenuProps) {
-    const gridLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
-    return (
-        <div ref={gridRef} style={{ position: 'relative' }}>
-            <button
-                onClick={() => setGridOpen(!gridOpen)}
-                style={{
-                    border: '1px solid var(--color-control-border)',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--color-control-bg)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontFamily: 'var(--font-mono)',
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    cursor: 'pointer',
-                }}
-                title="Grid Size"
-            >
-                Grid {gridLabel}
-            </button>
-            {gridOpen && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        right: 0,
-                        bottom: 22,
-                        minWidth: 100,
-                        background: 'var(--color-bg-elevated)',
-                        border: '1px solid var(--color-divider)',
-                        borderRadius: 'var(--radius-md)',
-                        boxShadow: '0 8px 18px var(--color-overlay-dark)',
-                        zIndex: 'var(--z-tooltip)' as unknown as number,
-                        padding: '4px 0',
-                    }}
-                >
-                    {ALL_DIVISIONS.map((div) => {
-                        const active = gridDivision === div;
-                        const label = div === 'ADAPTIVE' ? 'Auto' : div;
-                        return (
-                            <button
-                                key={div}
-                                onClick={() => {
-                                    setGridDivision(div);
-                                    setGridOpen(false);
-                                }}
-                                style={{
-                                    width: '100%',
-                                    textAlign: 'left',
-                                    border: 'none',
-                                    background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
-                                    color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontFamily: 'var(--font-mono)',
-                                    padding: '4px 8px',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                {label}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
-
 interface StatusRightSectionProps {
-    connected: boolean;
-    isPlaying: boolean;
-    trackCount: number;
-    bpm: number;
     sampleRate: number;
     pluginSandbox?: { enabled: boolean; instances: Array<{ status: string; bypass_requested: boolean }> } | null;
     crashedSandboxCount: number;
     onReloadCrashed: () => Promise<void>;
-    gridMenu: ReactNode;
 }
 
 export function StatusRightSection({
-    connected,
-    isPlaying,
-    trackCount,
-    bpm,
     sampleRate,
     pluginSandbox,
     crashedSandboxCount,
     onReloadCrashed,
-    gridMenu,
 }: StatusRightSectionProps) {
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-            <span
-                title={connected ? 'Engine connected' : 'Engine disconnected'}
-                style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: connected ? 'var(--color-status-success)' : 'var(--color-status-error)',
-                    flexShrink: 0,
-                }}
-            />
-            <span style={{ color: isPlaying ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
-                {isPlaying ? '▶' : '■'}
-            </span>
-
-            <StatusText>{trackCount} tracks</StatusText>
-            <StatusText>{bpm.toFixed(1)} BPM</StatusText>
             <StatusText>{(sampleRate / 1000).toFixed(1)} kHz</StatusText>
             {pluginSandbox && (
                 <StatusText title={`Plugin Sandbox: ${pluginSandbox.enabled ? 'enabled' : 'disabled'}; instances=${pluginSandbox.instances.length}`}>
@@ -276,7 +165,6 @@ export function StatusRightSection({
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-text-tertiary)' }} />
                 <StatusText>Main</StatusText>
             </div>
-            {gridMenu}
         </div>
     );
 }

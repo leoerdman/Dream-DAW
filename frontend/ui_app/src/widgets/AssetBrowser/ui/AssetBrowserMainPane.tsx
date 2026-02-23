@@ -157,7 +157,6 @@ const filtersToolbarStyle: React.CSSProperties = {
     flexWrap: 'wrap',
     gap: 4,
     padding: '4px 6px',
-    borderBottom: '1px solid var(--color-divider)',
     background: 'var(--color-bg-header)',
 };
 

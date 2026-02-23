@@ -18,7 +18,7 @@ export type GridDivision =
     | '1/8'      // Eighth note
     | '1/16'     // Sixteenth note
     | '1/32'     // Thirty-second note
-    | 'ADAPTIVE' // Auto-adjusts based on zoom level
+    | 'ADAPTIVE' // Adaptive grid based on zoom level
     | 'OFF';     // No snapping (free positioning)
 
 /** All selectable divisions for dropdown menus (ordered coarse → fine). */

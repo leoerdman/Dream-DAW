@@ -64,7 +64,7 @@ export function DawShellMainView({
             </aside>
             <div
                 onMouseDown={beginBrowserResize}
-                style={{ width: 6, cursor: 'ew-resize', background: 'transparent', flexShrink: 0 }}
+                style={{ width: 6, cursor: 'ew-resize', background: 'var(--color-bg-panel)', flexShrink: 0 }}
             />
 
             {mainViewMode === 'arrangement' ? (

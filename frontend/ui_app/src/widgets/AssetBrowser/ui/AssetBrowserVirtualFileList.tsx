@@ -118,27 +118,29 @@ export const VirtualFileList = memo(function VirtualFileList({
     }, [fileListRef]);
 
     const handleFileListScroll = useCallback(() => {
+        if (scrollResetRef.current) return; // Guard: don't override reset
         const el = fileListRef.current;
         if (el) setScrollTop(el.scrollTop);
     }, [fileListRef]);
 
-    // BUG-14 FIX: Reset scroll when items change to prevent stale offset
-    // showing items from wrong range.
+    // Reset scroll when items change (e.g. search filter narrows results)
     const prevItemsRef = useRef(items);
+    const scrollResetRef = useRef(false);
     useEffect(() => {
         if (prevItemsRef.current !== items) {
             prevItemsRef.current = items;
-            queueMicrotask(() => {
-                setScrollTop(0);
-            });
+            scrollResetRef.current = true;
+            setScrollTop(0);
             if (fileListRef.current) {
                 fileListRef.current.scrollTop = 0;
             }
+            // Clear guard after frame to allow normal scroll again
+            requestAnimationFrame(() => { scrollResetRef.current = false; });
         }
     }, [items, fileListRef]);
 
-    const HEADER_HEIGHT = 24; // BUG-15 FIX: Account for sticky header in virtual scroll
-    const totalHeight = items.length * ROW_HEIGHT + HEADER_HEIGHT;
+    const HEADER_HEIGHT = 24; // Sticky header height (used only for scroll offset calculations)
+    const totalHeight = items.length * ROW_HEIGHT;
     const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);

@@ -539,14 +539,13 @@ export class CanvasClipRenderer {
 
         // ── 3. Header band ────────────────────────────────────────────
         const headerH = Math.min(HEADER_HEIGHT, h);
-        const headerR = Math.max(0, Math.round(rgb.r * 0.8));
-        const headerG = Math.max(0, Math.round(rgb.g * 0.8));
-        const headerB = Math.max(0, Math.round(rgb.b * 0.8));
-        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, ${CLIP_BODY_ALPHA})`;
+        const headerR = rgb.r, headerG = rgb.g, headerB = rgb.b;
+        ctx.fillStyle = `rgba(${headerR}, ${headerG}, ${headerB}, 1)`;
         ctx.fillRect(x, y + 1, w, headerH);
 
         // Header divider
-        ctx.strokeStyle = `rgba(${Math.max(0, rgb.r - 50)}, ${Math.max(0, rgb.g - 50)}, ${Math.max(0, rgb.b - 50)}, 0.6)`;
+        const dividerR = Math.max(0, Math.round(rgb.r * 0.72)), dividerG = Math.max(0, Math.round(rgb.g * 0.72)), dividerB = Math.max(0, Math.round(rgb.b * 0.72));
+        ctx.strokeStyle = `rgba(${dividerR}, ${dividerG}, ${dividerB}, 0.62)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, y + 1 + headerH);
@@ -555,7 +554,8 @@ export class CanvasClipRenderer {
 
         // ── 4. Body ───────────────────────────────────────────────────
         if (h > headerH) {
-            ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${CLIP_BODY_ALPHA})`;
+            const bodyR = Math.max(0, Math.round(rgb.r * 0.88)), bodyG = Math.max(0, Math.round(rgb.g * 0.88)), bodyB = Math.max(0, Math.round(rgb.b * 0.88));
+            ctx.fillStyle = `rgba(${bodyR}, ${bodyG}, ${bodyB}, 0.92)`;
             ctx.fillRect(x, y + 1 + headerH, w, h - headerH);
         }
 

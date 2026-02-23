@@ -25,6 +25,13 @@ export function getScopedEditorElement(e: KeyboardEvent, scope: string): HTMLEle
     return null;
 }
 
+function hasScopedFocus(scope: string): boolean {
+    const active = document.activeElement as HTMLElement | null;
+    if (active?.closest?.(`[data-keyboard-scope="${scope}"]`)) return true;
+    const scoped = document.querySelector(`[data-keyboard-scope="${scope}"]`) as HTMLElement | null;
+    return Boolean(scoped && active && scoped.contains(active));
+}
+
 function isEditableTag(el: HTMLElement | null): boolean {
     if (!el) return false;
     const tag = el.tagName;
@@ -84,8 +91,8 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     return {
         ...config,
         playheadFrames,
-        inPianoRoll: Boolean(pianoRollScope),
-        inDeviceRack: Boolean(deviceRackScope),
+        inPianoRoll: Boolean(pianoRollScope) || hasScopedFocus('piano-roll'),
+        inDeviceRack: Boolean(deviceRackScope) || hasScopedFocus('device-rack'),
         selectedDeviceId: deviceRackScope?.dataset?.selectedDeviceId ?? '',
         selectedTrackIndex,
         insertAfterIndex,

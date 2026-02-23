@@ -58,17 +58,20 @@ export function usePaneResizeHandlers({
 
     const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
+        e.stopPropagation();
         const minHeight = DEFAULT_BOTTOM_PANEL_HEIGHT;
         const maxHeight = Math.round(window.innerHeight * 0.72);
 
         let rafId: number | null = null;
         let pendingHeight: number | null = null;
+        const root = document.documentElement;
+        const prevCursor = document.body.style.cursor;
+        document.body.style.cursor = 'ns-resize';
 
         const flushHeight = () => {
             rafId = null;
             if (pendingHeight == null) return;
-            const nextHeight = pendingHeight;
-            setBottomPanelHeightPx((prev) => (prev === nextHeight ? prev : nextHeight));
+            root.style.setProperty('--daw-bottom-panel-height', `${pendingHeight}px`);
         };
 
         const onMove = (me: MouseEvent) => {
@@ -85,6 +88,11 @@ export function usePaneResizeHandlers({
                 rafId = null;
             }
             flushHeight();
+            const finalHeight = pendingHeight;
+            if (finalHeight != null) {
+                setBottomPanelHeightPx((prev) => (prev === finalHeight ? prev : finalHeight));
+            }
+            document.body.style.cursor = prevCursor;
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };

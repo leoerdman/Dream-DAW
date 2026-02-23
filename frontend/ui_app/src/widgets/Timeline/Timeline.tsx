@@ -3,7 +3,6 @@
  *
  * Thin React shell around the TimelineEngine canvas.
  */
-
 import { useRef, useEffect, useMemo } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
@@ -117,7 +116,8 @@ export const Timeline = (props: TimelineProps) => {
     // ── Grid store for dynamic snap ───────────────────────────────────
     const gridInterval = useGridStore((s) => s.gridInterval);
     const snapEnabled = useGridStore((s) => s.snapEnabled);
-    const snapBeatsValue = gridInterval(beatsPerBar);
+    const pixelsPerBeat = useTimelineStore((s) => s.pixelsPerBeat);
+    const snapBeatsValue = gridInterval(beatsPerBar, pixelsPerBeat);
 
     // ── Engine config ─────────────────────────────────────────────────
     const engineConfig: UseTimelineEngineConfig = {

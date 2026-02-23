@@ -2,32 +2,20 @@ import type { ProjectDelta } from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { colorForTrackIndex, normalizeTrackType } from './trackDeltaUtils';
+import {
+    findTrackIndexById,
+    getTrackByIndex,
+    getTrackCount,
+    getTrackIdByIndex,
+    insertTrackAt,
+    moveTrackById,
+    patchTrackById,
+    rebuildChildTrackIds,
+    removeTrackById,
+} from './trackStateOps';
 
 function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
-    const track = state.tracksById[id];
-    if (!track) return;
-    const next = { ...track, ...patch };
-    state.projectTracks = state.projectTracks.map((t) => (t.id === id ? next : t));
-    state.tracksById = { ...state.tracksById, [id]: next };
-    state.changed = true;
-}
-
-function rebuildChildTrackIds(state: DeltaWorkingState): void {
-    const childrenByParent: Record<string, string[]> = {};
-    for (const track of state.projectTracks) {
-        const parentId = track.parent_track_id ?? null;
-        if (!parentId) continue;
-        if (!childrenByParent[parentId]) childrenByParent[parentId] = [];
-        childrenByParent[parentId].push(track.id);
-    }
-
-    const nextTracks = state.projectTracks.map((track) => ({
-        ...track,
-        child_track_ids: childrenByParent[track.id] ?? [],
-    }));
-    state.projectTracks = nextTracks;
-    state.tracksById = Object.fromEntries(nextTracks.map((track) => [track.id, track]));
-    state.changed = true;
+    patchTrackById(state, id, patch);
 }
 
 function patchSampleRackPad(
@@ -69,7 +57,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackArmChanged') {
-        const track = state.projectTracks[delta.data.track_index];
+        const track = getTrackByIndex(state, delta.data.track_index);
         if (!track) return true;
         patchTrack(state, track.id, { is_armed: delta.data.armed });
         return true;
@@ -180,7 +168,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
 
     if (delta.kind === 'TrackAdded') {
-        const insertIndex = Math.max(0, Math.min(delta.data.track_index, state.projectTracks.length));
+        const insertIndex = Math.max(0, Math.min(delta.data.track_index, getTrackCount(state)));
         const nextTrack: ProjectTrack = {
             id: delta.data.track_id,
             name: delta.data.name,
@@ -203,10 +191,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             sample_rack: null,
             automation_lanes: [],
         };
-        const tracks = state.projectTracks.slice();
-        tracks.splice(insertIndex, 0, nextTrack);
-        state.projectTracks = tracks;
-        state.tracksById = { ...state.tracksById, [nextTrack.id]: nextTrack };
+        insertTrackAt(state, insertIndex, nextTrack);
 
         state.timelineClips = state.timelineClips.map((clip) => (
             clip.trackIndex >= insertIndex ? { ...clip, trackIndex: clip.trackIndex + 1 } : clip
@@ -220,16 +205,13 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
 
     if (delta.kind === 'TrackRemoved') {
         const hintedIndex = delta.data.track_index;
-        const removeIndex = (hintedIndex >= 0
-            && hintedIndex < state.projectTracks.length
-            && state.projectTracks[hintedIndex]?.id === delta.data.track_id)
+        const hintedTrackId = getTrackIdByIndex(state, hintedIndex);
+        const expectedIndex = hintedTrackId === delta.data.track_id
             ? hintedIndex
-            : state.projectTracks.findIndex((t) => t.id === delta.data.track_id);
+            : findTrackIndexById(state, delta.data.track_id);
+        if (expectedIndex < 0) return true;
+        const removeIndex = removeTrackById(state, delta.data.track_id);
         if (removeIndex < 0) return true;
-        state.projectTracks = state.projectTracks.filter((_, i) => i !== removeIndex);
-        const nextTracks = { ...state.tracksById };
-        delete nextTracks[delta.data.track_id];
-        state.tracksById = nextTracks;
 
         const nextTimeline = state.timelineClips
             .filter((clip) => clip.trackIndex !== removeIndex)
@@ -243,22 +225,11 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
 
     if (delta.kind === 'TrackMoved') {
-        const tracksLen = state.projectTracks.length;
-        if (tracksLen === 0) return true;
-        const hintedOld = delta.data.old_index;
-        const oldIndex = (hintedOld >= 0
-            && hintedOld < tracksLen
-            && state.projectTracks[hintedOld]?.id === delta.data.track_id)
-            ? hintedOld
-            : state.projectTracks.findIndex((t) => t.id === delta.data.track_id);
-        if (oldIndex < 0) return true;
-        const newIndex = Math.max(0, Math.min(delta.data.new_index, tracksLen - 1));
+        const moveResult = moveTrackById(state, delta.data.track_id, delta.data.new_index);
+        if (!moveResult) return true;
+        const oldIndex = moveResult.oldIndex;
+        const newIndex = moveResult.newIndex;
         if (oldIndex === newIndex) return true;
-
-        const tracks = state.projectTracks.slice();
-        const [moved] = tracks.splice(oldIndex, 1);
-        tracks.splice(newIndex, 0, moved);
-        state.projectTracks = tracks;
 
         state.timelineClips = state.timelineClips.map((clip) => {
             if (clip.trackIndex === oldIndex) return { ...clip, trackIndex: newIndex };

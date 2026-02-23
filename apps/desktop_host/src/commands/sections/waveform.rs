@@ -80,9 +80,10 @@ async fn get_waveform_peaks(
 ///
 /// Instead of serializing each `PeakPair` as `{"min": f32, "max": f32}`,
 /// this packs all peaks into a flat `[min, max, min, max, ...]` f32 buffer
-/// encoded as base64. This reduces payload size by ~80% compared to JSON:
+/// as raw little-endian bytes. This reduces payload size dramatically
+/// compared to JSON object arrays:
 ///   - JSON: ~24 bytes per PeakPair (`{"min":-0.123,"max":0.456}`)
-///   - Binary: 8 bytes per PeakPair (2 × f32), ~11 bytes after base64
+///   - Binary: 8 bytes per PeakPair (2 × f32)
 ///
 /// For a 10-minute stereo file at 44.1kHz:
 ///   - Mip 0 (256 spp): ~10,300 peaks → JSON: ~250KB vs Binary: ~115KB
@@ -97,9 +98,8 @@ struct WaveformPeaksBinaryResponse {
     total_samples: usize,
     /// Metadata for each mip level (samples_per_peak, peak_count, byte_offset).
     mip_levels: Vec<MipLevelMeta>,
-    /// All peaks flattened as [min0, max0, min1, max1, ...] encoded as base64.
-    /// Uses little-endian f32 byte representation.
-    peaks_base64: String,
+    /// All peaks flattened as [min0, max0, min1, max1, ...] in little-endian bytes.
+    peaks_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,17 +111,16 @@ struct MipLevelMeta {
     float_offset: usize,
 }
 
-/// Returns waveform peaks as a binary-optimized base64 payload.
+/// Returns waveform peaks as a binary payload.
 ///
 /// Drop-in replacement for `get_waveform_peaks` with ~80% smaller payload.
-/// The frontend decodes base64 → ArrayBuffer → Float32Array and
+/// The frontend decodes bytes → ArrayBuffer → Float32Array and
 /// slices by mip level using the provided offsets.
 #[tauri::command]
 async fn get_waveform_peaks_binary(
     file_path: String,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<WaveformPeaksBinaryResponse, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
     let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
 
     // Flatten all mip levels into a single f32 buffer: [min, max, min, max, ...]
@@ -141,22 +140,14 @@ async fn get_waveform_peaks_binary(
         });
     }
 
-    // Convert f32 slice to bytes (little-endian, native on x86/ARM)
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(
-            flat_floats.as_ptr() as *const u8,
-            flat_floats.len() * std::mem::size_of::<f32>(),
-        )
-    };
-
-    let encoded = STANDARD.encode(bytes);
+    let peaks_bytes = bytemuck::cast_slice(flat_floats.as_slice()).to_vec();
 
     log::info!(
-        "[IPC] get_waveform_peaks_binary: '{}' → {} samples, {} floats, {} bytes base64",
+        "[IPC] get_waveform_peaks_binary: '{}' → {} samples, {} floats, {} bytes",
         file_path,
         peaks.total_samples,
         flat_floats.len(),
-        encoded.len(),
+        peaks_bytes.len(),
     );
 
     Ok(WaveformPeaksBinaryResponse {
@@ -164,7 +155,7 @@ async fn get_waveform_peaks_binary(
         sample_rate: peaks.sample_rate,
         total_samples: peaks.total_samples,
         mip_levels: mip_metas,
-        peaks_base64: encoded,
+        peaks_bytes,
     })
 }
 
@@ -178,7 +169,7 @@ async fn get_waveform_peaks_lod_binary(
     file_path: String,
     lod_level: usize,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let source_path = PathBuf::from(&file_path);
     let bytes = match PeakCache::lod_level_bytes_from_sidecar(&source_path, lod_level) {
         Ok(bytes) => bytes,
@@ -193,7 +184,7 @@ async fn get_waveform_peaks_lod_binary(
          lod_level,
          bytes.len(),
      );
-     Ok(bytes)
+     Ok(tauri::ipc::Response::new(bytes))
  }
 
 // ── Enterprise contract: get_peaks(clip_id, lod) ──────────────────────
@@ -214,7 +205,7 @@ pub async fn get_peaks_by_clip_id(
     lod_level: usize,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let clip_uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip_id: {e}"))?;
 
@@ -245,7 +236,7 @@ pub async fn get_peaks_by_clip_id(
         file_path,
         bytes.len(),
     );
-    Ok(bytes)
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -254,6 +245,19 @@ pub async fn get_peaks(
     lod_level: usize,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
+    get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
+}
+
+/// Canonical zero-copy waveform command for timeline rendering.
+///
+/// Alias over `get_peaks` kept for explicit binary IPC naming.
+#[tauri::command]
+pub async fn get_peaks_binary(
+    clip_id: String,
+    lod_level: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<tauri::ipc::Response, String> {
     get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }

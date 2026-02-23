@@ -1,14 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
-import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
-import { DawShellBottomPanel } from './DawShellBottomPanel';
 import { useTrackHeightControls } from './model/useTrackHeightControls';
 import { usePointerUpFinalizer } from './model/usePointerUpFinalizer';
 import { useTimelineClipHandlers } from './model/useTimelineClipHandlers';
@@ -28,12 +25,9 @@ import {
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
-import { DawShellMainView } from './DawShellMainView';
-import { DawShellStatusArea } from './DawShellStatusArea';
+import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
-
 const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
-
 export const DawShell = () => {
     type BottomPanelMode = 'rack' | 'clip';
     type MainViewMode = 'arrangement' | 'session';
@@ -76,7 +70,7 @@ export const DawShell = () => {
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
-    const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
+    const tracksEntity = useEngineStore(s => s.tracks);
     // PERF-FIX-1: removed transport.position_seconds subscription.
     // It changed every telemetry tick (~30fps), causing the entire DawShell
     // (2346 lines, all children) to re-render during playback.
@@ -128,7 +122,8 @@ export const DawShell = () => {
         selectedClipId,
         selectedClipIds,
         selectedTrackId,
-        projectTracks: projectTracksSnapshot,
+        trackIds: tracksEntity.allIds,
+        tracksById: tracksEntity.byId,
         // PERF-FIX-1: playheadFrames is now read from the store on-demand
         // inside the hook, not passed as a reactive prop.
         editCursorBeat,
@@ -179,7 +174,6 @@ export const DawShell = () => {
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
     const projectBpm = useEngineStore(s => s.projectBpm);
     const timelineClips = useEngineStore(s => s.timelineClips);
-    const projectTracks = useEngineStore(s => s.projectTracks);
     const {
         midiNotesByClip,
         clipFadeCurves,
@@ -196,7 +190,8 @@ export const DawShell = () => {
         flushMidiThrottles,
     } = useDawShellMidiPersistence({
         timelineClips,
-        projectTracks,
+        trackIds: tracksEntity.allIds,
+        tracksById: tracksEntity.byId,
         projectBpm,
         transportBpm: transportBpm || 120,
         projectSampleRate,
@@ -226,15 +221,15 @@ export const DawShell = () => {
 
     // Keep a valid selected track at all times.
     useEffect(() => {
-        if (projectTracks.length === 0) {
+        if (tracksEntity.allIds.length === 0) {
             if (selectedTrackId !== 'master') queueMicrotask(() => setSelectedTrackId('master'));
             return;
         }
-        const exists = projectTracks.some((t) => t.id === selectedTrackId);
+        const exists = Boolean(tracksEntity.byId[selectedTrackId]);
         if (!exists) {
-            queueMicrotask(() => setSelectedTrackId(projectTracks[0].id));
+            queueMicrotask(() => setSelectedTrackId(tracksEntity.allIds[0]));
         }
-    }, [projectTracks, selectedTrackId]);
+    }, [tracksEntity, selectedTrackId]);
 
     useEffect(() => {
         const key = selectedTrackId && selectedTrackId.length > 0 ? selectedTrackId : 'master';
@@ -263,7 +258,7 @@ export const DawShell = () => {
         selectedTimelineClip,
         toggleGroupCollapse,
     } = useArrangementTrackViewModel({
-        projectTracks,
+        tracksEntity,
         selectedTrackId,
         selectedTrackIds,
         selectedClipId,
@@ -282,7 +277,6 @@ export const DawShell = () => {
         handleTimelineTrackSelect,
     } = useArrangementSelectionHandlers({
         timelineClipsForView,
-        projectTracks,
         trackIds,
         setSelectedClipIds,
         setSelectedTrackId,
@@ -310,7 +304,9 @@ export const DawShell = () => {
     const missingMediaSummary = useMemo(() => {
         const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
         let missingPluginCount = 0;
-        for (const track of projectTracks) {
+        for (const trackId of tracksEntity.allIds) {
+            const track = tracksEntity.byId[trackId];
+            if (!track) continue;
             if (track.instrument?.plugin_id?.startsWith('missing://')) missingPluginCount += 1;
             missingPluginCount += (track.effects ?? []).filter((fx) => fx.plugin_id?.startsWith('missing://')).length;
         }
@@ -319,7 +315,7 @@ export const DawShell = () => {
             missingPluginCount,
             total: offlineClipCount + missingPluginCount,
         };
-    }, [timelineClipsForView, projectTracks]);
+    }, [timelineClipsForView, tracksEntity]);
 
     // BUG-B7 FIX: Only open the resolver on transition from 0 → N (not on every
     // re-count). This prevents the panel from re-opening after the user dismisses
@@ -359,7 +355,7 @@ export const DawShell = () => {
         timelineTrackHeights,
         resetTrackHeights: handleResetTrackHeights,
     } = useTrackHeightControls({
-        projectTracksSnapshot,
+        tracksEntitySnapshot: tracksEntity,
         hiddenTrackIndices,
         selectedTrackIdRef,
         selectedTrackIdsRef,
@@ -379,7 +375,7 @@ export const DawShell = () => {
         dropBrowserItemOnTimeline,
         dropPluginOnTrack,
     } = useBrowserDnDOrchestrator({
-        projectTracks,
+        tracks: tracksEntity,
         projectBpm,
         transportBpm: transportBpm || 120,
         projectSampleRate,
@@ -479,76 +475,51 @@ export const DawShell = () => {
 
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
-
-            {/* ═══ FULL LAYOUT ═══ */}
-            <div className="absolute inset-0 z-10 flex flex-col">
-
-                {/* ── TOP: Transport Bar ── */}
-                <header className="shrink-0 w-full flex items-center justify-center z-50"
-                    style={{ height: 'var(--daw-transport-height)' }}
-                >
-                    <ErrorBoundary module="Transport">
-                        <TransportBar
-                            onSettingsClick={openSettings}
-                            onOpenExport={handleOpenExport}
-                            onRecordingStateChange={handleRecordingStateChange}
-                            followPlayhead={followPlayhead}
-                            onFollowPlayheadChange={setFollowPlayhead}
-                            automationVisible={automationVisible}
-                            onAutomationToggle={toggleAutomation}
-                            onFitTimelineHorizontally={handleFitTimelineHorizontally}
-                            onResetTrackHeights={handleResetTrackHeights}
-                            assistantOpen={assistantOpen}
-                            onAssistantToggle={handleAssistantToggle}
-                        />
-                    </ErrorBoundary>
-                </header>
-
-                <DawShellMainView
-                    mainSplitRef={mainSplitRef}
-                    timelineRef={timelineRef}
-                    browserWidth={browserWidth}
-                    beginBrowserResize={beginBrowserResize}
-                    mainViewMode={mainViewMode}
-                    projectTracks={projectTracks}
-                    selectedTrackId={selectedTrackId}
-                    selectedTrackIds={selectedTrackIds}
-                    onSelectTrack={handleSelectTrack}
-                    onSelectTracks={handleSelectTracks}
-                    trackHeightBase={TRACK_HEIGHT_BASE}
-                    collapsedGroups={collapsedGroups}
-                    onToggleGroupCollapse={toggleGroupCollapse}
-                    timelineProps={timelineProps}
-                />
-
-                {/* ── BOTTOM: Rack / Clip Editor (Shift+Tab) ── */}
-                <DawShellBottomPanel
-                    selectedTrackId={selectedTrackId}
-                    bottomPanelMode={bottomPanelMode}
-                    hasResizableClipEditor={hasResizableClipEditor}
-                    bottomPanelHeightPx={bottomPanelHeightPx}
-                    beginBottomPanelResize={beginBottomPanelResize}
-                    selectedTimelineClip={selectedTimelineClip ?? undefined}
-                    clipColor={selectedTimelineClip?.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || 'var(--color-accent-primary)'}
-                    midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? []) : []}
-                    aiVariationBusy={aiVariationBusy}
-                    selectedMidiTotalBars={selectedMidiTotalBars}
-                    onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
-                    onMidiNotesChange={(notes) => handlePianoRollNotesChange(selectedTimelineClip ?? undefined, notes)}
-                    onMidiEnvelopesChange={(envelopes) => handlePianoRollEnvelopesChange(selectedTimelineClip ?? undefined, envelopes)}
-                    onGenerateVariation={() => handleGenerateMidiVariation(selectedTimelineClip ?? undefined)}
-                />
-
-                {/* ── VERY BOTTOM: Status Bar ── */}
-                <DawShellStatusArea
-                    missingAssetsOpen={missingAssetsOpen}
-                    missingMediaSummary={missingMediaSummary}
-                    onToggleMissingAssets={() => setMissingAssetsOpen((v) => !v)}
-                    panelMode={bottomPanelMode}
-                    onPanelModeChange={setBottomPanelModeForActiveTrack}
-                    panelInfo={panelInfo}
-                />
-            </div>
+            <DawShellContent
+                openSettings={openSettings}
+                handleOpenExport={handleOpenExport}
+                handleRecordingStateChange={handleRecordingStateChange}
+                followPlayhead={followPlayhead}
+                setFollowPlayhead={setFollowPlayhead}
+                automationVisible={automationVisible}
+                toggleAutomation={toggleAutomation}
+                handleFitTimelineHorizontally={handleFitTimelineHorizontally}
+                handleResetTrackHeights={handleResetTrackHeights}
+                assistantOpen={assistantOpen}
+                handleAssistantToggle={handleAssistantToggle}
+                mainSplitRef={mainSplitRef}
+                timelineRef={timelineRef}
+                browserWidth={browserWidth}
+                beginBrowserResize={beginBrowserResize}
+                mainViewMode={mainViewMode}
+                tracksEntity={tracksEntity}
+                selectedTrackId={selectedTrackId}
+                selectedTrackIds={selectedTrackIds}
+                handleSelectTrack={handleSelectTrack}
+                handleSelectTracks={handleSelectTracks}
+                trackHeightBase={TRACK_HEIGHT_BASE}
+                collapsedGroups={collapsedGroups}
+                toggleGroupCollapse={toggleGroupCollapse}
+                timelineProps={timelineProps}
+                bottomPanelMode={bottomPanelMode}
+                hasResizableClipEditor={hasResizableClipEditor}
+                bottomPanelHeightPx={bottomPanelHeightPx}
+                beginBottomPanelResize={beginBottomPanelResize}
+                selectedTimelineClip={selectedTimelineClip ?? undefined}
+                clipColor={selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)'}
+                midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? []) : []}
+                aiVariationBusy={aiVariationBusy}
+                selectedMidiTotalBars={selectedMidiTotalBars}
+                dropPluginOnTrack={dropPluginOnTrack}
+                handlePianoRollNotesChange={handlePianoRollNotesChange}
+                handlePianoRollEnvelopesChange={handlePianoRollEnvelopesChange}
+                handleGenerateMidiVariation={handleGenerateMidiVariation}
+                missingAssetsOpen={missingAssetsOpen}
+                missingMediaSummary={missingMediaSummary}
+                setMissingAssetsOpen={setMissingAssetsOpen}
+                setBottomPanelModeForActiveTrack={setBottomPanelModeForActiveTrack}
+                panelInfo={panelInfo}
+            />
             <DawShellOverlays
                 settingsOpen={settingsOpen}
                 onCloseSettings={() => setSettingsOpen(false)}

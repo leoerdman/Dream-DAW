@@ -1,9 +1,14 @@
 import type React from 'react';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 
+type RoutingTarget = {
+    id: string;
+    name: string;
+};
+
 interface TrackRowRoutingProps {
     track: TrackData;
-    allTracks: TrackData[];
+    routingTargets: RoutingTarget[];
     isMasterFixed?: boolean;
     layout: TrackRowLayoutMetrics;
     onOutputChange?: (targetId: string) => void;
@@ -12,13 +17,13 @@ interface TrackRowRoutingProps {
 
 export function TrackRowRouting({
     track,
-    allTracks,
+    routingTargets,
     isMasterFixed,
     layout,
     onOutputChange,
     onInputChange,
 }: TrackRowRoutingProps) {
-    const availableRoutingTargets = allTracks.filter((t) => t.id !== track.id && t.type !== 'master');
+    const availableRoutingTargets = routingTargets.filter((t) => t.id !== track.id);
     const outputValue =
         track.output &&
         (track.output === 'master' || availableRoutingTargets.some((t) => t.id === track.output))

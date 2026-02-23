@@ -548,7 +548,7 @@ async fn update_midi_clip_cmd(
 }
 
 fn collect_midi_note_deltas_for_clip(
-    project: &Project,
+    project: &dream_models::project::Project,
     clip_id: Uuid,
 ) -> Vec<dream_models::delta::MidiNoteDelta> {
     let Some(clip) = project

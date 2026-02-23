@@ -1,46 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Graph Renderer (Topological Execution Engine)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// THE PROBLEM:
-//   An execution plan (topological order + PDC) exists, but nothing
-//   actually WALKS that plan and dispatches audio through each node.
-//   The render callback needs a single entry point that:
-//   1. Iterates nodes in topological order (sources first, master last).
-//   2. Reads clip audio for Track nodes.
-//   3. Calls PluginInstance::process() for Effect nodes.
-//   4. Sums input buffers for Bus nodes (Routing edges only, NOT Sidechain).
-//   5. Applies PDC delay compensation.
-//   6. Writes the final result to the output buffer.
-//
-// THE SOLUTION: GraphRenderer
-//   A pre-allocated executor struct that the audio callback owns.
-//   Zero allocations on the hot path — all buffers are pre-allocated
-//   at construction time.
-//
-// REAL-TIME SAFETY:
-//   - Zero allocations in render()
-//   - Zero locks
-//   - Zero I/O (disk streaming handled upstream by DiskStreamer)
-//   - Bounded loop iterations (node_count is known at plan swap)
-//   - PDC delay lines are pre-allocated ring buffers
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 use crate::dag::{AudioDag, AudioNode, EdgeDelayCompensation, ExecutionPlan, NodeKind};
 use petgraph::visit::{EdgeRef, NodeIndexable};
 
-// ── Constants ──────────────────────────────────────────────────────────
-
-/// Maximum number of nodes the renderer can handle.
-/// Pre-allocates this many buffer slots at construction time.
 const MAX_GRAPH_NODES: usize = 256;
 
-/// Maximum buffer size in frames per channel.
 const MAX_BUFFER_FRAMES: usize = 8192;
 
-/// Maximum PDC delay in samples (enough for most plugin chains).
-/// Typical: convolution reverbs can be 4096+, linear-phase EQs ~8000.
 const MAX_PDC_DELAY_SAMPLES: usize = 32768;
 
 #[inline]
@@ -51,13 +15,11 @@ fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
         if std::arch::is_x86_feature_detected!("avx2") {
             unsafe { mix_in_place_avx2(dst, src, count) };
         } else {
-            // SSE is guaranteed on x86_64.
             unsafe { mix_in_place_sse(dst, src, count) };
         }
     }
     #[cfg(target_arch = "aarch64")]
     {
-        // NEON is guaranteed on AArch64 (Apple Silicon M1–M4).
         unsafe { mix_in_place_neon(dst, src, count) };
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
@@ -82,7 +44,6 @@ unsafe fn mix_in_place_avx2(dst: &mut [f32], src: &[f32], count: usize) {
         _mm256_storeu_ps(dst.as_mut_ptr().add(i), c);
         i += 8;
     }
-    // Tail fallback (up to 7 samples).
     while i < count {
         dst[i] += src[i];
         i += 1;
@@ -125,32 +86,20 @@ unsafe fn mix_in_place_neon(dst: &mut [f32], src: &[f32], count: usize) {
         }
         i += 4;
     }
-    // GR-021 FIX: Use safe indexing in tail loop (compiler elides bounds check anyway).
     while i < count {
         dst[i] += src[i];
         i += 1;
     }
 }
 
-// ── Node Buffer ────────────────────────────────────────────────────────
-
-/// Pre-allocated stereo buffer for a single processing node.
-///
-/// Each node in the graph gets one `NodeBuffer`. Audio flows through
-/// the graph by reading from input node buffers and writing to the
-/// current node's buffer.
 #[derive(Debug)]
 pub struct NodeBuffer {
-    /// Left channel samples.
     pub left: Vec<f32>,
-    /// Right channel samples.
     pub right: Vec<f32>,
-    /// Number of valid frames in this buffer (set per render cycle).
     pub valid_frames: usize,
 }
 
 impl NodeBuffer {
-    /// Creates a new pre-allocated node buffer.
     pub fn new(max_frames: usize) -> Self {
         Self {
             left: vec![0.0; max_frames],
@@ -159,7 +108,6 @@ impl NodeBuffer {
         }
     }
 
-    /// Clears the buffer (sets all samples to 0.0 for the given frame count).
     #[inline]
     pub fn clear(&mut self, frame_count: usize) {
         let n = frame_count.min(self.left.len());
@@ -168,9 +116,6 @@ impl NodeBuffer {
         self.valid_frames = n;
     }
 
-    /// Adds (mixes) another buffer into this one.
-    ///
-    /// Used by Bus and MasterOutput nodes to sum their inputs.
     #[inline]
     pub fn mix_from(&mut self, other: &NodeBuffer) {
         let n = self.valid_frames.min(other.valid_frames);
@@ -179,39 +124,19 @@ impl NodeBuffer {
     }
 }
 
-// ── PDC Delay Line ──────────────────────────────────────────────────────
-
-/// A simple delay line for Plugin Delay Compensation.
-///
-/// Implemented as a ring buffer with read/write pointers.
-/// Pre-allocated at construction time — zero alloc on the hot path.
-///
-/// # Real-Time Safety
-/// All operations are O(n) where n = frames per buffer, with no
-/// allocations, locks, or branches beyond the ring modulus.
 #[derive(Debug)]
 pub struct PdcDelayLine {
-    /// Ring buffer storage.
     buffer_left: Vec<f32>,
     buffer_right: Vec<f32>,
-    /// Current write position in the ring buffer.
     write_pos: usize,
-    /// Total delay in samples.
     delay_samples: usize,
-    /// Fractional delay component in samples, [0.0, 1.0).
     frac_delay: f32,
-    /// Ring buffer capacity (must be power of 2 for fast modulus).
     capacity: usize,
-    /// Bitmask for fast modulus (capacity - 1).
     mask: usize,
 }
 
 impl PdcDelayLine {
-    /// Creates a new delay line with the given maximum delay.
-    ///
-    /// Capacity is rounded up to the next power of 2 for fast modulus.
     pub fn new(max_delay: usize) -> Self {
-        // Round up to next power of 2
         let capacity = (max_delay + MAX_BUFFER_FRAMES).next_power_of_two();
         Self {
             buffer_left: vec![0.0; capacity],
@@ -224,15 +149,11 @@ impl PdcDelayLine {
         }
     }
 
-    /// Sets the delay amount in samples.
-    ///
-    /// Called when the execution plan changes (not on the hot path).
     pub fn set_delay(&mut self, samples: usize) {
         self.delay_samples = samples.min(self.capacity - 1);
         self.frac_delay = 0.0;
     }
 
-    /// Sets delay with sub-sample precision.
     pub fn set_delay_f32(&mut self, samples: f32) {
         let clamped = samples.max(0.0).min((self.capacity - 1) as f32);
         let int_delay = clamped.floor() as usize;
@@ -240,18 +161,10 @@ impl PdcDelayLine {
         self.frac_delay = clamped - int_delay as f32;
     }
 
-    /// Returns the current delay in samples.
     pub fn delay(&self) -> usize {
         self.delay_samples
     }
 
-    /// Processes a buffer through the delay line in-place.
-    ///
-    /// For zero delay, this is a no-op (input passes through unchanged).
-    ///
-    /// # Real-Time Safety
-    /// O(n) where n = frame_count. No allocations, no branches beyond
-    /// the hot loop.
     #[inline]
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], frame_count: usize) {
         if self.delay_samples == 0 && self.frac_delay == 0.0 {
@@ -260,10 +173,7 @@ impl PdcDelayLine {
 
         let n = frame_count.min(left.len()).min(right.len());
 
-        // GR-008 FIX: Hoist fractional branch outside the loop for better
-        // branch prediction (~15% fewer pipeline stalls in the hot loop).
         if self.frac_delay == 0.0 {
-            // Integer-only delay path.
             for i in 0..n {
                 let wp = (self.write_pos + i) & self.mask;
                 let rp = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
@@ -275,7 +185,6 @@ impl PdcDelayLine {
                 right[i] = delayed_r;
             }
         } else {
-            // Fractional delay path with linear interpolation.
             let frac = self.frac_delay;
             for i in 0..n {
                 let wp = (self.write_pos + i) & self.mask;
@@ -294,7 +203,6 @@ impl PdcDelayLine {
         self.write_pos = (self.write_pos + n) & self.mask;
     }
 
-    /// Resets the delay line to silence (called on transport reset/seek).
     pub fn reset(&mut self) {
         self.buffer_left.fill(0.0);
         self.buffer_right.fill(0.0);
@@ -302,45 +210,17 @@ impl PdcDelayLine {
     }
 }
 
-// ── Graph Renderer ──────────────────────────────────────────────────────
-
-/// The render context for graph-based audio processing.
-///
-/// Owns pre-allocated per-node buffers and PDC delay lines.
-/// The audio callback calls `render()` once per buffer, which walks
-/// the execution plan in topological order.
-///
-/// # Lifecycle
-/// 1. Created once at engine startup with `GraphRenderer::new()`.
-/// 2. When the graph changes, `update_plan()` is called to resize
-///    buffers and update PDC values (NOT on the audio thread).
-/// 3. `render()` is called every ~0.5ms on the audio thread.
-///
-/// # Real-Time Safety
-/// `render()` is 100% real-time safe:
-///   - All buffers pre-allocated
-///   - Bounded iteration (node_count known at plan-swap time)
-///   - No allocations, no locks, no I/O
 pub struct GraphRenderer {
-    /// Pre-allocated per-node audio buffers, indexed by NodeIndex.
     node_buffers: Vec<NodeBuffer>,
 
-    // GR-028 FIX: Removed node-level PDC to prevent double-compensation.
-    // Edge-Level PDC handles all alignment and routing completely.
-    /// Edge-level PDC delay lines.
     edge_pdc_delays: Vec<EdgeDelayRuntime>,
 
-    /// Incoming edge lookup per destination node: (src_idx, edge_runtime_idx, edge_kind).
     edge_inputs_by_dst: Vec<Vec<(usize, usize, crate::dag::AudioEdgeKind)>>,
 
-    /// Fast-path runtime dependency counters for lock-free parallel scheduling.
-    /// Loaded from `plan.dependency_counts` at the start of each render block.
     runtime_dependencies: Vec<std::sync::atomic::AtomicUsize>,
 
-    /// Maximum frames per buffer (from audio device).
     max_frames: usize,
 
-    /// The number of nodes currently active in the plan.
     active_node_count: usize,
 }
 
@@ -351,12 +231,92 @@ struct EdgeDelayRuntime {
     scratch_right: Vec<f32>,
 }
 
+struct SendPtr<T>(*mut T);
+
+// Manual Copy/Clone impls: `*mut T` is always Copy regardless of T.
+// derive(Copy) would add an unwanted `T: Copy` bound.
+impl<T> Clone for SendPtr<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for SendPtr<T> {}
+
+// SAFETY: Stage-based topology guarantees non-overlapping access.
+// The pointed-to data lives on `render_parallel`'s stack frame.
+unsafe impl<T> Send for SendPtr<T> {}
+unsafe impl<T> Sync for SendPtr<T> {}
+
+#[inline]
+unsafe fn sum_node_inputs_raw(
+    dag: &AudioDag,
+    node_idx: petgraph::graph::NodeIndex,
+    frame_count: usize,
+    node_buffers_ptr: *mut NodeBuffer,
+    edge_pdc_ptr: *mut EdgeDelayRuntime,
+    edge_inputs_by_dst: &[Vec<(usize, usize, crate::dag::AudioEdgeKind)>],
+) {
+    let idx = node_idx.index();
+
+    if idx < edge_inputs_by_dst.len() && !edge_inputs_by_dst[idx].is_empty() {
+        for &(src_idx, edge_runtime_idx, edge_kind) in &edge_inputs_by_dst[idx] {
+            if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
+                continue;
+            }
+
+            if src_idx == idx {
+                continue;
+            }
+
+            let src = unsafe { &*node_buffers_ptr.add(src_idx) };
+            let copy_n = frame_count.min(src.valid_frames);
+
+            let edge_rt = unsafe { &mut *edge_pdc_ptr.add(edge_runtime_idx) };
+            edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
+            edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
+
+            edge_rt.delay.process(
+                &mut edge_rt.scratch_left[..copy_n],
+                &mut edge_rt.scratch_right[..copy_n],
+                copy_n,
+            );
+
+            let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
+            let edge_rt_ref = unsafe { &*edge_pdc_ptr.add(edge_runtime_idx) };
+
+            mix_in_place(
+                &mut dst.left[..copy_n],
+                &edge_rt_ref.scratch_left[..copy_n],
+                copy_n,
+            );
+            mix_in_place(
+                &mut dst.right[..copy_n],
+                &edge_rt_ref.scratch_right[..copy_n],
+                copy_n,
+            );
+        }
+    } else {
+        let src_indices: Vec<usize> = dag
+            .graph()
+            .edges_directed(node_idx, petgraph::Direction::Incoming)
+            .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
+            .map(|e| e.source().index())
+            .filter(|&src_idx| src_idx != idx)
+            .collect();
+
+        for src_idx in src_indices {
+            let src = unsafe { &*node_buffers_ptr.add(src_idx) };
+            let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
+
+            let copy_n = frame_count.min(src.valid_frames);
+            mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
+            mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
+        }
+    }
+}
+
 impl GraphRenderer {
-    /// Creates a new graph renderer with pre-allocated buffers.
-    ///
-    /// # Arguments
-    /// - `max_nodes`: Maximum number of nodes in the graph.
-    /// - `max_frames`: Maximum frames per audio buffer.
     pub fn new(max_nodes: usize, max_frames: usize) -> Self {
         let node_count = max_nodes.min(MAX_GRAPH_NODES);
         let frame_count = max_frames.min(MAX_BUFFER_FRAMES);
@@ -378,19 +338,9 @@ impl GraphRenderer {
         }
     }
 
-    /// Updates the renderer for a new execution plan.
-    ///
-    /// Sets PDC delay values for each node. This is called from the
-    /// UI thread when the graph topology changes.
-    ///
-    /// # NOT Real-Time Safe
-    /// May resize internal structures if needed.
     pub fn update_plan(&mut self, plan: &ExecutionPlan, dag: &AudioDag) {
-        // GR-026 FIX: active_node_count must encompass the max node index.
-        // Otherwise petgraph sparse indices cause OOB when mapped down.
         self.active_node_count = dag.graph().node_bound();
 
-        // Ensure we have enough buffers
         while self.node_buffers.len() < self.active_node_count {
             self.node_buffers.push(NodeBuffer::new(self.max_frames));
             self.runtime_dependencies
@@ -401,15 +351,10 @@ impl GraphRenderer {
             self.edge_inputs_by_dst.push(Vec::new());
         }
 
-        // GR-028 FIX: Removed double-delay computation. Node PDC is ignored here.
-
         self.configure_edge_pdc(&plan.edge_delay_compensation, dag);
 
-        // Topology/latency changes can leave stale samples in delay lines.
-        // Reset runtime buffers after every plan reconfiguration.
         self.reset();
 
-        // Log the plan for diagnostics
         log::info!(
             "[GraphRenderer] Plan updated: {} bounded nodes, {} stages, {} node-PDC (ignored), {} edge-PDC",
             self.active_node_count,
@@ -436,7 +381,6 @@ impl GraphRenderer {
             let src_idx = edge.from.index();
             let dst_idx = edge.to.index();
             if src_idx >= self.node_buffers.len() || dst_idx >= self.node_buffers.len() {
-                // GR-026 FIX: Log silently dropped edges instead of ignoring.
                 log::warn!(
                     "[GraphRenderer] Edge {}->{} dropped: node index out of bounds (capacity={})",
                     src_idx,
@@ -446,7 +390,6 @@ impl GraphRenderer {
                 continue;
             }
 
-            // Look up edge kind from the DAG to differentiate Routing from Sidechain.
             let edge_kind = dag
                 .graph()
                 .edges_directed(edge.to, petgraph::Direction::Incoming)
@@ -492,91 +435,6 @@ impl GraphRenderer {
         self.node_buffers.as_mut_ptr()
     }
 
-    /// Unsafe version of sum_node_inputs for parallel execution.
-    /// Caller guarantees that `node_idx` is strictly unique across threads
-    /// in the current execution stage!
-    #[inline]
-    unsafe fn sum_node_inputs_unsafe(
-        &self,
-        dag: &AudioDag,
-        node_idx: petgraph::graph::NodeIndex,
-        frame_count: usize,
-        node_buffers_ptr: *mut NodeBuffer,
-        edge_pdc_ptr: *mut EdgeDelayRuntime,
-    ) {
-        let idx = node_idx.index();
-        if idx >= self.node_buffers.len() {
-            return;
-        }
-
-        if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
-            let edge_input_len = self.edge_inputs_by_dst[idx].len();
-            for i in 0..edge_input_len {
-                let (src_idx, edge_runtime_idx, edge_kind) = self.edge_inputs_by_dst[idx][i];
-
-                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
-                    continue;
-                }
-
-                if src_idx >= self.node_buffers.len()
-                    || src_idx == idx
-                    || edge_runtime_idx >= self.edge_pdc_delays.len()
-                {
-                    continue;
-                }
-
-                let copy_n = {
-                    let src = unsafe { &*node_buffers_ptr.add(src_idx) };
-                    let copy_n = frame_count.min(src.valid_frames);
-
-                    let edge_rt = unsafe { &mut *edge_pdc_ptr.add(edge_runtime_idx) };
-                    edge_rt.scratch_left[..copy_n].copy_from_slice(&src.left[..copy_n]);
-                    edge_rt.scratch_right[..copy_n].copy_from_slice(&src.right[..copy_n]);
-
-                    edge_rt.delay.process(
-                        &mut edge_rt.scratch_left[..copy_n],
-                        &mut edge_rt.scratch_right[..copy_n],
-                        copy_n,
-                    );
-                    copy_n
-                };
-
-                let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
-                let edge_rt = unsafe { &*edge_pdc_ptr.add(edge_runtime_idx) };
-
-                mix_in_place(
-                    &mut dst.left[..copy_n],
-                    &edge_rt.scratch_left[..copy_n],
-                    copy_n,
-                );
-                mix_in_place(
-                    &mut dst.right[..copy_n],
-                    &edge_rt.scratch_right[..copy_n],
-                    copy_n,
-                );
-            }
-        } else {
-            let src_indices: Vec<usize> = dag
-                .graph()
-                .edges_directed(node_idx, petgraph::Direction::Incoming)
-                .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
-                .map(|e| e.source().index())
-                .filter(|&src_idx| src_idx < self.node_buffers.len() && src_idx != idx)
-                .collect();
-
-            for src_idx in src_indices {
-                let src = unsafe { &*node_buffers_ptr.add(src_idx) };
-                let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
-
-                let copy_n = frame_count.min(src.valid_frames);
-                mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
-                mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
-            }
-        }
-    }
-
-    /// Phase A: Sequential Input Summation
-    /// Sums all inputs (via Routing edges) into this node's buffer, applying edge PDC.
     #[inline]
     pub fn sum_node_inputs(
         &mut self,
@@ -589,12 +447,8 @@ impl GraphRenderer {
             return;
         }
 
-        // a) Sum inputs into node buffer (Routing edges ONLY).
         if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
-            let edge_input_len = self.edge_inputs_by_dst[idx].len();
-            for i in 0..edge_input_len {
-                let (src_idx, edge_runtime_idx, edge_kind) = self.edge_inputs_by_dst[idx][i];
-
+            for &(src_idx, edge_runtime_idx, edge_kind) in &self.edge_inputs_by_dst[idx] {
                 if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
                     continue;
                 }
@@ -657,7 +511,6 @@ impl GraphRenderer {
         }
     }
 
-    /// Phase C: Master Output Copy
     #[inline]
     pub fn copy_master_output(
         &self,
@@ -701,7 +554,6 @@ impl GraphRenderer {
         let node = dag.node(node_idx);
         let buf = &mut self.node_buffers[idx];
 
-        // b) Dispatch node processor.
         match &node.kind {
             NodeKind::Track { .. } => {
                 track_processor(
@@ -723,14 +575,11 @@ impl GraphRenderer {
             NodeKind::MasterOutput => {}
         }
 
-        // d) Master node copies to final output.
         if matches!(&node.kind, NodeKind::MasterOutput) {
             self.copy_master_output(node_idx, output_left, output_right, frame_count);
         }
     }
 
-    /// Strike-6: Wait-Free DAG Parallel Execution
-    /// Uses rayon `par_iter()` across the parallel stages identified by the scheduler.
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn render_parallel<FProcessor>(
@@ -753,45 +602,61 @@ impl GraphRenderer {
         self.clear_active_buffers(plan, n);
 
         if !plan.parallel_stages.is_empty() {
-            let node_buffers_ptr = self.node_buffers.as_mut_ptr();
-            let edge_pdc_ptr = self.edge_pdc_delays.as_mut_ptr();
+            let node_buffers_ptr = SendPtr(self.node_buffers.as_mut_ptr());
+            let edge_pdc_ptr = SendPtr(self.edge_pdc_delays.as_mut_ptr());
+            let capacity = self.capacity();
+            let edge_inputs_by_dst = &self.edge_inputs_by_dst;
+
             for stage in &plan.parallel_stages {
-                for &node_idx in stage {
-                    let idx = node_idx.index();
-                    if idx >= self.capacity() {
-                        continue;
-                    }
-
-                    unsafe {
-                        self.sum_node_inputs_unsafe(
-                            dag,
-                            node_idx,
-                            n,
-                            node_buffers_ptr,
-                            edge_pdc_ptr,
-                        );
-                    }
-
-                    let node = dag.node(node_idx);
-                    let buf = unsafe { &mut *node_buffers_ptr.add(idx) };
-
-                    processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
-
-                    if matches!(&node.kind, NodeKind::MasterOutput) {
-                        // Concurrent writes to final output_left/right are only safe if there is EXACTLY
-                        // one MasterOutput node in the graph, which our schema guarantees.
-                        let master_n = n.min(output_left.len()).min(output_right.len());
-                        let out_l_ptr = output_left.as_mut_ptr();
-                        let out_r_ptr = output_right.as_mut_ptr();
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(buf.left.as_ptr(), out_l_ptr, master_n);
-                            std::ptr::copy_nonoverlapping(buf.right.as_ptr(), out_r_ptr, master_n);
+                if stage.len() <= 1 {
+                    for &node_idx in stage {
+                        let idx = node_idx.index();
+                        if idx >= capacity {
+                            continue;
                         }
+                        unsafe {
+                            sum_node_inputs_raw(
+                                dag,
+                                node_idx,
+                                n,
+                                node_buffers_ptr.0,
+                                edge_pdc_ptr.0,
+                                edge_inputs_by_dst,
+                            );
+                        }
+                        let node = dag.node(node_idx);
+                        let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
+                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
+
+                        if matches!(&node.kind, NodeKind::MasterOutput) {
+                            let master_n = n.min(output_left.len()).min(output_right.len());
+                            output_left[..master_n].copy_from_slice(&buf.left[..master_n]);
+                            output_right[..master_n].copy_from_slice(&buf.right[..master_n]);
+                        }
+                    }
+                } else {
+                    for &node_idx in stage {
+                        let idx = node_idx.index();
+                        if idx >= capacity {
+                            continue;
+                        }
+                        unsafe {
+                            sum_node_inputs_raw(
+                                dag,
+                                node_idx,
+                                n,
+                                node_buffers_ptr.0,
+                                edge_pdc_ptr.0,
+                                edge_inputs_by_dst,
+                            );
+                        }
+                        let node = dag.node(node_idx);
+                        let buf = unsafe { &mut *node_buffers_ptr.0.add(idx) };
+                        processor(node, &mut buf.left[..n], &mut buf.right[..n], n);
                     }
                 }
             }
         } else {
-            // Fallback for sequential plans
             for &node_idx in &plan.processing_order {
                 let idx = node_idx.index();
                 if idx >= self.node_buffers.len() {
@@ -808,27 +673,6 @@ impl GraphRenderer {
         }
     }
 
-    /// Renders one audio buffer through the graph.
-    ///
-    /// Walks the execution plan in topological order:
-    /// 1. For each node, clear its buffer.
-    /// 2. Sum all input node buffers into the current node's buffer.
-    /// 3. Apply PDC delay compensation.
-    /// 4. Dispatch to the node-specific processor (Track, Effect, Bus, Master).
-    /// 5. Copy the master output to the final output buffer.
-    ///
-    /// # Arguments
-    /// - `plan`: The current execution plan (loaded via `LiveGraph::load()`).
-    /// - `dag`: The current audio DAG (for node metadata).
-    /// - `frame_count`: Number of frames to process this cycle.
-    /// - `output_left`: Final left channel output buffer.
-    /// - `output_right`: Final right channel output buffer.
-    /// - `track_processor`: Callback for Track nodes (reads clip audio).
-    /// - `effect_processor`: Callback for Effect nodes (plugin processing).
-    ///
-    /// # Real-Time Safety
-    /// Zero allocations. Zero locks. Zero I/O. Bounded iteration.
-    /// Parallel stages use rayon's pre-spawned thread pool (no OS thread creation).
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn render<FTrack, FEffect>(
@@ -857,32 +701,13 @@ impl GraphRenderer {
         let n = frame_count.min(self.max_frames);
         let out_n = n.min(output_left.len()).min(output_right.len());
 
-        // Clear output slice up-front so stale samples never leak when a plan is empty
-        // or a master node is absent from an outdated execution order.
         output_left[..out_n].fill(0.0);
         output_right[..out_n].fill(0.0);
 
-        // 1) Clear active buffers.
         self.clear_active_buffers(plan, n);
 
-        // 2) Execute by dependency stages when available.
-        // Fallback keeps compatibility with legacy plans.
         if !plan.parallel_stages.is_empty() {
             for stage in &plan.parallel_stages {
-                // ═══════════════════════════════════════════════════════════
-                // STRIKE-6: Parallel stage execution.
-                //
-                // Each stage contains dependency-independent nodes that CAN
-                // be processed concurrently. However, the processors (FnMut)
-                // are not Sync, so we process nodes sequentially within each
-                // stage but benefit from the stage-based ordering which
-                // enables future true parallelism when processors become
-                // Fn + Sync (e.g., lock-free plugin host).
-                //
-                // The stage-based iteration already provides correctness:
-                // all inputs for stage N are guaranteed to be ready because
-                // stages 0..N-1 have completed.
-                // ═══════════════════════════════════════════════════════════
                 for &node_idx in stage {
                     self.process_node(
                         dag,
@@ -910,7 +735,6 @@ impl GraphRenderer {
         }
     }
 
-    /// Resets all PDC delay lines and buffers (called on transport seek).
     pub fn reset(&mut self) {
         for buf in &mut self.node_buffers {
             buf.clear(self.max_frames);
@@ -920,20 +744,14 @@ impl GraphRenderer {
         }
     }
 
-    /// Returns the number of pre-allocated node buffer slots.
     pub fn capacity(&self) -> usize {
         self.node_buffers.len()
     }
 
-    /// Returns the number of active nodes in the current plan.
     pub fn active_node_count(&self) -> usize {
         self.active_node_count
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Tests
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
 mod tests;

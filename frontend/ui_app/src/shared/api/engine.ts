@@ -326,6 +326,19 @@ export const getState = () => invoke<EngineState>('get_state');
 export const getTransport = () => invoke<TransportState>('get_transport');
 
 export const getMeters = () => invoke<MeteringSnapshot>('get_meters');
+type BinaryInvokePayload = ArrayBuffer | Uint8Array | number[];
+
+function toUint8Array(payload: BinaryInvokePayload): Uint8Array {
+    if (payload instanceof Uint8Array) return payload;
+    if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
+    return new Uint8Array(payload);
+}
+
+export const getMetersBinary = async (): Promise<Uint8Array> => {
+    const raw = await invoke<BinaryInvokePayload>('get_meters_binary');
+    const bytes = toUint8Array(raw);
+    return bytes;
+};
 
 export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number }) =>
     invoke<ProjectHistoryEvent[]>('get_project_history', {
@@ -548,6 +561,14 @@ export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status'
 
 export const createBackup = () => invoke<string>('create_backup_cmd');
 
+export interface AutoSaveResult {
+    saved: boolean;
+    reason?: string;
+    path?: string;
+}
+
+export const autoSaveIfDirty = () => invoke<AutoSaveResult>('auto_save_if_dirty');
+
 export const markDirty = () => invoke<void>('mark_dirty_cmd');
 
 export const syncTitle = () => invoke<void>('sync_title_cmd');
@@ -612,7 +633,7 @@ export interface BrowserFileEntry {
     size_bytes: number;
     modified_at: string;
     extension: string;
-        file_type: string;
+    file_type: string;
     is_directory: boolean;
     duration_seconds?: number | null;
 }
@@ -673,7 +694,7 @@ interface WaveformPeaksBinaryResponse {
         peak_count: number;
         float_offset: number;
     }>;
-        peaks_base64: string;
+    peaks_bytes: number[];
 }
 
 export async function getWaveformPeaksBinary(filePath: string): Promise<WaveformPeaks> {
@@ -681,11 +702,7 @@ export async function getWaveformPeaksBinary(filePath: string): Promise<Waveform
         'get_waveform_peaks_binary',
         { filePath },
     );
-    const binaryString = atob(raw.peaks_base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
+    const bytes = new Uint8Array(raw.peaks_bytes);
     const floats = new Float32Array(bytes.buffer);
     const mip_levels: PeakMipLevel[] = raw.mip_levels.map((meta) => {
         const peaks: PeakPair[] = new Array(meta.peak_count);
@@ -708,24 +725,24 @@ export async function getWaveformPeaksBinary(filePath: string): Promise<Waveform
 }
 
 export async function getWaveformPeaksLodBinary(filePath: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<number[]>('get_waveform_peaks_lod_binary', {
+    const raw = await invoke<BinaryInvokePayload>('get_waveform_peaks_lod_binary', {
         filePath,
         lodLevel,
     });
-    return new Uint8Array(raw);
+    return toUint8Array(raw);
 }
 
 export async function getPeaksByClipId(clipId: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<number[]>('get_peaks_by_clip_id', {
+    const raw = await invoke<BinaryInvokePayload>('get_peaks_by_clip_id', {
         clipId,
         lodLevel,
     });
-    return new Uint8Array(raw);
+    return toUint8Array(raw);
 }
 
 export async function getPeaks(clipId: string, lodLevel: number): Promise<Uint8Array> {
-    const raw = await invoke<number[]>('get_peaks', { clipId, lodLevel });
-    return new Uint8Array(raw);
+    const raw = await invoke<BinaryInvokePayload>('get_peaks_binary', { clipId, lodLevel });
+    return toUint8Array(raw);
 }
 
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
@@ -1179,12 +1196,12 @@ export interface ExportSettings {
     outputPath: string;
     sampleRate: 44100 | 48000 | 96000;
     bitDepth: 16 | 24 | 32;
-        range: 'full' | 'loop' | 'selected';
+    range: 'full' | 'loop' | 'selected';
     normalize: boolean;
     tailMs: number;
-        format: 'wav' | 'mp3';
-        startFrame?: number;
-        endFrame?: number;
+    format: 'wav' | 'mp3';
+    startFrame?: number;
+    endFrame?: number;
 }
 
 export interface BackgroundJobSnapshot {
@@ -1274,7 +1291,7 @@ export interface AutomationPoint {
     beat: number;
     value: number;
     curveType: 'linear' | 'bezier' | 'step';
-        tension?: number;
+    tension?: number;
 }
 
 export const setAutomationPoints = (trackId: string, paramId: string, points: AutomationPoint[]) =>

@@ -10,7 +10,10 @@ use dream_models::project::{Project, Track, TrackColor, TrackType};
 pub struct CreateGroupResult {
     pub group_id: Uuid,
     pub group_name: String,
+    pub group_index: usize,
     pub child_track_ids: Vec<Uuid>,
+    pub moved_tracks: Vec<(Uuid, usize, usize)>,
+    pub reparented_tracks: Vec<(Uuid, Option<Uuid>)>,
 }
 
 pub struct CreateGroupCommand {
@@ -66,6 +69,17 @@ impl Command for CreateGroupCommand {
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
+        let before_index_map: HashMap<Uuid, usize> = project
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(idx, track)| (track.id, idx))
+            .collect();
+        let before_parent_map: HashMap<Uuid, Option<Uuid>> = project
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.parent_track_id))
+            .collect();
 
         let mut selected: Vec<(usize, Uuid)> = project
             .tracks
@@ -147,7 +161,34 @@ impl Command for CreateGroupCommand {
         Ok(CreateGroupResult {
             group_id,
             group_name,
+            group_index: first_index,
             child_track_ids: selected_ids_in_order,
+            moved_tracks: project
+                .tracks
+                .iter()
+                .enumerate()
+                .filter_map(|(new_index, track)| {
+                    before_index_map.get(&track.id).and_then(|old_index| {
+                        if *old_index != new_index {
+                            Some((track.id, *old_index, new_index))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect(),
+            reparented_tracks: project
+                .tracks
+                .iter()
+                .filter_map(|track| {
+                    let old_parent = before_parent_map.get(&track.id).copied().flatten();
+                    if old_parent != track.parent_track_id {
+                        Some((track.id, track.parent_track_id))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         })
     }
 }

@@ -71,7 +71,9 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     const playheadFrames = Math.round(posSeconds * sampleRate);
     const pianoRollScope = getScopedEditorElement(e, 'piano-roll');
     const deviceRackScope = getScopedEditorElement(e, 'device-rack');
-    const selectedTrackIndex = config.projectTracks.findIndex((t) => t.id === config.selectedTrackId);
+    const selectedTrackIndex = config.selectedTrackId
+        ? storeState.tracks.allIds.indexOf(config.selectedTrackId)
+        : -1;
     const insertAfterIndex =
         config.selectedTrackId &&
         config.selectedTrackId !== 'master' &&
@@ -99,4 +101,3 @@ export function resolveSplitFrame(playheadFrames: number, editCursorBeat: number
         : frameToBeat(playheadFrames, bpm, sampleRate);
     return Math.max(0, beatToFrame(splitBeat, bpm, sampleRate));
 }
-

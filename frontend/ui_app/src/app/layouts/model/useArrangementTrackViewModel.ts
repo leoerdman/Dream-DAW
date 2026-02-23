@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 
 type BottomPanelMode = 'rack' | 'clip';
 
 type Args = {
-    projectTracks: ProjectTrack[];
+    tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
     selectedTrackIds: string[];
     selectedClipId: string | null;
@@ -32,7 +33,7 @@ type Result = {
 };
 
 export function useArrangementTrackViewModel({
-    projectTracks,
+    tracksEntity,
     selectedTrackId,
     selectedTrackIds,
     selectedClipId,
@@ -43,17 +44,23 @@ export function useArrangementTrackViewModel({
     applyProjectDeltas,
 }: Args): Result {
     const [collapsedOverrides, setCollapsedOverrides] = useState<Record<string, boolean>>({});
+    const trackById = tracksEntity.byId;
+    const orderedTrackIds = tracksEntity.allIds;
+    const trackIndexById = useMemo(
+        () => new Map(orderedTrackIds.map((trackId, index) => [trackId, index] as const)),
+        [orderedTrackIds],
+    );
 
     useEffect(() => {
-        if (projectTracks.length === 0) {
+        if (orderedTrackIds.length === 0) {
             if (selectedTrackId !== 'master') setSelectedTrackId('master');
             return;
         }
-        const exists = projectTracks.some((track) => track.id === selectedTrackId);
+        const exists = Boolean(trackById[selectedTrackId]);
         if (!exists) {
-            setSelectedTrackId(projectTracks[0].id);
+            setSelectedTrackId(orderedTrackIds[0]);
         }
-    }, [projectTracks, selectedTrackId, setSelectedTrackId]);
+    }, [orderedTrackIds, selectedTrackId, setSelectedTrackId, trackById]);
 
     useEffect(() => {
         const key = selectedTrackId && selectedTrackId.length > 0 ? selectedTrackId : 'master';
@@ -73,22 +80,24 @@ export function useArrangementTrackViewModel({
     const panelInfo = useMemo(() => {
         const selected = selectedTrackId === 'master'
             ? null
-            : (projectTracks.find((track) => track.id === selectedTrackId) ?? null);
+            : (trackById[selectedTrackId] ?? null);
         const name = selectedTrackId === 'master' ? 'Master' : (selected?.name || 'No Track');
         const deviceCount = selected ? ((selected.instrument ? 1 : 0) + (selected.effects?.length ?? 0)) : 0;
         return `${name} · ${deviceCount} devices`;
-    }, [projectTracks, selectedTrackId]);
+    }, [trackById, selectedTrackId]);
 
     const baseCollapsedGroups = useMemo(() => {
         const collapsed = new Set<string>();
-        for (const track of projectTracks) {
+        for (const trackId of orderedTrackIds) {
+            const track = trackById[trackId];
+            if (!track) continue;
             const normalized = (track.track_type ?? '').toLowerCase();
             if (normalized === 'group' && track.is_expanded === false) {
                 collapsed.add(track.id);
             }
         }
         return collapsed;
-    }, [projectTracks]);
+    }, [orderedTrackIds, trackById]);
 
     const collapsedGroups = useMemo(() => {
         const merged = new Set(baseCollapsedGroups);
@@ -114,55 +123,53 @@ export function useArrangementTrackViewModel({
             });
     }, [applyProjectDeltas, collapsedGroups]);
 
-    const trackIds = useMemo(() => projectTracks.map((track) => track.id), [projectTracks]);
+    const trackIds = orderedTrackIds;
     const hiddenTrackIndices = useMemo(() => {
         const hidden = new Set<number>();
         if (collapsedGroups.size === 0) return hidden;
 
-        const trackById = new Map(projectTracks.map((track) => [track.id, track]));
         const isAncestorCollapsed = (trackId: string): boolean => {
-            let parentId = trackById.get(trackId)?.parent_track_id;
+            let parentId = trackById[trackId]?.parent_track_id;
             while (parentId) {
                 if (collapsedGroups.has(parentId)) return true;
-                parentId = trackById.get(parentId)?.parent_track_id;
+                parentId = trackById[parentId]?.parent_track_id;
             }
             return false;
         };
 
-        for (let i = 0; i < projectTracks.length; i++) {
-            if (isAncestorCollapsed(projectTracks[i].id)) {
+        for (let i = 0; i < orderedTrackIds.length; i++) {
+            if (isAncestorCollapsed(orderedTrackIds[i])) {
                 hidden.add(i);
             }
         }
         return hidden;
-    }, [projectTracks, collapsedGroups]);
+    }, [orderedTrackIds, collapsedGroups, trackById]);
 
-    const trackCountRaw = Math.max(projectTracks.length, 1);
+    const trackCountRaw = Math.max(orderedTrackIds.length, 1);
     const trackCount = Math.max(trackCountRaw - hiddenTrackIndices.size, 1);
 
     const selectedTrackIndex = useMemo(() => {
         if (!selectedTrackId || selectedTrackId === 'master') return -1;
-        const rawIndex = projectTracks.findIndex((track) => track.id === selectedTrackId);
+        const rawIndex = trackIndexById.get(selectedTrackId) ?? -1;
         if (rawIndex >= 0 && hiddenTrackIndices.has(rawIndex)) {
             for (let i = rawIndex - 1; i >= 0; i--) {
                 if (!hiddenTrackIndices.has(i)) return i;
             }
-            for (let i = rawIndex + 1; i < projectTracks.length; i++) {
+            for (let i = rawIndex + 1; i < orderedTrackIds.length; i++) {
                 if (!hiddenTrackIndices.has(i)) return i;
             }
         }
         return rawIndex;
-    }, [projectTracks, selectedTrackId, hiddenTrackIndices]);
+    }, [orderedTrackIds, selectedTrackId, hiddenTrackIndices, trackIndexById]);
 
     const selectedTrackIndices = useMemo(() => {
-        const byId = new Map(projectTracks.map((track, index) => [track.id, index] as const));
         const out: number[] = [];
         for (const id of selectedTrackIds) {
-            const idx = byId.get(id);
+            const idx = trackIndexById.get(id);
             if (typeof idx === 'number' && idx >= 0) out.push(idx);
         }
         return out;
-    }, [projectTracks, selectedTrackIds]);
+    }, [selectedTrackIds, trackIndexById]);
 
     const selectedTimelineClip = useMemo(
         () => timelineClipsForView.find((clip) => clip.id === selectedClipId) ?? null,

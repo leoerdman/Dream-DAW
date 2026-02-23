@@ -15,6 +15,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod biquad;
+pub mod dither;
 pub mod fades;
 pub mod resampler;
 pub mod spectrum_analyzer;

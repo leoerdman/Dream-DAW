@@ -18,8 +18,10 @@ export function TrackInspectorMasterRow({
 
     return (
         <TrackRow
-            track={logic.masterTrack}
-            allTracks={logic.tracks}
+            trackId="master"
+            trackSnapshot={logic.masterTrack}
+            routingTargets={[]}
+            anySoloed={false}
             trackHeight={masterRowHeight}
             isSelected={selectedTrackId === 'master'}
             isPrimarySelected={selectedTrackId === 'master'}

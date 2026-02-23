@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import { SessionWorkspace } from './DawShellPanels';
 
 const TrackInspector = lazy(async () => ({
@@ -15,7 +16,7 @@ interface DawShellMainViewProps {
     browserWidth: number;
     beginBrowserResize: (event: React.MouseEvent<HTMLDivElement>) => void;
     mainViewMode: 'arrangement' | 'session';
-    projectTracks: ProjectTrack[];
+    tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
     selectedTrackIds: string[];
     onSelectTrack: (trackId: string) => void;
@@ -32,7 +33,7 @@ export function DawShellMainView({
     browserWidth,
     beginBrowserResize,
     mainViewMode,
-    projectTracks,
+    tracksEntity,
     selectedTrackId,
     selectedTrackIds,
     onSelectTrack,
@@ -42,6 +43,11 @@ export function DawShellMainView({
     onToggleGroupCollapse,
     timelineProps,
 }: DawShellMainViewProps) {
+    const sessionTracks = useMemo(
+        () => tracksEntity.allIds.map((trackId) => tracksEntity.byId[trackId]).filter(Boolean),
+        [tracksEntity],
+    );
+
     return (
         <main ref={mainSplitRef} className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
             <aside
@@ -95,7 +101,7 @@ export function DawShellMainView({
                     </aside>
                 </>
             ) : (
-                <SessionWorkspace tracks={projectTracks} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} />
+                <SessionWorkspace tracks={sessionTracks} selectedTrackId={selectedTrackId} onSelectTrack={onSelectTrack} />
             )}
         </main>
     );

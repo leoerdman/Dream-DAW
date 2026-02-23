@@ -1,13 +1,4 @@
-/**
- * useDeviceRackLogic — All state, effects, and callbacks for DeviceRack.
- *
- * Refactored into a pure composition layer for FSD compliance.
- * Delegates to domain-specific micro-hooks.
- *
- * @module widgets/DeviceRack/model/useDeviceRackLogic
- */
-
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -93,10 +84,11 @@ export function useDeviceRackLogic(
     const prevTrackIdRef = useRef<string>(selectedTrackId);
 
     // Global stores
-    const { openEditorsByTrack, togglePluginEditor, projectTracks , applyProjectDeltas } = useEngineStore(useShallow((s) => ({
+    const { openEditorsByTrack, togglePluginEditor, trackIds, tracksById, applyProjectDeltas } = useEngineStore(useShallow((s) => ({
         openEditorsByTrack: s.openEditorsByTrack,
         togglePluginEditor: s.togglePluginEditor,
-        projectTracks: s.projectTracks,
+        trackIds: s.tracks.allIds,
+        tracksById: s.tracks.byId,
         applyProjectDeltas: s.applyProjectDeltas,
     })));
     const statusError = useStatusStore((s) => s.setError);
@@ -129,13 +121,30 @@ export function useDeviceRackLogic(
         core.selectedTrack
     );
     const chain = core.buildChain(externalParamsBySlotId);
+    const slotActionTracksById = useMemo(
+        () =>
+            Object.fromEntries(
+                trackIds.map((trackId) => {
+                    const track = tracksById[trackId];
+                    return [
+                        trackId,
+                        {
+                            id: trackId,
+                            name: track?.name ?? 'Track',
+                            effects: track?.effects ?? [],
+                        },
+                    ] as const;
+                }),
+            ),
+        [trackIds, tracksById],
+    );
 
     // --- Gestures & Automation ---
     const gestures = useDeviceParamGestures(
         chain,
         selectedTrackId,
         trackForOps,
-        useEngineStore.getState().projectTracks,
+        useEngineStore.getState().tracks.allIds,
         core.isMaster,
         core.setLocalParams
     );
@@ -192,11 +201,8 @@ export function useDeviceRackLogic(
             : null,
         localBypass: core.localBypass,
         setLocalBypass: core.setLocalBypass,
-        projectTracks: projectTracks.map((track) => ({
-            id: track.id,
-            name: track.name,
-            effects: track.effects ?? [],
-        })),
+        trackIds,
+        tracksById: slotActionTracksById,
         pluginRuntimeBySlot,
         setPluginRuntimeBySlot,
         applyProjectDeltas,

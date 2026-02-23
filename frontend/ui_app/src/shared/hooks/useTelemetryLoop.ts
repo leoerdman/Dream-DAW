@@ -3,15 +3,16 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // LEVIATHAN Epic 1: Replaced the requestAnimationFrame polling loop with
-// a Tauri event listener. The Rust backend now pushes `telemetry_tick`
-// events at 30fps containing transport state + meter readings.
+// a Tauri event listener. The Rust backend pushes `telemetry_tick`
+// with transport only; meters are fetched via binary IPC (`get_meters_binary`).
 //
 // Architecture:
-//   1. Rust thread sleeps 33ms, builds transport+meters snapshot, emits event
+//   1. Rust thread sleeps 33ms, emits transport snapshot event
 //   2. Frontend `listen('telemetry_tick')` receives the payload
-//   3. Playhead position → `transform: translateX(px)` on a ref
-//   4. Meter levels → `transform: scaleY(rms)` on meter bar refs
-//   5. Loop never touches React state — zero re-renders
+//   3. Frontend pulls meter packet via `get_meters_binary`
+//   4. Playhead position → `transform: translateX(px)` on a ref
+//   5. Meter levels → `transform: scaleY(rms)` on meter bar refs
+//   6. Loop never touches React state — zero re-renders
 //
 import { secondsToBeat } from '@/shared/lib/audioMath';
 // Benefits over rAF + invoke():
@@ -23,6 +24,8 @@ import { secondsToBeat } from '@/shared/lib/audioMath';
 
 import { useEffect, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getMetersBinary } from '@/shared/api/engine';
+import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -61,14 +64,6 @@ interface TelemetryPayload {
         loop_enabled: boolean;
         loop_start: number;
         loop_end: number;
-    };
-    meters: {
-        tracks: [
-            { rms: number; peak: number; clipping: boolean },
-            { rms: number; peak: number; clipping: boolean },
-        ][];
-        master_left: { rms: number; peak: number; clipping: boolean };
-        master_right: { rms: number; peak: number; clipping: boolean };
     };
 }
 
@@ -112,41 +107,47 @@ export function useTelemetryLoop(
 
         let unlisten: UnlistenFn | null = null;
 
+        let metersInFlight = false;
         const setup = async () => {
             unlisten = await listen<TelemetryPayload>('telemetry_tick', (event) => {
-                const { transport, meters } = event.payload;
+                const { transport } = event.payload;
+                if (metersInFlight) return;
+                metersInFlight = true;
+                void getMetersBinary()
+                    .then((packet) => {
+                        const meters = decodeMetersBinaryPacket(packet);
 
-                // ── Update Playhead Position ──────────────────────────
-                const playheadEl = refsRef.current.playheadRef.current;
-                if (playheadEl) {
-                    const { bpm, pixelsPerBeat, scrollOffsetPx = 0 } = configRef.current;
+                        // ── Update Playhead Position ──────────────────────────
+                        const playheadEl = refsRef.current.playheadRef.current;
+                        if (playheadEl) {
+                            const { bpm, pixelsPerBeat, scrollOffsetPx = 0 } = configRef.current;
 
-                    // Convert seconds → beats → pixels
-                    const positionBeats = secondsToBeat(transport.position_seconds, bpm);
-                    const positionPx = positionBeats * pixelsPerBeat - scrollOffsetPx;
+                            // Convert seconds → beats → pixels
+                            const positionBeats = secondsToBeat(transport.position_seconds, bpm);
+                            const positionPx = positionBeats * pixelsPerBeat - scrollOffsetPx;
 
-                    playheadEl.style.transform = `translateX(${positionPx}px)`;
+                            playheadEl.style.transform = `translateX(${positionPx}px)`;
 
-                    // Show/hide based on visibility
-                    if (positionPx < -2 || positionPx > window.innerWidth) {
-                        playheadEl.style.opacity = '0';
-                    } else {
-                        playheadEl.style.opacity = '1';
-                    }
-                }
+                            // Show/hide based on visibility
+                            if (positionPx < -2 || positionPx > window.innerWidth) {
+                                playheadEl.style.opacity = '0';
+                            } else {
+                                playheadEl.style.opacity = '1';
+                            }
+                        }
 
-                // ── Update VU Meters ─────────────────────────────────
-                const meterEls = refsRef.current.meterRefs?.current;
-                if (meterEls && meterEls.length > 0 && meters.tracks) {
-                    const tracks = meters.tracks;
+                        // ── Update VU Meters ─────────────────────────────────
+                        const meterEls = refsRef.current.meterRefs?.current;
+                        if (meterEls && meterEls.length > 0 && meters.tracks) {
+                            const tracks = meters.tracks;
 
-                    for (let i = 0; i < meterEls.length && i < tracks.length; i++) {
-                        const el = meterEls[i];
-                        if (!el) continue;
+                            for (let i = 0; i < meterEls.length && i < tracks.length; i++) {
+                                const el = meterEls[i];
+                                if (!el) continue;
 
-                        // Use max of L/R channels for single-bar display
-                        const [left, right] = tracks[i];
-                        const level = Math.max(left.rms, right.rms);
+                                // Use max of L/R channels for single-bar display
+                                const [left, right] = tracks[i];
+                                const level = Math.max(left.rms, right.rms);
 
                         // Convert from dB to linear (0-1 range)
                         // dB range: -60 to 0, map to 0 to 1
@@ -156,16 +157,20 @@ export function useTelemetryLoop(
                         el.style.transform = `scaleY(${clamped})`;
                         el.style.transformOrigin = 'bottom';
 
-                        // Color: green → yellow → red
-                        if (left.clipping || right.clipping) {
-                            el.style.backgroundColor = '#e53e3e';
-                        } else if (clamped > 0.7) {
-                            el.style.backgroundColor = '#d69e2e';
-                        } else {
-                            el.style.backgroundColor = '#38a169';
+                                // Color: green → yellow → red
+                                if (left.clipping || right.clipping) {
+                                    el.style.backgroundColor = '#e53e3e';
+                                } else if (clamped > 0.7) {
+                                    el.style.backgroundColor = '#d69e2e';
+                                } else {
+                                    el.style.backgroundColor = '#38a169';
+                                }
+                            }
                         }
-                    }
-                }
+                    })
+                    .finally(() => {
+                        metersInFlight = false;
+                    });
             });
         };
 

@@ -44,7 +44,7 @@ export const StatusBar = ({
         bpm,
         connected,
         projectSampleRate,
-        projectTracks,
+        trackCount,
         latestHistory,
         projectHistory,
         pluginSandbox,
@@ -58,7 +58,6 @@ export const StatusBar = ({
 
     // Live values from engine store
     const sampleRate = resolveSampleRate(projectSampleRate);
-    const trackCount = projectTracks.length;
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const setGridDivision = useGridStore((s) => s.setDivision);

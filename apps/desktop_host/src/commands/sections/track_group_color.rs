@@ -20,37 +20,34 @@ async fn set_track_color_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let normalized = normalize_track_color_hex(&color_hex)?;
-    let cmd =
-        dream_orchestrator::commands::SetTrackColorCommand::from_str_track_id(&track_id, normalized)
-            .map_err(|e| e.to_string())?;
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
 
-    // Check if mutation is a no-op BEFORE taking undo snapshot
+    // No-op guard before undo snapshot.
     {
-        let ctx = dream_orchestrator::OrchestratorContext::new(
-            project_state
-                .project
-                .lock()
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-        let preview = ctx.execute(&cmd).map_err(|e| e.to_string())?;
-        if !preview.changed {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        if track.color_hex.as_deref() == Some(normalized.as_str()) {
             return Ok(());
         }
     }
 
     push_undo(&project_state)?;
-    let project = {
-        execute_orchestrator_command(&project_state, &cmd)?;
-        project_state
-            .project
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone()
-    };
-    *project_state.project.lock().map_err(|e| e.to_string())? = project.clone();
-    let project_name = project.name.clone();
-    drop(project);
+    let cmd = dream_orchestrator::commands::SetTrackColorCommand::from_str_track_id(
+        &track_id,
+        normalized,
+    )
+    .map_err(|e| e.to_string())?;
+    execute_orchestrator_command(&project_state, &cmd)?;
+    let project_name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
@@ -88,7 +85,7 @@ async fn set_track_color_with_deltas_cmd(
     })
 }
 
-fn rebuild_group_children(project: &mut Project) {
+fn rebuild_group_children(project: &mut dream_models::project::Project) {
     for track in &mut project.tracks {
         track.child_track_ids.clear();
     }
@@ -105,7 +102,7 @@ fn rebuild_group_children(project: &mut Project) {
 }
 
 fn refresh_runtime_after_track_topology_change(
-    project: &mut Project,
+    project: &mut dream_models::project::Project,
     clip_pool_state: &ClipPoolState,
     plugin_host_state: &PluginHostState,
     handle: &AudioEngineHandle,
@@ -177,88 +174,60 @@ async fn create_group_with_deltas_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<CreateGroupWithDeltasResponse, String> {
-    let (before_order, before_parent) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        dream_orchestrator::commands::snapshot_track_order_and_parent(&project)
-    };
-
-    let group_id = create_group_cmd(
-        track_ids,
+    let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
+        &track_ids,
         group_name,
-        project_state.clone(),
-        clip_pool_state,
-        plugin_host_state,
-        handle,
-        app,
     )
-    .await?;
-    let group_uuid =
-        Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group id after create: {group_id}"))?;
+    .map_err(|e| e.to_string())?;
 
-    let (after_order, after_parent, group_name_out): (
-        Vec<Uuid>,
-        std::collections::HashMap<Uuid, Option<Uuid>>,
-        String,
-    ) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let group_track = project
-            .tracks
-            .iter()
-            .find(|t| t.id == group_uuid)
-            .ok_or_else(|| format!("Group track not found after create: {group_uuid}"))?;
-        (
-            project.tracks.iter().map(|t| t.id).collect::<Vec<Uuid>>(),
-            project
-                .tracks
-                .iter()
-                .map(|t| (t.id, t.parent_track_id))
-                .collect::<std::collections::HashMap<Uuid, Option<Uuid>>>(),
-            group_track.name.clone(),
-        )
-    };
+    push_undo(&project_state)?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let mut deltas = Vec::new();
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    refresh_runtime_after_track_topology_change(
+        &mut project,
+        &clip_pool_state,
+        &plugin_host_state,
+        &handle,
+    )?;
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
-    if let Some(group_index) = after_order.iter().position(|id| *id == group_uuid) {
-        deltas.push(dream_models::delta::ProjectDelta::TrackAdded {
-            track_index: group_index,
-            track_id: group_uuid,
-            name: group_name_out,
-            track_type: "group".to_string(),
-        });
-    }
+    let mut deltas = vec![dream_models::delta::ProjectDelta::TrackAdded {
+        track_index: result.group_index,
+        track_id: result.group_id,
+        name: result.group_name.clone(),
+        track_type: "group".to_string(),
+    }];
 
-    let before_index_map: std::collections::HashMap<Uuid, usize> = before_order
-        .iter()
-        .enumerate()
-        .map(|(idx, id)| (*id, idx))
-        .collect();
-    let after_index_map: std::collections::HashMap<Uuid, usize> = after_order
-        .iter()
-        .enumerate()
-        .map(|(idx, id)| (*id, idx))
-        .collect();
+    deltas.extend(
+        result
+            .reparented_tracks
+            .into_iter()
+            .map(|(track_id, parent_track_id)| {
+                dream_models::delta::ProjectDelta::TrackParentChanged {
+                    track_id,
+                    parent_track_id,
+                }
+            }),
+    );
 
-    for (track_id, old_parent) in &before_parent {
-        if let Some(new_parent) = after_parent.get(track_id) && new_parent != old_parent {
-            deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
-                track_id: *track_id,
-                parent_track_id: *new_parent,
-            });
-        }
-    }
+    deltas.extend(
+        result
+            .moved_tracks
+            .into_iter()
+            .map(|(track_id, old_index, new_index)| dream_models::delta::ProjectDelta::TrackMoved {
+                track_id,
+                old_index,
+                new_index,
+            }),
+    );
 
-    for (track_id, old_index) in &before_index_map {
-        if let Some(new_index) = after_index_map.get(track_id) && new_index != old_index {
-            deltas.push(dream_models::delta::ProjectDelta::TrackMoved {
-                track_id: *track_id,
-                old_index: *old_index,
-                new_index: *new_index,
-            });
-        }
-    }
-
-    Ok(CreateGroupWithDeltasResponse { group_id, deltas })
+    Ok(CreateGroupWithDeltasResponse {
+        group_id: result.group_id.to_string(),
+        deltas,
+    })
 }
 
 #[tauri::command]

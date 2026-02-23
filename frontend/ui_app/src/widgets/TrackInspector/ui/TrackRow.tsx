@@ -1,4 +1,6 @@
 import type React from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { TrackRowHeader } from '@/widgets/TrackInspector/ui/TrackRowHeader';
 import { TrackRowMixer } from '@/widgets/TrackInspector/ui/TrackRowMixer';
 import { TrackRowResizeHandle } from '@/widgets/TrackInspector/ui/TrackRowResizeHandle';
@@ -6,8 +8,10 @@ import { TrackRowRouting } from '@/widgets/TrackInspector/ui/TrackRowRouting';
 import type { TrackData, TrackRowLayoutMetrics } from '@/widgets/TrackInspector/model/trackModels';
 
 interface TrackRowProps {
-    track: TrackData;
-    allTracks: TrackData[];
+    trackId: string;
+    trackSnapshot: TrackData;
+    routingTargets: Array<{ id: string; name: string }>;
+    anySoloed: boolean;
     trackHeight: number;
     displayNum?: number;
     isSelected: boolean;
@@ -41,8 +45,10 @@ interface TrackRowProps {
 }
 
 export const TrackRow = ({
-    track,
-    allTracks,
+    trackId,
+    trackSnapshot,
+    routingTargets,
+    anySoloed,
     trackHeight,
     displayNum,
     isSelected,
@@ -74,6 +80,47 @@ export const TrackRow = ({
     mixerFocusMode = false,
     isActive = true,
 }: TrackRowProps) => {
+    const selectedTrack = useEngineStore(useShallow((s) => {
+        const track = s.tracks.byId[trackId];
+        if (!track) {
+            return null;
+        }
+        const typeRaw = (track.track_type ?? '').toLowerCase();
+        const type: TrackData['type'] =
+            typeRaw === 'master' ? 'master'
+                : typeRaw === 'group' ? 'group'
+                    : typeRaw === 'midi' ? 'midi'
+                        : 'audio';
+        return {
+            id: track.id,
+            name: track.name,
+            color: track.color,
+            type,
+            volume: track.volume,
+            pan: track.pan,
+            isMuted: track.is_mute,
+            isSoloed: track.is_solo,
+            isArmed: track.is_armed,
+            input: track.input || 'none',
+            output: track.output || 'master',
+            groupId: track.parent_track_id ?? undefined,
+            height: Number.isFinite(track.height) ? track.height : trackSnapshot.height,
+        };
+    }));
+
+    const track: TrackData = selectedTrack
+        ? {
+            ...trackSnapshot,
+            ...selectedTrack,
+            // VU values are realtime-derived view data, keep snapshot values.
+            vuLevel: trackSnapshot.vuLevel,
+            vuLevelL: trackSnapshot.vuLevelL,
+            vuLevelR: trackSnapshot.vuLevelR,
+            sends: trackSnapshot.sends,
+            routing: trackSnapshot.routing,
+        }
+        : trackSnapshot;
+
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
     const isNestedGroup = isGroup && depth > 0;
@@ -137,7 +184,7 @@ export const TrackRow = ({
 
             <TrackRowRouting
                 track={track}
-                allTracks={allTracks}
+                routingTargets={routingTargets}
                 isMasterFixed={isMasterFixed}
                 layout={layout}
                 onOutputChange={onOutputChange}
@@ -148,7 +195,7 @@ export const TrackRow = ({
                 track={track}
                 trackHeight={trackHeight}
                 displayNum={displayNum}
-                allTracks={allTracks}
+                anySoloed={anySoloed}
                 isMaster={isMaster}
                 isGroup={isGroup}
                 isActive={isActive}

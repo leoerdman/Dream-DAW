@@ -19,6 +19,8 @@ pub mod clip_resolve_missing_file;
 pub mod clip_source_offset;
 pub mod clip_split;
 pub mod clip_warp;
+pub mod device_rack;
+pub mod internal_device_chain;
 pub mod plugin_add;
 pub mod plugin_move_effect;
 pub mod plugin_paste_device;
@@ -29,14 +31,21 @@ pub mod plugin_set_external_param_lane;
 pub mod plugin_set_internal_param;
 pub mod plugin_set_sampler_sample;
 pub mod plugin_update_external_state_blob;
+pub mod project_settings;
 pub mod recording_insert_clip;
+pub mod sample_rack_pad;
+pub mod track_add;
+pub mod track_delete;
 pub mod track_grouping;
+pub mod track_mix;
 pub mod track_move_to_index;
 pub mod track_parenting;
+pub mod track_rename;
 pub mod track_routing;
 pub mod track_set_armed;
 pub mod track_set_automation_points;
 pub mod track_set_color;
+pub mod track_set_height;
 pub mod track_topology;
 
 // Re-export all command structs for convenience
@@ -58,6 +67,15 @@ pub use clip_resolve_missing_file::ResolveMissingClipFileCommand;
 pub use clip_source_offset::SetClipSourceOffsetCommand;
 pub use clip_split::SplitClipCommand;
 pub use clip_warp::SetClipWarpCommand;
+pub use device_rack::{
+    AddChainToRackCommand, AddChainToRackResult, AddDeviceToRackChainCommand,
+    AddDeviceToRackChainResult, CreateRackFromDevicesCommand, CreateRackFromDevicesResult,
+    InsertDeviceNodeIntoTrackCommand, InsertDeviceNodeIntoTrackResult, RemoveDeviceFromRackCommand,
+};
+pub use internal_device_chain::{
+    SetInternalDeviceBypassByTrackIndexCommand, SetInternalDeviceBypassResult,
+    SetInternalDeviceParamByTrackIndexCommand, SetInternalDeviceParamResult,
+};
 pub use plugin_add::{
     AddPluginToTrackCommand, AddPluginToTrackResult, NormalizedPluginTarget, PluginSlotPreference,
     normalize_plugin_target_for_add,
@@ -73,14 +91,35 @@ pub use plugin_set_external_param_lane::SetExternalPluginParamLaneCommand;
 pub use plugin_set_internal_param::{SetInternalPluginParamCommand, SetInternalPluginParamResult};
 pub use plugin_set_sampler_sample::{SetSamplerSampleCommand, SetSamplerSampleResult};
 pub use plugin_update_external_state_blob::UpdatePluginExternalStateBlobCommand;
+pub use project_settings::{
+    SetArrangementGridCommand, SetArrangementGridResult, SetKeySignatureCommand,
+    SetKeySignatureResult,
+};
 pub use recording_insert_clip::InsertRecordedClipCommand;
+pub use sample_rack_pad::{
+    SetSampleRackPadAdsrCommand, SetSampleRackPadAdsrResult, SetSampleRackPadFilterCutoffCommand,
+    SetSampleRackPadFilterCutoffResult, SetSampleRackPadMuteCommand, SetSampleRackPadMuteResult,
+    SetSampleRackPadSamplePathCommand, SetSampleRackPadSampleResult, SetSampleRackPadSoloCommand,
+    SetSampleRackPadSoloResult, SetSampleRackPadVolumeCommand, SetSampleRackPadVolumeResult,
+};
+pub use track_add::{AddTrackCommand, AddTrackResult};
+pub use track_delete::{
+    DeleteTrackByIndexCommand, DeleteTrackByIndexResult, DeleteTracksByIdsCommand,
+    DeleteTracksByIdsResult,
+};
 pub use track_grouping::{
     CreateGroupCommand, CreateGroupResult, SetGroupExpandedCommand, snapshot_track_order_and_parent,
+};
+pub use track_mix::{
+    SetMasterVolumeCommand, SetTrackMuteByIndexCommand, SetTrackMuteResult,
+    SetTrackPanByIndexCommand, SetTrackPanResult, SetTrackSoloByIndexCommand, SetTrackSoloResult,
+    SetTrackVolumeByIndexCommand, SetTrackVolumeResult,
 };
 pub use track_move_to_index::{MoveTrackToIndexCommand, MoveTrackToIndexResult};
 pub use track_parenting::{
     MoveTrackWithParentCommand, MoveTrackWithParentResult, SetTrackGroupCommand,
 };
+pub use track_rename::{RenameTrackByIndexCommand, RenameTrackResult};
 pub use track_routing::{
     SetPluginSidechainSourceCommand, SetPluginSidechainSourceResult, SetTrackInputCommand,
     SetTrackInputResult, SetTrackRoutingCommand, SetTrackRoutingResult,
@@ -88,6 +127,7 @@ pub use track_routing::{
 pub use track_set_armed::SetTrackArmedCommand;
 pub use track_set_automation_points::SetTrackAutomationPointsCommand;
 pub use track_set_color::{SetTrackColorCommand, SetTrackColorResult};
+pub use track_set_height::{SetTrackHeightCommand, SetTrackHeightResult};
 pub use track_topology::{
     AddedTrack, DuplicateTracksCommand, DuplicateTracksResult, MoveTrackBlockToIndexCommand,
     MoveTrackBlockToIndexResult, UngroupTrackCommand, UngroupTrackResult,

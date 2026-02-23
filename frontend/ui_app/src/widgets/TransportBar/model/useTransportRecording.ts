@@ -1,29 +1,28 @@
 import { useCallback, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 
 export function useTransportRecording(
-    projectTracks: ProjectTrack[],
+    armedTrackIndex: number,
     onRecordingStateChange?: (state: { active: boolean; trackIndex: number }) => void,
 ) {
     const [isRecording, setIsRecording] = useState(false);
 
     const handleRecordToggle = useCallback(async () => {
-        const armedTrackIndex = Math.max(0, projectTracks.findIndex((t) => t.is_armed));
+        const resolvedTrackIndex = Math.max(0, armedTrackIndex);
         try {
             if (!isRecording) {
                 await engineApi.startRecording();
                 setIsRecording(true);
-                onRecordingStateChange?.({ active: true, trackIndex: armedTrackIndex });
+                onRecordingStateChange?.({ active: true, trackIndex: resolvedTrackIndex });
             } else {
                 await engineApi.stopRecording();
                 setIsRecording(false);
-                onRecordingStateChange?.({ active: false, trackIndex: armedTrackIndex });
+                onRecordingStateChange?.({ active: false, trackIndex: resolvedTrackIndex });
             }
         } catch (err) {
             console.error('[TransportBar] Recording toggle failed:', err);
         }
-    }, [projectTracks, isRecording, onRecordingStateChange]);
+    }, [armedTrackIndex, isRecording, onRecordingStateChange]);
 
     const stopRecordingIfNeeded = useCallback(async () => {
         if (!isRecording) return;
@@ -35,11 +34,10 @@ export function useTransportRecording(
             setIsRecording(false);
             onRecordingStateChange?.({
                 active: false,
-                trackIndex: Math.max(0, projectTracks.findIndex((t) => t.is_armed)),
+                trackIndex: Math.max(0, armedTrackIndex),
             });
         }
-    }, [isRecording, onRecordingStateChange, projectTracks]);
+    }, [armedTrackIndex, isRecording, onRecordingStateChange]);
 
     return { isRecording, setIsRecording, handleRecordToggle, stopRecordingIfNeeded };
 }
-

@@ -6,6 +6,12 @@ export interface EntityState<T> {
     allIds: string[];
 }
 
+export interface TrackStatePatch<T> {
+    projectTracks: T[];
+    tracksById: Record<string, T>;
+    tracks: EntityState<T>;
+}
+
 export const PROJECT_HISTORY_WINDOW = 256;
 export const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
 export const METER_STATE_UPDATE_EVERY_TICKS = 5;
@@ -49,5 +55,25 @@ export function toEntityState<T extends { id: string }>(items: T[]): EntityState
     return {
         byId: Object.fromEntries(items.map((item) => [item.id, item])),
         allIds: items.map((item) => item.id),
+    };
+}
+
+export function materializeByIds<T>(allIds: string[], byId: Record<string, T>): T[] {
+    return allIds
+        .map((id) => byId[id])
+        .filter((item): item is T => Boolean(item));
+}
+
+export function buildTrackStatePatch<T>(
+    allIds: string[],
+    byId: Record<string, T>,
+): TrackStatePatch<T> {
+    return {
+        projectTracks: materializeByIds(allIds, byId),
+        tracksById: byId,
+        tracks: {
+            byId,
+            allIds,
+        },
     };
 }

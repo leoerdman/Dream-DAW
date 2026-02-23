@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useShallow } from 'zustand/react/shallow';
 import { scrollSync } from '@/shared/lib/useScrollSync';
+import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import { useTrackInspectorContextActions } from '@/widgets/TrackInspector/model/useTrackInspectorContextActions';
 import { useTrackInspectorTrackActions } from '@/widgets/TrackInspector/model/useTrackInspectorTrackActions';
@@ -126,18 +127,13 @@ export function useTrackInspectorLogic({
     const applyTrackHeightOptimistic = useCallback((trackId: string, height: number) => {
         if (!trackId || trackId === 'master') return;
         useEngineStore.setState((state) => {
-            const nextTracks = state.projectTracks.map((track) =>
-                track.id === trackId ? { ...track, height } : track
-            );
-            const nextById = Object.fromEntries(nextTracks.map((t) => [t.id, t]));
-            return {
-                projectTracks: nextTracks,
-                tracksById: nextById,
-                tracks: {
-                    byId: nextById,
-                    allIds: state.tracks.allIds,
-                },
+            const current = state.tracks.byId[trackId];
+            if (!current) return state;
+            const nextById = {
+                ...state.tracks.byId,
+                [trackId]: { ...current, height },
             };
+            return buildTrackStatePatch(state.tracks.allIds, nextById);
         });
     }, []);
 

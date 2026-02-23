@@ -23,7 +23,8 @@ interface UseDeviceRackSlotActionsArgs {
     selectedTrack: TrackLike | null;
     localBypass: Record<string, boolean>;
     setLocalBypass: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-    projectTracks: Array<{ id: string; name: string; effects: Array<{ id: string }> }>;
+    trackIds: string[];
+    tracksById: Record<string, { id: string; name: string; effects: Array<{ id: string }> }>;
     pluginRuntimeBySlot: RuntimeBySlot;
     setPluginRuntimeBySlot: React.Dispatch<React.SetStateAction<RuntimeBySlot>>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
@@ -35,13 +36,16 @@ export function useDeviceRackSlotActions({
     selectedTrack,
     localBypass,
     setLocalBypass,
-    projectTracks,
+    trackIds,
+    tracksById,
     pluginRuntimeBySlot,
     setPluginRuntimeBySlot,
     applyProjectDeltas,
     statusError,
     statusClear,
 }: UseDeviceRackSlotActionsArgs) {
+    const trackIndexById = useMemo(() => new Map(trackIds.map((trackId, index) => [trackId, index] as const)), [trackIds]);
+
     const toggleDevice = useCallback((device: DeviceLike) => {
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
         const nextBypassed = !currentBypassed;
@@ -54,14 +58,14 @@ export function useDeviceRackSlotActions({
             .catch((err) => console.error('[DeviceRack] setSlotBypass failed:', err));
 
         if (device.source === 'internal') {
-            const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
+            const trackIdx = trackIndexById.get(selectedTrack.id) ?? -1;
             const slotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             if (trackIdx >= 0 && slotIdx >= 0) {
                 void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed)
                     .catch((err: unknown) => console.error('[DeviceRack] bypassDevice failed:', err));
             }
         }
-    }, [localBypass, selectedTrack, setLocalBypass, applyProjectDeltas, projectTracks]);
+    }, [localBypass, selectedTrack, setLocalBypass, applyProjectDeltas, trackIndexById]);
 
     const ensureSlotRuntimeActive = useCallback(async (slotId: string) => {
         if (!selectedTrack) return null;
@@ -119,10 +123,12 @@ export function useDeviceRackSlotActions({
     }, [selectedTrack, applyProjectDeltas, statusClear, statusError]);
 
     const sidechainOptions = useMemo(
-        () => projectTracks
-            .filter((t) => t.id !== (selectedTrack?.id ?? ''))
-            .map((t) => ({ id: t.id, name: t.name })),
-        [projectTracks, selectedTrack?.id],
+        () => trackIds
+            .map((trackId) => tracksById[trackId])
+            .filter((track): track is NonNullable<typeof track> => Boolean(track))
+            .filter((track) => track.id !== (selectedTrack?.id ?? ''))
+            .map((track) => ({ id: track.id, name: track.name })),
+        [trackIds, tracksById, selectedTrack?.id],
     );
 
     return {

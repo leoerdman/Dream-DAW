@@ -2,6 +2,7 @@ import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import type { Project } from '@bindings/Project';
+import { buildTrackStatePatch } from './storeHelpers';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
@@ -77,12 +78,14 @@ export function applyProjectDeltasToState(
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || state.transport.bpm || 120;
             const sampleRate = resolveSampleRate(project.sample_rate, state.transport.sample_rate);
             const timelineClips: DeltaApplyState['timelineClips'] = [];
-            const projectTracks: DeltaApplyState['projectTracks'] = [];
+            const snapshotTrackIds: string[] = [];
+            const snapshotTracksById: DeltaApplyState['tracksById'] = {};
 
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
                 const adapted = adaptTrack(track as Parameters<typeof adaptTrack>[0]);
-                projectTracks.push(adapted);
+                snapshotTrackIds.push(adapted.id);
+                snapshotTracksById[adapted.id] = adapted;
                 const trackColor = adapted.color;
                 const isMidiTrack = adapted.track_type.toLowerCase() === 'midi';
 
@@ -143,15 +146,17 @@ export function applyProjectDeltasToState(
             }
 
             const snapshotMeta = extractSnapshotProjectMeta(deltas, state.transport);
+            const snapshotTrackState = buildTrackStatePatch(
+                snapshotTrackIds,
+                snapshotTracksById,
+            );
 
             return {
                 nextState: {
                     timelineClips,
                     clipsById: Object.fromEntries(timelineClips.map((clip) => [clip.id, clip])),
                     clips: toEntityState(timelineClips),
-                    projectTracks,
-                    tracksById: Object.fromEntries(projectTracks.map((track) => [track.id, track])),
-                    tracks: toEntityState(projectTracks),
+                    ...snapshotTrackState,
                 },
                 snapshotMeta,
             };
@@ -164,7 +169,9 @@ export function applyProjectDeltasToState(
     const working: DeltaWorkingState = {
         timelineClips: state.timelineClips,
         clipsById: state.clipsById,
-        projectTracks: state.projectTracks,
+        projectTracks: state.tracks.allIds
+            .map((trackId) => state.tracks.byId[trackId] ?? state.tracksById[trackId])
+            .filter((track): track is NonNullable<typeof track> => Boolean(track)),
         tracksById: state.tracksById,
         changed: false,
     };
@@ -192,15 +199,17 @@ export function applyProjectDeltasToState(
     if (!working.changed) {
         return { nextState: null, snapshotMeta: null };
     }
+    const nextTrackState = buildTrackStatePatch(
+        working.projectTracks.map((track) => track.id),
+        working.tracksById,
+    );
 
     return {
         nextState: {
             timelineClips: working.timelineClips,
             clipsById: working.clipsById,
             clips: toEntityState(working.timelineClips),
-            projectTracks: working.projectTracks,
-            tracksById: working.tracksById,
-            tracks: toEntityState(working.projectTracks),
+            ...nextTrackState,
         },
         snapshotMeta: null,
     };

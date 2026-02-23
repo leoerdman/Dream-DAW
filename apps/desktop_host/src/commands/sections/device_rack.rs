@@ -12,7 +12,6 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use dream_models::project::RackType;
 use dream_models::preset::DevicePreset;
 
 // ── 1. Create Rack from Devices ────────────────────────────────────────
@@ -29,72 +28,17 @@ fn create_rack_from_devices_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-
-    let device_uuids: Vec<Uuid> = payload
-        .device_ids
-        .iter()
-        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid device_id: {id}")))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    if device_uuids.is_empty() {
-        return Err("At least one device must be selected to create a rack".into());
-    }
-
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-
-    // Extract matching devices from the flat chain, preserving order.
-    let mut extracted: Vec<DeviceNode> = Vec::new();
-    let mut first_index: Option<usize> = None;
-
-    // Build list of indices to remove (in reverse order for safe removal).
-    let mut indices_to_remove: Vec<usize> = Vec::new();
-    for (idx, device) in track.effects.iter().enumerate() {
-        if device_uuids.contains(&device.id()) {
-            if first_index.is_none() {
-                first_index = Some(idx);
-            }
-            indices_to_remove.push(idx);
-        }
-    }
-
-    // Extract devices in order.
-    for &idx in &indices_to_remove {
-        extracted.push(track.effects[idx].clone());
-    }
-
-    // Remove devices in reverse order to not invalidate indices.
-    for &idx in indices_to_remove.iter().rev() {
-        track.effects.remove(idx);
-    }
-
-    let insert_pos = first_index.unwrap_or(track.effects.len());
-
-    // Build the rack.
-    let rack_name = payload.rack_name.unwrap_or_else(|| "Effect Rack".to_string());
-    let rack_type = match payload.rack_type.as_deref() {
-        Some("instrument") => RackType::Instrument,
-        Some("drum") => RackType::DrumRack,
-        Some("midi_effect") => RackType::MidiEffect,
-        _ => RackType::AudioEffect,
+    let cmd = dream_orchestrator::commands::CreateRackFromDevicesCommand {
+        track_id: payload.track_id.clone(),
+        device_ids: payload.device_ids.clone(),
+        rack_name: payload.rack_name.clone(),
+        rack_type: payload.rack_type.clone(),
     };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let rack_id = result.rack_id.to_string();
 
-    let mut rack = DeviceRack::new(rack_name, rack_type);
-    // Place extracted devices into the first chain.
-    if let Some(chain) = rack.chains.first_mut() {
-        chain.devices = extracted;
-    }
-
-    let rack_id = rack.id.to_string();
-    track.effects.insert(insert_pos, DeviceNode::Rack(rack));
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -118,34 +62,16 @@ fn add_chain_to_rack_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let rack_uuid = Uuid::parse_str(&payload.rack_id)
-        .map_err(|_| format!("Invalid rack_id: {}", payload.rack_id))?;
-
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let cmd = dream_orchestrator::commands::AddChainToRackCommand {
+        track_id: payload.track_id.clone(),
+        rack_id: payload.rack_id.clone(),
+        chain_name: payload.chain_name.clone(),
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let chain_id = result.chain_id.to_string();
 
-    // Find the rack recursively in the device chain.
-    let rack = find_rack_mut(&mut track.effects, rack_uuid)
-        .ok_or_else(|| format!("Rack not found: {}", payload.rack_id))?;
-
-    let chain_name = payload
-        .chain_name
-        .unwrap_or_else(|| {
-            let letter = (b'A' + rack.chains.len().min(25) as u8) as char;
-            format!("Chain {letter}")
-        });
-
-    let chain = RackChain::new(chain_name);
-    let chain_id = chain.id.to_string();
-    rack.chains.push(chain);
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -169,38 +95,19 @@ fn add_device_to_rack_chain_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let rack_uuid = Uuid::parse_str(&payload.rack_id)
-        .map_err(|_| format!("Invalid rack_id: {}", payload.rack_id))?;
-    let chain_uuid = Uuid::parse_str(&payload.chain_id)
-        .map_err(|_| format!("Invalid chain_id: {}", payload.chain_id))?;
-
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let cmd = dream_orchestrator::commands::AddDeviceToRackChainCommand {
+        track_id: payload.track_id.clone(),
+        rack_id: payload.rack_id.clone(),
+        chain_id: payload.chain_id.clone(),
+        plugin_id: payload.plugin_id.clone(),
+        plugin_name: payload.plugin_name.clone(),
+        insert_index: payload.insert_index,
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let device_id = result.device_id.to_string();
 
-    let rack = find_rack_mut(&mut track.effects, rack_uuid)
-        .ok_or_else(|| format!("Rack not found: {}", payload.rack_id))?;
-
-    let chain = rack
-        .chains
-        .iter_mut()
-        .find(|c| c.id == chain_uuid)
-        .ok_or_else(|| format!("Chain not found: {}", payload.chain_id))?;
-
-    let plugin_slot = PluginSlot::new(&payload.plugin_name, &payload.plugin_id);
-    let device_id = plugin_slot.id.to_string();
-
-    // Insert at specified position or append.
-    let insert_index = payload.insert_index.unwrap_or(chain.devices.len());
-    let insert_pos = insert_index.min(chain.devices.len());
-    chain.devices.insert(insert_pos, DeviceNode::Single(plugin_slot));
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -229,55 +136,16 @@ fn remove_device_from_rack_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let device_uuid = Uuid::parse_str(&payload.device_id)
-        .map_err(|_| format!("Invalid device_id: {}", payload.device_id))?;
-    let rack_uuid = Uuid::parse_str(&payload.rack_id)
-        .map_err(|_| format!("Invalid rack_id: {}", payload.rack_id))?;
-
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let cmd = dream_orchestrator::commands::RemoveDeviceFromRackCommand {
+        track_id: payload.track_id.clone(),
+        rack_id: payload.rack_id.clone(),
+        device_id: payload.device_id.clone(),
+        auto_dissolve: payload.auto_dissolve.unwrap_or(false),
+    };
+    execute_orchestrator_command(&project_state, &cmd)?;
 
-    let rack = find_rack_mut(&mut track.effects, rack_uuid)
-        .ok_or_else(|| format!("Rack not found: {}", payload.rack_id))?;
-
-    let mut removed = false;
-    for chain in rack.chains.iter_mut() {
-        if let Some(pos) = chain
-            .devices
-            .iter()
-            .position(|d: &DeviceNode| d.id() == device_uuid)
-        {
-            chain.devices.remove(pos);
-            removed = true;
-            break;
-        }
-    }
-
-    if !removed {
-        return Err(format!(
-            "Device {} not found in rack {}",
-            payload.device_id, payload.rack_id
-        ));
-    }
-
-    // Auto-dissolve rack if all chains are empty.
-    if payload.auto_dissolve.unwrap_or(false) {
-        let all_empty = rack.chains.iter().all(|c| c.devices.is_empty());
-        if all_empty {
-            if let Some(rack_pos) = track.effects.iter().position(|d| d.id() == rack_uuid) {
-                track.effects.remove(rack_pos);
-                log::info!("[IPC] auto-dissolved empty rack {}", payload.rack_id);
-            }
-        }
-    }
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -357,9 +225,6 @@ fn load_device_preset_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-
     // Read and deserialize preset file.
     let json = std::fs::read_to_string(&payload.preset_path)
         .map_err(|e| format!("Failed to read preset file: {e}"))?;
@@ -368,21 +233,16 @@ fn load_device_preset_cmd(
 
     // Regenerate all IDs to avoid collisions.
     let device = regenerate_ids(preset.device);
-    let device_id = device.id().to_string();
-
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let cmd = dream_orchestrator::commands::InsertDeviceNodeIntoTrackCommand {
+        track_id: payload.track_id.clone(),
+        device,
+        insert_index: payload.insert_index,
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let device_id = result.device_id.to_string();
 
-    // Insert at specified position or append.
-    let insert_index = payload.insert_index.unwrap_or(track.effects.len());
-    let insert_pos = insert_index.min(track.effects.len());
-    track.effects.insert(insert_pos, device);
-
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     clip_pool_state.rebuild_routing_only(&project);
     drop(project);
@@ -397,27 +257,6 @@ fn load_device_preset_cmd(
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-/// Recursively finds a mutable reference to a rack in the device chain.
-fn find_rack_mut(devices: &mut [DeviceNode], rack_id: Uuid) -> Option<&mut DeviceRack> {
-    for device in devices.iter_mut() {
-        match device {
-            DeviceNode::Rack(rack) => {
-                if rack.id == rack_id {
-                    return Some(rack);
-                }
-                // Search nested racks.
-                for chain in rack.chains.iter_mut() {
-                    if let Some(found) = find_rack_mut(&mut chain.devices, rack_id) {
-                        return Some(found);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
 
 /// Recursively finds a device node by ID (immutable).
 fn find_device_node(devices: &[DeviceNode], device_id: Uuid) -> Option<&DeviceNode> {

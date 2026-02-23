@@ -59,7 +59,7 @@ export const AssistantChat = ({ open, onClose, onOpen, onSelectClips }: Assistan
     const lastSavedRef = useRef('');
 
     const apiKey = useSettingsStore((s) => s.settings.openRouterApiKey);
-    const projectId = useEngineStore((s) => s.projectTracks.length.toString() + s.projectBpm.toString());
+    const projectId = useEngineStore((s) => `${s.tracks.allIds.length}:${s.projectBpm}`);
     const [historyLoadedForId, setHistoryLoadedForId] = useState<string | null>(null);
 
     const handleHeaderMouseDown = useCallback((e: React.MouseEvent) => {

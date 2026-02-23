@@ -28,6 +28,7 @@ pub struct MoveEffectSlotResult {
     pub track_id: Uuid,
     pub old_slot_index: usize,
     pub new_slot_index: usize,
+    pub changed: bool,
 }
 
 pub struct MoveEffectSlotCommand {
@@ -91,6 +92,7 @@ impl Command for MoveEffectSlotCommand {
             track_id,
             old_slot_index,
             new_slot_index,
+            changed: old_slot_index != new_slot_index,
         })
     }
 }

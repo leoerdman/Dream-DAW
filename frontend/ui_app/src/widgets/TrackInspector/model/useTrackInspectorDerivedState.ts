@@ -36,17 +36,17 @@ export function useTrackInspectorDerivedState({
     collapsedGroupsProp,
     onToggleGroupCollapseProp,
 }: UseTrackInspectorDerivedStateArgs) {
-    const projectTracks = useMemo(
+    const orderedTracks = useMemo(
         () => trackIds
             .map((id) => tracksByIdState[id])
             .filter((track): track is NonNullable<typeof track> => Boolean(track)),
         [trackIds, tracksByIdState],
     );
 
-    const trackActiveStates = useMemo(() => projectTracks.map((_t, i, arr) => isTrackActive(i, arr)), [projectTracks]);
+    const trackActiveStates = useMemo(() => orderedTracks.map((_t, i, arr) => isTrackActive(i, arr)), [orderedTracks]);
 
     const liveTracks = useMemo((): TrackData[] => {
-        const mapped = projectTracks.map((pt, idx) => mapProjectTrack(pt, idx, meters.tracks[idx]));
+        const mapped = orderedTracks.map((pt, idx) => mapProjectTrack(pt, idx, meters.tracks[idx]));
         for (const t of mapped) {
             if (t.type !== 'group') continue;
             let maxL = -Infinity;
@@ -63,7 +63,7 @@ export function useTrackInspectorDerivedState({
             }
         }
         return mapped;
-    }, [projectTracks, meters]);
+    }, [orderedTracks, meters]);
 
     const masterTrack = useMemo((): TrackData => {
         const masterVuL = meters.master_left.peak;
@@ -107,12 +107,12 @@ export function useTrackInspectorDerivedState({
 
     const backendCollapsedGroups = useMemo(() => {
         const collapsed = new Set<string>();
-        for (const pt of projectTracks) {
+        for (const pt of orderedTracks) {
             const normalized = (pt.track_type ?? '').toLowerCase();
             if (normalized === 'group' && pt.is_expanded === false) collapsed.add(pt.id);
         }
         return collapsed;
-    }, [projectTracks]);
+    }, [orderedTracks]);
 
     const collapsedGroups = collapsedGroupsProp ?? localCollapsedGroups ?? backendCollapsedGroups;
 
@@ -234,7 +234,6 @@ export function useTrackInspectorDerivedState({
     }, [visibleTracks, getDepth, mixerFocusMode]);
 
     return {
-        projectTracks,
         trackActiveStates,
         liveTracks,
         masterTrack,

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { ProjectDelta } from '@/shared/api/engine';
+import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 
 type Args = {
-    projectTracksSnapshot: ProjectTrack[];
+    tracksEntitySnapshot: EntityState<ProjectTrack>;
     hiddenTrackIndices: Set<number>;
     selectedTrackIdRef: React.MutableRefObject<string>;
     selectedTrackIdsRef: React.MutableRefObject<string[]>;
@@ -27,12 +29,15 @@ const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
 const RULER_HEIGHT = 28;
 
 export function useTrackHeightControls({
-    projectTracksSnapshot,
+    tracksEntitySnapshot,
     hiddenTrackIndices,
     selectedTrackIdRef,
     selectedTrackIdsRef,
     applyProjectDeltas,
 }: Args): Result {
+    const trackIdsSnapshot = tracksEntitySnapshot.allIds;
+    const tracksByIdSnapshot = tracksEntitySnapshot.byId;
+
     const clampTrackHeight = useCallback((height: number) => {
         const snapped = Math.round(height / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
         return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
@@ -48,7 +53,9 @@ export function useTrackHeightControls({
         }
 
         const state = useEngineStore.getState();
-        const tracks = state.projectTracks;
+        const tracks = state.tracks.allIds
+            .map((trackId) => state.tracks.byId[trackId])
+            .filter((track): track is ProjectTrack => Boolean(track));
         const selectedTrackIds = selectedTrackIdsRef.current;
         const selectedTrackId = selectedTrackIdRef.current;
 
@@ -77,18 +84,14 @@ export function useTrackHeightControls({
 
     const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {
         if (trackIds.length === 0) return;
-        const idSet = new Set(trackIds);
         useEngineStore.setState((state) => {
-            const nextTracks = state.projectTracks.map((track) => (idSet.has(track.id) ? { ...track, height } : track));
-            const nextById = Object.fromEntries(nextTracks.map((t) => [t.id, t]));
-            return {
-                projectTracks: nextTracks,
-                tracksById: nextById,
-                tracks: {
-                    byId: nextById,
-                    allIds: state.tracks.allIds,
-                },
-            };
+            const nextById = { ...state.tracks.byId };
+            for (const trackId of trackIds) {
+                const track = nextById[trackId];
+                if (!track) continue;
+                nextById[trackId] = { ...track, height };
+            }
+            return buildTrackStatePatch(state.tracks.allIds, nextById);
         });
     }, []);
 
@@ -109,7 +112,7 @@ export function useTrackHeightControls({
 
             const trackIds = resolveHeightTargetTrackIds(lastWheelEventTarget, lastWheelClientY);
             if (trackIds.length === 0) return;
-            const current = projectTracksSnapshot.find((t) => t.id === trackIds[0]);
+            const current = tracksByIdSnapshot[trackIds[0]];
             const currentHeight = clampTrackHeight(typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT);
             const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP * steps);
             if (nextHeight === currentHeight) return;
@@ -176,19 +179,20 @@ export function useTrackHeightControls({
                 window.cancelAnimationFrame(wheelRafId);
             }
         };
-    }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, projectTracksSnapshot, resolveHeightTargetTrackIds]);
+    }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, tracksByIdSnapshot, resolveHeightTargetTrackIds]);
 
     const timelineTrackHeights = useMemo(() => {
         const clamp = (h: number) => Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, Math.round(h)));
-        return projectTracksSnapshot.map((track, idx) => {
+        return trackIdsSnapshot.map((trackId, idx) => {
             if (hiddenTrackIndices.has(idx)) return 0;
+            const track = tracksByIdSnapshot[trackId];
             const persisted = Number.isFinite(track.height) ? track.height : TRACK_HEIGHT_BASE;
             return clamp(persisted);
         });
-    }, [projectTracksSnapshot, hiddenTrackIndices]);
+    }, [trackIdsSnapshot, tracksByIdSnapshot, hiddenTrackIndices]);
 
     const resetTrackHeights = useCallback(() => {
-        const trackIds = projectTracksSnapshot.map((track) => track.id).filter((id) => id && id !== 'master');
+        const trackIds = trackIdsSnapshot.filter((id) => id && id !== 'master');
         if (trackIds.length === 0) return;
         const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
         applyTrackHeightsOptimistic(trackIds, nextHeight);
@@ -201,7 +205,7 @@ export function useTrackHeightControls({
         ).catch((err) => {
             console.warn('[DawShell] reset track heights failed:', err);
         });
-    }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, projectTracksSnapshot]);
+    }, [applyProjectDeltas, applyTrackHeightsOptimistic, clampTrackHeight, trackIdsSnapshot]);
 
     return {
         trackHeightBase: TRACK_HEIGHT_BASE,

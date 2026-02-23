@@ -2,10 +2,11 @@ import { beatDurationToFrames, beatToFrame, frameToBeat } from '@/shared/lib/aud
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { DeltaEnv, DeltaWorkingState } from './types';
+import { getTrackByIndex } from './trackStateOps';
 
 export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
     if (delta.kind === 'ClipAdded') {
-        const track = state.projectTracks[delta.data.track_index];
+        const track = getTrackByIndex(state, delta.data.track_index);
         const nextClip: TimelineClip = {
             id: delta.data.clip_id,
             name: delta.data.name,

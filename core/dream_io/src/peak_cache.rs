@@ -32,7 +32,8 @@ const PEAK_CACHE_MAGIC: [u8; 4] = *b"DPK1";
 const PEAK_CACHE_VERSION: u32 = 1;
 
 /// A single min/max peak pair.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Pod, Zeroable)]
 pub struct PeakPair {
     pub min: f32,
     pub max: f32,
@@ -435,15 +436,7 @@ impl PeakCache {
             return Vec::new();
         }
         let level = &peaks.mip_levels[lod_level.min(peaks.mip_levels.len() - 1)];
-        let pairs: Vec<WaveformPeakPair> = level
-            .peaks
-            .iter()
-            .map(|p| WaveformPeakPair {
-                min: p.min,
-                max: p.max,
-            })
-            .collect();
-        bytemuck::cast_slice(pairs.as_slice()).to_vec()
+        bytemuck::cast_slice(level.peaks.as_slice()).to_vec()
     }
 
     /// Returns raw little-endian bytes for a single LOD level by reading

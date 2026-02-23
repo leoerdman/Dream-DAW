@@ -17,6 +17,10 @@ export function TrackInspectorTrackList({
     mixerFocusMode,
 }: TrackInspectorTrackListProps) {
     let trackNum = 0;
+    const routingTargets = logic.tracks
+        .filter((track) => track.type !== 'master')
+        .map((track) => ({ id: track.id, name: track.name }));
+    const anySoloed = logic.tracks.some((track) => track.isSoloed);
 
     return (
         <div
@@ -97,8 +101,10 @@ export function TrackInspectorTrackList({
                 return (
                     <div key={track.id} ref={(el) => { logic.trackRowRefs.current[track.id] = el; }}>
                         <TrackRow
-                            track={track}
-                            allTracks={logic.tracks}
+                            trackId={track.id}
+                            trackSnapshot={track}
+                            routingTargets={routingTargets}
+                            anySoloed={anySoloed}
                             trackHeight={resolvedRowHeight}
                             displayNum={displayNum}
                             isSelected={logic.selectedTrackIdSet.has(track.id)}

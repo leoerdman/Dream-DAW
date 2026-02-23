@@ -37,7 +37,8 @@ const decodeWantedPluginName = (pluginId: string, displayName: string): string =
 
 export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps) => {
     const timelineClips = useEngineStore((s) => s.timelineClips);
-    const projectTracks = useEngineStore((s) => s.projectTracks);
+    const trackIds = useEngineStore((s) => s.tracks.allIds);
+    const tracksById = useEngineStore((s) => s.tracks.byId);
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
 
     const [pluginEntries, setPluginEntries] = useState<engineApi.BrowserFileEntry[]>([]);
@@ -50,13 +51,15 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             .map((c) => ({
                 clipId: c.id,
                 clipName: c.name,
-                trackName: projectTracks[c.trackIndex]?.name ?? `Track ${c.trackIndex + 1}`,
+                trackName: (trackIds[c.trackIndex] ? tracksById[trackIds[c.trackIndex]]?.name : undefined) ?? `Track ${c.trackIndex + 1}`,
             }));
-    }, [timelineClips, projectTracks]);
+    }, [timelineClips, trackIds, tracksById]);
 
     const missingPlugins = useMemo<MissingPluginSlot[]>(() => {
         const out: MissingPluginSlot[] = [];
-        for (const track of projectTracks) {
+        for (const trackId of trackIds) {
+            const track = tracksById[trackId];
+            if (!track) continue;
             const instrumentPluginId = readSlotPluginId(track.instrument);
             if (track.instrument && instrumentPluginId.startsWith('missing://')) {
                 const instrumentName = readSlotName(track.instrument);
@@ -87,7 +90,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             }
         }
         return out.filter((x) => x.slotId.length > 0);
-    }, [projectTracks]);
+    }, [trackIds, tracksById]);
 
     useEffect(() => {
         if (!isOpen || missingPlugins.length === 0) return;

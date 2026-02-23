@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { DeviceSlot } from '../model/types';
@@ -15,7 +15,7 @@ export function useDeviceParamGestures(
     chain: DeviceSlot[],
     _selectedTrackId: string,
     selectedTrack: DeviceParamTrack,
-    projectTracks: Array<{ id: string }>,
+    trackIds: string[],
     isMaster: boolean,
     setLocalParams: React.Dispatch<React.SetStateAction<Record<string, number>>>
 ) {
@@ -26,6 +26,7 @@ export function useDeviceParamGestures(
     const activeParamGesturesRef = useRef<Set<string>>(new Set());
     const pushedUndoForGestureRef = useRef<Set<string>>(new Set());
     const gestureGroupByParamKeyRef = useRef<Map<string, string>>(new Map());
+    const trackIndexById = useMemo(() => new Map(trackIds.map((trackId, index) => [trackId, index] as const)), [trackIds]);
 
     const createAdaptiveParamSender = useCallback(
         (emit: (value: number, pushUndoStep: boolean) => Promise<void> | void): AdaptiveSender => {
@@ -146,7 +147,7 @@ export function useDeviceParamGestures(
             const MASTER_TRACK_INDEX = 65535;
             const trackIdx = isMaster
                 ? MASTER_TRACK_INDEX
-                : projectTracks.findIndex((t) => t.id === selectedTrack.id);
+                : (trackIndexById.get(selectedTrack.id) ?? -1);
             const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             const pushPluginParam = (paramIndex: number, paramValue: number) => {
                 if ((!isMaster && trackIdx < 0) || effectSlotIdx < 0) return;
@@ -197,7 +198,7 @@ export function useDeviceParamGestures(
                 pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
             }
         },
-        [selectedTrack, projectTracks, isMaster, createAdaptiveParamSender],
+        [selectedTrack, isMaster, createAdaptiveParamSender, trackIndexById],
     );
 
     const beginParamGesture = useCallback((deviceId: string, paramName: string, gestureGroupId?: string) => {

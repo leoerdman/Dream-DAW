@@ -12,7 +12,7 @@ rust core/dream_plugins/examples/test_serum2.rs 2200
 rust core/dream_plugins/src/vst2_host.rs 1434
 # ── TypeScript ───────────────────────────────────────────────────────────
 # App shell
-ts frontend/ui_app/src/app/layouts/DawShell.tsx 583
+ts frontend/ui_app/src/app/layouts/DawShell.tsx 558
 # Shared APIs
 ts frontend/ui_app/src/shared/api/assistant/toolExecutor.ts 1400
 ts frontend/ui_app/src/shared/api/assistant/tools.ts 1222
@@ -24,16 +24,12 @@ ts frontend/ui_app/src/shared/lib/CanvasClipRenderer.ts 1201
 ts frontend/ui_app/src/shared/lib/TimelineEngine.ts 1947
 ts frontend/ui_app/src/shared/lib/internalPlugins.ts 566
 # Widgets — AssetBrowser
-ts frontend/ui_app/src/widgets/AssetBrowser/model/useAssetBrowserLogic.ts 433
 # Widgets — AssistantChat
-ts frontend/ui_app/src/widgets/AssistantChat/AgentActionCard.tsx 502
 # Widgets — DeviceRack
 # Widgets — ExportModal
 # Widgets — PianoRoll
-ts frontend/ui_app/src/widgets/PianoRoll/PianoRoll.tsx 2035
 ts frontend/ui_app/src/widgets/PianoRoll/model/usePianoRollLogic.ts 1400
-ts frontend/ui_app/src/widgets/PianoRoll/ui/PianoRollToolbar.tsx 496
 # Widgets — SettingsPanel
 # Widgets — StatusBar
 # Widgets — Timeline
-ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 805
+ts frontend/ui_app/src/widgets/Timeline/Timeline.tsx 484

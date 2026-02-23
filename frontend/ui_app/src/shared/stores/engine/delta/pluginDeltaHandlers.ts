@@ -1,14 +1,10 @@
 import type { ProjectDelta } from '@/shared/api/engine';
 import type { FlatPluginSlot, ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { DeltaEnv, DeltaWorkingState } from './types';
+import { patchTrackById } from './trackStateOps';
 
 function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<ProjectTrack>): void {
-    const track = state.tracksById[id];
-    if (!track) return;
-    const next = { ...track, ...patch };
-    state.projectTracks = state.projectTracks.map((t) => (t.id === id ? next : t));
-    state.tracksById = { ...state.tracksById, [id]: next };
-    state.changed = true;
+    patchTrackById(state, id, patch);
 }
 
 export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {

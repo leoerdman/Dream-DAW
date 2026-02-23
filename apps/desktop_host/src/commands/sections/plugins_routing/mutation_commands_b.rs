@@ -363,6 +363,20 @@ async fn move_effect_slot_cmd(
         target_index,
     };
 
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
+        return Ok(());
+    }
+
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
 
@@ -399,6 +413,20 @@ async fn move_effect_slot_with_deltas_cmd(
         slot_id: slot_uuid,
         target_index,
     };
+
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
+        return Ok(PluginMutationDeltaResponse { deltas: Vec::new() });
+    }
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;

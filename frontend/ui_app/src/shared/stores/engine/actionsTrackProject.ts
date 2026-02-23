@@ -2,6 +2,9 @@ import throttle from 'lodash.throttle';
 import type { StoreApi } from 'zustand';
 import * as engine from '@/shared/api/engine';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
+import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
+import type { TrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 
 const throttledVolumeSends = new Map<number, (volume: number) => void>();
 const throttledPanSends = new Map<number, (pan: number) => void>();
@@ -18,6 +21,22 @@ function clearTrackControlCaches(): void {
     throttledPanSends.clear();
     pendingVolumeValues.clear();
     pendingPanValues.clear();
+}
+
+function patchTrackByIndex(
+    state: EngineStore,
+    trackIndex: number,
+    patch: Partial<ProjectTrack>,
+): TrackStatePatch<ProjectTrack> | EngineStore {
+    const trackId = state.tracks.allIds[trackIndex];
+    if (!trackId) return state;
+
+    const sourceTrack = state.tracks.byId[trackId] ?? state.tracksById[trackId];
+    if (!sourceTrack) return state;
+
+    const updatedTrack = { ...sourceTrack, ...patch };
+    const nextTracksById = { ...state.tracks.byId, [trackId]: updatedTrack };
+    return buildTrackStatePatch(state.tracks.allIds, nextTracksById);
 }
 
 export function createTrackProjectActions(
@@ -40,6 +59,12 @@ export function createTrackProjectActions(
     return {
         setTrackVolume: async (trackIndex: number, volume: number) => {
             try {
+                set((s) => {
+                    const trackId = s.tracks.allIds[trackIndex];
+                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    if (!track || track.volume === volume) return s;
+                    return patchTrackByIndex(s, trackIndex, { volume });
+                });
                 pendingVolumeValues.set(trackIndex, volume);
                 if (!throttledVolumeSends.has(trackIndex)) {
                     throttledVolumeSends.set(
@@ -60,6 +85,12 @@ export function createTrackProjectActions(
 
         setTrackPan: async (trackIndex: number, pan: number) => {
             try {
+                set((s) => {
+                    const trackId = s.tracks.allIds[trackIndex];
+                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    if (!track || track.pan === pan) return s;
+                    return patchTrackByIndex(s, trackIndex, { pan });
+                });
                 pendingPanValues.set(trackIndex, pan);
                 if (!throttledPanSends.has(trackIndex)) {
                     throttledPanSends.set(
@@ -117,16 +148,10 @@ export function createTrackProjectActions(
 
         setTrackMute: async (trackIndex: number, muted: boolean) => {
             set((s) => {
-                const track = s.projectTracks[trackIndex];
+                const trackId = s.tracks.allIds[trackIndex];
+                const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
                 if (!track || track.is_mute === muted) return s;
-                const updated = { ...track, is_mute: muted };
-                const nextTracks = [...s.projectTracks];
-                nextTracks[trackIndex] = updated;
-                return {
-                    projectTracks: nextTracks,
-                    tracksById: { ...s.tracksById, [track.id]: updated },
-                    tracks: { byId: { ...s.tracks.byId, [track.id]: updated }, allIds: s.tracks.allIds },
-                };
+                return patchTrackByIndex(s, trackIndex, { is_mute: muted });
             });
             try {
                 const response = await engine.setTrackMuteWithDeltas(trackIndex, muted);
@@ -139,16 +164,10 @@ export function createTrackProjectActions(
 
         setTrackSolo: async (trackIndex: number, soloed: boolean) => {
             set((s) => {
-                const track = s.projectTracks[trackIndex];
+                const trackId = s.tracks.allIds[trackIndex];
+                const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
                 if (!track || track.is_solo === soloed) return s;
-                const updated = { ...track, is_solo: soloed };
-                const nextTracks = [...s.projectTracks];
-                nextTracks[trackIndex] = updated;
-                return {
-                    projectTracks: nextTracks,
-                    tracksById: { ...s.tracksById, [track.id]: updated },
-                    tracks: { byId: { ...s.tracks.byId, [track.id]: updated }, allIds: s.tracks.allIds },
-                };
+                return patchTrackByIndex(s, trackIndex, { is_solo: soloed });
             });
             try {
                 const response = await engine.setTrackSoloWithDeltas(trackIndex, soloed);

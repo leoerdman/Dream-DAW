@@ -3,6 +3,8 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use bytemuck::cast_slice;
+use serde::Serialize;
 use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
@@ -10,6 +12,56 @@ use crate::plugin_sandbox_recovery::{
     bypass_plugin_slots_in_project, set_plugin_slots_bypass_in_project,
 };
 use crate::state_managers::{AudioEngineHandle, ClipPoolState, PluginHostState, ProjectState};
+
+#[derive(Clone, Serialize)]
+struct TransportTelemetryPayload {
+    is_playing: bool,
+    position_frames: i64,
+    position_seconds: f64,
+    position_beats: f64,
+    bpm: f64,
+    sample_rate: f64,
+    loop_enabled: bool,
+    loop_start: i64,
+    loop_end: i64,
+    output_latency_frames: u32,
+    telemetry_timestamp_ms: u128,
+}
+
+#[derive(Clone, Serialize)]
+struct TelemetryTickPayload {
+    transport: TransportTelemetryPayload,
+}
+
+fn build_meters_binary_packet(handle: &AudioEngineHandle) -> Vec<u8> {
+    let bank = &handle.meter_bank;
+    let track_count = bank.track_count();
+    let mut payload = Vec::<f32>::with_capacity((track_count * 2 + 2) * 3);
+    for i in 0..track_count {
+        if let Some((left, right)) = bank.track(i) {
+            payload.push(left.load_rms());
+            payload.push(left.load_peak());
+            payload.push(if left.is_clipping() { 1.0 } else { 0.0 });
+            payload.push(right.load_rms());
+            payload.push(right.load_peak());
+            payload.push(if right.is_clipping() { 1.0 } else { 0.0 });
+        }
+    }
+    let master_left = bank.master_left();
+    payload.push(master_left.load_rms());
+    payload.push(master_left.load_peak());
+    payload.push(if master_left.is_clipping() { 1.0 } else { 0.0 });
+    let master_right = bank.master_right();
+    payload.push(master_right.load_rms());
+    payload.push(master_right.load_peak());
+    payload.push(if master_right.is_clipping() { 1.0 } else { 0.0 });
+
+    let payload_bytes: &[u8] = cast_slice(payload.as_slice());
+    let mut bytes = Vec::with_capacity(4 + payload_bytes.len());
+    bytes.extend_from_slice(&(track_count as u32).to_le_bytes());
+    bytes.extend_from_slice(payload_bytes);
+    bytes
+}
 
 /// Spawns non-audio background threads used by the desktop host runtime.
 ///
@@ -41,7 +93,7 @@ pub(crate) fn spawn_background_runtime_threads(
 
                 let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
 
-                let transport_json = {
+                let transport = {
                     let state = match handle.playback_state.lock() {
                         Ok(s) => s,
                         Err(_) => continue,
@@ -53,52 +105,28 @@ pub(crate) fn spawn_background_runtime_threads(
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis())
                         .unwrap_or(0);
-                    serde_json::json!({
-                        "is_playing": state.is_playing,
-                        "position_frames": frames,
-                        "position_seconds": seconds,
-                        "position_beats": beats,
-                        "bpm": state.bpm,
-                        "sample_rate": state.sample_rate,
-                        "loop_enabled": state.loop_enabled,
-                        "loop_start": state.loop_start,
-                        "loop_end": state.loop_end,
-                        "output_latency_frames": handle.output_latency_frames,
-                        "telemetry_timestamp_ms": telemetry_timestamp_ms,
-                    })
+                    TransportTelemetryPayload {
+                        is_playing: state.is_playing,
+                        position_frames: frames,
+                        position_seconds: seconds,
+                        position_beats: beats,
+                        bpm: state.bpm,
+                        sample_rate: state.sample_rate,
+                        loop_enabled: state.loop_enabled,
+                        loop_start: state.loop_start,
+                        loop_end: state.loop_end,
+                        output_latency_frames: handle.output_latency_frames,
+                        telemetry_timestamp_ms,
+                    }
                 };
 
-                let meter_bank = &handle.meter_bank;
-                let mut tracks = Vec::with_capacity(meter_bank.track_count());
-                for i in 0..meter_bank.track_count() {
-                    if let Some((left, right)) = meter_bank.track(i) {
-                        tracks.push(serde_json::json!([
-                            { "rms": left.load_rms(), "peak": left.load_peak(), "clipping": left.is_clipping() },
-                            { "rms": right.load_rms(), "peak": right.load_peak(), "clipping": right.is_clipping() },
-                        ]));
-                    }
-                }
-
-                let meters_json = serde_json::json!({
-                    "tracks": tracks,
-                    "master_left": {
-                        "rms": meter_bank.master_left().load_rms(),
-                        "peak": meter_bank.master_left().load_peak(),
-                        "clipping": meter_bank.master_left().is_clipping(),
-                    },
-                    "master_right": {
-                        "rms": meter_bank.master_right().load_rms(),
-                        "peak": meter_bank.master_right().load_peak(),
-                        "clipping": meter_bank.master_right().is_clipping(),
-                    },
-                });
-
-                let payload = serde_json::json!({
-                    "transport": transport_json,
-                    "meters": meters_json,
-                });
+                let payload = TelemetryTickPayload { transport };
 
                 let _ = telemetry_app.emit("telemetry_tick", payload);
+                let _ = telemetry_app.emit(
+                    "telemetry_meters_binary",
+                    build_meters_binary_packet(&handle),
+                );
 
                 if dream_plugins::vst3_host::take_plugin_state_dirty() {
                     let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();

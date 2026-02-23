@@ -1,4 +1,5 @@
 use super::*;
+use dream_models::project::Project;
 
 pub(super) enum ClipRebuildMode {
     ClipsOnly,

@@ -2,11 +2,12 @@ import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import { defaultInternalPluginForTrack } from '@/shared/lib/internalPlugins';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 
 interface UseBrowserDnDOrchestratorArgs {
-    projectTracks: ProjectTrack[];
+    tracks: EntityState<ProjectTrack>;
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
@@ -25,13 +26,28 @@ const resolvePluginSlot = (
 };
 
 export const useBrowserDnDOrchestrator = ({
-    projectTracks,
+    tracks,
     projectBpm,
     transportBpm,
     projectSampleRate,
     importFile,
     applyProjectDeltas,
 }: UseBrowserDnDOrchestratorArgs) => {
+    const getTrackById = useCallback((trackId: string): ProjectTrack | null => {
+        return tracks.byId[trackId] ?? null;
+    }, [tracks.byId]);
+
+    const getTrackAtIndex = useCallback((trackIndex: number): ProjectTrack | null => {
+        if (tracks.allIds.length === 0) return null;
+        const boundedIndex = Math.max(0, Math.min(tracks.allIds.length - 1, trackIndex));
+        const trackId = tracks.allIds[boundedIndex];
+        return trackId ? (tracks.byId[trackId] ?? null) : null;
+    }, [tracks.allIds, tracks.byId]);
+
+    const getTrackIndexById = useCallback((trackId: string): number => {
+        return tracks.allIds.indexOf(trackId);
+    }, [tracks.allIds]);
+
     const buildPluginSlotAttempts = (
         primary: 'instrument' | 'effect',
     ): Array<'instrument' | 'effect' | 'auto'> => {
@@ -41,7 +57,7 @@ export const useBrowserDnDOrchestrator = ({
     };
 
     const dropPluginOnTrack = useCallback(async (item: BrowserDragItem, trackId: string) => {
-        const track = projectTracks.find((t) => t.id === trackId);
+        const track = getTrackById(trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
         let lastErr: unknown = null;
@@ -57,10 +73,10 @@ export const useBrowserDnDOrchestrator = ({
             }
         }
         if (lastErr) throw lastErr;
-    }, [projectTracks, applyProjectDeltas]);
+    }, [getTrackById, applyProjectDeltas]);
 
     const addDefaultDeviceToTrack = useCallback(async (trackId: string) => {
-        const track = projectTracks.find((t) => t.id === trackId);
+        const track = getTrackById(trackId);
         if (!track) return;
         const def = defaultInternalPluginForTrack(track.track_type, Boolean(track.instrument));
         const pluginId = def.pluginId;
@@ -68,10 +84,10 @@ export const useBrowserDnDOrchestrator = ({
         const slot = def.slot;
         const response = await engineApi.addPluginToTrackWithDeltas(track.id, pluginId, pluginName, slot);
         await applyProjectDeltas(response.deltas, 'browser-dnd:add-default-device');
-    }, [projectTracks, applyProjectDeltas]);
+    }, [getTrackById, applyProjectDeltas]);
 
     const dropBrowserItemOnTimeline = useCallback(async (item: BrowserDragItem, trackIndex: number, beat: number) => {
-        const track = projectTracks[Math.max(0, Math.min(projectTracks.length - 1, trackIndex))];
+        const track = getTrackAtIndex(trackIndex);
         if (!track) return;
 
         if (item.type === 'plugin') {
@@ -84,8 +100,10 @@ export const useBrowserDnDOrchestrator = ({
         const bpm = projectBpm || transportBpm || 120;
         const sr = resolveSampleRate(projectSampleRate);
         const positionFrames = beatToFrame(beat, bpm, sr);
-        await importFile(item.path, trackIndex, positionFrames);
-    }, [projectTracks, dropPluginOnTrack, importFile, projectBpm, transportBpm, projectSampleRate]);
+        const resolvedTrackIndex = getTrackIndexById(track.id);
+        if (resolvedTrackIndex < 0) return;
+        await importFile(item.path, resolvedTrackIndex, positionFrames);
+    }, [getTrackAtIndex, getTrackIndexById, dropPluginOnTrack, importFile, projectBpm, transportBpm, projectSampleRate]);
 
     return {
         dropPluginOnTrack,

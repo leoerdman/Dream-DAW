@@ -3,8 +3,6 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 type DeviceNode = dream_models::project::DeviceNode;
-type DeviceRack = dream_models::project::DeviceRack;
-type RackChain = dream_models::project::RackChain;
 
 fn execute_orchestrator_command<C: dream_orchestrator::Command>(
     project_state: &ProjectState,
@@ -100,6 +98,7 @@ pub(crate) fn invoke_handler()
         get_state,
         get_transport,
         get_meters,
+        get_meters_binary,
         get_project_history,
         get_audio_chain_audit,
         get_pdc_debug_snapshot,
@@ -154,6 +153,7 @@ pub(crate) fn invoke_handler()
         get_waveform_peaks_lod_binary,
         get_peaks,
         get_peaks_by_clip_id,
+        get_peaks_binary,
         // Track Management
         add_track_cmd,
         add_track_with_deltas_cmd,
@@ -302,6 +302,7 @@ pub(crate) fn invoke_handler()
         save_device_preset_cmd,
         load_device_preset_cmd,
         // Project Management (extended)
+        auto_save_if_dirty,
         create_backup_cmd,
         mark_dirty_cmd,
         sync_title_cmd,

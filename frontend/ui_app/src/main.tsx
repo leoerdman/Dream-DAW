@@ -6,6 +6,7 @@ import './global.css'
 import { Workspace } from '@/pages/Workspace'
 import { SplashScreen } from '@/widgets/SplashScreen'
 import * as engineApi from '@/shared/api/engine'
+import { useAutoSave } from '@/shared/hooks/useAutoSave'
 
 const img = new Image()
 img.src = '/appicon.png'
@@ -57,6 +58,10 @@ function App() {
       console.warn('[App] expandWindow failed, continuing:', err)
     })
   }, [])
+
+  // ── Strike 6: Auto-Save (3 min timer, dirty-check) ──
+  // Only active after splash; pauses when tab is hidden.
+  useAutoSave(splashDone ? 3 * 60 * 1000 : Infinity)
 
   const handleSplashComplete = () => {
     setSplashDone(true)

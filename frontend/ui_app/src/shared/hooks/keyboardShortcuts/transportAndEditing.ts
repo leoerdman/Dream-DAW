@@ -10,7 +10,8 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
         selectedClipId,
         selectedClipIds,
         selectedTrackId,
-        projectTracks,
+        trackIds,
+        tracksById,
         editCursorBeat = -1,
         timelineClips,
         marqueeSelection,
@@ -101,7 +102,8 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
         const durationFrames = Math.max(1, beatDurationToFrames(durationBeats, bpm, sampleRate));
         const midiTrackIndices: number[] = [];
         for (let i = minTrack; i <= maxTrack; i += 1) {
-            const track = projectTracks[i];
+            const trackId = trackIds[i];
+            const track = trackId ? tracksById[trackId] : undefined;
             if (!track) continue;
             const trackType = (track.track_type ?? '').toLowerCase();
             if (!trackType.includes('midi')) continue;

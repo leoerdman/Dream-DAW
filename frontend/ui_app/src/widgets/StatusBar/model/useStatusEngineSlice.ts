@@ -10,7 +10,7 @@ export const useStatusEngineSlice = () =>
             bpm: s.projectBpm || s.transport.bpm || 120,
             connected: s.connected,
             projectSampleRate: s.projectSampleRate,
-            projectTracks: s.projectTracks,
+            trackCount: s.tracks.allIds.length,
             latestHistory: h.length > 0 ? h[h.length - 1] : undefined,
             projectHistory: h,
             pluginSandbox: s.pluginSandbox,

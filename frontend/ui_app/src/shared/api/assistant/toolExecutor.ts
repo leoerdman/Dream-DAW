@@ -10,10 +10,17 @@ import {
 type GlobalWithPreviewTimer = typeof globalThis & {
     __dreamPreviewTimer?: ReturnType<typeof setTimeout> | null;
 };
+
+function getOrderedTracks(state: ReturnType<typeof useEngineStore.getState>) {
+    return state.tracks.allIds
+        .map((id) => state.tracks.byId[id])
+        .filter((track): track is NonNullable<typeof track> => Boolean(track));
+}
+
 function resolveTrackIndex(track: string): number {
     const idx = parseInt(track, 10);
     if (!isNaN(idx)) return idx;
-    const tracks = useEngineStore.getState().projectTracks;
+    const tracks = getOrderedTracks(useEngineStore.getState());
     const found = tracks.findIndex(
         (t) => t.name.toLowerCase() === track.toLowerCase(),
     );
@@ -44,7 +51,7 @@ async function executeToolInner(
     onSelectClips?: (ids: string[]) => void,
 ): Promise<string> {
     const state = useEngineStore.getState();
-    const tracks = state.projectTracks;
+    const tracks = getOrderedTracks(state);
     const clips = state.timelineClips;
     switch (name) {
         case 'get_project_overview': {
@@ -282,10 +289,11 @@ async function executeToolInner(
             await useEngineStore.getState().applyProjectDeltas(addTrackResponse.deltas, 'agent-add-midi-track');
             const addedTrackId = addTrackResponse.deltas.find((delta) => delta.kind === 'TrackAdded')?.data.track_id;
             const updatedState = useEngineStore.getState();
+            const updatedTracks = getOrderedTracks(updatedState);
             const newIdx = addedTrackId
-                ? updatedState.projectTracks.findIndex((track) => track.id === addedTrackId)
-                : updatedState.projectTracks.length - 1;
-            const newTrackId = newIdx >= 0 ? updatedState.projectTracks[newIdx]?.id : undefined;
+                ? updatedTracks.findIndex((track) => track.id === addedTrackId)
+                : updatedTracks.length - 1;
+            const newTrackId = newIdx >= 0 ? updatedTracks[newIdx]?.id : undefined;
             const instrumentArg = (args.instrument as string | undefined)?.toLowerCase();
             let instrumentAssigned: string | null = null;
             if (instrumentArg && newTrackId) {
@@ -1244,7 +1252,7 @@ async function executeToolInner(
 }
 export function buildSystemPrompt(): string {
     const s = useEngineStore.getState();
-    const tracks = s.projectTracks;
+    const tracks = getOrderedTracks(s);
     const clips = s.timelineClips;
     const bpm = s.projectBpm || s.transport.bpm || 120;
     const sr = resolveSampleRate(s.projectSampleRate);

@@ -52,7 +52,8 @@ export const AutomationOverlay = memo(function AutomationOverlay({
     bpm,
 }: AutomationOverlayProps) {
     const lanes = useAutomationStore((s) => s.lanes);
-    const projectTracks = useEngineStore((s) => s.projectTracks);
+    const tracksById = useEngineStore((s) => s.tracks.byId);
+    const trackIds = useEngineStore((s) => s.tracks.allIds);
     const sampleRate = resolveSampleRate(useEngineStore((s) => s.transport.sample_rate));
     const samplesPerPixel = useViewportStore((s) => s.samplesPerPixel);
     const viewportScrollX = useViewportStore((s) => s.scrollX);
@@ -73,7 +74,8 @@ export const AutomationOverlay = memo(function AutomationOverlay({
         }> = [];
 
         for (let i = 0; i < trackCount; i++) {
-            const track = projectTracks[i];
+            const trackIdAtIndex = trackIds[i];
+            const track = trackIdAtIndex ? tracksById[trackIdAtIndex] : undefined;
             if (!track) continue;
             const trackId = track.id;
             const trackRgb = track.color;
@@ -92,7 +94,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
             }
         }
         return result;
-    }, [lanes, trackCount, projectTracks]);
+    }, [lanes, trackCount, trackIds, tracksById]);
 
     if (!visible || trackLanes.length === 0) return null;
 

@@ -39,12 +39,22 @@ fn set_track_routing_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    push_undo(&project_state)?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
-
-    if !result.changed {
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
         return Ok(());
     }
+
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
@@ -70,6 +80,23 @@ fn set_track_routing_with_deltas_cmd(
         Some(Uuid::parse_str(&target_id).map_err(|_| format!("Invalid target_id: {target_id}"))?)
     };
 
+    let cmd = dream_orchestrator::commands::SetTrackRoutingCommand::from_str_ids(
+        &track_id, &target_id,
+    )
+    .map_err(|e| e.to_string())?;
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
+        return Ok(RoutingDeltaResponse { deltas: Vec::new() });
+    }
     set_track_routing_cmd(track_id, target_id, project_state, clip_pool_state, app)?;
 
     Ok(RoutingDeltaResponse {
@@ -92,12 +119,21 @@ fn set_track_input_cmd(
         dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
             .map_err(|e| e.to_string())?;
 
-    push_undo(&project_state)?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
-
-    if !result.changed {
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
         return Ok(());
     }
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);
@@ -115,6 +151,22 @@ fn set_track_input_with_deltas_cmd(
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let normalized_input = input_id.trim().to_string();
+    let cmd =
+        dream_orchestrator::commands::SetTrackInputCommand::from_str_ids(&track_id, &input_id)
+            .map_err(|e| e.to_string())?;
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
+        return Ok(DeltaMutationResponse { deltas: Vec::new() });
+    }
     set_track_input_cmd(track_id, input_id, project_state.clone(), app)?;
 
     Ok(DeltaMutationResponse {
@@ -149,12 +201,21 @@ fn set_plugin_sidechain_source_cmd(
     )
     .map_err(|e| e.to_string())?;
 
-    push_undo(&project_state)?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
-
-    if !result.changed {
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
         return Ok(());
     }
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
 
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let source_value = cmd.source_track_id.map(|id| id.to_string());
@@ -199,6 +260,26 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
             Some(Uuid::parse_str(normalized).map_err(|_| format!("Invalid source_track_id: {normalized}"))?)
         }
     };
+
+    let cmd = dream_orchestrator::commands::SetPluginSidechainSourceCommand::from_str_ids(
+        &track_id,
+        &slot_id,
+        &source_track_id,
+    )
+    .map_err(|e| e.to_string())?;
+    let preview_result = {
+        let ctx = dream_orchestrator::OrchestratorContext::new(
+            project_state
+                .project
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
+        ctx.execute(&cmd).map_err(|e| e.to_string())?
+    };
+    if !preview_result.changed {
+        return Ok(RoutingDeltaResponse { deltas: Vec::new() });
+    }
 
     set_plugin_sidechain_source_cmd(
         track_id,

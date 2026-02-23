@@ -56,7 +56,8 @@ export const TransportBar = ({
         engineStop,
         engineSetBpm,
         engineSetLoop,
-        projectTracks,
+        trackCount,
+        armedTrackIndex,
         telemetryRunning,
         engineConnected,
         engineLastError,
@@ -68,7 +69,7 @@ export const TransportBar = ({
     const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
     const togglePianoPencilMode = useGridStore((s) => s.togglePianoPencilMode);
 
-    const { isRecording, handleRecordToggle, stopRecordingIfNeeded } = useTransportRecording(projectTracks, onRecordingStateChange);
+    const { isRecording, handleRecordToggle, stopRecordingIfNeeded } = useTransportRecording(armedTrackIndex, onRecordingStateChange);
     const [bpmEditing, setBpmEditing] = useState(false);
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
@@ -217,7 +218,7 @@ export const TransportBar = ({
                 <TransportRightSection
                     onOpenExport={onOpenExport}
                     midiLedRef={midiLedRef}
-                    trackCount={projectTracks.length}
+                    trackCount={trackCount}
                     pdcOpen={pdcOpen}
                     setPdcOpen={setPdcOpen}
                     assistantOpen={assistantOpen}
@@ -244,7 +245,7 @@ export const TransportBar = ({
                         bpm={bpm}
                         posString={posString}
                         sampleRate={sampleRate}
-                        trackCount={projectTracks.length}
+                        trackCount={trackCount}
                         engineLastError={engineLastError ?? ''}
                         pdcLoading={pdcLoading}
                         rtLoading={rtLoading}

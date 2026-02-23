@@ -1,11 +1,8 @@
 import { useCallback } from 'react';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
-import type { ProjectTrack } from '@/shared/stores/useEngineStore';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 type Args = {
     timelineClipsForView: TimelineClip[];
-    projectTracks: ProjectTrack[];
     trackIds: string[];
     setSelectedClipIds: React.Dispatch<React.SetStateAction<string[]>>;
     setSelectedTrackId: React.Dispatch<React.SetStateAction<string>>;
@@ -31,7 +28,6 @@ type Result = {
 
 export function useArrangementSelectionHandlers({
     timelineClipsForView,
-    projectTracks,
     trackIds,
     setSelectedClipIds,
     setSelectedTrackId,
@@ -43,25 +39,23 @@ export function useArrangementSelectionHandlers({
     const handleSelectTrack = useCallback((id: string) => {
         setSelectedTrackId(id);
         setSelectedTrackIds(id && id !== 'master' ? [id] : []);
-        const tracks = useEngineStore.getState().projectTracks;
-        const index = tracks.findIndex((track) => track.id === id);
+        const index = trackIds.indexOf(id);
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
         setSelectedClipIds([]);
-    }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds]);
+    }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, trackIds]);
 
     const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
         const cleaned = Array.from(new Set(ids)).filter((trackId) => trackId && trackId !== 'master');
         setSelectedTrackIds(cleaned);
         setSelectedTrackId(primaryId);
-        const tracks = useEngineStore.getState().projectTracks;
-        const index = tracks.findIndex((track) => track.id === primaryId);
+        const index = trackIds.indexOf(primaryId);
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
         setSelectedClipIds([]);
-    }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds]);
+    }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, trackIds]);
 
     const handleMarqueeSelectionStart = useCallback(() => {
         setSelectedClipIds([]);
@@ -86,13 +80,13 @@ export function useArrangementSelectionHandlers({
         const clip = timelineClipsForView.find((item) => item.id === clipId);
         if (clip) {
             queuedStartBeatRef.current = clip.startBeat;
-            const trackId = projectTracks[clip.trackIndex]?.id;
+            const trackId = trackIds[clip.trackIndex];
             if (trackId && trackId !== 'master') {
                 setSelectedTrackId(trackId);
                 setSelectedTrackIds([trackId]);
             }
         }
-    }, [projectTracks, queuedStartBeatRef, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, timelineClipsForView]);
+    }, [queuedStartBeatRef, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, timelineClipsForView, trackIds]);
 
     const handleTimelineClipSelectionChange = useCallback((ids: string[]) => {
         setSelectedClipIds(ids);
@@ -102,7 +96,7 @@ export function useArrangementSelectionHandlers({
             const trackIdSet = new Set<string>();
             for (const clip of timelineClipsForView) {
                 if (idSet.has(clip.id)) {
-                    const trackId = projectTracks[clip.trackIndex]?.id;
+                    const trackId = trackIds[clip.trackIndex];
                     if (trackId && trackId !== 'master') trackIdSet.add(trackId);
                 }
             }
@@ -118,7 +112,7 @@ export function useArrangementSelectionHandlers({
             }
             if (Number.isFinite(minBeat)) queuedStartBeatRef.current = minBeat;
         }
-    }, [projectTracks, queuedStartBeatRef, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, timelineClipsForView]);
+    }, [queuedStartBeatRef, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, timelineClipsForView, trackIds]);
 
     const handleTimelineTrackSelect = useCallback((trackId: string, trackIndex: number) => {
         const resolvedTrackId = trackIds[trackIndex] ?? trackId;

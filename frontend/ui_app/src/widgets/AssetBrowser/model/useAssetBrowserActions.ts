@@ -4,6 +4,8 @@ import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import { fileTypeToItemType } from './assetBrowserUtils';
 import type { BrowserItem } from './assetBrowserSchema';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import type { EntityState } from '@/shared/stores/engine/storeHelpers';
+import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 
 interface FolderTreeActionsParams {
     expandedFolders: Set<string>;
@@ -108,20 +110,25 @@ export function useFolderTreeActions({
 }
 
 interface ItemEnterParams {
-    projectTracks: ReturnType<typeof useEngineStore.getState>['projectTracks'];
+    tracks: EntityState<ProjectTrack>;
     enterNonceRef: React.MutableRefObject<number>;
 }
 
-export function useItemEnterAction({ projectTracks, enterNonceRef }: ItemEnterParams) {
+export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
+    const getTrackById = useCallback((trackId: string) => tracks.byId[trackId] ?? null, [tracks.byId]);
+    const getTrackIndexById = useCallback((trackId: string) => tracks.allIds.indexOf(trackId), [tracks.allIds]);
+
     const resolveSelectedTrack = useCallback(() => {
         const selected = window.__dreamSelectedTrackId;
         if (selected && selected !== 'master') {
-            const selectedTrack = projectTracks.find((t) => t.id === selected);
+            const selectedTrack = getTrackById(selected);
             if (selectedTrack) return selectedTrack;
         }
-        const firstUsable = projectTracks.find((t) => t.track_type !== 'Master');
+        const firstUsable = tracks.allIds
+            .map((id) => tracks.byId[id])
+            .find((t): t is ProjectTrack => Boolean(t) && t.track_type !== 'Master');
         return firstUsable ?? null;
-    }, [projectTracks]);
+    }, [getTrackById, tracks.allIds, tracks.byId]);
 
     const handleItemEnter = useCallback(async (item: BrowserItem | null) => {
         if (!item?.path) return;
@@ -157,7 +164,7 @@ export function useItemEnterAction({ projectTracks, enterNonceRef }: ItemEnterPa
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:set-sampler-sample');
                 return;
             }
-            const trackIndex = projectTracks.findIndex((t) => t.id === track.id);
+            const trackIndex = getTrackIndexById(track.id);
             if (trackIndex < 0) return;
             const store = useEngineStore.getState();
             const bpm = store.projectBpm || store.transport.bpm || 120;
@@ -170,7 +177,7 @@ export function useItemEnterAction({ projectTracks, enterNonceRef }: ItemEnterPa
         } catch (err) {
             console.error('[AssetBrowser] Enter action failed:', err);
         }
-    }, [enterNonceRef, projectTracks, resolveSelectedTrack]);
+    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack]);
 
     return { handleItemEnter };
 }

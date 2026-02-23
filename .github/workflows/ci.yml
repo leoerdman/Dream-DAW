@@ -10,7 +10,7 @@ jobs:
   rust:
     name: Rust Tribunal
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -20,6 +20,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Cargo fmt (check)
         run: cargo fmt --check
@@ -60,6 +65,11 @@ jobs:
 
       - name: Audio null-test infrastructure
         run: cargo test -p dream_engine null_math_ -- --nocapture
+
+      - name: Security audit (CVE detection)
+        run: |
+          cargo install cargo-audit --locked 2>/dev/null || true
+          cargo audit
 
       - name: Audio chain guard (routing + master)
         run: ./scripts/audio_chain_guard.sh
@@ -108,6 +118,12 @@ jobs:
 
       - name: SSOT alias/import guard
         run: ./scripts/ssot_guard.sh
+
+      - name: Delta IPC guard
+        run: ./scripts/delta_ipc_guard.sh
+
+      - name: Delta contract guard
+        run: ./scripts/delta_contract_guard.sh
 
       - name: Zustand selector guard
         run: ./scripts/zustand_selector_guard.sh

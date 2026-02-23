@@ -85,6 +85,39 @@ fn get_meters(handle: tauri::State<'_, AudioEngineHandle>) -> Result<MeteringSna
     })
 }
 
+/// Returns compact binary meter payload:
+/// f32 triplets per channel [rms, peak, clipping01].
+#[tauri::command]
+fn get_meters_binary(handle: tauri::State<'_, AudioEngineHandle>) -> Result<tauri::ipc::Response, String> {
+    let bank = &handle.meter_bank;
+    let track_count = bank.track_count();
+    let mut payload = Vec::<f32>::with_capacity((track_count * 2 + 2) * 3);
+    for i in 0..track_count {
+        if let Some((left, right)) = bank.track(i) {
+            payload.push(left.load_rms());
+            payload.push(left.load_peak());
+            payload.push(if left.is_clipping() { 1.0 } else { 0.0 });
+            payload.push(right.load_rms());
+            payload.push(right.load_peak());
+            payload.push(if right.is_clipping() { 1.0 } else { 0.0 });
+        }
+    }
+    let master_left = bank.master_left();
+    payload.push(master_left.load_rms());
+    payload.push(master_left.load_peak());
+    payload.push(if master_left.is_clipping() { 1.0 } else { 0.0 });
+    let master_right = bank.master_right();
+    payload.push(master_right.load_rms());
+    payload.push(master_right.load_peak());
+    payload.push(if master_right.is_clipping() { 1.0 } else { 0.0 });
+
+    let payload_bytes: &[u8] = bytemuck::cast_slice(payload.as_slice());
+    let mut bytes = Vec::with_capacity(4 + payload_bytes.len());
+    bytes.extend_from_slice(&(track_count as u32).to_le_bytes());
+    bytes.extend_from_slice(payload_bytes);
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Sets the test tone frequency (legacy / debug).
 #[tauri::command]
 fn set_frequency(freq: f32, handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {

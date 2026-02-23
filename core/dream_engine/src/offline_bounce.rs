@@ -1483,6 +1483,12 @@ impl OfflineBouncer {
                 1.0
             };
 
+            // HYPER-CORE: TPDF Dithering for integer quantization.
+            // Adds ±1 LSB triangular-distributed noise before rounding,
+            // converting truncation distortion into a flat, inaudible noise floor.
+            // Critical for reverb tails and quiet passages at 16-bit.
+            let mut ditherer = dream_dsp::dither::TpdfDitherer::new();
+
             for i in 0..export_frames {
                 for ch in 0..2 {
                     let s = if ch == 0 { final_l[i] } else { final_r[i] };
@@ -1491,14 +1497,16 @@ impl OfflineBouncer {
                             .write_sample(s)
                             .map_err(|e| BounceError::WriteError(e.to_string()))?;
                     } else if self.config.bit_depth == 16 {
-                        // SAFETY CLAMP: prevent wrap-around pops if sample exceeds [-1,1]
-                        let scaled = (s * scaler).round().clamp(-32768.0, 32767.0) as i16;
+                        // TPDF dither: add ±1 LSB triangular noise before rounding.
+                        let dithered = s * scaler + ditherer.next_tpdf();
+                        let scaled = dithered.round().clamp(-32768.0, 32767.0) as i16;
                         wav_writer
                             .write_sample(scaled)
                             .map_err(|e| BounceError::WriteError(e.to_string()))?;
                     } else {
                         // 24-bit: hound writes the lower 24 bits of i32
-                        let scaled = (s * scaler).round().clamp(-8388608.0, 8388607.0) as i32;
+                        let dithered = s * scaler + ditherer.next_tpdf();
+                        let scaled = dithered.round().clamp(-8388608.0, 8388607.0) as i32;
                         wav_writer
                             .write_sample(scaled)
                             .map_err(|e| BounceError::WriteError(e.to_string()))?;

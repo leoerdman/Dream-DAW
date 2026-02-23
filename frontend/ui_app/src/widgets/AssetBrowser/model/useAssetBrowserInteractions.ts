@@ -151,7 +151,7 @@ export function useSplitResize({
 
 interface PreviewSyncParams {
     previewEnabled: boolean;
-    previewRequestToken: React.MutableRefObject<number>;
+    previewRequestTokenRef: React.MutableRefObject<number>;
     audioDurationSecRef: React.MutableRefObject<Record<string, number>>;
     isPreviewPlayingRef: React.MutableRefObject<boolean>;
     setPreviewPeaks: React.Dispatch<React.SetStateAction<import('@/shared/api/engine').PeakPair[] | null>>;
@@ -159,24 +159,24 @@ interface PreviewSyncParams {
 
 export function usePreviewSync({
     previewEnabled,
-    previewRequestToken,
+    previewRequestTokenRef,
     audioDurationSecRef,
     isPreviewPlayingRef,
     setPreviewPeaks,
 }: PreviewSyncParams) {
     return useCallback((item: BrowserItem | null) => {
-        const token = ++previewRequestToken.current;
+        const token = ++previewRequestTokenRef.current;
         if (item?.type === 'audio' && item.path) {
-            engineApi.getWaveformPeaks(item.path)
+            engineApi.getWaveformPeaksBinary(item.path)
                 .then((peaks) => {
-                    if (previewRequestToken.current !== token) return;
+                    if (previewRequestTokenRef.current !== token) return;
                     setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
                     if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
                         audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
                     }
                 })
                 .catch(() => {
-                    if (previewRequestToken.current === token) setPreviewPeaks(null);
+                    if (previewRequestTokenRef.current === token) setPreviewPeaks(null);
                 });
 
             if (previewEnabled) {
@@ -189,7 +189,6 @@ export function usePreviewSync({
             return;
         }
         engineApi.stopPreview().catch((err) => console.warn('[AssetBrowser] stopPreview(reset) failed:', err));
-        if (previewRequestToken.current === token) setPreviewPeaks(null);
-    }, [audioDurationSecRef, isPreviewPlayingRef, previewEnabled, previewRequestToken, setPreviewPeaks]);
+        if (previewRequestTokenRef.current === token) setPreviewPeaks(null);
+    }, [audioDurationSecRef, isPreviewPlayingRef, previewEnabled, previewRequestTokenRef, setPreviewPeaks]);
 }
-

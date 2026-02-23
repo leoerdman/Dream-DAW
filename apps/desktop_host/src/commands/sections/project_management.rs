@@ -30,7 +30,7 @@ fn new_project(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    let mut new = Project::default();
+    let mut new = dream_models::project::Project::default();
     refresh_offline_flags(&mut new);
     *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
     *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
@@ -354,18 +354,20 @@ fn set_arrangement_grid_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let numerator = numerator.max(1);
-    let denominator = denominator.max(1);
-    let ntoles = ntoles.max(1);
-
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    project.arrangement_grid_numerator = numerator;
-    project.arrangement_grid_denominator = denominator;
-    project.arrangement_grid_ntoles = ntoles;
-    project.arrangement_snap_to_grid = snap_to_grid;
-    project.arrangement_grid_fixed = fixed;
-    let name = project.name.clone();
-    drop(project);
+    let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
+        numerator,
+        denominator,
+        ntoles,
+        snap_to_grid,
+        fixed,
+    };
+    execute_orchestrator_command(&project_state, &cmd)?;
+    let name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
 
     project_state.mark_dirty(&name, Some(&app))?;
     Ok(())
@@ -381,27 +383,29 @@ fn set_arrangement_grid_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    let numerator = numerator.max(1);
-    let denominator = denominator.max(1);
-    let ntoles = ntoles.max(1);
-
-    set_arrangement_grid_cmd(
+    let cmd = dream_orchestrator::commands::SetArrangementGridCommand {
         numerator,
         denominator,
         ntoles,
         snap_to_grid,
         fixed,
-        project_state,
-        app,
-    )?;
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
+    project_state.mark_dirty(&name, Some(&app))?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ArrangementGridChanged {
-            numerator,
-            denominator,
-            ntoles,
-            snap_to_grid,
-            fixed,
+            numerator: result.numerator,
+            denominator: result.denominator,
+            ntoles: result.ntoles,
+            snap_to_grid: result.snap_to_grid,
+            fixed: result.fixed,
         }],
     })
 }
@@ -414,12 +418,18 @@ fn set_key_signature_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    project.key_sig_enabled = enabled;
-    project.key_sig_tonic = tonic;
-    project.key_sig_mode = mode;
-    let name = project.name.clone();
-    drop(project);
+    let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
+        enabled,
+        tonic,
+        mode,
+    };
+    execute_orchestrator_command(&project_state, &cmd)?;
+    let name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
 
     project_state.mark_dirty(&name, Some(&app))?;
     Ok(())
@@ -433,19 +443,91 @@ fn set_key_signature_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    set_key_signature_cmd(
+    let cmd = dream_orchestrator::commands::SetKeySignatureCommand {
         enabled,
-        tonic.clone(),
-        mode.clone(),
-        project_state,
-        app,
-    )?;
+        tonic,
+        mode,
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
+    project_state.mark_dirty(&name, Some(&app))?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::KeySignatureChanged {
-            enabled,
-            tonic,
-            mode,
+            enabled: result.enabled,
+            tonic: result.tonic,
+            mode: result.mode,
         }],
     })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Auto-Save (Strike 6: Titanium Shield)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Auto-saves the project if it has unsaved changes AND a file path is set.
+///
+/// Called periodically from the frontend (every 3 minutes). Silently no-ops
+/// if the project is clean or has never been saved (no file path).
+///
+/// Uses the same `ProjectFile::save()` pipeline as manual save, which means:
+/// - Atomic write (`.tmp` → `fsync` → `.bak` backup → `rename`)
+/// - Crash-safe: power loss at any point preserves either old or new file
+/// - Plugin state capture before serialization
+#[tauri::command]
+async fn auto_save_if_dirty(
+    project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    // ── Gate 1: Check dirty flag ──
+    let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    if !is_dirty {
+        return Ok(serde_json::json!({ "saved": false, "reason": "clean" }));
+    }
+
+    // ── Gate 2: Check file path exists (skip unsaved/new projects) ──
+    let path = {
+        let fp = project_state.file_path.lock().map_err(|e| e.to_string())?;
+        match fp.as_ref() {
+            Some(p) => p.clone(),
+            None => return Ok(serde_json::json!({ "saved": false, "reason": "no_path" })),
+        }
+    };
+
+    // ── Gate 3: Capture plugin states + serialize ──
+    let snapshot = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+        if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
+            log::warn!("[AutoSave] Plugin state capture failed (non-fatal): {e}");
+        }
+
+        project.clone()
+    };
+
+    // ── Gate 4: Atomic save (background thread) ──
+    let save_path = path.clone();
+    tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
+        .await
+        .map_err(|e| format!("AutoSave task join error: {e}"))?
+        .map_err(|e| e.to_string())?;
+
+    // ── Gate 5: Clear dirty flag ──
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    project_state.record_history("auto_save", format!("auto-saved to {}", path.display()))?;
+
+    // Update window title (remove dirty indicator)
+    if let Some(window) = app.get_webview_window("main") {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+    }
+
+    log::info!("[AutoSave] Project auto-saved → {}", path.display());
+    Ok(serde_json::json!({ "saved": true, "path": path.display().to_string() }))
 }

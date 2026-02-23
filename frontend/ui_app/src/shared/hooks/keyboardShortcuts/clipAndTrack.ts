@@ -6,7 +6,7 @@ import { getScopedEditorElement, isModKey } from './utils';
 
 export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
     const { e, ctx, clipboardRef } = env;
-    const { selectedClipId, selectedClipIds, selectedTrackId, projectTracks, timelineClips, marqueeSelection, onClipSelectionChanged, inPianoRoll, inDeviceRack, selectedDeviceId, selectedTrackIndex, playheadFrames } = ctx;
+    const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, timelineClips, marqueeSelection, onClipSelectionChanged, inPianoRoll, inDeviceRack, selectedDeviceId, selectedTrackIndex, playheadFrames } = ctx;
 
     if (isModKey(e) && e.code === 'KeyJ') {
         if (inPianoRoll || inDeviceRack) return true;
@@ -48,7 +48,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         for (const c of clipboardRef.current) minRelative = Math.min(minRelative, c.startBeat - firstBeat);
         const groupOffset = Math.max(0, cursorBeat + minRelative) - (cursorBeat + minRelative);
         const anchorTrackIndex = clipboardRef.current[0].trackIndex;
-        const selectedTrackIdx = projectTracks.findIndex((t) => t.id === selectedTrackId);
+        const selectedTrackIdx = selectedTrackIndex;
         const trackDelta = selectedTrackIdx >= 0 ? selectedTrackIdx - anchorTrackIndex : 0;
         try {
             if (trackDelta === 0) {
@@ -60,7 +60,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
                 for (let i = 0; i < results.length; i += 1) {
                     const clip = clipboardRef.current[i];
                     const destBeat = Math.max(0, cursorBeat + (clip.startBeat - firstBeat) + groupOffset);
-                    const targetTrack = Math.max(0, Math.min(projectTracks.length - 1, clip.trackIndex + trackDelta));
+                    const targetTrack = Math.max(0, Math.min(trackIds.length - 1, clip.trackIndex + trackDelta));
                     const response = await engine.moveClipWithDeltas(results[i].new_id, targetTrack, Math.max(0, beatToFrame(destBeat, bpm, sampleRate)));
                     await useEngineStore.getState().applyProjectDeltas(response.deltas, 'shortcut-paste-move');
                 }
@@ -129,7 +129,9 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.preventDefault();
         e.stopPropagation();
         try {
-            const response = await engine.setTrackSoloWithDeltas(selectedTrackIndex, !projectTracks[selectedTrackIndex]?.is_solo);
+            const selectedTrackIdAtIndex = trackIds[selectedTrackIndex];
+            const selectedTrack = selectedTrackIdAtIndex ? tracksById[selectedTrackIdAtIndex] : undefined;
+            const response = await engine.setTrackSoloWithDeltas(selectedTrackIndex, !selectedTrack?.is_solo);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-solo');
         } catch (err) {
             console.error('[Shortcuts] setTrackSolo failed:', err);
@@ -142,7 +144,9 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         e.preventDefault();
         e.stopPropagation();
         try {
-            const response = await engine.setTrackMuteWithDeltas(selectedTrackIndex, !projectTracks[selectedTrackIndex]?.is_mute);
+            const selectedTrackIdAtIndex = trackIds[selectedTrackIndex];
+            const selectedTrack = selectedTrackIdAtIndex ? tracksById[selectedTrackIdAtIndex] : undefined;
+            const response = await engine.setTrackMuteWithDeltas(selectedTrackIndex, !selectedTrack?.is_mute);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-mute');
         } catch (err) {
             console.error('[Shortcuts] setTrackMute failed:', err);
@@ -219,4 +223,3 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
 
     return false;
 }
-

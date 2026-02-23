@@ -7,7 +7,7 @@ interface TrackRowMixerProps {
     track: TrackData;
     trackHeight: number;
     displayNum?: number;
-    allTracks: TrackData[];
+    anySoloed: boolean;
     isMaster: boolean;
     isGroup: boolean;
     isActive: boolean;
@@ -24,7 +24,7 @@ export function TrackRowMixer({
     track,
     trackHeight,
     displayNum,
-    allTracks,
+    anySoloed,
     isMaster,
     isGroup,
     isActive,
@@ -36,7 +36,6 @@ export function TrackRowMixer({
     onVolumeChange,
     onPanChange,
 }: TrackRowMixerProps) {
-    const anySoloed = allTracks.some((t) => t.isSoloed);
     const isMeterActive = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
 

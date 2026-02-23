@@ -6,7 +6,8 @@ export interface KeyboardShortcutsConfig {
     selectedClipId: string | null;
     selectedClipIds: string[];
     selectedTrackId: string;
-    projectTracks: ProjectTrack[];
+    trackIds: string[];
+    tracksById: Record<string, ProjectTrack>;
     editCursorBeat?: number;
     timelineClips: TimelineClip[];
     marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
@@ -28,4 +29,3 @@ export interface KeyboardShortcutHandlerEnv {
     ctx: KeyboardShortcutRuntimeContext;
     clipboardRef: MutableRefObject<TimelineClip[]>;
 }
-

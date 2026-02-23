@@ -24,7 +24,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                     <>
                         <FilterPill
                             options={['Source: All', 'Source: Internal', 'Source: VST3', 'Source: VST2', 'Source: AU', 'Source: External']}
-                            value={{ all: 0, internal: 1, vst3: 2, vst2: 3, au: 4, external: 5 }[logic.pluginSourceFilter]}
+                            value={{ all: 0, internal: 1, vst3: 2, vst2: 3, au: 4, external: 5 }[logic.pluginSourceFilter as 'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external']}
                             onChange={(idx) => {
                                 const next = (['all', 'internal', 'vst3', 'vst2', 'au', 'external'] as const)[idx] ?? 'all';
                                 logic.setPluginSourceFilter(next);

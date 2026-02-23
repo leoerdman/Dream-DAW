@@ -5,7 +5,7 @@ import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { beatDurationToFrames, beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
-import type { ProjectTrack } from '@/shared/lib/trackAdapter';
+import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 
 type ThrottledSender<T> = ((payload: T) => void) & {
     cancel: () => void;
@@ -14,7 +14,8 @@ type ThrottledSender<T> = ((payload: T) => void) & {
 
 interface UseDawShellMidiPersistenceArgs {
     timelineClips: TimelineClip[];
-    projectTracks: ProjectTrack[];
+    trackIds: string[];
+    tracksById: Record<string, ProjectTrack>;
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
@@ -23,7 +24,8 @@ interface UseDawShellMidiPersistenceArgs {
 
 export function useDawShellMidiPersistence({
     timelineClips,
-    projectTracks,
+    trackIds,
+    tracksById,
     projectBpm,
     transportBpm,
     projectSampleRate,
@@ -130,7 +132,8 @@ export function useDawShellMidiPersistence({
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
         const clip = selectedTimelineClip;
         const notes = midiNotesByClip[clip.id] ?? [];
-        const track = projectTracks[clip.trackIndex];
+        const trackId = trackIds[clip.trackIndex];
+        const track = trackId ? tracksById[trackId] : undefined;
         const bpm = projectBpm || transportBpm || 120;
         const sampleRate = resolveSampleRate(projectSampleRate);
         const settingsModel = useSettingsStore.getState().settings.openRouterModel;
@@ -182,7 +185,7 @@ export function useDawShellMidiPersistence({
         } finally {
             setAiVariationBusy(false);
         }
-    }, [midiNotesByClip, projectTracks, projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
+    }, [midiNotesByClip, trackIds, tracksById, projectBpm, transportBpm, projectSampleRate, applyProjectDeltas]);
 
     const handlePianoRollNotesChange = useCallback((selectedTimelineClip: TimelineClip | undefined, notes: MidiNote[]) => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;

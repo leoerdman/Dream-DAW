@@ -10,7 +10,6 @@ import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/us
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
-import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -19,6 +18,7 @@ import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { isTrackActive } from '@/shared/utils/routing';
 import { AutomationOverlay } from './AutomationOverlay';
 import { useTimelineDnD } from './model/useTimelineDnD';
+import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from './model/useTimelineCommandBindings';
 
 interface TimelineProps {
     bpm?: number;
@@ -175,183 +175,25 @@ export const Timeline = (props: TimelineProps) => {
         onMarqueeSelectionChange,
     };
 
-    useEffect(() => {
-        const unsubscribe = commandBusRef.current.subscribe((command) => {
-            switch (command.type) {
-                case 'seek':
-                    callbacksRef.current.onPlayheadChange?.(command.beat);
-                    break;
-                case 'edit-cursor':
-                    callbacksRef.current.onEditCursorChange?.(command.beat, command.trackIndex, command.trackIndex);
-                    break;
-                case 'clip-select':
-                    if (command.isShift) {
-                        const prev = selectedClipIdsRef.current;
-                        const currentClips = propsRef.current.clips ?? [];
-                        const targetClip = currentClips.find((c) => c.id === command.clipId);
-                        if (!targetClip) break;
-
-                        if (prev.length === 0) {
-                            callbacksRef.current.onClipSelect?.(command.clipId);
-                        } else {
-                            const anchorId = prev[0];
-                            const anchorClip = currentClips.find((c) => c.id === anchorId);
-                            if (!anchorClip) {
-                                callbacksRef.current.onClipSelect?.(command.clipId);
-                                break;
-                            }
-
-                            const minBeat = Math.min(anchorClip.startBeat, targetClip.startBeat);
-                            const maxBeat = Math.max(
-                                anchorClip.startBeat + anchorClip.durationBeats,
-                                targetClip.startBeat + targetClip.durationBeats
-                            );
-                            const minTrack = Math.min(anchorClip.trackIndex, targetClip.trackIndex);
-                            const maxTrack = Math.max(anchorClip.trackIndex, targetClip.trackIndex);
-
-                            const next = currentClips
-                                .filter((c) => {
-                                    if (c.trackIndex < minTrack || c.trackIndex > maxTrack) return false;
-                                    const cEnd = c.startBeat + c.durationBeats;
-                                    return cEnd > minBeat && c.startBeat < maxBeat;
-                                })
-                                .map((c) => c.id);
-
-                            callbacksRef.current.onClipSelectionChange?.(next);
-                        }
-                    } else if (command.isCtrl) {
-                        const prev = selectedClipIdsRef.current;
-                        const next = prev.includes(command.clipId)
-                            ? prev.filter((id) => id !== command.clipId)
-                            : [...prev, command.clipId];
-                        callbacksRef.current.onClipSelectionChange?.(next);
-                    } else {
-                        callbacksRef.current.onClipSelect?.(command.clipId);
-                    }
-                    break;
-                case 'clip-selection':
-                    callbacksRef.current.onClipSelectionChange?.(command.clipIds);
-                    break;
-                case 'clip-move':
-                    callbacksRef.current.onClipMove?.(command.clipId, command.beat, command.trackIndex);
-                    break;
-                case 'clip-resize':
-                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration);
-                    break;
-                case 'track-dblclick':
-                    callbacksRef.current.onDoubleClickTrack?.(command.trackIndex, command.beat);
-                    break;
-                case 'clip-dblclick':
-                    callbacksRef.current.onOpenMidiClip?.(command.clipId, command.trackIndex);
-                    break;
-                case 'track-select': {
-                    const id = trackIdsRef.current[command.trackIndex] ?? `track-${command.trackIndex}`;
-                    callbacksRef.current.onTrackSelect?.(id, command.trackIndex);
-                    break;
-                }
-                case 'marquee-start':
-                    callbacksRef.current.onMarqueeSelectionStart?.();
-                    break;
-                case 'marquee-change':
-                    callbacksRef.current.onMarqueeSelectionChange?.(command.marquee);
-                    break;
-                case 'drop':
-                    callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
-                    break;
-                case 'scroll-top':
-                    scrollSync.setScrollY(command.value, 'timeline');
-                    break;
-                default:
-                    break;
-            }
-        });
-        return unsubscribe;
-    }, []);
-
-    // ── Wire engine callbacks ─────────────────────────────────────────
-    useEffect(() => {
-        const engine = engineRef.current;
-        if (!engine) return;
-
-        engine.onPlayheadSeek = (beat) => {
-            callbacksRef.current.onPlayheadChange?.(beat);
-        };
-        engine.onEditCursorChange = (beat, trackStart, trackEnd) => {
-            callbacksRef.current.onEditCursorChange?.(beat, trackStart, trackEnd);
-        };
-        engine.onClipClick = (clipId, isShift, isCtrl) => {
-            commandBusRef.current.emit({ type: 'clip-select', clipId, isShift, isCtrl });
-        };
-
-        engine.onClipMove = (clipId, newBeat, newTrack) => {
-            commandBusRef.current.emit({ type: 'clip-move', clipId, beat: newBeat, trackIndex: newTrack });
-        };
-
-        engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => {
-            callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
-        };
-
-        engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => {
-            callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
-        };
-
-        engine.onClipBoxSelection = (clipIds) => {
-            commandBusRef.current.emit({ type: 'clip-selection', clipIds });
-        };
-
-        engine.onClipResize = (clipId, newStartBeat, newDuration) => {
-            commandBusRef.current.emit({
-                type: 'clip-resize',
-                clipId,
-                startBeat: newStartBeat,
-                duration: newDuration,
-            });
-        };
-
-        engine.onDoubleClickTrack = (trackIndex, beat) => {
-            commandBusRef.current.emit({ type: 'track-dblclick', trackIndex, beat });
-        };
-
-        engine.onDoubleClickClip = (clipId, trackIndex) => {
-            commandBusRef.current.emit({ type: 'clip-dblclick', clipId, trackIndex });
-        };
-
-        engine.onTrackSelect = (trackIndex) => {
-            commandBusRef.current.emit({ type: 'track-select', trackIndex });
-        };
-
-        engine.onMarqueeSelectionStart = () => {
-            commandBusRef.current.emit({ type: 'marquee-start' });
-        };
-
-        engine.onMarqueeSelectionChange = (marquee) => {
-            commandBusRef.current.emit({ type: 'marquee-change', marquee });
-        };
-
-        engine.onScrollTop = (scrollTop) => {
-            commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
-        };
-
-        // ── Subscribe to scrollSync for inspector-originated scroll ──
-        // This replaces the old externalScrollTop prop/useEffect.
-        const unsubScroll = scrollSync.subscribe('timeline', (y) => {
-            engine.setScrollY(y);
-        });
-        // Store cleanup for the subscription
-        (engine as unknown as Record<string, () => void>)._scrollSyncUnsub = unsubScroll;
-
-        engine.onLoopChange = (loop) => {
-            pendingLoopRef.current = loop;
-            throttledLoopCommitRef.current();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
     // Refs for callback closure stability
     const selectedClipIdsRef = useRef(selectedClipIds);
     selectedClipIdsRef.current = selectedClipIds;
     const trackIdsRef = useRef(trackIds);
     trackIdsRef.current = trackIds;
+
+    useTimelineCommandBusBindings({
+        commandBusRef,
+        callbacksRef,
+        selectedClipIdsRef,
+        trackIdsRef,
+        propsRef,
+    });
+
+    useTimelineEngineCommandBindings({
+        engineRef,
+        commandBusRef,
+        callbacksRef,
+    });
     const pendingLoopRef = useRef<{ start: number; end: number; enabled: boolean } | null>(null);
     const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => { });
 
@@ -392,8 +234,13 @@ export const Timeline = (props: TimelineProps) => {
     }, []);
 
     // ── Track mute state (reactive — clips re-dim/un-dim on mute toggle) ──
-    const projectTracks = useEngineStore((s) => s.projectTracks);
-    const trackActiveStates = useMemo(() => projectTracks.map((_t, i, arr) => isTrackActive(i, arr)), [projectTracks]);
+    const tracksEntity = useEngineStore((s) => s.tracks);
+    const trackActiveStates = useMemo(() => {
+        const orderedTracks = tracksEntity.allIds
+            .map((id) => tracksEntity.byId[id])
+            .filter((track): track is NonNullable<typeof track> => Boolean(track));
+        return orderedTracks.map((_t, i, arr) => isTrackActive(i, arr));
+    }, [tracksEntity]);
 
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {
@@ -539,14 +386,12 @@ export const Timeline = (props: TimelineProps) => {
         });
     }, [loopStart, loopEnd, loopEnabled, engineRef]);
 
-    // ── Scroll sync cleanup ──────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
-        return () => {
-            if (engine) {
-                const unsub = (engine as unknown as Record<string, () => void>)._scrollSyncUnsub;
-                unsub?.();
-            }
+        if (!engine) return;
+        engine.onLoopChange = (loop) => {
+            pendingLoopRef.current = loop;
+            throttledLoopCommitRef.current();
         };
     }, [engineRef]);
 

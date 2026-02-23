@@ -15,39 +15,35 @@ fn set_sample_rack_pad_volume_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-    
-    let clamped_vol = volume.clamp(0.0, 2.0);
-
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
-
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    if pad_index < 16 {
-        rack.pads[pad_index as usize].volume = clamped_vol as f64;
-    }
+    let cmd = dream_orchestrator::commands::SetSampleRackPadVolumeCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        volume,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
         &handle,
         EngineCommand::SetSampleRackPadVolume {
-            track_index: track_index as u16,
-            pad_index,
-            volume: clamped_vol,
+            track_index: result.track_index,
+            pad_index: result.pad_index,
+            volume: result.volume,
         },
     )?;
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::debug!("[IPC] set_sample_rack_pad_volume_cmd(track={}, pad={}, vol={})", track_id, pad_index, clamped_vol);
+    log::debug!(
+        "[IPC] set_sample_rack_pad_volume_cmd(track={}, pad={}, vol={})",
+        track_id,
+        pad_index,
+        result.volume
+    );
     Ok(())
 }
 
@@ -83,40 +79,36 @@ fn set_sample_rack_pad_mute_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-    
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
-
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    let mut vol_for_engine = 1.0;
-    if pad_index < 16 {
-        rack.pads[pad_index as usize].is_muted = muted;
-        vol_for_engine = if muted { 0.0 } else { rack.pads[pad_index as usize].volume as f32 };
-    }
+    let cmd = dream_orchestrator::commands::SetSampleRackPadMuteCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        muted,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     // Engine doesn't have a distinct mute state per pad, so we sync volume = 0 if muted.
     push_command(
         &handle,
         EngineCommand::SetSampleRackPadVolume {
-            track_index: track_index as u16,
-            pad_index,
-            volume: vol_for_engine,
+            track_index: result.track_index,
+            pad_index: result.pad_index,
+            volume: result.effective_volume,
         },
     )?;
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::debug!("[IPC] set_sample_rack_pad_mute_cmd(track={}, pad={}, muted={})", track_id, pad_index, muted);
+    log::debug!(
+        "[IPC] set_sample_rack_pad_mute_cmd(track={}, pad={}, muted={})",
+        track_id,
+        pad_index,
+        muted
+    );
     Ok(())
 }
 
@@ -151,49 +143,38 @@ fn set_sample_rack_pad_solo_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-    
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
+    let cmd = dream_orchestrator::commands::SetSampleRackPadSoloCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        soloed,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    if pad_index < 16 {
-        rack.pads[pad_index as usize].is_soloed = soloed;
-    }
-
-    let any_soloed = rack.pads.iter().any(|p| p.is_soloed);
-
-    for (i, pad) in rack.pads.iter().enumerate() {
-        let vol_for_engine = if any_soloed && !pad.is_soloed {
-            0.0
-        } else if pad.is_muted {
-            0.0
-        } else {
-            pad.volume as f32
-        };
-
+    for (i, vol_for_engine) in result.effective_pad_volumes.iter().enumerate() {
         push_command(
             &handle,
             EngineCommand::SetSampleRackPadVolume {
-                track_index: track_index as u16,
+                track_index: result.track_index,
                 pad_index: i as u8,
-                volume: vol_for_engine,
+                volume: *vol_for_engine,
             },
-        ).unwrap_or_else(|e| log::error!("Failed sending pad volume cmd: {}", e));
+        )
+        .unwrap_or_else(|e| log::error!("Failed sending pad volume cmd: {}", e));
     }
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::debug!("[IPC] set_sample_rack_pad_solo_cmd(track={}, pad={}, soloed={})", track_id, pad_index, soloed);
+    log::debug!(
+        "[IPC] set_sample_rack_pad_solo_cmd(track={}, pad={}, soloed={})",
+        track_id,
+        pad_index,
+        soloed
+    );
     Ok(())
 }
 
@@ -231,44 +212,44 @@ fn set_sample_rack_pad_adsr_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-        
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
-
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    if pad_index < 16 {
-        let pad = &mut rack.pads[pad_index as usize];
-        pad.attack = attack.clamp(0.001, 10.0) as f64;
-        pad.decay = decay.clamp(0.001, 10.0) as f64;
-        pad.sustain = sustain.clamp(0.0, 1.0) as f64;
-        pad.release = release.clamp(0.001, 20.0) as f64;
-    }
+    let cmd = dream_orchestrator::commands::SetSampleRackPadAdsrCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        attack,
+        decay,
+        sustain,
+        release,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
         &handle,
         EngineCommand::SetSampleRackPadAdsr {
-            track_index: track_index as u16,
-            pad_index,
-            attack,
-            decay,
-            sustain,
-            release,
+            track_index: result.track_index,
+            pad_index: result.pad_index,
+            attack: result.attack,
+            decay: result.decay,
+            sustain: result.sustain,
+            release: result.release,
         },
     )?;
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::debug!("[IPC] set_sample_rack_pad_adsr_cmd(track={}, pad={}, a={}, d={}, s={}, r={})", track_id, pad_index, attack, decay, sustain, release);
+    log::debug!(
+        "[IPC] set_sample_rack_pad_adsr_cmd(track={}, pad={}, a={}, d={}, s={}, r={})",
+        track_id,
+        pad_index,
+        result.attack,
+        result.decay,
+        result.sustain,
+        result.release
+    );
     Ok(())
 }
 
@@ -323,39 +304,35 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-        
-    let clamped_cutoff = cutoff.clamp(20.0, 20000.0);
-
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
-
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    if pad_index < 16 {
-        rack.pads[pad_index as usize].filter_cutoff = clamped_cutoff as f64;
-    }
+    let cmd = dream_orchestrator::commands::SetSampleRackPadFilterCutoffCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        cutoff,
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
 
     push_command(
         &handle,
         EngineCommand::SetSampleRackPadFilterCutoff {
-            track_index: track_index as u16,
-            pad_index,
-            cutoff: clamped_cutoff,
+            track_index: result.track_index,
+            pad_index: result.pad_index,
+            cutoff: result.cutoff,
         },
     )?;
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::debug!("[IPC] set_sample_rack_pad_filter_cutoff_cmd(track={}, pad={}, cutoff={})", track_id, pad_index, clamped_cutoff);
+    log::debug!(
+        "[IPC] set_sample_rack_pad_filter_cutoff_cmd(track={}, pad={}, cutoff={})",
+        track_id,
+        pad_index,
+        result.cutoff
+    );
     Ok(())
 }
 
@@ -392,13 +369,6 @@ fn set_sample_rack_pad_sample_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    if pad_index >= 16 {
-        return Err("Pad index out of bounds".into());
-    }
-
-    let track_uuid = Uuid::parse_str(&track_id)
-        .map_err(|_| format!("Invalid track_id: {}", track_id))?;
-        
     let sample_arc = if !sample_path.trim().is_empty() {
         if !PathBuf::from(&sample_path).exists() {
             return Err(format!("Sample path does not exist: {}", sample_path));
@@ -421,17 +391,14 @@ fn set_sample_rack_pad_sample_cmd(
     };
 
     push_undo(&project_state)?;
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    
-    let (track_index, _) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", track_id))?;
-
-    let rack = project.tracks[track_index].sample_rack.get_or_insert_with(SampleRackConfig::default);
-    rack.pads[pad_index as usize].sample_path = sample_path.clone();
+    let cmd = dream_orchestrator::commands::SetSampleRackPadSamplePathCommand::from_str_track_id(
+        &track_id,
+        pad_index,
+        sample_path.clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let track_index = result.track_index as usize;
 
     // Now update the lock-free data structure for the audio thread.
     let current_samples = handle.sample_rack_samples.load();
@@ -445,8 +412,10 @@ fn set_sample_rack_pad_sample_cmd(
     
     handle.sample_rack_samples.swap(new_samples);
 
-    let project_name = project.name.clone();
-    drop(project);
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     log::info!(

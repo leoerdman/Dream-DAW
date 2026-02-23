@@ -25,6 +25,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
 
 const MAX_DELAY_SAMPLES: usize = 2048;
 const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
@@ -144,11 +145,9 @@ impl FlangerProcessor {
 impl DspProcessor for FlangerProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_damp();
         }
         let len = left.len().min(right.len());

@@ -26,6 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::smoothing::SmoothedValue;
 
 // ── Comb Filter ─────────────────────────────────────────────────────────
 
@@ -167,6 +168,10 @@ pub struct ReverbProcessor {
     low_cut_l: f32,
     low_cut_r: f32,
     sample_rate: f32,
+    // Smoothed runtime params (anti-zipper)
+    mix_sm: SmoothedValue,
+    width_sm: SmoothedValue,
+    predelay_sm_ms: SmoothedValue,
 }
 
 impl ReverbProcessor {
@@ -218,6 +223,9 @@ impl ReverbProcessor {
             low_cut_l: 0.0,
             low_cut_r: 0.0,
             sample_rate,
+            mix_sm: SmoothedValue::new(sample_rate, 10.0, 0.3),
+            width_sm: SmoothedValue::new(sample_rate, 10.0, 1.0),
+            predelay_sm_ms: SmoothedValue::new(sample_rate, 12.0, 10.0),
         };
         // Set logical buf_size for the actual sample rate (within max capacity)
         proc.rescale_logical_sizes(sample_rate);
@@ -297,6 +305,9 @@ impl ReverbProcessor {
 
             self.update_combs();
             self.update_predelay();
+            self.mix_sm.set_sample_rate(sample_rate);
+            self.width_sm.set_sample_rate(sample_rate);
+            self.predelay_sm_ms.set_sample_rate(sample_rate);
         }
     }
 }
@@ -305,10 +316,6 @@ impl DspProcessor for ReverbProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let wet = self.mix;
-        let dry = 1.0 - wet;
-        let wet1 = wet * (1.0 + self.width) * 0.5;
-        let wet2 = wet * (1.0 - self.width) * 0.5;
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
         let low_damp_coeff = self.low_damp * 0.5;
 
@@ -317,11 +324,24 @@ impl DspProcessor for ReverbProcessor {
         // causing massive distortion/clipping.  1/8 = 0.125.
         const COMB_NORM: f32 = 1.0 / 8.0;
 
+        self.mix_sm.set_target(self.mix);
+        self.width_sm.set_target(self.width);
+        self.predelay_sm_ms.set_target(self.predelay_ms);
+
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
 
+            let wet = self.mix_sm.next();
+            let dry = 1.0 - wet;
+            let width = self.width_sm.next();
+            let wet1 = wet * (1.0 + width) * 0.5;
+            let wet2 = wet * (1.0 - width) * 0.5;
+
             // Pre-delay
+            let predelay_ms = self.predelay_sm_ms.next();
+            self.predelay_samples = ((predelay_ms * 0.001 * self.sample_rate) as usize)
+                .min(MAX_PREDELAY_SAMPLES - 1);
             let pd_pos = self.predelay_pos;
             let pd_read =
                 (pd_pos + MAX_PREDELAY_SAMPLES - self.predelay_samples) % MAX_PREDELAY_SAMPLES;
@@ -463,6 +483,9 @@ impl DspProcessor for ReverbProcessor {
         self.lfo_phase = 0.0;
         self.low_cut_l = 0.0;
         self.low_cut_r = 0.0;
+        self.mix_sm.set_instant(self.mix);
+        self.width_sm.set_instant(self.width);
+        self.predelay_sm_ms.set_instant(self.predelay_ms);
     }
 }
 

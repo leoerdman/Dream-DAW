@@ -25,6 +25,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 #[derive(PartialEq, Clone, Copy)]
 enum GateState {
@@ -64,7 +65,7 @@ pub struct GateProcessor {
 
 impl GateProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             threshold_db: -30.0,
             attack_ms: 0.5,
@@ -111,17 +112,15 @@ impl GateProcessor {
         self.range_lin = if self.range_db <= -96.0 {
             0.0
         } else {
-            10.0_f32.powf(self.range_db / 20.0)
+            db_to_linear(self.range_db)
         };
     }
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_all();
         }
     }

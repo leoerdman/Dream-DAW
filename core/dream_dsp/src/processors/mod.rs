@@ -4,6 +4,7 @@
 
 pub(crate) const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
 pub(crate) const MIN_VALID_SAMPLE_RATE: f32 = 1_000.0;
+pub(crate) const LN10_OVER_20: f32 = 0.115_129_25;
 
 #[inline]
 pub(crate) fn sanitize_sample_rate(sample_rate: f32) -> f32 {
@@ -14,12 +15,18 @@ pub(crate) fn sanitize_sample_rate(sample_rate: f32) -> f32 {
     }
 }
 
+#[inline]
+pub(crate) fn db_to_linear(db: f32) -> f32 {
+    (db * LN10_OVER_20).exp()
+}
+
 pub mod chorus;
 pub mod compressor;
 pub mod delay;
 pub mod eq;
 pub mod reverb;
 pub mod saturator;
+pub mod smoothing;
 pub mod utility;
 // Wave 1 — Essential Effects
 pub mod analyzer;

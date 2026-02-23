@@ -27,6 +27,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 pub struct CompressorProcessor {
     threshold_db: f32,
@@ -54,6 +56,8 @@ pub struct CompressorProcessor {
     attack_coeff: f32,
     release_coeff: f32,
     sample_rate: f32,
+    threshold_sm_db: SmoothedValue,
+    mix_sm: SmoothedValue,
 }
 
 impl CompressorProcessor {
@@ -81,6 +85,8 @@ impl CompressorProcessor {
             attack_coeff: 0.0,
             release_coeff: 0.0,
             sample_rate,
+            threshold_sm_db: SmoothedValue::new(sample_rate, 10.0, -18.0),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
         };
         proc.update_coefficients();
         proc.update_sc_hpf();
@@ -134,13 +140,13 @@ impl CompressorProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_coefficients();
             self.update_sc_hpf();
+            self.threshold_sm_db.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
         }
     }
 
@@ -201,8 +207,8 @@ impl DspProcessor for CompressorProcessor {
         let attack = self.attack_coeff;
         let release = self.release_coeff;
         let makeup = self.compute_auto_makeup();
-        let mix = self.mix;
-        let dry_mix = 1.0 - mix;
+        self.threshold_sm_db.set_target(self.threshold_db);
+        self.mix_sm.set_target(self.mix);
         // RMS coefficient: target ~20ms integration window, sample-rate-independent.
         let rms_coeff = if self.rms_mode {
             1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
@@ -213,6 +219,9 @@ impl DspProcessor for CompressorProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            self.threshold_db = self.threshold_sm_db.next();
+            let mix = self.mix_sm.next();
+            let dry_mix = 1.0 - mix;
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
@@ -278,8 +287,8 @@ impl DspProcessor for CompressorProcessor {
         let attack = self.attack_coeff;
         let release = self.release_coeff;
         let makeup = self.compute_auto_makeup();
-        let mix = self.mix;
-        let dry_mix = 1.0 - mix;
+        self.threshold_sm_db.set_target(self.threshold_db);
+        self.mix_sm.set_target(self.mix);
         // RMS coefficient: target ~20ms integration window, sample-rate-independent.
         let rms_coeff = if self.rms_mode {
             1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
@@ -290,6 +299,9 @@ impl DspProcessor for CompressorProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            self.threshold_db = self.threshold_sm_db.next();
+            let mix = self.mix_sm.next();
+            let dry_mix = 1.0 - mix;
 
             let sc_src_l = sidechain_left
                 .and_then(|sc| sc.get(i).copied())
@@ -388,6 +400,8 @@ impl DspProcessor for CompressorProcessor {
         self.sc_hp_state_r = 0.0;
         self.sc_hp_prev_l = 0.0;
         self.sc_hp_prev_r = 0.0;
+        self.threshold_sm_db.set_instant(self.threshold_db);
+        self.mix_sm.set_instant(self.mix);
     }
 }
 

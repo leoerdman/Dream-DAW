@@ -24,7 +24,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::DEFAULT_SAMPLE_RATE;
+use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 
 struct OnePole {
     state: f32,
@@ -83,7 +83,7 @@ pub struct SaturatorProcessor {
 
 impl SaturatorProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         let sr = sample_rate;
         let cutoff = Self::tone_to_cutoff(50.0);
         // BUG-18 FIX: SR-dependent DC blocker coefficient.
@@ -93,7 +93,7 @@ impl SaturatorProcessor {
         let pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
         Self {
             drive_db: 6.0,
-            drive_lin: 10.0_f32.powf(6.0 / 20.0),
+            drive_lin: db_to_linear(6.0),
             tone_pct: 50.0,
             mix: 0.5,
             mode: 0,
@@ -180,18 +180,16 @@ impl Default for SaturatorProcessor {
 
 impl DspProcessor for SaturatorProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             let cutoff = Self::tone_to_cutoff(self.tone_pct);
-            self.tone_l.set_cutoff(cutoff, sample_rate);
-            self.tone_r.set_cutoff(cutoff, sample_rate);
+            self.tone_l.set_cutoff(cutoff, sr);
+            self.tone_r.set_cutoff(cutoff, sr);
             // BUG-18 FIX: Recalculate SR-dependent coefficients
-            self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sample_rate);
+            self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sr);
             self.pre_coeff =
-                (1.0 - (-std::f32::consts::TAU * 2000.0 / sample_rate).exp()).clamp(0.01, 0.99);
+                (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
         }
 
         let len = left.len().min(right.len());
@@ -259,7 +257,7 @@ impl DspProcessor for SaturatorProcessor {
         match index {
             0 => {
                 self.drive_db = value.clamp(0.0, 36.0);
-                self.drive_lin = 10.0_f32.powf(self.drive_db / 20.0);
+                self.drive_lin = db_to_linear(self.drive_db);
             }
             1 => {
                 self.tone_pct = value.clamp(0.0, 100.0);
@@ -271,7 +269,7 @@ impl DspProcessor for SaturatorProcessor {
             3 => self.mode = (value as u8).min(4),
             4 => {
                 self.output_db = value.clamp(-24.0, 6.0);
-                self.output_lin = 10.0_f32.powf(self.output_db / 20.0);
+                self.output_lin = db_to_linear(self.output_db);
             }
             5 => self.color = (value / 100.0).clamp(0.0, 1.0),
             _ => {}

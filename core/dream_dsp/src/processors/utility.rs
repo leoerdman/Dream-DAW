@@ -19,7 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
+use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 
 /// Utility processor — gain, pan, width, mono.
 pub struct UtilityProcessor {
@@ -63,7 +63,7 @@ impl UtilityProcessor {
         if db <= -60.0 {
             0.0
         } else {
-            10.0_f32.powf(db / 20.0)
+            db_to_linear(db)
         }
     }
 }
@@ -77,12 +77,10 @@ impl Default for UtilityProcessor {
 impl DspProcessor for UtilityProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate & recalculate coefficient
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
-            self.smooth_coeff = (-1.0 / (0.005 * sample_rate)).exp();
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
+            self.smooth_coeff = (-1.0 / (0.005 * sr)).exp();
         }
         let len = left.len().min(right.len());
         let coeff = self.smooth_coeff;

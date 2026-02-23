@@ -1,0 +1,63 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Dream DAW — Real-Time Parameter Smoothing
+// ═══════════════════════════════════════════════════════════════════════════
+
+use crate::processors::sanitize_sample_rate;
+
+#[derive(Debug, Clone, Copy)]
+pub struct SmoothedValue {
+    current: f32,
+    target: f32,
+    coeff: f32,
+    time_ms: f32,
+}
+
+impl SmoothedValue {
+    pub fn new(sample_rate: f32, time_ms: f32, initial: f32) -> Self {
+        let mut s = Self {
+            current: initial,
+            target: initial,
+            coeff: 0.0,
+            time_ms: time_ms.max(0.0),
+        };
+        s.set_sample_rate(sample_rate);
+        s
+    }
+
+    #[inline]
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        let sr = sanitize_sample_rate(sample_rate);
+        if self.time_ms <= 0.0 {
+            self.coeff = 0.0;
+        } else {
+            self.coeff = (-1.0 / (self.time_ms * 0.001 * sr)).exp();
+        }
+    }
+
+    #[inline]
+    pub fn set_time_ms(&mut self, sample_rate: f32, time_ms: f32) {
+        self.time_ms = time_ms.max(0.0);
+        self.set_sample_rate(sample_rate);
+    }
+
+    #[inline]
+    pub fn set_target(&mut self, target: f32) {
+        self.target = target;
+    }
+
+    #[inline]
+    pub fn set_instant(&mut self, value: f32) {
+        self.current = value;
+        self.target = value;
+    }
+
+    #[inline(always)]
+    pub fn next(&mut self) -> f32 {
+        self.current = self.coeff * self.current + (1.0 - self.coeff) * self.target;
+        if (self.current - self.target).abs() < 1.0e-12 {
+            self.current = self.target;
+        }
+        self.current
+    }
+}
+

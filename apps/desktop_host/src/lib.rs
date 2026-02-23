@@ -38,7 +38,6 @@ use std::sync::atomic::Ordering;
 
 use crate::state_managers::sync_engine::*;
 
-use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
@@ -53,7 +52,7 @@ use dream_models::midi::{MidiClip, MidiNote};
 use dream_models::project::{AudioClip, Track, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::PluginFormat;
-use dream_plugins::{MidiEvent as PluginMidiEvent, PluginSandboxSnapshot, TransportContext};
+use dream_plugins::PluginSandboxSnapshot;
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

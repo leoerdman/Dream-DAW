@@ -26,7 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::DEFAULT_SAMPLE_RATE;
+use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 
 pub struct DistortionProcessor {
     drive: f32,
@@ -53,7 +53,7 @@ pub struct DistortionProcessor {
 
 impl DistortionProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         Self {
             drive: 0.5,
             tone: 0.5,
@@ -119,11 +119,9 @@ impl Default for DistortionProcessor {
 impl DspProcessor for DistortionProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate if changed
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
         }
         let len = left.len().min(right.len());
         let gain = 1.0 + self.drive * 30.0; // up to 31x
@@ -220,7 +218,7 @@ impl DspProcessor for DistortionProcessor {
             3 => self.mode = (value as u8).min(4),
             4 => {
                 self.output_db = value.clamp(-24.0, 6.0);
-                self.output_lin = 10.0_f32.powf(self.output_db / 20.0);
+                self.output_lin = db_to_linear(self.output_db);
             }
             5 => self.cab_sim = value > 0.5,
             6 => self.tightness = (value / 100.0).clamp(0.0, 1.0),

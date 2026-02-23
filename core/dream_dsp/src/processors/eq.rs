@@ -90,13 +90,14 @@ pub struct EqProcessor {
 
 impl EqProcessor {
     pub fn new(sample_rate: f64) -> Self {
+        let safe_sr = crate::processors::sanitize_sample_rate(sample_rate as f32) as f64;
         let bands = std::array::from_fn(|i| {
             let gain = 0.0;
-            EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], sample_rate)
+            EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], safe_sr)
         });
         Self {
             bands,
-            sample_rate,
+            sample_rate: safe_sr,
             output_gain_db: 0.0,
             output_gain_lin: 1.0,
         }
@@ -104,7 +105,7 @@ impl EqProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        let sr = sample_rate as f64;
+        let sr = crate::processors::sanitize_sample_rate(sample_rate) as f64;
         if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             for band in &mut self.bands {
@@ -117,20 +118,23 @@ impl EqProcessor {
 impl DspProcessor for EqProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
+        let len = left.len().min(right.len());
+        let left_buf = &mut left[..len];
+        let right_buf = &mut right[..len];
         // Process each enabled band in series
         for band in &mut self.bands {
             if !band.enabled {
                 continue;
             }
-            band.filter_l.process_buffer(left);
-            band.filter_r.process_buffer(right);
+            band.filter_l.process_buffer(left_buf);
+            band.filter_r.process_buffer(right_buf);
         }
         // Output gain
         if (self.output_gain_lin - 1.0).abs() > 0.0001 {
             let g = self.output_gain_lin;
-            for i in 0..left.len().min(right.len()) {
-                left[i] *= g;
-                right[i] *= g;
+            for i in 0..len {
+                left_buf[i] *= g;
+                right_buf[i] *= g;
             }
         }
         // Numeric runaway guard only for extreme boost stacks / pathological automation.
@@ -146,9 +150,9 @@ impl DspProcessor for EqProcessor {
             }
         }
 
-        for i in 0..left.len().min(right.len()) {
-            left[i] = runaway_guard(left[i]);
-            right[i] = runaway_guard(right[i]);
+        for i in 0..len {
+            left_buf[i] = runaway_guard(left_buf[i]);
+            right_buf[i] = runaway_guard(right_buf[i]);
         }
     }
 

@@ -24,6 +24,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 const MAX_DELAY_SECONDS: f32 = 2.0;
 
@@ -62,6 +64,11 @@ pub struct DelayProcessor {
     // Cross-feedback for ping-pong
     cross_fb_l: f32,
     cross_fb_r: f32,
+    // Smoothed runtime params (anti-zipper)
+    feedback_sm: SmoothedValue,
+    dry_wet_sm: SmoothedValue,
+    delay_l_sm: SmoothedValue,
+    delay_r_sm: SmoothedValue,
 }
 
 impl DelayProcessor {
@@ -95,6 +102,10 @@ impl DelayProcessor {
             lfo_phase: 0.0,
             cross_fb_l: 0.0,
             cross_fb_r: 0.0,
+            feedback_sm: SmoothedValue::new(sample_rate, 8.0, 0.30),
+            dry_wet_sm: SmoothedValue::new(sample_rate, 8.0, 0.30),
+            delay_l_sm: SmoothedValue::new(sample_rate, 12.0, 250.0 * 0.001 * sample_rate),
+            delay_r_sm: SmoothedValue::new(sample_rate, 12.0, 375.0 * 0.001 * sample_rate),
         };
         proc.update_filter();
         proc
@@ -118,13 +129,11 @@ impl DelayProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             // BUG-8 + BUG-033 FIX: Update logical buf_size (power-of-2) without resizing.
-            let required_size = ((sample_rate * MAX_DELAY_SECONDS) as usize + 1)
+            let required_size = ((sr * MAX_DELAY_SECONDS) as usize + 1)
                 .next_power_of_two()
                 .min(self.buf_capacity);
             self.buf_size = required_size;
@@ -132,6 +141,10 @@ impl DelayProcessor {
             self.update_filter();
             self.update_delay_l();
             self.update_delay_r();
+            self.feedback_sm.set_sample_rate(sr);
+            self.dry_wet_sm.set_sample_rate(sr);
+            self.delay_l_sm.set_sample_rate(sr);
+            self.delay_r_sm.set_sample_rate(sr);
         }
     }
 
@@ -154,14 +167,21 @@ impl DspProcessor for DelayProcessor {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let bs = self.buf_size;
-        let fb = self.feedback;
-        let wet = self.dry_wet;
-        let dry = 1.0 - wet;
         let fc = self.fb_filter_coeff;
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
         let mod_max = self.mod_depth * 20.0; // ±20 samples at full depth
 
+        // Keep smoother targets synced with latest parameter values.
+        self.feedback_sm.set_target(self.feedback);
+        self.dry_wet_sm.set_target(self.dry_wet);
+        self.delay_l_sm.set_target(self.delay_samples_l);
+        self.delay_r_sm.set_target(self.delay_samples_r);
+
         for i in 0..len {
+            let fb = self.feedback_sm.next();
+            let wet = self.dry_wet_sm.next();
+            let dry = 1.0 - wet;
+
             // LFO modulation (fast sine approximation)
             let phase = self.lfo_phase as f32;
             let (t, sign) = if phase < 0.5 {
@@ -177,8 +197,10 @@ impl DspProcessor for DelayProcessor {
             self.lfo_phase = self.lfo_phase.fract();
 
             let mod_offset = lfo * mod_max;
-            let dl = (self.delay_samples_l + mod_offset).clamp(1.0, (bs - 2) as f32);
-            let dr = (self.delay_samples_r - mod_offset * 0.7).clamp(1.0, (bs - 2) as f32);
+            let base_dl = self.delay_l_sm.next();
+            let base_dr = self.delay_r_sm.next();
+            let dl = (base_dl + mod_offset).clamp(1.0, (bs - 2) as f32);
+            let dr = (base_dr - mod_offset * 0.7).clamp(1.0, (bs - 2) as f32);
 
             // Read delayed signals
             let delayed_l = Self::read_interp(&self.buf_l, self.write_pos, dl, bs);
@@ -253,6 +275,8 @@ impl DspProcessor for DelayProcessor {
             }
             3 => {
                 self.dry_wet = (value / 100.0).clamp(0.0, 1.0);
+                // Keep deterministic bypass behavior when mix is automated to 0/100.
+                self.dry_wet_sm.set_instant(self.dry_wet);
             }
             4 => {
                 self.filter_freq = value.clamp(200.0, 15000.0);
@@ -282,6 +306,10 @@ impl DspProcessor for DelayProcessor {
         self.lfo_phase = 0.0;
         self.cross_fb_l = 0.0;
         self.cross_fb_r = 0.0;
+        self.feedback_sm.set_instant(self.feedback);
+        self.dry_wet_sm.set_instant(self.dry_wet);
+        self.delay_l_sm.set_instant(self.delay_samples_l);
+        self.delay_r_sm.set_instant(self.delay_samples_r);
     }
 }
 

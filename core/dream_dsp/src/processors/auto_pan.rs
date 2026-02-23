@@ -19,6 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
 
 pub struct AutoPanProcessor {
     rate_hz: f32,
@@ -75,11 +76,9 @@ impl AutoPanProcessor {
 impl DspProcessor for AutoPanProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
         }
         let len = left.len().min(right.len());
         if len == 0 {

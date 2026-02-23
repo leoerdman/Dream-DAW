@@ -26,6 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 pub struct AutoFilterProcessor {
     cutoff_hz: f32,
@@ -60,7 +61,7 @@ pub struct AutoFilterProcessor {
 
 impl AutoFilterProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         let env_coeff = (-1.0 / (20.0 * 0.001 * sample_rate)).exp();
         Self {
             cutoff_hz: 1000.0,
@@ -95,13 +96,11 @@ impl AutoFilterProcessor {
     /// Recalculates all SR-dependent coefficients when the rate changes.
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_env_coeff();
-            self.cutoff_smooth_coeff = (-1.0 / (0.003 * sample_rate)).exp();
+            self.cutoff_smooth_coeff = (-1.0 / (0.003 * sr)).exp();
         }
     }
 
@@ -302,7 +301,7 @@ impl DspProcessor for AutoFilterProcessor {
             7 => self.lfo_shape = (value as u8).min(5),
             8 => {
                 self.drive_db = value.clamp(0.0, 24.0);
-                self.drive_lin = 10.0_f32.powf(self.drive_db / 20.0);
+                self.drive_lin = db_to_linear(self.drive_db);
             }
             9 => {
                 self.env_speed_ms = value.clamp(1.0, 200.0);

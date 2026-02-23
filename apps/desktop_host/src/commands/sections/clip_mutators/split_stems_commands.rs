@@ -59,6 +59,8 @@ async fn split_track_to_stems_cmd(
     let cancel_flag = std::sync::Arc::clone(&job_cancel);
     let app_for_progress = app.clone();
     let job_id_for_progress = job_id.clone();
+    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
+    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
@@ -69,8 +71,8 @@ async fn split_track_to_stems_cmd(
                 &mut bounce_project,
                 &mut local_pool,
                 None,
-                &std::collections::HashMap::new(),
-                &[],
+                &plugin_registry_snapshot,
+                &external_fx_snapshot,
                 move |progress| {
                     let p = (progress * 45.0).clamp(0.0, 45.0);
                     let _ = set_job_progress(

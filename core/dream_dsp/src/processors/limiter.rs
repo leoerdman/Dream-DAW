@@ -22,6 +22,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 /// 1024 samples is a power of 2, allowing fast bitwise wrapping.
 const MAX_LOOKAHEAD: usize = 1024;
@@ -54,13 +55,13 @@ pub struct LimiterProcessor {
 
 impl LimiterProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             threshold_db: -0.3,
-            threshold_lin: 10.0_f32.powf(-0.3 / 20.0),
+            threshold_lin: db_to_linear(-0.3),
             release_ms: 100.0,
             ceiling_db: -0.1,
-            ceiling_lin: 10.0_f32.powf(-0.1 / 20.0),
+            ceiling_lin: db_to_linear(-0.1),
             lookahead_ms: 1.0,
             auto_release: true,
             stereo_link: 1.0,
@@ -92,11 +93,9 @@ impl LimiterProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_coefficients();
         }
     }
@@ -201,7 +200,7 @@ impl DspProcessor for LimiterProcessor {
         match index {
             0 => {
                 self.threshold_db = value.clamp(-30.0, 0.0);
-                self.threshold_lin = 10.0_f32.powf(self.threshold_db / 20.0);
+                self.threshold_lin = db_to_linear(self.threshold_db);
             }
             1 => {
                 self.release_ms = value.clamp(10.0, 1000.0);
@@ -209,7 +208,7 @@ impl DspProcessor for LimiterProcessor {
             }
             2 => {
                 self.ceiling_db = value.clamp(-6.0, 0.0);
-                self.ceiling_lin = 10.0_f32.powf(self.ceiling_db / 20.0);
+                self.ceiling_lin = db_to_linear(self.ceiling_db);
             }
             3 => {
                 self.lookahead_ms = value.clamp(0.1, 5.0);

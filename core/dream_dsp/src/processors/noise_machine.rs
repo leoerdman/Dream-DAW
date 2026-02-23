@@ -28,6 +28,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 /// xorshift64 PRNG — deterministic, fast, zero-alloc.
 struct Rng {
@@ -146,7 +147,7 @@ pub struct NoiseMachineProcessor {
 
 impl NoiseMachineProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         // BUG-012 FIX: DC blocker at ~5Hz for brown noise
         let brown_dc_coeff = (-std::f32::consts::TAU * 5.0 / sample_rate).exp();
         let mut proc = Self {
@@ -165,7 +166,7 @@ impl NoiseMachineProcessor {
             prev_blue_l: 0.0,
             prev_blue_r: 0.0,
             volume_db: -12.0,
-            volume_lin: 10.0_f32.powf(-12.0 / 20.0),
+            volume_lin: db_to_linear(-12.0),
             noise_type: 0,
             stereo: 1.0,
             lp_freq: 20000.0,
@@ -196,11 +197,9 @@ impl NoiseMachineProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_filters();
         }
     }
@@ -302,7 +301,7 @@ impl DspProcessor for NoiseMachineProcessor {
                 self.volume_lin = if self.volume_db <= -60.0 {
                     0.0
                 } else {
-                    10.0_f32.powf(self.volume_db / 20.0)
+                    db_to_linear(self.volume_db)
                 };
             }
             1 => self.noise_type = (value as u8).min(5),

@@ -189,6 +189,59 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
+    fn validate_external_vst_runtime_bindings(
+        project: &Project,
+        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+    ) -> Result<(), BounceError> {
+        let mut unresolved_tracks: Vec<String> = Vec::new();
+
+        for (track_idx, track) in project.tracks.iter().enumerate() {
+            if track.midi_clips.is_empty() {
+                continue;
+            }
+
+            let has_external_instrument_declared = track
+                .instrument
+                .as_ref()
+                .map(|node| {
+                    node.collect_plugin_slots().iter().any(|slot| {
+                        let pid = slot.plugin_id.as_str();
+                        !pid.starts_with("internal://") && !pid.starts_with("missing://")
+                    })
+                })
+                .unwrap_or(false);
+
+            if !has_external_instrument_declared {
+                continue;
+            }
+
+            let runtime_slots = external_fx_map
+                .get(track_idx)
+                .map(|slots| slots.as_slice())
+                .unwrap_or(&[]);
+
+            let has_runtime_external_slot = runtime_slots
+                .iter()
+                .any(|slot| slot.instance_id.is_some() && slot.internal_slot_index.is_none());
+
+            if !has_runtime_external_slot {
+                unresolved_tracks.push(format!(
+                    "track='{}' index={} id={}",
+                    track.name, track_idx, track.id
+                ));
+            }
+        }
+
+        if unresolved_tracks.is_empty() {
+            return Ok(());
+        }
+
+        Err(BounceError::RenderError(format!(
+            "External VST instrument runtime binding is incomplete: {}",
+            unresolved_tracks.join("; ")
+        )))
+    }
+
     /// Populates a DeviceChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
@@ -1302,6 +1355,10 @@ impl OfflineBouncer {
                 "Project is empty — no audio or MIDI clips to export.".to_string(),
             ));
         }
+
+        // Enterprise guard: never allow silent exports due to missing runtime
+        // VST instrument bindings. Validate once before rendering.
+        Self::validate_external_vst_runtime_bindings(project, external_fx_map)?;
 
         // ── Pre-render MIDI tracks ──────────────────────────────
         if total_midi_clips > 0 {

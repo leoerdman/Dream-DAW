@@ -62,6 +62,170 @@ pub trait DspProcessor: Send {
     fn reset(&mut self);
 }
 
+const MAX_SMOOTHED_PARAMS: usize = 64;
+const PARAM_SMOOTH_TIME_SEC: f32 = 0.010;
+
+struct SmoothedProcessor {
+    inner: Box<dyn DspProcessor>,
+    effect_type: BuiltinEffectType,
+    sample_rate: f32,
+    current: [f32; MAX_SMOOTHED_PARAMS],
+    target: [f32; MAX_SMOOTHED_PARAMS],
+    initialized: [bool; MAX_SMOOTHED_PARAMS],
+    active: [bool; MAX_SMOOTHED_PARAMS],
+}
+
+impl SmoothedProcessor {
+    fn new(
+        effect_type: BuiltinEffectType,
+        inner: Box<dyn DspProcessor>,
+        sample_rate: f32,
+    ) -> Self {
+        Self {
+            inner,
+            effect_type,
+            sample_rate,
+            current: [0.0; MAX_SMOOTHED_PARAMS],
+            target: [0.0; MAX_SMOOTHED_PARAMS],
+            initialized: [false; MAX_SMOOTHED_PARAMS],
+            active: [false; MAX_SMOOTHED_PARAMS],
+        }
+    }
+
+    #[inline]
+    fn should_smooth(&self, index: usize) -> bool {
+        !matches!(
+            (self.effect_type, index),
+            // EQ enable/type toggles
+            (BuiltinEffectType::Eq, 3 | 7 | 11 | 15 | 19 | 23 | 27 | 31)
+                | (BuiltinEffectType::Eq, 33..=40)
+                // Compressor toggles
+                | (BuiltinEffectType::Compressor, 8 | 9)
+                // Delay toggle
+                | (BuiltinEffectType::Delay, 5)
+                // Reverb toggle
+                | (BuiltinEffectType::Reverb, 8)
+                // Chorus voices (discrete)
+                | (BuiltinEffectType::Chorus, 4)
+                // Utility mono
+                | (BuiltinEffectType::Utility, 3)
+                // Saturator mode
+                | (BuiltinEffectType::Saturator, 3)
+                // Limiter auto-release
+                | (BuiltinEffectType::Limiter, 4)
+                // Gate duck mode
+                | (BuiltinEffectType::Gate, 7)
+                // AutoFilter type/shape
+                | (BuiltinEffectType::AutoFilter, 5 | 7)
+                // Phaser stages/shape
+                | (BuiltinEffectType::Phaser, 3 | 7)
+                // Flanger shape/TZ
+                | (BuiltinEffectType::Flanger, 6 | 8)
+                // Distortion mode/cab
+                | (BuiltinEffectType::Distortion, 3 | 5)
+                // Bitcrusher stereo mode
+                | (BuiltinEffectType::Bitcrusher, 6)
+                // Noise machine type
+                | (BuiltinEffectType::NoiseMachine, 1)
+                // Auto-pan shape
+                | (BuiltinEffectType::AutoPan, 3)
+                // Analyzer reset trigger
+                | (BuiltinEffectType::Analyzer, 0)
+        )
+    }
+
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite() && sample_rate > 1000.0 && (sample_rate - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sample_rate;
+        }
+    }
+
+    #[inline]
+    fn apply_smoothing(&mut self, block_len: usize) {
+        if block_len == 0 {
+            return;
+        }
+        let coeff = (-(block_len as f32) / (PARAM_SMOOTH_TIME_SEC * self.sample_rate.max(1.0))).exp();
+        let blend = 1.0 - coeff;
+
+        for i in 0..MAX_SMOOTHED_PARAMS {
+            if !self.active[i] {
+                continue;
+            }
+            let c = self.current[i];
+            let t = self.target[i];
+            let next = coeff * c + blend * t;
+            self.current[i] = next;
+            self.inner.set_param(i as u8, next);
+            if (next - t).abs() < 1.0e-6 {
+                self.current[i] = t;
+                self.active[i] = false;
+            }
+        }
+    }
+}
+
+impl DspProcessor for SmoothedProcessor {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
+        self.apply_smoothing(left.len().min(right.len()));
+        self.inner.process_stereo(left, right, sample_rate);
+    }
+
+    fn process_stereo_with_sidechain(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        sample_rate: f32,
+    ) {
+        self.sync_sample_rate(sample_rate);
+        self.apply_smoothing(left.len().min(right.len()));
+        self.inner.process_stereo_with_sidechain(
+            left,
+            right,
+            sidechain_left,
+            sidechain_right,
+            sample_rate,
+        );
+    }
+
+    fn set_param(&mut self, index: u8, value: f32) {
+        let idx = index as usize;
+        if idx >= MAX_SMOOTHED_PARAMS || !self.should_smooth(idx) {
+            self.inner.set_param(index, value);
+            if idx < MAX_SMOOTHED_PARAMS {
+                self.current[idx] = value;
+                self.target[idx] = value;
+                self.initialized[idx] = true;
+                self.active[idx] = false;
+            }
+            return;
+        }
+
+        if !self.initialized[idx] {
+            // First write preserves plugin default behavior and avoids startup ramps.
+            self.current[idx] = value;
+            self.target[idx] = value;
+            self.initialized[idx] = true;
+            self.active[idx] = false;
+            self.inner.set_param(index, value);
+            return;
+        }
+
+        self.target[idx] = value;
+        self.active[idx] = true;
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+        self.active.fill(false);
+        // Keep current/target so post-reset parameter continuity remains smooth.
+    }
+}
+
 /// Enumeration of built-in effect types.
 ///
 /// The `u8` discriminant is sent over the lock-free command queue
@@ -119,7 +283,7 @@ impl BuiltinEffectType {
     ///
     /// All processors are pre-allocated with maximum buffer sizes.
     pub fn create_processor(&self, sample_rate: f32) -> Box<dyn DspProcessor> {
-        match self {
+        let inner: Box<dyn DspProcessor> = match self {
             Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new(
                 sample_rate,
             )),
@@ -160,7 +324,8 @@ impl BuiltinEffectType {
             Self::Analyzer => Box::new(super::processors::analyzer::AnalyzerProcessor::new(
                 sample_rate,
             )),
-        }
+        };
+        Box::new(SmoothedProcessor::new(*self, inner, sample_rate))
     }
 }
 

@@ -252,6 +252,14 @@ export const DawShell = () => {
             }),
         [timelineClips, midiNotesByClip, clipFadeCurves],
     );
+    const selectedClipIdsForView = useMemo(() => {
+        const existingIds = new Set(timelineClips.map((clip) => clip.id));
+        return selectedClipIds.filter((id) => existingIds.has(id));
+    }, [selectedClipIds, timelineClips]);
+    const selectedClipIdForView = useMemo(
+        () => selectedClipIdsForView.length > 0 ? selectedClipIdsForView[selectedClipIdsForView.length - 1] : null,
+        [selectedClipIdsForView],
+    );
 
     useEffect(() => {
         if (tracksEntity.allIds.length === 0) {
@@ -278,7 +286,7 @@ export const DawShell = () => {
         tracksEntity,
         selectedTrackId,
         selectedTrackIds,
-        selectedClipId,
+        selectedClipId: selectedClipIdForView,
         timelineClipsForView,
         bottomPanelModeByTrack,
         setSelectedTrackId,
@@ -368,7 +376,7 @@ export const DawShell = () => {
 
     usePlaybackStartAnchor({
         transportIsPlaying,
-        selectedClipIds,
+        selectedClipIds: selectedClipIdsForView,
         timelineClipsForView,
         editCursorBeat,
         queuedStartBeatRef,
@@ -411,7 +419,7 @@ export const DawShell = () => {
         transportBpm: transportBpm || DEFAULT_BPM,
         projectSampleRate,
         timelineClipsForView,
-        selectedClipIds,
+        selectedClipIds: selectedClipIdsForView,
         trackCountRaw,
         createMidiClip,
         applyProjectDeltas,
@@ -453,7 +461,7 @@ export const DawShell = () => {
         onMarqueeSelectionStart: handleMarqueeSelectionStart,
         onMarqueeSelectionChange: setMarqueeSelection,
         onClipSelect: handleClipSelect,
-        selectedClipIds,
+        selectedClipIds: selectedClipIdsForView,
         onClipSelectionChange: handleTimelineClipSelectionChange,
         onClipMove: handleClipMove,
         onClipResize: handleClipResize,
@@ -542,7 +550,7 @@ export const DawShell = () => {
                 exportOpen={exportOpen}
                 onCloseExport={() => setExportOpen(false)}
                 projectName={projectFilePath ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
-                selectedClipIds={selectedClipIds}
+                selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
                 bpm={projectBpm || transportBpm || DEFAULT_BPM}
                 sampleRate={projectSampleRate}

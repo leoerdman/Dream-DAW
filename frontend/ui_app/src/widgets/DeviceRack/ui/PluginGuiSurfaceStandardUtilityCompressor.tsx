@@ -8,12 +8,12 @@ import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
     getParamValue,
-    hasMixParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
     readSurfaceParam,
+    shouldShowDryWet,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
@@ -36,7 +36,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const widthPct = Math.max(0, Math.min(1, width / 200));
         const hasUtilityCoreParams = device.params.some((p) => ['gain', 'pan', 'width', 'mono'].includes(p.name.toLowerCase()));
         const showCoreUtilityPanel = hasUtilityCoreParams && !isUtilityVariant;
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
@@ -190,7 +190,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
         const isGlueCompressor = normalizedInternalId === 'internal://effect/glue-compressor';
         const isMultibandDynamics = normalizedInternalId === 'internal://effect/multiband-dynamics';
         const compressorTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Compressor';
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const thrParam = readSurfaceParam(device, 'thr', -18, 'dB');
         const ratioParam = readSurfaceParam(device, 'ratio', 4, ':1');
         const thr = thrParam.value;

@@ -2,11 +2,10 @@
 // Dream DAW — Project File Serialization
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Handles saving/loading Dream DAW project files (.dream).
+// Handles saving/loading Dream DAW project files.
 //
-// Format: JSON with optional zstd compression.
-//   - .dream     → compressed JSON (production)
-//   - .dream.json → uncompressed JSON (debug/human-readable)
+// Canonical format: `.ddpj` JSON envelope.
+// Legacy `.dream.json` / `.json` is still accepted for backward compatibility.
 //
 // The Project struct from dream_models is the canonical serialization target.
 //
@@ -64,6 +63,14 @@ struct ProjectEnvelope {
 }
 
 impl ProjectFile {
+    fn strip_project_suffix(file_name: &str) -> &str {
+        file_name
+            .strip_suffix(".ddpj")
+            .or_else(|| file_name.strip_suffix(".dream.json"))
+            .or_else(|| file_name.strip_suffix(".json"))
+            .unwrap_or(file_name)
+    }
+
     /// Saves a project to a JSON file using atomic write.
     ///
     /// Strategy: write → fsync → backup → rename
@@ -72,7 +79,7 @@ impl ProjectFile {
     ///
     /// # Arguments
     /// - `project`: The project to save.
-    /// - `path`: Destination file path (typically `.dream.json`).
+    /// - `path`: Destination file path (typically `.ddpj`).
     pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), ProjectFileError> {
         let path = path.as_ref();
 
@@ -118,7 +125,7 @@ impl ProjectFile {
             // IO-9 FIX: trim_end_matches strips ALL trailing chars matching
             // any char in the pattern. Use strip_suffix for exact suffix removal.
             let base = file_name.to_str().unwrap_or("project");
-            let base = base.strip_suffix(".json").unwrap_or(base);
+            let base = Self::strip_project_suffix(base);
             let bak_name = format!("{}.bak", base);
             let bak_path = backup_dir.join(bak_name);
             if let Err(e) = fs::copy(path, &bak_path) {
@@ -153,7 +160,7 @@ impl ProjectFile {
     /// Loads a project from a JSON file.
     ///
     /// # Arguments
-    /// - `path`: Path to the project file (`.dream.json`).
+    /// - `path`: Path to the project file (`.ddpj`).
     pub fn load(path: impl AsRef<Path>) -> Result<Project, ProjectFileError> {
         let path = path.as_ref();
 
@@ -163,11 +170,7 @@ impl ProjectFile {
             let file_name = path.file_name().unwrap_or_default();
             let bak_name = format!(
                 "{}.bak",
-                file_name
-                    .to_str()
-                    .unwrap_or("project")
-                    .strip_suffix(".json")
-                    .unwrap_or(file_name.to_str().unwrap_or("project"))
+                Self::strip_project_suffix(file_name.to_str().unwrap_or("project"))
             );
             let backup_dir_bak = path.parent().map(|p| p.join("Backup").join(&bak_name));
             let legacy_bak = path.with_extension("bak");

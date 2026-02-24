@@ -12,12 +12,12 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
-    hasMixParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
     readSurfaceParam,
+    shouldShowDryWet,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
@@ -41,7 +41,7 @@ const panelWithOptionalDryWet = (showDryWet: boolean): React.CSSProperties => ({
 /* ═══════════════════════════════════════════════════════════════════════ */
 function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -0.3, 'dB');
     const ceilParam = readSurfaceParam(device, 'ceil', -0.1, 'dB');
@@ -105,7 +105,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 /* ═══════════════════════════════════════════════════════════════════════ */
 function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
     const rangeParam = readSurfaceParam(device, 'range', -80, 'dB');
@@ -168,7 +168,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
 /* ═══════════════════════════════════════════════════════════════════════ */
 function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const title = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Auto Filter';
@@ -246,7 +246,7 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
 /* ═══════════════════════════════════════════════════════════════════════ */
 function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 1, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');
@@ -315,7 +315,7 @@ function renderPhaserSurface(device: DeviceSlot, handlers: SurfaceHandlers): Rea
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 0.5, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 60, '%');
@@ -386,7 +386,7 @@ function renderFlangerSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
     const isPhaserFlanger = normalizedInternalId === 'internal://effect/phaser-flanger';
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const modRate = readSurfaceParam(device, 'rate', 0.3, 'Hz');
     const modDepth = readSurfaceParam(device, 'depth', 50, '%');

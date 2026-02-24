@@ -12,13 +12,13 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
-    hasMixParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
     readSurfaceParam,
     safeParamValue,
+    shouldShowDryWet,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
@@ -48,7 +48,7 @@ export function renderStandardDistNoiseSurface(
     /* DISTORTION / BITCRUSHER                                          */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'distortion' || device.effectType === 'bitcrusher') {
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const title = device.effectType === 'bitcrusher'
             ? 'Bitcrusher'

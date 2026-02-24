@@ -337,7 +337,7 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
     let mut builder = app.dialog().file()
-        .add_filter("Dream DAW Project", &["ddpj", "json"])
+        .add_filter("Dream DAW Project", &["ddpj"])
         .add_filter("Ableton Live Set", &["als"])
         .set_title("Open Project");
     if let Some(dir) = default_dir.as_ref() {

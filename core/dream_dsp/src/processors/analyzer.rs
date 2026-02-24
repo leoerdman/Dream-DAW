@@ -69,8 +69,10 @@ impl BiquadState {
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
-        self.y1 = y;
-        y
+        // BUG-C03 FIX: Flush denormals in K-weighting biquad feedback states.
+        // 4 biquads × 2 channels = 8 potential denormal stalls during silence.
+        self.y1 = if y.abs() > crate::processors::DENORMAL_THRESHOLD_F64 || y == 0.0 { y } else { 0.0 };
+        self.y1
     }
 
     fn reset(&mut self) {
@@ -129,9 +131,9 @@ fn k_weight_stage2(sr: f64) -> BiquadState {
 // ── Metering ring buffer ────────────────────────────────────────────────
 
 /// Ring buffer for LUFS gated mean-square accumulation.
-/// At 44100 Hz / 512 block → ~86 blocks/sec.
-/// 400ms momentary = ~35 blocks, 3s short-term = ~259 blocks.
-const RING_SIZE: usize = 512; // enough for 3s at high block rates
+/// BUG-M21 FIX: Increased from 512 to 2048 to support 3s short-term LUFS
+/// at 192kHz with 32-sample blocks (~6000 blocks/sec → 18000 blocks for 3s).
+const RING_SIZE: usize = 2048;
 
 struct MeanSquareRing {
     buf: [f64; RING_SIZE],
@@ -276,6 +278,8 @@ pub struct AnalyzerProcessor {
     // Peak hold with decay
     peak_hold_l: f64,
     peak_hold_r: f64,
+    /// BUG-C01 FIX: SR-dependent peak decay — previously was hardcoded 0.9995
+    /// which made peak meters show wildly different ballistics across SRs.
     peak_decay: f64,
     // Shared metering (read by UI)
     pub metering: Arc<AnalyzerMetering>,
@@ -285,6 +289,9 @@ impl AnalyzerProcessor {
     pub fn new(sample_rate: f32) -> Self {
         let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
         let sr = sample_rate as f64;
+        let bps = sr / 512.0;
+        // BUG-C01 FIX: ~200ms peak hold time, computed from blocks_per_second.
+        let peak_decay = (-1.0 / (0.2 * bps)).exp();
         Self {
             sample_rate: sr,
             kw_stage1_l: k_weight_stage1(sr),
@@ -292,16 +299,13 @@ impl AnalyzerProcessor {
             kw_stage2_l: k_weight_stage2(sr),
             kw_stage2_r: k_weight_stage2(sr),
             lufs_ring: MeanSquareRing::new(),
-            blocks_per_second: sr / 512.0, // approximate, updated per block
-            rms_sum_l: 0.0,
-            rms_sum_r: 0.0,
-            rms_count: 0,
-            rms_decay: (-1.0 / (0.3 * sr / 512.0)).exp(), // ~300ms time constant
+            blocks_per_second: bps,
+            rms_decay: (-1.0 / (0.3 * bps)).exp(), // ~300ms time constant
             rms_smoothed_l: 0.0,
             rms_smoothed_r: 0.0,
             peak_hold_l: 0.0,
             peak_hold_r: 0.0,
-            peak_decay: 0.9995, // slow decay for peak hold
+            peak_decay,
             metering: Arc::new(AnalyzerMetering::new()),
         }
     }
@@ -314,8 +318,7 @@ impl DspProcessor for AnalyzerProcessor {
             return;
         }
 
-        // Update sample rate if changed
-        let sr = crate::processors::sanitize_sample_rate(sample_rate) as f64;
+        // BUG-C01 FIX: Recalculate SR-dependent coefficients on SR change.
         if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.kw_stage1_l = k_weight_stage1(sr);
@@ -324,6 +327,7 @@ impl DspProcessor for AnalyzerProcessor {
             self.kw_stage2_r = k_weight_stage2(sr);
             self.blocks_per_second = sr / n.max(1) as f64;
             self.rms_decay = (-1.0 / (0.3 * self.blocks_per_second)).exp();
+            self.peak_decay = (-1.0 / (0.2 * self.blocks_per_second)).exp();
         }
         self.blocks_per_second = sr / n.max(1) as f64;
 

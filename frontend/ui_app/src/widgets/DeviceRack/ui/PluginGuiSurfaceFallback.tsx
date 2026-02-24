@@ -5,11 +5,11 @@ import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import {
     buildSurfaceKnobParams,
-    hasMixParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
+    shouldShowDryWet,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 interface PluginGuiSurfaceFallbackProps {
@@ -41,7 +41,7 @@ export function PluginGuiSurfaceFallback({
         'var(--token-color-hex-a4d9d3)',
     ] as const;
     const accent = palette[Math.abs(hash) % palette.length];
-    const showDryWet = hasMixParam(device);
+    const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const bars = Array.from({ length: 24 }, (_, i) => {
         const phase = (Math.abs(hash) % 17) * 0.12;

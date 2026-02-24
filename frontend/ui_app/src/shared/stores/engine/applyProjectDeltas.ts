@@ -1,8 +1,9 @@
 import { frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { adaptTrack, resolveTrackColor } from '@/shared/lib/trackAdapter';
 import type { Project } from '@bindings/Project';
-import { buildTrackStatePatch } from './storeHelpers';
+import { buildTrackStatePatch, toEntityState } from './storeHelpers';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
@@ -10,36 +11,10 @@ import type {
     DeltaApplyResult,
     DeltaApplyState,
     DeltaWorkingState,
-    EntityState,
     SnapshotProjectMeta,
 } from './delta/types';
 
 export type { DeltaApplyResult, DeltaApplyState } from './delta/types';
-
-function toEntityState<T extends { id: string }>(items: T[]): EntityState<T> {
-    return {
-        byId: Object.fromEntries(items.map((item) => [item.id, item])),
-        allIds: items.map((item) => item.id),
-    };
-}
-
-function sanitizeTimelineClips(clips: DeltaApplyState['timelineClips']): DeltaApplyState['timelineClips'] {
-    const byId = new Map<string, DeltaApplyState['timelineClips'][number]>();
-    for (const clip of clips) {
-        if (!clip || typeof clip.id !== 'string') continue;
-        const id = clip.id.trim();
-        if (!id) continue;
-        if (!Number.isFinite(clip.startBeat) || !Number.isFinite(clip.durationBeats)) continue;
-        const normalized = {
-            ...clip,
-            id,
-            trackIndex: Number.isFinite(clip.trackIndex) ? Math.max(0, Math.trunc(clip.trackIndex)) : 0,
-            durationBeats: Math.max(0.0001, clip.durationBeats),
-        };
-        byId.set(id, normalized);
-    }
-    return Array.from(byId.values());
-}
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
     if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
@@ -197,7 +172,7 @@ export function applyProjectDeltasToState(
                 snapshotTrackIds,
                 snapshotTracksById,
             );
-            const sanitizedTimelineClips = sanitizeTimelineClips(timelineClips);
+            const sanitizedTimelineClips = normalizeTimelineClips(timelineClips);
 
             return {
                 nextState: {
@@ -247,7 +222,7 @@ export function applyProjectDeltasToState(
     if (!working.changed) {
         return { nextState: null, snapshotMeta: null };
     }
-    const sanitizedTimelineClips = sanitizeTimelineClips(working.timelineClips);
+    const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips);
     const nextTrackState = buildTrackStatePatch(
         working.projectTracks.map((track) => track.id),
         working.tracksById,

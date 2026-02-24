@@ -40,9 +40,13 @@ impl SmoothedValue {
         self.set_sample_rate(sample_rate);
     }
 
+    /// Sets the target value for smoothing.
+    /// BUG-M05 FIX: Rejects NaN/Inf to prevent permanent output poisoning.
     #[inline]
     pub fn set_target(&mut self, target: f32) {
-        self.target = target;
+        if target.is_finite() {
+            self.target = target;
+        }
     }
 
     #[inline]
@@ -51,11 +55,18 @@ impl SmoothedValue {
         self.target = value;
     }
 
+    /// Advances the smoother by one sample and returns the current value.
+    /// BUG-H17 FIX: Convergence threshold 1e-12 → 1e-6 to avoid thousands
+    /// of wasted multiply-adds that produce no audible change.
     #[inline(always)]
     pub fn next(&mut self) -> f32 {
         self.current = self.coeff * self.current + (1.0 - self.coeff) * self.target;
-        if (self.current - self.target).abs() < 1.0e-12 {
+        if (self.current - self.target).abs() < 1.0e-6 {
             self.current = self.target;
+        }
+        // Denormal flush — prevents CPU stall when smoother value is near zero.
+        if self.current.abs() < 1.0e-20 && self.target.abs() < 1.0e-20 {
+            self.current = 0.0;
         }
         self.current
     }

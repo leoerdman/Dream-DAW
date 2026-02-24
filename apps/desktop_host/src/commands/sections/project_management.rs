@@ -63,6 +63,32 @@ fn new_project(
     })
 }
 
+fn canonical_project_path(path: &std::path::Path, project_name: &str) -> std::path::PathBuf {
+    let canonical_name = if project_name.trim().is_empty() {
+        "Untitled Project"
+    } else {
+        project_name.trim()
+    };
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ddpj"))
+    {
+        return path.to_path_buf();
+    }
+    let is_legacy_json = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".dream.json") || name.ends_with(".json"));
+    if is_legacy_json {
+        return path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(format!("{canonical_name}.ddpj"));
+    }
+    path.to_path_buf()
+}
+
 /// Saves the current project to its existing path (or fails if unsaved).
 #[tauri::command]
 async fn save_project(
@@ -96,7 +122,8 @@ async fn save_project(
             }
         }
 
-        (snapshot.clone(), path, snapshot.name.clone())
+        let canonical_path = canonical_project_path(&path, &snapshot.name);
+        (snapshot.clone(), canonical_path, snapshot.name.clone())
     };
 
     let save_path = path.clone();
@@ -109,6 +136,9 @@ async fn save_project(
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         project.name = project_name.clone();
     }
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|e| e.to_string())? =
+        path.parent().map(|p| p.to_path_buf());
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     project_state.record_history("save", format!("saved to {}", path.display()))?;
@@ -537,13 +567,20 @@ async fn auto_save_if_dirty(
     }
 
     // ── Gate 2: Check file path exists (skip unsaved/new projects) ──
-    let path = {
+    let raw_path = {
         let fp = project_state.file_path.lock().map_err(|e| e.to_string())?;
         match fp.as_ref() {
             Some(p) => p.clone(),
             None => return Ok(serde_json::json!({ "saved": false, "reason": "no_path" })),
         }
     };
+    let project_name = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .name
+        .clone();
+    let path = canonical_project_path(&raw_path, &project_name);
 
     // ── Gate 3: Capture plugin states + serialize ──
     let snapshot = {
@@ -564,6 +601,9 @@ async fn auto_save_if_dirty(
         .map_err(|e| e.to_string())?;
 
     // ── Gate 5: Clear dirty flag ──
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(path.clone());
+    *project_state.project_folder.lock().map_err(|e| e.to_string())? =
+        path.parent().map(|p| p.to_path_buf());
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     project_state.record_history("auto_save", format!("auto-saved to {}", path.display()))?;
 

@@ -131,13 +131,6 @@ export function hasMixParam(device: DeviceSlot): boolean {
     return hasSurfaceParam(device, MIX_PARAM_ALIASES);
 }
 
-export function panelParams(device: DeviceSlot, includeMixKnob = true): DeviceSlot['params'] {
-    if (includeMixKnob || !hasMixParam(device)) return device.params;
-    return device.params.filter(
-        (p) => !MIX_PARAM_ALIASES.includes(p.name.toLowerCase() as (typeof MIX_PARAM_ALIASES)[number]),
-    );
-}
-
 export function readMixSurfaceParam(device: DeviceSlot, fallback: number): SurfaceParamRead {
     return readSurfaceParam(device, MIX_PARAM_ALIASES, fallback, '%');
 }
@@ -146,13 +139,8 @@ export function resolveMixParam(device: DeviceSlot): DeviceSlot['params'][number
     return resolveSurfaceParam(device, MIX_PARAM_ALIASES);
 }
 
-/**
- * Filter out mix/dry-wet params from the array so they don't appear
- * as a duplicate knob when DryWetKnob is already rendering them.
- */
-export function filterMixParams(params: DeviceSlot['params']): DeviceSlot['params'] {
-    const mixSet = new Set(MIX_PARAM_ALIASES.map((a) => a.toLowerCase()));
-    return params.filter((p) => !mixSet.has(p.name.toLowerCase()));
+export function shouldShowDryWet(device: DeviceSlot): boolean {
+    return resolveMixParam(device) != null;
 }
 
 type SurfaceParamFilterOptions = {
@@ -210,20 +198,21 @@ export function buildSurfaceKnobParams(
     options: SurfaceParamFilterOptions = {},
 ): DeviceSlot['params'] {
     const { omitMixWhenDryWet = false } = options;
+    const isInternal = device.source === 'internal';
     const normalizedInternalId = normalizeInternalPluginId(
         device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase(),
     );
-    if (HIDE_ALL_PARAMS_INTERNAL_IDS.has(normalizedInternalId)) {
+    if (isInternal && HIDE_ALL_PARAMS_INTERNAL_IDS.has(normalizedInternalId)) {
         return [];
     }
     const allowedParamsForEffect = EFFECT_PARAM_WHITELIST[device.effectType];
-    const useEffectWhitelist = device.source === 'internal' && !!allowedParamsForEffect && allowedParamsForEffect.size > 0;
+    const useEffectWhitelist = isInternal && !!allowedParamsForEffect && allowedParamsForEffect.size > 0;
     const bySemantic = new Map<string, DeviceSlot['params'][number]>();
     for (const param of device.params) {
         const normalized = param.name.toLowerCase().trim();
         if (!normalized) continue;
         if (normalized.startsWith('_')) continue;
-        if (HIDDEN_SURFACE_PARAM_NAMES.has(normalized)) continue;
+        if (isInternal && HIDDEN_SURFACE_PARAM_NAMES.has(normalized)) continue;
         if (useEffectWhitelist && !allowedParamsForEffect?.has(normalized)) continue;
         if (
             omitMixWhenDryWet &&

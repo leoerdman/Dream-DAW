@@ -12,12 +12,12 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
     buildSurfaceKnobParams,
     formatSurfaceParam,
-    hasMixParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     readMixSurfaceParam,
     readSurfaceParam,
+    shouldShowDryWet,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
@@ -45,7 +45,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     /* DELAY                                                           */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'delay') {
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const delayTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Delay';
         const isBeatRepeat = delayTitle === 'Beat Repeat';
@@ -148,7 +148,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     /* REVERB — Enhanced: decay tail waveform + diffusion circles       */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'reverb') {
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const reverbTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Reverb';
         const isHybridReverb = normalizedInternalId === 'internal://effect/hybrid-reverb';
@@ -275,7 +275,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     /* CHORUS                                                           */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'chorus') {
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const rate = readSurfaceParam(device, 'rate', 1.2, 'Hz');
         const depth = readSurfaceParam(device, 'depth', 40, '%');
@@ -324,7 +324,7 @@ export function renderStandardTimeSurface(device: DeviceSlot, handlers: SurfaceH
     /* SATURATOR                                                        */
     /* ═════════════════════════════════════════════════════════════════ */
     if (device.effectType === 'saturator') {
-        const showDryWet = hasMixParam(device);
+        const showDryWet = shouldShowDryWet(device);
         const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
         const satTitle = PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Saturator';
         const isDrumBuss = normalizedInternalId === 'internal://effect/drum-buss';

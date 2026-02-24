@@ -23,6 +23,7 @@ import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames } from './audioMath';
+import { normalizeTimelineClips } from './clipNormalization';
 import {
     CLIP_DRAG_START_THRESHOLD_PX,
     CLIP_HEADER_HEIGHT_PX,
@@ -256,7 +257,8 @@ export class TimelineEngine {
 
     setClips(clips: TimelineClipData[]): void {
         const prevClips = this._clips;
-        this._clips = clips.map((clip) => {
+        const normalizedInput = normalizeTimelineClips(clips);
+        this._clips = normalizedInput.map((clip) => {
             const flags = this._fadeCurvePoints[clip.id];
             return {
                 ...clip,
@@ -268,9 +270,29 @@ export class TimelineEngine {
 
         // Bug #80: prune _fadeCurvePoints for clips that no longer exist to avoid
         // unbounded memory growth on long sessions with many clip create/delete cycles.
-        const currentIds = new Set(clips.map((c) => c.id));
+        const currentIds = new Set(normalizedInput.map((c) => c.id));
         for (const id of Object.keys(this._fadeCurvePoints)) {
             if (!currentIds.has(id)) delete this._fadeCurvePoints[id];
+        }
+        if (this._hoverClipId && !currentIds.has(this._hoverClipId)) {
+            this._hoverClipId = null;
+        }
+        if (this._trimPreview && !currentIds.has(this._trimPreview.clipId)) {
+            this._trimPreview = null;
+        }
+        if (this._drag.clipId && !currentIds.has(this._drag.clipId)) {
+            this._drag = {
+                mode: DragMode.None,
+                clipId: null,
+                startBeat: 0,
+                startTrack: 0,
+                currentBeat: 0,
+                currentTrack: 0,
+                clipOriginalBeat: 0,
+                clipOriginalTrack: 0,
+                clipOriginalDuration: 0,
+            };
+            this._trimPreview = null;
         }
 
         const structureChanged = this._didClipStructureChange(prevClips, this._clips);

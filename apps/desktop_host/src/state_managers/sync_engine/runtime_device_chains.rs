@@ -609,16 +609,26 @@ pub fn rebuild_runtime_device_chains_from_project(
         }
     }
 
+    struct TrackFxEntry {
+        plugin_id: String,
+        bypassed: bool,
+        params: Option<Vec<f32>>,
+    }
+
     fn collect_runtime_internal_effects(
         nodes: &[DeviceNode],
         parent_bypassed: bool,
-        out: &mut Vec<(String, bool)>,
+        out: &mut Vec<TrackFxEntry>,
     ) {
         for node in nodes {
             match node {
                 DeviceNode::Single(slot) => {
                     if slot.plugin_id.starts_with("internal://") {
-                        out.push((slot.plugin_id.clone(), parent_bypassed || slot.is_bypassed));
+                        out.push(TrackFxEntry {
+                            plugin_id: slot.plugin_id.clone(),
+                            bypassed: parent_bypassed || slot.is_bypassed,
+                            params: slot.params.clone(),
+                        });
                     }
                 }
                 DeviceNode::Rack(rack) => {
@@ -645,7 +655,7 @@ pub fn rebuild_runtime_device_chains_from_project(
     }
 
     for (track_index, track) in project.tracks.iter().enumerate() {
-        let mut internal_effects: Vec<(String, bool)> = Vec::new();
+        let mut internal_effects: Vec<TrackFxEntry> = Vec::new();
         collect_runtime_internal_effects(&track.effects, false, &mut internal_effects);
         if internal_effects.len() > MAX_DEVICE_SLOTS as usize {
             log::warn!(
@@ -655,37 +665,78 @@ pub fn rebuild_runtime_device_chains_from_project(
                 MAX_DEVICE_SLOTS
             );
         }
-        for (slot_index, (plugin_id, bypassed)) in internal_effects
+        for (slot_index, entry) in internal_effects
             .into_iter()
             .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
-            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&plugin_id) {
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&entry.plugin_id) {
+                let ti = track_index as u16;
+                let si = slot_index.min(u8::MAX as usize) as u8;
                 push_command(
                     handle,
                     EngineCommand::AddDevice {
-                        track_index: track_index as u16,
-                        slot_index: slot_index.min(u8::MAX as usize) as u8,
+                        track_index: ti,
+                        slot_index: si,
                         effect_type,
                     },
                 )?;
-                if bypassed {
+                if entry.bypassed {
                     push_command(
                         handle,
                         EngineCommand::BypassDevice {
-                            track_index: track_index as u16,
-                            slot_index: slot_index.min(u8::MAX as usize) as u8,
+                            track_index: ti,
+                            slot_index: si,
                             bypassed: true,
                         },
                     )?;
                 }
+                // SSOT FIX: Restore persisted params from project file.
+                // Previously only master track effects had their saved params
+                // restored; regular track effects lost knob positions on reload.
+                if let Some(ref params) = entry.params {
+                    for (param_idx, &value) in params.iter().enumerate() {
+                        if value != 0.0 || param_idx < 33 {
+                            push_command(
+                                handle,
+                                EngineCommand::SetDeviceParam {
+                                    track_index: ti,
+                                    slot_index: si,
+                                    param_index: param_idx.min(u8::MAX as usize) as u8,
+                                    value,
+                                },
+                            )?;
+                        }
+                    }
+                }
                 apply_static_imported_params_for_slot(
                     handle,
-                    track_index as u16,
-                    slot_index.min(u8::MAX as usize) as u8,
-                    &plugin_id,
+                    ti,
+                    si,
+                    &entry.plugin_id,
                     track,
                 )?;
+            }
+        }
+
+        // SSOT FIX: Restore instrument bypass state on project load.
+        // Previously only effect bypass was sent to the engine; bypassed
+        // instruments would resume producing audio after save/load.
+        if let Some(instrument) = &track.instrument {
+            let inst_bypassed = instrument.is_bypassed();
+            if inst_bypassed {
+                push_command(
+                    handle,
+                    EngineCommand::BypassInstrument {
+                        track_index: track_index as u16,
+                        bypassed: true,
+                    },
+                )?;
+                log::debug!(
+                    "[RuntimeChain] restored instrument bypass for track '{}' (index={})",
+                    track.name,
+                    track_index
+                );
             }
         }
     }

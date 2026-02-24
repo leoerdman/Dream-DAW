@@ -6,7 +6,7 @@
 // the original Swift `ProjectFileManager.swift` (469 LOC):
 //
 //   ProjectName/
-//     ├── ProjectName.dream.json        ← JSON-encoded project data
+//     ├── ProjectName.ddpj             ← project data (single canonical file)
 //     ├── Samples/
 //     │   ├── Imported/                 ← audio files copied on import
 //     │   └── Recorded/                ← audio from recording
@@ -89,9 +89,9 @@ impl ProjectManager {
 
     /// Returns the canonical project file path within a project folder.
     ///
-    /// Format: `{folder}/{project_name}.dream.json`
+    /// Format: `{folder}/{project_name}.ddpj`
     pub fn project_file_path(folder: &Path, name: &str) -> PathBuf {
-        folder.join(format!("{}.dream.json", name))
+        folder.join(format!("{}.ddpj", name))
     }
 
     // ── Save Operations ───────────────────────────────────────────────
@@ -144,7 +144,7 @@ impl ProjectManager {
 
     /// Creates a timestamped backup of the project in the `Backup/` directory.
     ///
-    /// Backup filename format: `{name}_backup_{YYYY-MM-DD_HH-MM-SS}.dream.json`
+    /// Backup filename format: `{name}_backup_{YYYY-MM-DD_HH-MM-SS}.ddpj`
     ///
     /// Returns the path to the backup file, or `None` if no folder is set.
     pub fn create_backup(project: &Project, folder: &Path) -> Result<PathBuf, ProjectFileError> {
@@ -170,10 +170,10 @@ impl ProjectManager {
             .subsec_millis();
 
         let base_name = format!("{}_backup_{}_{}", project_name, timestamp, millis);
-        let mut candidate = backup_dir.join(format!("{}.dream.json", base_name));
+        let mut candidate = backup_dir.join(format!("{}.ddpj", base_name));
         let mut suffix = 1usize;
         while candidate.exists() {
-            candidate = backup_dir.join(format!("{}_{}.dream.json", base_name, suffix));
+            candidate = backup_dir.join(format!("{}_{}.ddpj", base_name, suffix));
             suffix += 1;
         }
 
@@ -185,7 +185,12 @@ impl ProjectManager {
         let mut entries: Vec<PathBuf> = fs::read_dir(backup_dir)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .filter(|path| {
+                matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("ddpj" | "json")
+                )
+            })
             .collect();
 
         // Sort by modification time (newest first)
@@ -331,7 +336,8 @@ impl ProjectManager {
     /// Determines if a directory is a Dream DAW project directory.
     ///
     /// A directory is considered a project directory if it contains:
-    /// - Any `.dream.json` file, OR
+    /// - Any `.ddpj` file, OR
+    /// - Any legacy `.dream.json` file, OR
     /// - A `Samples/` subdirectory
     pub fn is_project_directory(path: &Path) -> bool {
         if !path.is_dir() {
@@ -344,12 +350,12 @@ impl ProjectManager {
             return true;
         }
 
-        // Check for any .dream.json file
+        // Check for canonical .ddpj or legacy .dream.json project file
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 if let Some(name_str) = name.to_str()
-                    && name_str.ends_with(".dream.json")
+                    && (name_str.ends_with(".ddpj") || name_str.ends_with(".dream.json"))
                 {
                     return true;
                 }
@@ -382,7 +388,12 @@ impl ProjectManager {
             .flatten()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .filter(|path| {
+                matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("ddpj" | "json")
+                )
+            })
             .collect();
 
         entries.sort_by(|a, b| {
@@ -517,7 +528,7 @@ mod tests {
         assert!(file_path.exists());
         assert_eq!(
             file_path.file_name().unwrap().to_str().unwrap(),
-            "My Song.dream.json"
+            "My Song.ddpj"
         );
 
         let loaded = ProjectFile::load(&file_path).unwrap();

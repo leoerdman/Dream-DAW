@@ -43,9 +43,13 @@ export function useKeyboardInteractions({
 
     const moveSelection = useCallback((delta: number) => {
         if (items.length === 0) return;
+        // BUG-20 FIX: use functional approach for stable index
         const currentIndex = selectedItemId ? items.findIndex((it) => it.id === selectedItemId) : -1;
         const fallbackIndex = delta >= 0 ? 0 : items.length - 1;
-        const rawNextIndex = currentIndex < 0 ? fallbackIndex : currentIndex + delta;
+        let rawNextIndex: number;
+        if (delta === -Infinity) rawNextIndex = 0; // Home
+        else if (delta === Infinity) rawNextIndex = items.length - 1; // End
+        else rawNextIndex = currentIndex < 0 ? fallbackIndex : currentIndex + delta;
         const nextIndex = Math.max(0, Math.min(items.length - 1, rawNextIndex));
         const next = items[nextIndex];
         if (!next) return;
@@ -81,6 +85,12 @@ export function useKeyboardInteractions({
         }
         if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1); focusResults(); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1); focusResults(); return; }
+        // BUG-71 FIX: Home/End keys
+        if (e.key === 'Home') { e.preventDefault(); moveSelection(-Infinity); focusResults(); return; }
+        if (e.key === 'End') { e.preventDefault(); moveSelection(Infinity); focusResults(); return; }
+        // BUG-72 FIX: PageUp/PageDown (10 items per page)
+        if (e.key === 'PageDown') { e.preventDefault(); moveSelection(10); focusResults(); return; }
+        if (e.key === 'PageUp') { e.preventDefault(); moveSelection(-10); focusResults(); return; }
         if (selectedCategoryId === 'plugins' && activeEl !== searchRef.current && !e.metaKey && !e.ctrlKey && !e.altKey) {
             const upper = e.key.toUpperCase();
             const target = e.key === '#' ? '#' : (/^[A-Z]$/.test(upper) ? upper : null);

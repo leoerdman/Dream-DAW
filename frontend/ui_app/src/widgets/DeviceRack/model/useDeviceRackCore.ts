@@ -31,6 +31,7 @@ type SelectedTrackModel = {
     name?: string;
     track_type: string;
     automation_lanes?: AutomationLane[];
+    sampler?: { sample_path?: string } | null;
     sample_rack?: SampleRackConfig;
     instrument?: DeviceNodeModel | null;
     effects?: DeviceNodeModel[];
@@ -231,14 +232,27 @@ export function useDeviceRackCore(selectedTrackId: string) {
             const sidechainSourceTrackId = node.sidechain_source_track_id ?? null;
             const supportsSidechain = node.supports_sidechain_input ?? false;
 
-            let waveformIndex: number | undefined;
-            if (effectType === 'sampler' || node.type === 'SampleRack') {
-                const samplePath = (() => {
+            const samplePath = (() => {
+                if (node.type === 'SampleRack') {
                     const rack = node.sampleRackConfig;
-                    if (rack && Array.isArray(rack.pads) && rack.pads.length > 0) return rack.pads[0]?.sample_path ?? '';
-                    const inst = selectedTrack?.instrument;
-                    return inst?.sampler_config?.sample_path ?? '';
-                })();
+                    if (rack && Array.isArray(rack.pads) && rack.pads.length > 0) {
+                        return (rack.pads[0]?.sample_path ?? '').trim();
+                    }
+                    return '';
+                }
+                if (effectType === 'sampler') {
+                    return (
+                        selectedTrack?.sampler?.sample_path
+                        ?? node.sampler_config?.sample_path
+                        ?? selectedTrack?.instrument?.sampler_config?.sample_path
+                        ?? ''
+                    ).trim();
+                }
+                return '';
+            })();
+
+            let waveformIndex: number | undefined;
+            if (samplePath) {
                 waveformIndex = waveformIndexFromSamplePath(samplePath);
             }
 
@@ -259,6 +273,7 @@ export function useDeviceRackCore(selectedTrackId: string) {
                 sidechainSourceTrackId,
                 supportsSidechain,
                 waveformIndex,
+                samplePath,
                 sampleRackConfig: node.sampleRackConfig,
             };
         }).filter((s): s is DeviceSlot => s !== null);

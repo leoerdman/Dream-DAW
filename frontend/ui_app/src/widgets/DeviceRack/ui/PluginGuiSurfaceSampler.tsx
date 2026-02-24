@@ -2,6 +2,7 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import { buildSurfaceKnobParams } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 interface PluginGuiSurfaceSamplerProps {
     device: DeviceSlot;
@@ -22,12 +23,22 @@ export function PluginGuiSurfaceSampler({
     onDropSample,
     onLoadSample,
 }: PluginGuiSurfaceSamplerProps) {
-    const otherSamplerParams = device.params;
+    const otherSamplerParams = buildSurfaceKnobParams(device);
     const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
+    const handleDropFromBrowser = () => {
+        const dragging = useDragStore.getState().draggingItem;
+        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+        if (dragging?.path && acceptance.allowed) {
+            onDropSample?.(dragging.path);
+            useDragStore.getState().endDrag();
+        }
+    };
 
     return (
         <div
             data-no-drag
+            onMouseUpCapture={handleDropFromBrowser}
+            onMouseUp={handleDropFromBrowser}
             style={{
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',
@@ -44,14 +55,6 @@ export function PluginGuiSurfaceSampler({
                     position: 'relative',
                     overflow: 'hidden',
                     borderBottom: 'var(--space-px) solid var(--token-color-rgba-90-178-255-0d22)',
-                }}
-                onMouseUp={() => {
-                    const dragging = useDragStore.getState().draggingItem;
-                    const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
-                    if (dragging?.path && acceptance.allowed) {
-                        onDropSample?.(dragging.path);
-                        useDragStore.getState().endDrag();
-                    }
                 }}
             >
                 <div
@@ -90,15 +93,7 @@ export function PluginGuiSurfaceSampler({
                             <path d={samplerWaveformPath} fill={`url(#samplerWaveFill-${device.id})`} />
                             <path d={samplerWaveformPath} fill="none" stroke="var(--token-color-rgba-255-214-110-0d85)" strokeWidth="1" />
                         </>
-                    ) : (
-                        <path
-                            d="M 0 46 C 30 14, 60 78, 90 46 C 120 14, 150 78, 180 46 C 210 14, 240 78, 270 46 C 300 14, 330 78, 360 46 C 390 14, 420 78, 450 46 C 480 14, 510 78, 540 46 C 570 18, 600 74, 630 46 C 660 24, 690 68, 720 46 C 750 30, 780 62, 810 46 C 840 36, 870 56, 900 46 C 930 42, 960 50, 1000 46"
-                            fill="none"
-                            stroke="var(--token-color-hex-ffbf3c)"
-                            strokeWidth="2.4"
-                            strokeLinecap="round"
-                        />
-                    )}
+                    ) : null}
                 </svg>
                 <div
                     style={{

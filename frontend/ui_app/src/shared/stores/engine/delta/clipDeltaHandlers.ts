@@ -4,8 +4,42 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { DeltaEnv, DeltaWorkingState } from './types';
 import { getTrackByIndex } from './trackStateOps';
 
+function isValidClipId(id: unknown): id is string {
+    return typeof id === 'string' && id.trim().length > 0;
+}
+
+function syncClipMapFromTimeline(state: DeltaWorkingState): void {
+    const next: Record<string, TimelineClip> = {};
+    for (const clip of state.timelineClips) {
+        if (!isValidClipId(clip.id)) continue;
+        next[clip.id] = clip;
+    }
+    state.clipsById = next;
+}
+
+function upsertClip(state: DeltaWorkingState, clip: TimelineClip): void {
+    if (!isValidClipId(clip.id)) return;
+    const exists = state.timelineClips.some((c) => c.id === clip.id);
+    state.timelineClips = exists
+        ? state.timelineClips.map((c) => (c.id === clip.id ? clip : c))
+        : [...state.timelineClips, clip];
+    state.clipsById = { ...state.clipsById, [clip.id]: clip };
+}
+
+function resolveClip(state: DeltaWorkingState, clipId: string): TimelineClip | null {
+    if (!isValidClipId(clipId)) return null;
+    const fromMap = state.clipsById[clipId];
+    if (fromMap) return fromMap;
+    const fromTimeline = state.timelineClips.find((c) => c.id === clipId) ?? null;
+    if (fromTimeline) {
+        state.clipsById = { ...state.clipsById, [clipId]: fromTimeline };
+    }
+    return fromTimeline;
+}
+
 export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
     if (delta.kind === 'ClipAdded') {
+        if (!isValidClipId(delta.data.clip_id)) return true;
         const track = getTrackByIndex(state, delta.data.track_index);
         const nextClip: TimelineClip = {
             id: delta.data.clip_id,
@@ -21,24 +55,22 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             muted: false,
             midiNotes: delta.data.clip_type === 'midi' ? [] : undefined,
         };
-        state.timelineClips = [...state.timelineClips, nextClip];
-        state.clipsById = { ...state.clipsById, [nextClip.id]: nextClip };
+        upsertClip(state, nextClip);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipMoved') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = { ...clip, trackIndex: delta.data.new_track_index, startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate) };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipResized') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
@@ -46,28 +78,28 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationBeats: frameToBeat(delta.data.new_duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.new_duration,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipDuplicated') {
-        const sourceClip = state.clipsById[delta.data.source_clip_id];
+        if (!isValidClipId(delta.data.new_clip_id)) return true;
+        const sourceClip = resolveClip(state, delta.data.source_clip_id);
         if (!sourceClip) return true;
         const nextClip: TimelineClip = {
             ...sourceClip,
             id: delta.data.new_clip_id,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
         };
-        state.timelineClips = [...state.timelineClips, nextClip];
-        state.clipsById = { ...state.clipsById, [nextClip.id]: nextClip };
+        upsertClip(state, nextClip);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipSplit') {
-        const clip = state.clipsById[delta.data.original_clip_id];
+        if (!isValidClipId(delta.data.right_id)) return true;
+        const clip = resolveClip(state, delta.data.original_clip_id);
         if (!clip) return true;
         const splitBeat = frameToBeat(delta.data.split_frame, env.bpm, env.sampleRate);
         const clipEnd = clip.startBeat + clip.durationBeats;
@@ -94,14 +126,17 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats > splitOffsetBeats + 1e-9).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
                 : clip.midiNotes,
         };
-        state.timelineClips = [...state.timelineClips.map((c) => (c.id === leftClip.id ? leftClip : c)), rightClip];
-        state.clipsById = { ...state.clipsById, [leftClip.id]: leftClip, [rightClip.id]: rightClip };
+        upsertClip(state, leftClip);
+        upsertClip(state, rightClip);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipsMerged') {
-        const sourceClips = delta.data.source_clip_ids.map((id: string) => state.clipsById[id]).filter((c): c is TimelineClip => Boolean(c));
+        if (!isValidClipId(delta.data.new_clip_id)) return true;
+        const sourceClips = delta.data.source_clip_ids
+            .map((id: string) => resolveClip(state, id))
+            .filter((c): c is TimelineClip => Boolean(c));
         if (sourceClips.length === 0) return true;
         const representative = sourceClips[0];
         const mergedStart = Math.min(...sourceClips.map((c) => c.startBeat));
@@ -122,11 +157,8 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 ? sourceClips.flatMap((c) => (c.midiNotes ?? []).map((n) => ({ ...n, startBeat: c.startBeat - mergedStart + n.startBeat })))
                 : representative.midiNotes,
         };
-        const nextClipsById: Record<string, TimelineClip> = { ...state.clipsById };
-        for (const id of sourceSet) delete nextClipsById[id];
-        nextClipsById[mergedClip.id] = mergedClip;
         state.timelineClips = [...state.timelineClips.filter((c) => !sourceSet.has(c.id)), mergedClip];
-        state.clipsById = nextClipsById;
+        syncClipMapFromTimeline(state);
         state.changed = true;
         return true;
     }
@@ -141,17 +173,16 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     }
 
     if (delta.kind === 'ClipMuteChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = { ...clip, muted: delta.data.muted };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'MidiClipNotesReplaced') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip || clip.type !== 'midi') return true;
         const next = {
             ...clip,
@@ -162,38 +193,35 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
                 durationBeats: n.duration_beats,
             })),
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipSourceOffsetChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = { ...clip, sourceOffset: delta.data.source_offset };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipFadesChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
             fadeIn: delta.data.fade_in_frames,
             fadeOut: delta.data.fade_out_frames,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipWarpChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
@@ -201,48 +229,44 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             warpMode: delta.data.warp_mode,
             warpBaseBpm: delta.data.warp_base_bpm,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipPitchChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
             pitchShiftSemitones: delta.data.pitch_shift_semitones,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipColorChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
             color: delta.data.color ?? clip.color,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }
 
     if (delta.kind === 'ClipFilePathChanged') {
-        const clip = state.clipsById[delta.data.clip_id];
+        const clip = resolveClip(state, delta.data.clip_id);
         if (!clip) return true;
         const next = {
             ...clip,
             filePath: delta.data.file_path,
             isOffline: delta.data.is_offline,
         };
-        state.timelineClips = state.timelineClips.map((c) => (c.id === next.id ? next : c));
-        state.clipsById = { ...state.clipsById, [next.id]: next };
+        upsertClip(state, next);
         state.changed = true;
         return true;
     }

@@ -96,7 +96,6 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                     pluginGroupedRows={logic.pluginGroupedRows}
                     scanLoading={logic.scanLoading}
                     scanError={logic.scanError}
-                    columnMenuPos={logic.columnMenuPos}
                     setColumnMenuPos={logic.setColumnMenuPos}
                 />
             </div>

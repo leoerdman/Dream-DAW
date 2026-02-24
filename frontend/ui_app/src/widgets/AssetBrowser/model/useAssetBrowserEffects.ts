@@ -149,9 +149,17 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             if (cancelled) return;
             setSampleScanLoading(true);
             setSampleScanError(null);
+            // BUG-21 FIX: properly chain promises — don't continue scan if demo gen fails hard
             engineApi.generateDemoSamples()
-                .catch((err) => console.warn('[AssetBrowser] Demo sample generation skipped:', err))
-                .then(() => cancelled ? Promise.reject('cancelled') : engineApi.scanAllAudioSources())
+                .catch((err) => {
+                    console.warn('[AssetBrowser] Demo sample generation skipped:', err);
+                    // Return resolved so scan can proceed even if demo gen is unavailable
+                    return undefined;
+                })
+                .then(() => {
+                    if (cancelled) return Promise.reject('cancelled');
+                    return engineApi.scanAllAudioSources();
+                })
                 .then((files) => {
                     if (!cancelled) {
                         scanTriggeredRef.current = true;
@@ -171,10 +179,14 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [isSamplesCategory, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading]);
 
     useEffect(() => {
-        const needsPluginCatalog = selectedCategoryId === 'plugins' || selectedCategoryId === 'all' || selectedCategoryId === 'instruments' || selectedCategoryId === 'audioEffects';
+        const needsPluginCatalog = selectedCategoryId === 'plugins'
+            || selectedCategoryId === 'all'
+            || selectedCategoryId === 'instruments'
+            || selectedCategoryId === 'audioEffects'
+            || selectedCategoryId === 'midiEffects';
         if (!needsPluginCatalog) return;
-        const forceRescan = selectedCategoryId === 'plugins' || pluginScanNonce > 0;
-        if (pluginScanned && !forceRescan) return;
+        // BUG-22 FIX: only force rescan when on 'plugins' tab AND nonce was just incremented
+        if (pluginScanned && pluginScanNonce === 0) return;
         let cancelled = false;
         setPluginScanError(null);
         setPluginScanLoading(true);

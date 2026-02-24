@@ -56,7 +56,11 @@ export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
         ];
     }, [params.collectionLabels, params.userFolders]);
 
-    const activeCategory = categories.find((c) => c.id === params.selectedCategoryId);
+    // BUG-31 FIX: memoize activeCategory
+    const activeCategory = useMemo(
+        () => categories.find((c) => c.id === params.selectedCategoryId),
+        [categories, params.selectedCategoryId],
+    );
     const userLibraryFolder = params.settingsUserFolderPath?.trim() || null;
     const activeFolderPath = params.selectedCategoryId === 'currentProject'
         ? params.currentProjectFolder

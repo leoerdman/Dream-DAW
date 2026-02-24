@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { PeakPair } from '@/shared/api/engine';
 
 export type BrowserGlyphName =
@@ -50,31 +50,24 @@ const itemTypeToIcon: Record<AssetBrowserItemLike['type'], BrowserGlyphName> = {
     other: 'grid',
 };
 
-const itemTypeToColor: Record<AssetBrowserItemLike['type'], string> = {
-    audio: 'var(--color-text-primary)',
-    instrument: 'var(--color-text-primary)',
-    audioEffect: 'var(--color-text-primary)',
-    midiEffect: 'var(--color-text-primary)',
-    plugin: 'var(--color-text-primary)',
-    folder: 'var(--color-text-primary)',
-    project: 'var(--color-text-primary)',
-    preset: 'var(--color-text-primary)',
-    other: 'var(--color-text-secondary)',
-};
+// BUG-95 FIX: simplified — all types use primary except 'other'
+const itemTypeColor = (type: AssetBrowserItemLike['type']) =>
+    type === 'other' ? 'var(--color-text-secondary)' : 'var(--color-text-primary)';
 
+// BUG-94 FIX: use pluginSource from schema (single source of truth) instead of re-detecting
 const pluginVersionBadge = (item?: AssetBrowserItemLike): '2' | '3' | null => {
     if (!item || item.type !== 'plugin') return null;
     if (item.pluginSource === 'internal') return null;
-    const raw = `${item.format ?? ''} ${item.meta ?? ''} ${item.name ?? ''} ${item.path ?? ''}`.toLowerCase();
-    if (raw.includes('vst3') || raw.endsWith('.vst3')) return '3';
-    if (raw.includes('vst2') || raw.endsWith('.vst') || raw.includes(' vst ')) return '2';
+    if (item.pluginSource === 'vst3') return '3';
+    if (item.pluginSource === 'vst2') return '2';
     return null;
 };
 
-export const TypeIcon = ({ type, item }: { type: AssetBrowserItemLike['type']; item?: AssetBrowserItemLike }) => {
+// BUG-26 FIX: wrapped in memo to prevent unnecessary re-renders
+export const TypeIcon = memo(({ type, item }: { type: AssetBrowserItemLike['type']; item?: AssetBrowserItemLike }) => {
     const badge = pluginVersionBadge(item);
     return (
-        <span style={{ position: 'relative', display: 'inline-flex', color: itemTypeToColor[type] }}>
+        <span style={{ position: 'relative', display: 'inline-flex', color: itemTypeColor(type) }}>
             <BrowserGlyph name={itemTypeToIcon[type]} size={11} />
             {badge && (
                 <span style={{
@@ -99,9 +92,10 @@ export const TypeIcon = ({ type, item }: { type: AssetBrowserItemLike['type']; i
             )}
         </span>
     );
-};
+});
 
-export const BrowserGlyph = ({
+// BUG-25 FIX: wrapped in memo to prevent unnecessary re-renders per row
+export const BrowserGlyph = memo(function BrowserGlyph({
     name,
     size = 12,
     color = 'currentColor',
@@ -111,7 +105,7 @@ export const BrowserGlyph = ({
     size?: number;
     color?: string;
     stroke?: number;
-}) => {
+}) {
     const commonProps = {
         width: size,
         height: size,
@@ -179,7 +173,7 @@ export const BrowserGlyph = ({
         default:
             return <svg {...commonProps}><circle cx="12" cy="12" r="4" /></svg>;
     }
-};
+});
 
 export const FilterPill = ({
     options, value, onChange,

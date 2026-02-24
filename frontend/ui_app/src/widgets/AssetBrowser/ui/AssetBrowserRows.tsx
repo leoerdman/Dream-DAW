@@ -41,13 +41,14 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     setContextMenu,
     navigateInto,
     fileListRef,
+    onItemEnter,
 }: RowBaseProps & {
     absIdx: number;
     ROW_HEIGHT: number;
     HEADER_HEIGHT: number;
     navigateInto: (path: string) => void;
+    onItemEnter?: () => void;
 }) {
-    void _HEADER_HEIGHT;
     const isAudio = item.type === 'audio';
     const isPlugin = item.type === 'plugin';
     const isDraggable = isAudio || isPlugin;
@@ -94,6 +95,14 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                 }
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
+            }}
+            onDoubleClick={() => {
+                // BUG-61 FIX: double-click loads item
+                if (item.isDirectory && item.path) {
+                    navigateInto(item.path);
+                } else if (onItemEnter) {
+                    onItemEnter();
+                }
             }}
             onContextMenu={(e) => {
                 e.preventDefault();

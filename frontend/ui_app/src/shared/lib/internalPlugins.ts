@@ -417,10 +417,6 @@ export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'internal://instrument/simple-sine-synth': 'internal://instrument/wave-synth',
     // Keep Sample Rack distinct from Sampler so dedicated UI/effectType can resolve.
     'internal://instrument/sample-rack': 'internal://instrument/sample-rack',
-    'internal://effect/glue-compressor': 'internal://effect/compressor',
-    'internal://effect/simple-delay': 'internal://effect/delay',
-    'internal://effect/filter-delay': 'internal://effect/delay',
-    'internal://effect/phaser-flanger': 'internal://effect/phaser',
     // Ableton-style aliases (import compatibility)
     'ableton://device/operator': 'internal://instrument/wave-synth',
     'ableton://device/analog': 'internal://instrument/wave-synth',
@@ -539,6 +535,10 @@ const byId = new Map<string, InternalPluginDefinition>(
 
 export const normalizeInternalPluginId = (pluginId: string): string => {
     const normalized = pluginId.trim().toLowerCase();
+    // Keep canonical internal IDs intact so UI can resolve per-device visuals.
+    if (normalized.startsWith('internal://')) {
+        if (byId.has(normalized)) return normalized;
+    }
     const compact = normalized.replace(/[^a-z0-9]+/g, '');
     return INTERNAL_PLUGIN_ALIASES[normalized] ?? INTERNAL_PLUGIN_ALIASES[compact] ?? normalized;
 };

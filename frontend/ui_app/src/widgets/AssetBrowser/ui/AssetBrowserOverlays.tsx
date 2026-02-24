@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
     COLLECTION_ICONS,
     COLLECTION_IDS,
@@ -21,9 +21,11 @@ interface AssetBrowserOverlaysProps {
     saveCollections: (collections: Record<CollectionId, Set<string>>) => void;
     setCollectionItems: React.Dispatch<React.SetStateAction<Record<CollectionId, Set<string>>>>;
     setContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; item: BrowserItem } | null>>;
+    collectionLabels: Record<string, string>;
 }
 
-export function AssetBrowserOverlays({
+// BUG-41 FIX: wrapped in memo
+export const AssetBrowserOverlays = memo(function AssetBrowserOverlays({
     columnMenuPos,
     columnMenuRef,
     toggleSizeColumn,
@@ -37,6 +39,7 @@ export function AssetBrowserOverlays({
     saveCollections,
     setCollectionItems,
     setContextMenu,
+    collectionLabels,
 }: AssetBrowserOverlaysProps) {
     return (
         <>
@@ -89,9 +92,12 @@ export function AssetBrowserOverlays({
                             >
                                 <span>{COLLECTION_ICONS[collId]}</span>
                                 <span>
-                                    {isInCollection
-                                        ? (isInCollectionView ? `Remove from ${COLLECTION_LABELS_DEFAULT[collId]}` : `✓ In ${COLLECTION_LABELS_DEFAULT[collId]}`)
-                                        : `Add to ${COLLECTION_LABELS_DEFAULT[collId]}`}
+                                    {(() => {
+                                        const label = collectionLabels[collId] ?? COLLECTION_LABELS_DEFAULT[collId];
+                                        return isInCollection
+                                            ? (isInCollectionView ? `Remove from ${label}` : `✓ In ${label}`)
+                                            : `Add to ${label}`;
+                                    })()}
                                 </span>
                             </button>
                         );
@@ -100,7 +106,7 @@ export function AssetBrowserOverlays({
             )}
         </>
     );
-}
+});
 
 const columnMenuContainerStyle = (x: number, y: number): React.CSSProperties => ({
     position: 'fixed',

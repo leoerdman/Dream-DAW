@@ -90,13 +90,13 @@ export const PluginKnob = ({
         const wheelMul = e.shiftKey ? 4.0 : e.altKey ? 0.2 : 1.0;
         if (useLogScale) {
             const unitDelta = (e.deltaY < 0 ? 1 : -1) * unitStep * wheelMul;
-            const nextUnit = valueToUnit(param.value) + unitDelta;
+            const nextUnit = valueToUnit(safeValue) + unitDelta;
             onChange(param.name, quantizeValue(unitToValue(nextUnit)));
             return;
         }
         const delta = (e.deltaY < 0 ? 1 : -1) * linearStep * wheelMul;
-        onChange(param.name, quantizeValue(param.value + delta));
-    }, [onChange, param.max, param.min, param.name, param.step, param.value, quantizeValue, unitToValue, useLogScale, valueToUnit]);
+        onChange(param.name, quantizeValue(safeValue + delta));
+    }, [onChange, param.max, param.min, param.name, param.step, quantizeValue, safeValue, unitToValue, useLogScale, valueToUnit]);
 
     useEffect(() => {
         const node = dialRef.current;

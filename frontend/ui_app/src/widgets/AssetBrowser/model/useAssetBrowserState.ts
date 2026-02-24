@@ -58,10 +58,26 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const isPreviewPlayingRef = useRef(false);
 
     const setItemRowRef = useCallback((id: string, element: HTMLDivElement | null) => {
-        itemRowRefs.current[id] = element;
+        if (element) {
+            itemRowRefs.current[id] = element;
+        } else {
+            // BUG-12 FIX: clean up ref when element unmounts
+            delete itemRowRefs.current[id];
+        }
     }, []);
 
     const getAudioDurationSec = useCallback((path: string) => audioDurationSecRef.current[path], []);
+
+    // BUG-13 FIX: cap audioDurationSecRef to prevent unbounded growth
+    const setAudioDuration = useCallback((path: string, duration: number) => {
+        const cache = audioDurationSecRef.current;
+        cache[path] = duration;
+        const keys = Object.keys(cache);
+        if (keys.length > 500) {
+            // Evict oldest 100 entries
+            for (let i = 0; i < 100; i++) delete cache[keys[i]];
+        }
+    }, []);
 
     const setPreviewPlaying = useCallback((isPlaying: boolean) => {
         isPreviewPlayingRef.current = isPlaying;
@@ -125,6 +141,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
         isPreviewPlayingRef,
         setItemRowRef,
         getAudioDurationSec,
+        setAudioDuration,
         setPreviewPlaying,
         scanLoading,
         scanError,

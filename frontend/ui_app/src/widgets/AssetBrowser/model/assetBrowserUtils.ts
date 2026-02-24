@@ -76,9 +76,10 @@ export function saveCollectionLabels(labels: Record<string, string>): void {
 export function detectPluginSource(raw: string): PluginSource {
     const norm = raw.toLowerCase();
     if (norm.includes('internal://')) return 'internal';
-    if (/\.vst3\b/.test(norm) || /\bvst3\b/.test(norm)) return 'vst3';
-    if (/\.vst\b/.test(norm) || /\bvst2\b/.test(norm) || /\.vst$/.test(norm)) return 'vst2';
-    if (/\.component\b/.test(norm) || /\baudio\s*unit\b/.test(norm) || /\b\.au\b/.test(norm)) return 'au';
+    // BUG-93 FIX: check vst3 BEFORE vst2 to avoid false matches
+    if (/\.vst3(?:\b|$)/.test(norm) || /\bvst3\b/.test(norm)) return 'vst3';
+    if (/\.component(?:\b|$)/.test(norm) || /\baudio\s*unit\b/.test(norm)) return 'au';
+    if (/\.vst(?:\b|$)/.test(norm) || /\bvst2?\b/.test(norm)) return 'vst2';
     return 'external';
 }
 
@@ -89,8 +90,8 @@ export function isLikelyInstrumentPlugin(item: BrowserItemLike): boolean {
 
 export function isLikelyDrumAudio(item: BrowserItemLike): boolean {
     const text = item.name.toLowerCase();
-    return /\b(kick|snare|clap|hihat|hi-hat|hi_hat|drum|perc)\b/i.test(text)
-        || /\bhat\b/.test(text);
+    // BUG-92 FIX: removed standalone \bhat\b which matches 'chat', 'what', 'that'
+    return /\b(kick|snare|clap|hihat|hi-hat|hi_hat|drum|perc|cymbal|tom|rim)\b/i.test(text);
 }
 
 export function fileTypeToItemType(ft: string): BrowserItemType {
@@ -105,22 +106,31 @@ export function fileTypeToItemType(ft: string): BrowserItemType {
 }
 
 export function selectBestPeakLevel(levels: { peaks: PeakPair[] }[]): PeakPair[] | null {
+    // BUG-96 FIX: single pass, prefer highest LOD first, fallback to lowest
     for (let i = levels.length - 1; i >= 0; i -= 1) {
-        const peaks = levels[i]?.peaks;
-        if (peaks && peaks.length > 0) return peaks;
-    }
-    for (let i = 0; i < levels.length; i += 1) {
         const peaks = levels[i]?.peaks;
         if (peaks && peaks.length > 0) return peaks;
     }
     return null;
 }
 
+// BUG-30 FIX: cache compiled regex per search token
+const regexCache = new Map<string, RegExp>();
+function getCachedRegex(token: string): RegExp {
+    let re = regexCache.get(token);
+    if (!re) {
+        if (regexCache.size > 200) regexCache.clear(); // prevent unbounded growth
+        re = new RegExp(`(^|[^a-z0-9])${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+        regexCache.set(token, re);
+    }
+    return re;
+}
+
 function singleTokenScore(t: string, token: string): number | null {
     if (t === token) return 0;
     if (t.startsWith(token)) return 1 + (t.length - token.length) * 0.02;
 
-    const wordMatch = t.match(new RegExp(`(^|[^a-z0-9])${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    const wordMatch = t.match(getCachedRegex(token));
     if (wordMatch) {
         const idx = wordMatch.index ?? 0;
         return 6 + idx * 0.2 + (t.length - token.length) * 0.02;

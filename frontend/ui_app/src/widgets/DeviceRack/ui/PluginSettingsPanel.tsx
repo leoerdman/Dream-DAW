@@ -3,6 +3,7 @@ import type { PluginSlotRuntimeStatus } from '@/shared/api/engine';
 import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { MacroKnob } from '@/widgets/DeviceRack/ui/MacroKnob';
+import { buildSurfaceKnobParams } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 type PluginSettingsPanelProps = {
     device: DeviceSlot;
@@ -48,11 +49,14 @@ export const PluginSettingsPanel = ({
     editorReason,
 }: PluginSettingsPanelProps) => {
     const [paramSearch, setParamSearch] = useState('');
+    const baseParams = useMemo(() => (
+        device.source === 'internal' ? buildSurfaceKnobParams(device) : device.params
+    ), [device]);
     const filteredParams = useMemo(() => {
         const q = paramSearch.trim().toLowerCase();
-        if (!q) return device.params;
-        return device.params.filter((p) => p.name.toLowerCase().includes(q));
-    }, [device.params, paramSearch]);
+        if (!q) return baseParams;
+        return baseParams.filter((p) => p.name.toLowerCase().includes(q));
+    }, [baseParams, paramSearch]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -84,7 +88,7 @@ export const PluginSettingsPanel = ({
                         </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                        <span>{device.params.length} mapped params</span>
+                        <span>{filteredParams.length} mapped params</span>
                         <span>
                             {runtimeStatus?.latencyFrames != null
                                 ? `Latency ${runtimeStatus.latencyFrames} fr`
@@ -240,9 +244,9 @@ export const PluginSettingsPanel = ({
                     fontSize: 'var(--font-size-xs)',
                 }}>
                     {/* BUG-47 FIX: Show actual total count when filter matches nothing */}
-                    <span>{device.params.length > 0 ? `No parameters match filter (${device.params.length} total)` : 'No exported params'}</span>
+                    <span>{baseParams.length > 0 ? `No parameters match filter (${baseParams.length} total)` : 'No exported params'}</span>
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                        {device.params.length} params
+                        {baseParams.length} params
                     </span>
                 </div>
             )}

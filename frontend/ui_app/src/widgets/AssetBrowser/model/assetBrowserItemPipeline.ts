@@ -10,6 +10,7 @@ import {
 import {
     INTERNAL_EFFECT_ITEMS,
     INTERNAL_INSTRUMENT_ITEMS,
+    INTERNAL_MIDI_EFFECT_ITEMS,
     PLUGIN_SOURCE_LABEL,
     PLUGIN_SOURCE_ORDER,
     type BrowserItem,
@@ -17,12 +18,13 @@ import {
 } from './assetBrowserSchema';
 
 export function mapRealBrowserItems(realFiles: AudioFileEntry[]): BrowserItem[] {
-    return realFiles.map((f, i) => {
+    return realFiles.map((f) => {
         const sizeKb = Math.round(f.size_bytes / 1024);
         const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
         const sizeLabel = sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
         return {
-            id: `real-${i}`,
+            // BUG-97 FIX: path-based IDs for stable React keys
+            id: `real-${f.path}`,
             name: f.name,
             type: 'audio',
             format: f.format,
@@ -35,8 +37,9 @@ export function mapRealBrowserItems(realFiles: AudioFileEntry[]): BrowserItem[] 
 }
 
 export function mapPluginBrowserItems(pluginFiles: BrowserFileEntry[]): BrowserItem[] {
-    return pluginFiles.map((f, i) => ({
-        id: `plugin-${i}`,
+    return pluginFiles.map((f) => ({
+        // BUG-97 FIX: path-based IDs for stable React keys
+        id: `plugin-${f.path}`,
         name: f.name,
         type: 'plugin',
         format: f.extension,
@@ -108,6 +111,9 @@ export function computeBrowserItems(params: {
         activeFolderCategoryPath, sizeFilter, sortFilter, pluginSourceFilter, collectionItems, formatFilter,
         audioFilter, sourceFilter,
     } = params;
+    const internalAudioEffectItems = INTERNAL_EFFECT_ITEMS.filter((item) =>
+        !(item.path ?? '').startsWith('internal://midi-fx/'),
+    );
 
     let base: BrowserItem[] = [];
     const pluginSearchMode = selectedCategoryId === 'plugins' && debouncedQuery.trim().length > 0;
@@ -122,7 +128,8 @@ export function computeBrowserItems(params: {
             case 'samples': base = realBrowserItems; break;
             case 'drums': base = realBrowserItems.filter((i) => isLikelyDrumAudio(i)); break;
             case 'plugins': base = [...INTERNAL_INSTRUMENT_ITEMS, ...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems]; break;
-            case 'audioEffects': base = [...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems.filter((p) => !isLikelyInstrumentPlugin(p))]; break;
+            case 'audioEffects': base = [...internalAudioEffectItems]; break;
+            case 'midiEffects': base = [...INTERNAL_MIDI_EFFECT_ITEMS]; break;
             case 'instruments': base = [...INTERNAL_INSTRUMENT_ITEMS, ...pluginBrowserItems.filter((p) => isLikelyInstrumentPlugin(p))]; break;
             case 'collection-red':
             case 'collection-yellow':
@@ -156,7 +163,7 @@ export function computeBrowserItems(params: {
             })
             .map((entry) => entry.item);
     }
-    const isLibraryCategory = ['samples', 'all', 'drums', 'plugins', 'instruments', 'audioEffects', 'collection-red', 'collection-yellow', 'collection-green'].includes(selectedCategoryId)
+    const isLibraryCategory = ['samples', 'all', 'drums', 'plugins', 'instruments', 'audioEffects', 'midiEffects', 'collection-red', 'collection-yellow', 'collection-green'].includes(selectedCategoryId)
         && !activeFolderCategoryPath;
     if (isLibraryCategory) {
         if (sourceFilter === 1) base = base.filter((i) => i.type === 'audio' || i.pluginSource === 'internal');

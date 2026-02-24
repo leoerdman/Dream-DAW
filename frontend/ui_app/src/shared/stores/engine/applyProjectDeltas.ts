@@ -23,6 +23,24 @@ function toEntityState<T extends { id: string }>(items: T[]): EntityState<T> {
     };
 }
 
+function sanitizeTimelineClips(clips: DeltaApplyState['timelineClips']): DeltaApplyState['timelineClips'] {
+    const byId = new Map<string, DeltaApplyState['timelineClips'][number]>();
+    for (const clip of clips) {
+        if (!clip || typeof clip.id !== 'string') continue;
+        const id = clip.id.trim();
+        if (!id) continue;
+        if (!Number.isFinite(clip.startBeat) || !Number.isFinite(clip.durationBeats)) continue;
+        const normalized = {
+            ...clip,
+            id,
+            trackIndex: Number.isFinite(clip.trackIndex) ? Math.max(0, Math.trunc(clip.trackIndex)) : 0,
+            durationBeats: Math.max(0.0001, clip.durationBeats),
+        };
+        byId.set(id, normalized);
+    }
+    return Array.from(byId.values());
+}
+
 function toFiniteNumber(value: unknown, fallback = 0): number {
     if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
     if (typeof value === 'bigint') return Number(value);
@@ -120,6 +138,7 @@ export function applyProjectDeltasToState(
                     const posFrames = toFiniteNumber(clip.position?.sample_frame, 0);
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration?.sample_frame, 1));
                     const clipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
+                    const hasClipColorOverride = Boolean(clip.color_hex ?? clip.color_override);
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     timelineClips.push({
                         id: clip.id,
@@ -128,7 +147,7 @@ export function applyProjectDeltasToState(
                         startBeat: frameToBeat(posFrames, bpm, sampleRate),
                         durationBeats: frameToBeat(durFrames, bpm, sampleRate),
                         type: isMidiTrack ? 'midi' : 'audio',
-                        color: clipColor !== '#667788' ? clipColor : trackColor,
+                        color: hasClipColorOverride ? clipColor : trackColor,
                         filePath: isMidiTrack ? undefined : clip.file_path,
                         durationSamples: durFrames,
                         isWarped: Boolean(clip.is_warped ?? false),
@@ -147,6 +166,7 @@ export function applyProjectDeltasToState(
                     const posFrames = toFiniteNumber(clip.position?.sample_frame, 0);
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration?.sample_frame, 1));
                     const midiClipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
+                    const hasMidiClipColorOverride = Boolean(clip.color_hex ?? clip.color_override);
                     timelineClips.push({
                         id: clip.id,
                         name: clip.name,
@@ -154,7 +174,7 @@ export function applyProjectDeltasToState(
                         startBeat: frameToBeat(posFrames, bpm, sampleRate),
                         durationBeats: frameToBeat(durFrames, bpm, sampleRate),
                         type: 'midi',
-                        color: midiClipColor !== '#667788' ? midiClipColor : trackColor,
+                        color: hasMidiClipColorOverride ? midiClipColor : trackColor,
                         durationSamples: durFrames,
                         sourceOffset: 0,
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),
@@ -177,12 +197,13 @@ export function applyProjectDeltasToState(
                 snapshotTrackIds,
                 snapshotTracksById,
             );
+            const sanitizedTimelineClips = sanitizeTimelineClips(timelineClips);
 
             return {
                 nextState: {
-                    timelineClips,
-                    clipsById: Object.fromEntries(timelineClips.map((clip) => [clip.id, clip])),
-                    clips: toEntityState(timelineClips),
+                    timelineClips: sanitizedTimelineClips,
+                    clipsById: Object.fromEntries(sanitizedTimelineClips.map((clip) => [clip.id, clip])),
+                    clips: toEntityState(sanitizedTimelineClips),
                     ...snapshotTrackState,
                 },
                 snapshotMeta,
@@ -226,6 +247,7 @@ export function applyProjectDeltasToState(
     if (!working.changed) {
         return { nextState: null, snapshotMeta: null };
     }
+    const sanitizedTimelineClips = sanitizeTimelineClips(working.timelineClips);
     const nextTrackState = buildTrackStatePatch(
         working.projectTracks.map((track) => track.id),
         working.tracksById,
@@ -233,9 +255,9 @@ export function applyProjectDeltasToState(
 
     return {
         nextState: {
-            timelineClips: working.timelineClips,
-            clipsById: working.clipsById,
-            clips: toEntityState(working.timelineClips),
+            timelineClips: sanitizedTimelineClips,
+            clipsById: Object.fromEntries(sanitizedTimelineClips.map((clip) => [clip.id, clip])),
+            clips: toEntityState(sanitizedTimelineClips),
             ...nextTrackState,
         },
         snapshotMeta: null,

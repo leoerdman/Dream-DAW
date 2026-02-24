@@ -18,19 +18,19 @@ interface FolderTreeActionsParams {
 }
 
 export function useFolderTreeActions({
-    expandedFolders,
-    folderChildrenCache,
     setExpandedFolders,
     setLoadingFolders,
     setFolderChildrenCache,
     setUserFolders,
     setSelectedCategoryId,
-}: FolderTreeActionsParams) {
+}: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'setUserFolders' | 'setSelectedCategoryId'>) {
     const toggleFolderExpand = useCallback(async (path: string) => {
-        const isExpanded = expandedFolders.has(path);
+        // BUG-17 FIX: use functional updater to avoid stale closure
+        let wasExpanded = false;
         setExpandedFolders((prev) => {
+            wasExpanded = prev.has(path);
             const next = new Set(prev);
-            if (isExpanded) {
+            if (wasExpanded) {
                 for (const p of next) {
                     if (p.startsWith(`${path}/`) || p === path) next.delete(p);
                 }
@@ -40,44 +40,52 @@ export function useFolderTreeActions({
             return next;
         });
 
-        if (!isExpanded && !folderChildrenCache.has(path)) {
-            setLoadingFolders((prev) => new Set(prev).add(path));
-            try {
-                const files = await engineApi.scanFolderAll(path);
-                const children: BrowserItem[] = files.map((f, i) => {
-                    const sizeKb = Math.round(f.size_bytes / 1024);
-                    const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
-                    const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
-                    return {
-                        id: `tree-${path}-${i}`,
-                        name: f.name,
-                        type: fileTypeToItemType(f.file_type),
-                        format: f.extension || undefined,
-                        meta: f.is_directory ? 'Folder' : sizeLabel,
-                        path: f.path,
-                        isDirectory: f.is_directory,
-                        durationSeconds: f.duration_seconds ?? undefined,
-                        sizeBytes: f.size_bytes,
-                    };
-                });
-                children.sort((a, b) => {
-                    const aDir = a.isDirectory ? 1 : 0;
-                    const bDir = b.isDirectory ? 1 : 0;
-                    if (aDir !== bDir) return bDir - aDir;
-                    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-                });
-                setFolderChildrenCache((prev) => new Map(prev).set(path, children));
-            } catch (err) {
-                console.warn('[Browser] Tree scan failed for', path, err);
-            } finally {
-                setLoadingFolders((prev) => {
-                    const next = new Set(prev);
-                    next.delete(path);
-                    return next;
-                });
+        if (!wasExpanded) {
+            // BUG-17 FIX: use functional updater to check cache
+            let needsFetch = false;
+            setFolderChildrenCache((prev) => {
+                needsFetch = !prev.has(path);
+                return prev; // no mutation, just reading
+            });
+            if (needsFetch) {
+                setLoadingFolders((prev) => new Set(prev).add(path));
+                try {
+                    const files = await engineApi.scanFolderAll(path);
+                    const children: BrowserItem[] = files.map((f, i) => {
+                        const sizeKb = Math.round(f.size_bytes / 1024);
+                        const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
+                        const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
+                        return {
+                            id: `tree-${path}-${i}`,
+                            name: f.name,
+                            type: fileTypeToItemType(f.file_type),
+                            format: f.extension || undefined,
+                            meta: f.is_directory ? 'Folder' : sizeLabel,
+                            path: f.path,
+                            isDirectory: f.is_directory,
+                            durationSeconds: f.duration_seconds ?? undefined,
+                            sizeBytes: f.size_bytes,
+                        };
+                    });
+                    children.sort((a, b) => {
+                        const aDir = a.isDirectory ? 1 : 0;
+                        const bDir = b.isDirectory ? 1 : 0;
+                        if (aDir !== bDir) return bDir - aDir;
+                        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+                    });
+                    setFolderChildrenCache((prev) => new Map(prev).set(path, children));
+                } catch (err) {
+                    console.warn('[Browser] Tree scan failed for', path, err);
+                } finally {
+                    setLoadingFolders((prev) => {
+                        const next = new Set(prev);
+                        next.delete(path);
+                        return next;
+                    });
+                }
             }
         }
-    }, [expandedFolders, folderChildrenCache, setExpandedFolders, setFolderChildrenCache, setLoadingFolders]);
+    }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders]);
 
     const navigateInto = useCallback((path: string) => {
         void toggleFolderExpand(path);
@@ -119,7 +127,9 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
     const getTrackIndexById = useCallback((trackId: string) => tracks.allIds.indexOf(trackId), [tracks.allIds]);
 
     const resolveSelectedTrack = useCallback(() => {
-        const selected = window.__dreamSelectedTrackId;
+        // BUG-44: window.__dreamSelectedTrackId is the canonical mechanism
+        // set by useArrangementTrackViewModel — kept for now until store migration
+        const selected = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
         if (selected && selected !== 'master') {
             const selectedTrack = getTrackById(selected);
             if (selectedTrack) return selectedTrack;

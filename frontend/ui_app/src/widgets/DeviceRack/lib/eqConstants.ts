@@ -1,25 +1,25 @@
 /** Default 8-band color palette (matches Dream EQ GUI) */
 export const EQ_BAND_COLORS = [
-    'var(--token-color-hex-2ecc71)',
-    'var(--token-color-hex-f2de72)',
-    'var(--token-color-hex-ffb57a)',
-    'var(--token-color-hex-ff965e)',
-    'var(--token-color-hex-ff6464)',
-    'var(--token-color-hex-c867ff)',
-    'var(--token-color-hex-8ecb7c)',
-    'var(--token-color-hex-4ac0ff)',
+    '#2ecc71',
+    '#f2de72',
+    '#ffb57a',
+    '#ff965e',
+    '#ff6464',
+    '#c867ff',
+    '#8ecb7c',
+    '#4ac0ff',
 ] as const;
 
 /** Randomized point color pool for newly created EQ bands. */
 export const EQ_RANDOM_POINT_COLORS = [
-    'var(--token-color-hex-2ecc71)',
-    'var(--token-color-hex-f2de72)',
-    'var(--token-color-hex-ffb57a)',
-    'var(--token-color-hex-ff965e)',
-    'var(--token-color-hex-ff6464)',
-    'var(--token-color-hex-c867ff)',
-    'var(--token-color-hex-8ecb7c)',
-    'var(--token-color-hex-4ac0ff)',
+    '#2ecc71',
+    '#f2de72',
+    '#ffb57a',
+    '#ff965e',
+    '#ff6464',
+    '#c867ff',
+    '#8ecb7c',
+    '#4ac0ff',
 ] as const;
 
 /** Default EQ band center frequencies (Hz) */

@@ -5,10 +5,12 @@ export const VirtualListHeader = memo(function VirtualListHeader({
     showTypeColumn,
     showSizeColumn,
     setColumnMenuPos,
+    itemCount,
 }: {
     showTypeColumn: boolean;
     showSizeColumn: boolean;
     setColumnMenuPos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
+    itemCount?: number;
 }) {
     return (
         <div
@@ -32,11 +34,16 @@ export const VirtualListHeader = memo(function VirtualListHeader({
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-text-secondary)',
                     display: 'inline-flex', alignItems: 'center', flexShrink: 0,
                 }}
-                title="Column visility"
+                title="Column visibility"
             >
                 <BrowserGlyph name="settings" size={10} />
             </button>
             <span style={{ flex: 1, minWidth: 0 }}>Name</span>
+            {typeof itemCount === 'number' && (
+                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', marginRight: 4 }}>
+                    {itemCount}
+                </span>
+            )}
             {showTypeColumn && <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>}
             {showSizeColumn && <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>}
         </div>

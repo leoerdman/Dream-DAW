@@ -49,13 +49,12 @@ function pickRandomBandColor(exclude?: string): string {
 
 function buildInitialEqBandColors(deviceId: string): string[] {
     const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
-    if (cached && cached.length === EQ_BAND_COUNT) {
-        const isLegacyDefaultPalette = cached.every((c, i) => c === EQ_BAND_COLORS[i]);
-        if (!isLegacyDefaultPalette) return [...cached];
-    }
-    const generated = Array.from({ length: EQ_BAND_COUNT }, (_, idx) => pickRandomBandColor(EQ_BAND_COLORS[idx]));
-    EQ_BAND_COLOR_CACHE.set(deviceId, generated);
-    return generated;
+    if (cached && cached.length === EQ_BAND_COUNT) return [...cached];
+    // Keep deterministic vivid palette across sessions; randomization is only used
+    // when creating a brand-new band during editing.
+    const seeded = [...EQ_BAND_COLORS];
+    EQ_BAND_COLOR_CACHE.set(deviceId, seeded);
+    return seeded;
 }
 
 export function PluginGuiSurfaceEq({
@@ -79,7 +78,13 @@ export function PluginGuiSurfaceEq({
     onParamGestureEnd,
 }: Props): React.ReactNode {
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
-    const eqTitle = normalizedInternalId === 'internal://effect/eq-three' ? 'Band EQ' : 'EQ';
+    const eqTitle = normalizedInternalId === 'internal://effect/eq-three'
+        ? 'Band EQ'
+        : normalizedInternalId === 'internal://effect/channel-eq'
+            ? 'Channel EQ'
+            : normalizedInternalId === 'internal://effect/eq-eight'
+                ? 'EQ Eight'
+                : 'EQ';
     const [eqBandColors, setEqBandColors] = useState<string[]>(() => buildInitialEqBandColors(device.id));
 
     const assignRandomBandColor = useCallback((bandIdx: number) => {
@@ -108,7 +113,9 @@ export function PluginGuiSurfaceEq({
     const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
-    const curveColor = activeBand?.color ?? 'var(--color-effect-eq)';
+    const curveColor = activeBand?.enabled
+        ? activeBand.color
+        : (enabledBands[0]?.color ?? EQ_BAND_COLORS[2]);
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
     const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
         eqSurfaceRef,

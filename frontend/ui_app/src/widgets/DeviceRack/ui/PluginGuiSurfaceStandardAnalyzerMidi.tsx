@@ -4,10 +4,13 @@ import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
+    buildSurfaceKnobParams,
+    formatSurfaceParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
+    readSurfaceParam,
     safeParamValue,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
@@ -18,6 +21,7 @@ export function renderStandardAnalyzerMidiSurface(
     handlers: SurfaceHandlers,
 ): React.ReactNode {
     const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const knobParams = buildSurfaceKnobParams(device);
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     // BUG-76 FIX: Include all MIDI effect types including new ones (chord, noteLength, ccControl, expressionControl, arpeggiator).
@@ -49,8 +53,10 @@ export function renderStandardAnalyzerMidiSurface(
     const chance = safeParamValue(device, 'chance', 0);
     const velGain = safeParamValue(device, 'gain', 1);
     const velOffset = safeParamValue(device, 'offset', 0);
-    const lengthMs = safeParamValue(device, 'length', 200);
-    const gatePct = safeParamValue(device, 'gate', 100);
+    const lengthParam = readSurfaceParam(device, 'length', 200, 'ms');
+    const lengthMs = lengthParam.value;
+    const gateParam = readSurfaceParam(device, 'gate', 100, '%');
+    const gatePct = gateParam.value;
     const ccNumber = safeParamValue(device, 'cc', 1);
     const ccValue = safeParamValue(device, 'value', 64);
     const arpPattern = safeParamValue(device, 'pattern', 0);
@@ -165,7 +171,7 @@ export function renderStandardAnalyzerMidiSurface(
                             <div style={{ width: `${Math.max(0, Math.min(100, lengthMs / 20)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                         </div>
                         <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
-                            {`Len ${lengthMs.toFixed(0)}ms | Gate ${gatePct.toFixed(0)}%`}
+                            {`Len ${formatSurfaceParam(lengthParam)} | Gate ${formatSurfaceParam(gateParam)}`}
                         </div>
                     </div>
                 )}
@@ -199,9 +205,9 @@ export function renderStandardAnalyzerMidiSurface(
                     </span>
                 </div>
             </div>
-            {device.params.length > 0 && (
-                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(2, device.params.length))}, minmax(0, 1fr))`)}>
-                    {device.params.map((p) => (
+            {knobParams.length > 0 && (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(2, knobParams.length))}, minmax(0, 1fr))`)}>
+                    {knobParams.map((p) => (
                         <PluginKnob
                             key={p.name}
                             param={p}

@@ -24,6 +24,13 @@ export const AssetSearchInput = memo(function AssetSearchInput({
         setLocalQuery(debouncedQuery);
     }, [debouncedQuery]);
 
+    // BUG-14 FIX: clear debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        };
+    }, []);
+
     const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
         setLocalQuery(value);
@@ -31,9 +38,6 @@ export const AssetSearchInput = memo(function AssetSearchInput({
         searchTimerRef.current = setTimeout(() => {
             setDebouncedQuery(value);
         }, 180);
-        // BUG-3 FIX: Do NOT force the tab to 'all' when the user types.
-        // This was resetting the active tab (e.g. Plug-Ins) every keystroke.
-        // The search now operates within the currently selected category.
     }, [setDebouncedQuery]);
 
     return (
@@ -78,7 +82,6 @@ export const VirtualFileList = memo(function VirtualFileList({
     pluginGroupedRows,
     scanLoading,
     scanError,
-    columnMenuPos,
     setColumnMenuPos,
 }: {
     items: BrowserItem[];
@@ -99,11 +102,12 @@ export const VirtualFileList = memo(function VirtualFileList({
     pluginGroupedRows: PluginGroupedRow[];
     scanLoading: boolean;
     scanError: string | null;
-    columnMenuPos: { x: number; y: number } | null;
     setColumnMenuPos: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
 }) {
     const ROW_HEIGHT = 28;
     const OVERSCAN = 8;
+    const PLUGIN_ROW_HEIGHT = 28;
+    const PLUGIN_HEADER_HEIGHT = 28;
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(400);
 
@@ -117,48 +121,74 @@ export const VirtualFileList = memo(function VirtualFileList({
         return () => ro.disconnect();
     }, [fileListRef]);
 
-    // ── Robust scroll-reset guard ──────────────────────────────────────
-    // A monotonic counter tracks "reset epochs". When items change, the
-    // epoch bumps and the DOM scrollTop is zeroed in a layout effect
-    // (before paint, so no stale scroll events can fire).  The scroll
-    // handler skips exactly ONE event per epoch transition, then resumes
-    // normal operation — no rAF race, no stuck guard.
-    const resetEpochRef = useRef(0);
-    const lastHandledEpochRef = useRef(0);
+    // BUG-3 FIX: replaced epoch guard with ref-based scroll reset that doesn't eat events
+    const isResettingRef = useRef(false);
     const prevItemsRef = useRef(items);
 
     const handleFileListScroll = useCallback(() => {
-        const epoch = resetEpochRef.current;
-        if (lastHandledEpochRef.current !== epoch) {
-            // First scroll event after a reset — absorb it (may carry stale position)
-            lastHandledEpochRef.current = epoch;
-            setScrollTop(0);
+        const el = fileListRef.current;
+        if (!el) return;
+        if (isResettingRef.current) {
+            isResettingRef.current = false;
             return;
         }
-        const el = fileListRef.current;
-        if (el) setScrollTop(el.scrollTop);
+        setScrollTop(el.scrollTop);
     }, [fileListRef]);
 
     // Reset scroll when items change (e.g. search filter narrows results).
-    // useLayoutEffect fires synchronously after DOM mutations and BEFORE
-    // the browser paints, so the scrollTop=0 is applied before any scroll
-    // events can fire — preventing stale-position ghosts.
     useLayoutEffect(() => {
         if (prevItemsRef.current !== items) {
             prevItemsRef.current = items;
-            resetEpochRef.current++;
             if (fileListRef.current) {
+                isResettingRef.current = true;
                 fileListRef.current.scrollTop = 0;
+                setScrollTop(0);
             }
         }
     }, [items, fileListRef]);
 
-    const HEADER_HEIGHT = 24; // Sticky header height (used only for scroll offset calculations)
     const totalHeight = items.length * ROW_HEIGHT;
     const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
-    void columnMenuPos;
+
+    // BUG-23 FIX: virtualize plugin rows too
+    const pluginTotalHeight = useMemo(() => {
+        return pluginGroupedRows.reduce((h, row) =>
+            h + (row.kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT), 0);
+    }, [pluginGroupedRows]);
+
+    const visiblePluginRows = useMemo(() => {
+        if (selectedCategoryId !== 'plugins') return [];
+        let accH = 0;
+        let startI = 0;
+        let endI = pluginGroupedRows.length;
+        const viewTop = scrollTop;
+        const viewBottom = scrollTop + containerHeight;
+        // find start
+        for (let i = 0; i < pluginGroupedRows.length; i++) {
+            const rh = pluginGroupedRows[i].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
+            if (accH + rh >= viewTop - OVERSCAN * PLUGIN_ROW_HEIGHT) { startI = i; break; }
+            accH += rh;
+        }
+        // find end
+        let accH2 = accH;
+        for (let i = startI; i < pluginGroupedRows.length; i++) {
+            const rh = pluginGroupedRows[i].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
+            accH2 += rh;
+            if (accH2 > viewBottom + OVERSCAN * PLUGIN_ROW_HEIGHT) { endI = i + 1; break; }
+        }
+        return pluginGroupedRows.slice(startI, endI).map((row, vi) => ({
+            row,
+            offsetTop: (() => {
+                let h = 0;
+                for (let j = 0; j < startI + vi; j++) {
+                    h += pluginGroupedRows[j].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
+                }
+                return h;
+            })(),
+        }));
+    }, [pluginGroupedRows, scrollTop, containerHeight, selectedCategoryId]);
 
     return (
         <div
@@ -191,7 +221,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                                 item={item}
                                 absIdx={startIdx + vi}
                                 ROW_HEIGHT={ROW_HEIGHT}
-                                HEADER_HEIGHT={HEADER_HEIGHT}
+                                HEADER_HEIGHT={24}
                                 isSelected={selectedItemId === item.id}
                                 debouncedQuery={debouncedQuery}
                                 showTypeColumn={showTypeColumn}
@@ -208,28 +238,33 @@ export const VirtualFileList = memo(function VirtualFileList({
                         ))}
                     </div>
                 ) : (
-                    <div>
-                        {pluginGroupedRows.map((row) => {
+                    <div style={{ height: pluginTotalHeight + 20, position: 'relative' }}>
+                        {visiblePluginRows.map(({ row, offsetTop }) => {
                             if (row.kind === 'header') {
-                                return <PluginGroupHeaderRow key={row.id} title={row.title} count={row.count} />;
+                                return (
+                                    <div key={row.id} style={{ position: 'absolute', top: offsetTop, left: 0, right: 0, height: PLUGIN_HEADER_HEIGHT }}>
+                                        <PluginGroupHeaderRow title={row.title} count={row.count} />
+                                    </div>
+                                );
                             }
                             return (
-                                <PluginGroupItemRow
-                                    key={row.id}
-                                    item={row.item}
-                                    ROW_HEIGHT={ROW_HEIGHT}
-                                    isSelected={selectedItemId === row.item.id}
-                                    debouncedQuery={debouncedQuery}
-                                    showTypeColumn={showTypeColumn}
-                                    showSizeColumn={showSizeColumn}
-                                    getAudioDurationSec={getAudioDurationSec}
-                                    isPreviewPlayingRef={isPreviewPlayingRef}
-                                    bindItemRowRef={setItemRowRef}
-                                    setSelectedItemId={setSelectedItemId}
-                                    syncPreviewForItem={syncPreviewForItem}
-                                    setContextMenu={setContextMenu}
-                                    fileListRef={fileListRef}
-                                />
+                                <div key={row.id} style={{ position: 'absolute', top: offsetTop, left: 0, right: 0, height: PLUGIN_ROW_HEIGHT }}>
+                                    <PluginGroupItemRow
+                                        item={row.item}
+                                        ROW_HEIGHT={ROW_HEIGHT}
+                                        isSelected={selectedItemId === row.item.id}
+                                        debouncedQuery={debouncedQuery}
+                                        showTypeColumn={showTypeColumn}
+                                        showSizeColumn={showSizeColumn}
+                                        getAudioDurationSec={getAudioDurationSec}
+                                        isPreviewPlayingRef={isPreviewPlayingRef}
+                                        bindItemRowRef={setItemRowRef}
+                                        setSelectedItemId={setSelectedItemId}
+                                        syncPreviewForItem={syncPreviewForItem}
+                                        setContextMenu={setContextMenu}
+                                        fileListRef={fileListRef}
+                                    />
+                                </div>
                             );
                         })}
                     </div>

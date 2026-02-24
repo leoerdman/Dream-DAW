@@ -1,5 +1,8 @@
+/* eslint-disable react-refresh/only-export-components */
 import React from 'react';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
+import { EFFECT_PARAM_CATALOG } from '@/widgets/DeviceRack/model/deviceRackCatalog';
 
 export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
@@ -73,9 +76,22 @@ export type SurfaceParamRead = {
     suffix: string;
 };
 
+export const MIX_PARAM_ALIASES = [
+    'dry/wet',
+    'drywet',
+    'dry_wet',
+    'wet/dry',
+    'mix',
+    'blend',
+    'wet',
+    'wet level',
+    'mix level',
+    'amount',
+] as const;
+
 export function readSurfaceParam(
     device: DeviceSlot,
-    names: string | string[],
+    names: string | readonly string[],
     fallback: number,
     fallbackSuffix = '',
 ): SurfaceParamRead {
@@ -90,6 +106,146 @@ export function readSurfaceParam(
         }
     }
     return { value: fallback, suffix: fallbackSuffix };
+}
+
+export function resolveSurfaceParam(
+    device: DeviceSlot,
+    names: string | readonly string[],
+): DeviceSlot['params'][number] | null {
+    const aliases = Array.isArray(names) ? names : [names];
+    for (const alias of aliases) {
+        const found = device.params.find((p) => p.name.toLowerCase() === alias.toLowerCase());
+        if (found) return found;
+    }
+    return null;
+}
+
+export function hasSurfaceParam(device: DeviceSlot, names: string | readonly string[]): boolean {
+    const aliases = Array.isArray(names) ? names : [names];
+    return aliases.some((alias) =>
+        device.params.some((p) => p.name.toLowerCase() === alias.toLowerCase()),
+    );
+}
+
+export function hasMixParam(device: DeviceSlot): boolean {
+    return hasSurfaceParam(device, MIX_PARAM_ALIASES);
+}
+
+export function panelParams(device: DeviceSlot, includeMixKnob = true): DeviceSlot['params'] {
+    if (includeMixKnob || !hasMixParam(device)) return device.params;
+    return device.params.filter(
+        (p) => !MIX_PARAM_ALIASES.includes(p.name.toLowerCase() as (typeof MIX_PARAM_ALIASES)[number]),
+    );
+}
+
+export function readMixSurfaceParam(device: DeviceSlot, fallback: number): SurfaceParamRead {
+    return readSurfaceParam(device, MIX_PARAM_ALIASES, fallback, '%');
+}
+
+export function resolveMixParam(device: DeviceSlot): DeviceSlot['params'][number] | null {
+    return resolveSurfaceParam(device, MIX_PARAM_ALIASES);
+}
+
+/**
+ * Filter out mix/dry-wet params from the array so they don't appear
+ * as a duplicate knob when DryWetKnob is already rendering them.
+ */
+export function filterMixParams(params: DeviceSlot['params']): DeviceSlot['params'] {
+    const mixSet = new Set(MIX_PARAM_ALIASES.map((a) => a.toLowerCase()));
+    return params.filter((p) => !mixSet.has(p.name.toLowerCase()));
+}
+
+type SurfaceParamFilterOptions = {
+    omitMixWhenDryWet?: boolean;
+};
+
+const HIDE_ALL_PARAMS_INTERNAL_IDS = new Set([
+    'internal://effect/tuner',
+    'internal://effect/auto-shift',
+    'internal://effect/shifter',
+]);
+
+const HIDDEN_SURFACE_PARAM_NAMES = new Set([
+    'bypass',
+    'is_bypassed',
+    'enabled',
+    'active',
+    'latency',
+    'latency_frames',
+    'lookahead_samples',
+    'meter',
+    'meter_l',
+    'meter_r',
+    'peak',
+    'peak_l',
+    'peak_r',
+    'rms',
+    'rms_l',
+    'rms_r',
+    'sidechain',
+    'sidechain_source',
+    'sidechain_track',
+]);
+
+function semanticParamKey(name: string): string {
+    const normalized = name.toLowerCase();
+    if (MIX_PARAM_ALIASES.includes(normalized as (typeof MIX_PARAM_ALIASES)[number])) {
+        return 'mix';
+    }
+    return normalized;
+}
+
+const EFFECT_PARAM_WHITELIST: Partial<Record<DeviceSlot['effectType'], Set<string>>> = Object
+    .entries(EFFECT_PARAM_CATALOG)
+    .reduce((acc, [effectType, params]) => {
+        if (!Array.isArray(params) || params.length === 0) return acc;
+        acc[effectType as DeviceSlot['effectType']] = new Set(
+            params.map((p) => p.name.toLowerCase().trim()),
+        );
+        return acc;
+    }, {} as Partial<Record<DeviceSlot['effectType'], Set<string>>>);
+
+export function buildSurfaceKnobParams(
+    device: DeviceSlot,
+    options: SurfaceParamFilterOptions = {},
+): DeviceSlot['params'] {
+    const { omitMixWhenDryWet = false } = options;
+    const normalizedInternalId = normalizeInternalPluginId(
+        device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase(),
+    );
+    if (HIDE_ALL_PARAMS_INTERNAL_IDS.has(normalizedInternalId)) {
+        return [];
+    }
+    const allowedParamsForEffect = EFFECT_PARAM_WHITELIST[device.effectType];
+    const useEffectWhitelist = device.source === 'internal' && !!allowedParamsForEffect && allowedParamsForEffect.size > 0;
+    const bySemantic = new Map<string, DeviceSlot['params'][number]>();
+    for (const param of device.params) {
+        const normalized = param.name.toLowerCase().trim();
+        if (!normalized) continue;
+        if (normalized.startsWith('_')) continue;
+        if (HIDDEN_SURFACE_PARAM_NAMES.has(normalized)) continue;
+        if (useEffectWhitelist && !allowedParamsForEffect?.has(normalized)) continue;
+        if (
+            omitMixWhenDryWet &&
+            MIX_PARAM_ALIASES.includes(normalized as (typeof MIX_PARAM_ALIASES)[number])
+        ) {
+            continue;
+        }
+        const semantic = semanticParamKey(normalized);
+        const existing = bySemantic.get(semantic);
+        if (!existing) {
+            bySemantic.set(semantic, param);
+            continue;
+        }
+        if (semantic === 'mix') {
+            const existingIdx = MIX_PARAM_ALIASES.indexOf(existing.name.toLowerCase() as (typeof MIX_PARAM_ALIASES)[number]);
+            const nextIdx = MIX_PARAM_ALIASES.indexOf(normalized as (typeof MIX_PARAM_ALIASES)[number]);
+            if ((nextIdx >= 0 && existingIdx < 0) || (nextIdx >= 0 && nextIdx < existingIdx)) {
+                bySemantic.set(semantic, param);
+            }
+        }
+    }
+    return Array.from(bySemantic.values());
 }
 
 export function formatSurfaceParam(
@@ -116,6 +272,32 @@ export function formatSurfaceParam(
  * Replaces deeply nested ternary chains across all surface files.
  */
 export const PLUGIN_TITLE_MAP: Record<string, string> = {
+    // Core FX (SSOT coverage)
+    'internal://effect/eq-eight': 'EQ Eight',
+    'internal://effect/channel-eq': 'Channel EQ',
+    'internal://effect/eq-three': 'EQ Three',
+    'internal://effect/compressor': 'Compressor',
+    'internal://effect/glue-compressor': 'Glue Compressor',
+    'internal://effect/multiband-dynamics': 'Multiband Dynamics',
+    'internal://effect/delay': 'Delay',
+    'internal://effect/simple-delay': 'Simple Delay',
+    'internal://effect/filter-delay': 'Filter Delay',
+    'internal://effect/reverb': 'Reverb',
+    'internal://effect/chorus': 'Chorus',
+    'internal://effect/saturator': 'Saturator',
+    'internal://effect/utility': 'Utility',
+    'internal://effect/limiter': 'Limiter',
+    'internal://effect/gate': 'Gate',
+    'internal://effect/auto-filter': 'Auto Filter',
+    'internal://effect/auto-pan': 'Auto Pan',
+    'internal://effect/phaser': 'Phaser',
+    'internal://effect/phaser-flanger': 'Phaser-Flanger',
+    'internal://effect/flanger': 'Flanger',
+    'internal://effect/distortion': 'Distortion',
+    'internal://effect/bitcrusher': 'Bitcrusher',
+    'internal://effect/analyzer': 'Analyzer',
+    'internal://effect/noise-machine': 'Noise Machine',
+
     // Distortion
     'internal://effect/amp': 'Amp',
     'internal://effect/cabinet': 'Cabinet',
@@ -147,6 +329,10 @@ export const PLUGIN_TITLE_MAP: Record<string, string> = {
     // Analyzer / Spectrum
     'internal://effect/spectrum': 'Spectrum',
     // MIDI FX
+    'internal://midi-fx/pitch': 'Pitch',
+    'internal://midi-fx/scale': 'Scale',
+    'internal://midi-fx/velocity': 'Velocity',
+    'internal://midi-fx/random': 'Random',
     'internal://midi-fx/chord': 'Chord',
     'internal://midi-fx/note-length': 'Note Length',
     'internal://midi-fx/cc-control': 'CC Control',

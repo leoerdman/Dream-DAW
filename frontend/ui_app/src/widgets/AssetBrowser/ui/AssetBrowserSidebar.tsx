@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import { BrowserGlyph } from './AssetBrowserPrimitives';
 import type { BrowserCategory } from '../model/useAssetBrowserLogic';
 
@@ -15,7 +15,8 @@ interface AssetBrowserSidebarProps {
     saveCollectionLabels: (labels: Record<string, string>) => void;
 }
 
-export function AssetBrowserSidebar({
+// BUG-39 FIX: wrapped in memo
+export const AssetBrowserSidebar = memo(function AssetBrowserSidebar({
     categories,
     collapsedSections,
     selectedCategoryId,
@@ -27,15 +28,19 @@ export function AssetBrowserSidebar({
     setCollectionLabels,
     saveCollectionLabels,
 }: AssetBrowserSidebarProps) {
-    const parentSectionByCategory = new Map<string, string | null>();
-    let activeSection: string | null = null;
-    for (const category of categories) {
-        if (category.kind === 'section') {
-            activeSection = category.id;
-        } else {
-            parentSectionByCategory.set(category.id, activeSection);
+    // BUG-98 FIX: memoize section map
+    const parentSectionByCategory = useMemo(() => {
+        const map = new Map<string, string | null>();
+        let activeSection: string | null = null;
+        for (const category of categories) {
+            if (category.kind === 'section') {
+                activeSection = category.id;
+            } else {
+                map.set(category.id, activeSection);
+            }
         }
-    }
+        return map;
+    }, [categories]);
 
     return (
         <div className="scrollbar-hide" style={sidebarStyle}>
@@ -103,7 +108,7 @@ export function AssetBrowserSidebar({
             })}
         </div>
     );
-}
+});
 
 const sidebarStyle: React.CSSProperties = {
     width: '100%',

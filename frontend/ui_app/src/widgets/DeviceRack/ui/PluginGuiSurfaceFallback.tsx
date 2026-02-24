@@ -1,6 +1,16 @@
 import type React from 'react';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
+import { DryWetKnob } from '@/widgets/DeviceRack/ui/DryWetKnob';
+import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
+import {
+    buildSurfaceKnobParams,
+    hasMixParam,
+    pluginPanelCardBaseStyle,
+    pluginPanelLayoutStyle,
+    pluginPanelMetaStyle,
+    pluginPanelTitleStyle,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
 interface PluginGuiSurfaceFallbackProps {
     device: DeviceSlot;
@@ -17,18 +27,88 @@ export function PluginGuiSurfaceFallback({
     onParamGestureEnd,
     onParamContextMenu,
 }: PluginGuiSurfaceFallbackProps) {
+    const signature = `${device.pluginId || device.id || device.name}:${device.effectType}`;
+    let hash = 0;
+    for (let i = 0; i < signature.length; i++) {
+        hash = ((hash << 5) - hash + signature.charCodeAt(i)) | 0;
+    }
+    const palette = [
+        'var(--token-color-hex-6ac3ff)',
+        'var(--token-color-hex-c891ff)',
+        'var(--token-color-hex-ffac59)',
+        'var(--token-color-hex-8ec77c)',
+        'var(--token-color-hex-66b3ff)',
+        'var(--token-color-hex-a4d9d3)',
+    ] as const;
+    const accent = palette[Math.abs(hash) % palette.length];
+    const showDryWet = hasMixParam(device);
+    const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
+    const bars = Array.from({ length: 24 }, (_, i) => {
+        const phase = (Math.abs(hash) % 17) * 0.12;
+        const h = 8 + Math.abs(Math.sin(i * 0.55 + phase)) * 30;
+        return { x: 8 + i * 12.6, h };
+    });
+
     return (
-        <div data-no-drag style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-            {device.params.map((p) => (
-                <PluginKnob
-                    key={p.name}
-                    param={p}
-                    onChange={onParamChange}
-                    onGestureStart={onParamGestureStart}
-                    onGestureEnd={onParamGestureEnd}
-                    onContextMenu={onParamContextMenu}
-                />
-            ))}
+        <div data-no-drag style={pluginPanelLayoutStyle}>
+            <div
+                style={{
+                    ...pluginPanelCardBaseStyle,
+                    display: 'grid',
+                    gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
+                    gap: 'var(--space-2-5)',
+                    alignItems: 'center',
+                    background: `linear-gradient(145deg, color-mix(in srgb, ${accent} 20%, var(--plugin-card-bg-main)) 0%, var(--plugin-card-bg-main) 65%)`,
+                }}
+            >
+                <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ ...pluginPanelTitleStyle, color: accent }}>
+                        {device.name || 'Custom Device'}
+                    </div>
+                    <svg viewBox="0 0 320 54" preserveAspectRatio="none" style={{ width: '100%', height: 50 }}>
+                        <rect x="0" y="0" width="320" height="54" rx="4" fill="var(--token-color-rgba-8-10-14-0d7)" />
+                        {bars.map((bar, idx) => (
+                            <rect
+                                key={idx}
+                                x={bar.x}
+                                y={48 - bar.h}
+                                width="8.2"
+                                height={bar.h}
+                                rx="1.5"
+                                fill={idx % 3 === 0 ? accent : 'color-mix(in srgb, var(--color-text-secondary) 55%, transparent)'}
+                            />
+                        ))}
+                    </svg>
+                    <div style={pluginPanelMetaStyle}>
+                        <span>{device.effectType}</span>
+                        <span>{knobParams.length} params</span>
+                    </div>
+                </div>
+                {showDryWet && (
+                    <DryWetKnob
+                        device={device}
+                        onChange={onParamChange}
+                        onGestureStart={onParamGestureStart}
+                        onGestureEnd={onParamGestureEnd}
+                        accent={accent}
+                    />
+                )}
+            </div>
+            {knobParams.length > 0 && (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(2, knobParams.length || 2))}, minmax(0, 1fr))`)}>
+                    {knobParams.map((p) => (
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            onContextMenu={onParamContextMenu}
+                            compact
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

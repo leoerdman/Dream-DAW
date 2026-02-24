@@ -19,12 +19,7 @@ import { useKeyboardInteractions, usePreviewSync, useSplitResize } from './useAs
 import { useAssetBrowserRuntimeEffects } from './useAssetBrowserRuntimeEffects';
 import { useAssetBrowserState } from './useAssetBrowserState';
 
-function composeAssetBrowserApi<TState extends object, TExtra extends object>(
-    state: TState,
-    extra: TExtra,
-): TState & TExtra {
-    return Object.assign({}, state, extra);
-}
+
 
 export function useAssetBrowserLogic() {
     const settings = useSettingsStore((s) => s.settings);
@@ -156,14 +151,16 @@ export function useAssetBrowserLogic() {
         try {
             const picked = await engineApi.pickFolder();
             if (!picked) return;
-            await updateAllSettings({ ...settings, [target]: picked });
+            // BUG-18 FIX: read latest settings from store to avoid stale closure
+            const latestSettings = useSettingsStore.getState().settings;
+            await updateAllSettings({ ...latestSettings, [target]: picked });
             setPluginScanError(null);
             triggerPluginScan();
         } catch (err) {
             console.warn('[Browser] Failed to set plugin folder:', err);
             setPluginScanError(String(err));
         }
-    }, [settings, setPluginScanError, triggerPluginScan, updateAllSettings]);
+    }, [setPluginScanError, triggerPluginScan, updateAllSettings]);
 
     const { navigateInto, handleAddFolder, handleRemoveFolder } = useFolderTreeActions({
         expandedFolders,
@@ -215,7 +212,8 @@ export function useAssetBrowserLogic() {
         items,
     });
 
-    return composeAssetBrowserApi(state, {
+    return {
+        ...state,
         categories,
         activeCategory,
         items,
@@ -244,5 +242,5 @@ export function useAssetBrowserLogic() {
         saveCollections,
         saveCollectionLabels,
         engineApi,
-    });
+    };
 }

@@ -48,6 +48,7 @@ export const STATIC_CATEGORIES: BrowserCategory[] = [
     { id: 'instruments', title: 'Instruments', icon: 'piano', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: 'plug', kind: 'leaf' },
     { id: 'audioEffects', title: 'Audio Eff…', icon: 'sliders', kind: 'leaf' },
+    { id: 'midiEffects', title: 'MIDI Effects', icon: 'music', kind: 'leaf' },
 ];
 
 export const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
@@ -70,11 +71,15 @@ export const INTERNAL_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_PLUGINS.map(
     id: `internal-fx-${plugin.name.toLowerCase().replace(/\s+/g, '-')}`,
     name: plugin.name,
     type: 'plugin',
-    meta: `Internal Audio FX ${plugin.tags.join(' ')}`,
+    meta: `Internal FX ${plugin.tags.join(' ')}`,
     path: plugin.id,
     slotHint: plugin.slotHint,
     pluginSource: 'internal' as const,
 }));
+
+export const INTERNAL_MIDI_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_ITEMS.filter((plugin) =>
+    (plugin.path ?? '').startsWith('internal://midi-fx/'),
+);
 
 export const PLUGIN_SOURCE_ORDER: Array<NonNullable<BrowserItem['pluginSource']>> = [
     'internal', 'vst3', 'vst2', 'au', 'external',

@@ -3,10 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "sync:bindings": "bash ../../scripts/sync_bindings.sh",
-    "check:plugin-ssot": "node scripts/check-plugin-ssot.mjs",
-    "predev": "pnpm run sync:bindings",
+    "scripts": {
+        "sync:bindings": "bash ../../scripts/sync_bindings.sh",
+        "check:plugin-ssot": "node scripts/check-plugin-ssot.mjs",
+        "check:plugin-surfaces": "node scripts/check-plugin-surfaces.mjs",
+        "predev": "pnpm run sync:bindings",
     "prebuild": "pnpm run sync:bindings",
     "dev": "vite",
     "build": "tsc -b && vite build",

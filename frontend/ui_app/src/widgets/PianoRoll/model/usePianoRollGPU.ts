@@ -1,21 +1,6 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — usePianoRollGPU Hook (Main-Thread WebGL2)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Renders the PianoRoll grid, notes, and playhead using WebGL2 directly on
-// the main thread. No OffscreenCanvas or Web Worker — maximum compatibility
-// with Tauri WKWebView on macOS.
-//
-// The PianoRollGLRenderer is instantiated once per canvas and renders
-// via requestAnimationFrame. State changes set a dirty flag and trigger
-// a re-render on the next frame.
-//
-// All coordinate values are in CSS pixels. DPR scaling is done in shaders.
-// ═══════════════════════════════════════════════════════════════════════════
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { PianoRollGLRenderer } from '@/widgets/PianoRoll/worker/PianoRollGLRenderer';
-
 export interface UsePianoRollGPUProps {
     notes: MidiNote[];
     ghostNotes: MidiNote[];
@@ -38,9 +23,6 @@ export interface UsePianoRollGPUProps {
     clipBeats: number;
     paused?: boolean;
 }
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
 function parseRGBFunction(input: string): [number, number, number] | null {
     const m = input.trim().match(/^rgba?\((.+)\)$/i);
     if (!m) return null;
@@ -59,7 +41,6 @@ function parseRGBFunction(input: string): [number, number, number] | null {
     if (![r, g, b].every(Number.isFinite)) return null;
     return [r, g, b];
 }
-
 function hexToRGB(hex: string): [number, number, number] | null {
     const clean = hex.trim().replace('#', '');
     if (!(clean.length === 3 || clean.length === 6)) return null;
@@ -75,7 +56,6 @@ function hexToRGB(hex: string): [number, number, number] | null {
     const b = parseInt(clean.substring(4, 6), 16) / 255;
     return [r, g, b];
 }
-
 /** Parse CSS color (hex/rgb/var(--token)) to RGB [0..1], with safe fallback. */
 function cssColorToRGB(input: string): [number, number, number] {
     const raw = (input ?? '').trim();
@@ -92,7 +72,6 @@ function cssColorToRGB(input: string): [number, number, number] {
         ?? [0.35, 0.55, 0.9]
     );
 }
-
 /**
  * Convert a Set<number> of pitch classes to an int[12] array
  * for the GPU shader. Default: major scale.
@@ -107,7 +86,6 @@ function scaleSetToArray(scaleNotes?: Set<number>): number[] {
     }
     return arr;
 }
-
 /**
  * Pack MidiNote[] + ghost notes into a Float32Array for GPU upload.
  * Format: [startBeat, pitch, durationBeats, velocity, flags] × N
@@ -121,8 +99,6 @@ function packNotes(
     const total = notes.length + ghostNotes.length;
     const data = new Float32Array(total * 5);
     let offset = 0;
-
-    // Ghost notes first (drawn under regular notes)
     for (const note of ghostNotes) {
         data[offset] = note.startBeat;
         data[offset + 1] = note.pitch;
@@ -131,8 +107,6 @@ function packNotes(
         data[offset + 4] = 2; // bit1 = ghost
         offset += 5;
     }
-
-    // Regular notes
     for (const note of notes) {
         data[offset] = note.startBeat;
         data[offset + 1] = note.pitch;
@@ -141,12 +115,8 @@ function packNotes(
         data[offset + 4] = selectedNotes.has(note.id) ? 1 : 0; // bit0 = selected
         offset += 5;
     }
-
     return data;
 }
-
-// ── Hook ────────────────────────────────────────────────────────────────
-
 export function usePianoRollGPU({
     notes,
     ghostNotes,
@@ -176,11 +146,8 @@ export function usePianoRollGPU({
     const [gpuAvailable, setGpuAvailable] = useState(true); // optimistic, verified on first mount
     const initedRef = useRef(false);
     const markGpuUnavailable = useCallback(() => {
-        // Avoid synchronous setState in effect body; schedule for next frame.
         requestAnimationFrame(() => setGpuAvailable(false));
     }, []);
-
-    // ── Schedule render on next frame ──
     const scheduleRender = useCallback(() => {
         if (paused) return;
         dirtyRef.current = true;
@@ -194,37 +161,30 @@ export function usePianoRollGPU({
             });
         }
     }, [paused]);
-
-    // ── Renderer lifecycle (main-thread WebGL2) ──
     useEffect(() => {
         if (!gpuAvailable || initedRef.current) return;
         const canvas = canvasRef.current;
         if (!canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
-
         try {
             const dpr = window.devicePixelRatio || 1;
             canvas.width = Math.ceil(canvasWidth * dpr);
             canvas.height = Math.ceil(canvasHeight * dpr);
-
             const gl = canvas.getContext('webgl2', {
                 alpha: false,
                 antialias: false,
                 desynchronized: true,
                 powerPreference: 'high-performance',
             });
-
             if (!gl) {
                 console.warn('[PianoRollGPU] WebGL2 context unavailable, falling back to SVG');
                 markGpuUnavailable();
                 return;
             }
-
             const renderer = new PianoRollGLRenderer(gl);
             renderer.setView({ dpr });
             rendererRef.current = renderer;
             initedRef.current = true;
             scheduleRender();
-
             return () => {
                 if (animFrameRef.current !== null) {
                     cancelAnimationFrame(animFrameRef.current);
@@ -233,7 +193,6 @@ export function usePianoRollGPU({
                 renderer.destroy();
                 rendererRef.current = null;
                 initedRef.current = false;
-                // Lose the context explicitly to free the WebGL slot
                 const ext = gl.getExtension('WEBGL_lose_context');
                 if (ext) ext.loseContext();
             };
@@ -243,13 +202,10 @@ export function usePianoRollGPU({
             initedRef.current = false;
         }
     }, [gpuAvailable, canvasWidth, canvasHeight, scheduleRender, markGpuUnavailable]);
-
-    // ── Resize ──
     useEffect(() => {
         const canvas = canvasRef.current;
         const renderer = rendererRef.current;
         if (paused || !renderer || !canvas || canvasWidth <= 0 || canvasHeight <= 0) return;
-
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.ceil(canvasWidth * dpr);
         canvas.height = Math.ceil(canvasHeight * dpr);
@@ -260,8 +216,6 @@ export function usePianoRollGPU({
         });
         scheduleRender();
     }, [paused, canvasWidth, canvasHeight, scheduleRender]);
-
-    // ── Upload notes ──
     useEffect(() => {
         const renderer = rendererRef.current;
         if (paused || !renderer) return;
@@ -269,23 +223,17 @@ export function usePianoRollGPU({
         renderer.uploadNotes(data);
         scheduleRender();
     }, [paused, notes, ghostNotes, selectedNotes, scheduleRender]);
-
-    // ── View updates (CSS pixels — shaders apply DPR internally) ──
     useEffect(() => {
         const renderer = rendererRef.current;
         if (paused || !renderer) return;
-
         const dpr = window.devicePixelRatio || 1;
         const playheadX = playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats
             ? playheadBeat * pixelsPerBeat
             : -1;
-
         renderer.setView({
             dpr,
             pixelsPerBeat,
             noteHeight,
-            // Canvas spans full piano-roll content; DOM scroll already defines viewport.
-            // Passing scroll to shaders causes double offset and can hide notes.
             scrollX: 0,
             scrollY: 0,
             canvasWidth: Math.ceil(canvasWidth * dpr),
@@ -303,35 +251,27 @@ export function usePianoRollGPU({
     }, [paused, pixelsPerBeat, noteHeight, scrollX, scrollY, canvasWidth, canvasHeight,
         beatsPerBar, gridInterval, totalBeats, totalPitches,
         highlightScale, scaleRoot, scaleNotes, playheadBeat, clipBeats, scheduleRender]);
-
-    // ── Style (color) updates ──
     useEffect(() => {
         const renderer = rendererRef.current;
         if (paused || !renderer) return;
         const noteColor = cssColorToRGB(color);
-        // Root row tint: mix accent color at 12% opacity
         const rootRowColor: [number, number, number] = [
             noteColor[0] * 0.12 + 0.08,
             noteColor[1] * 0.12 + 0.08,
             noteColor[2] * 0.12 + 0.10,
         ];
-        // Scale row tint: mix accent color at 5% opacity
         const scaleRowColor: [number, number, number] = [
             noteColor[0] * 0.05 + 0.09,
             noteColor[1] * 0.05 + 0.09,
             noteColor[2] * 0.05 + 0.11,
         ];
-        // Out-of-scale: very dim
         const outScaleRowColor: [number, number, number] = [0.065, 0.065, 0.07];
-
         renderer.setStyle({ noteColor, rootRowColor, scaleRowColor, outScaleRowColor });
         scheduleRender();
     }, [paused, color, scheduleRender]);
-
     useEffect(() => {
         if (!paused) scheduleRender();
     }, [paused, scheduleRender]);
-
     return {
         gpuCanvasRef: canvasRef,
         gpuAvailable,

@@ -103,6 +103,16 @@ impl ChannelStrip {
         }
     }
 
+    /// BUG-097 FIX: Creates a channel strip with smoothing tuned for the actual
+    /// sample rate.  Without this, `new()` uses `GAIN_SMOOTH_COEFF` (hardcoded
+    /// for 44.1kHz), producing 2× faster smoothing at 96kHz until
+    /// `set_sample_rate()` is called.
+    pub fn with_sample_rate(sample_rate: f32) -> Self {
+        let mut strip = Self::new();
+        strip.set_sample_rate(sample_rate);
+        strip
+    }
+
     // ── UI Thread Setters ──────────────────────────────────────────────
 
     /// Sets the target volume (called from UI thread).
@@ -194,7 +204,10 @@ impl ChannelStrip {
         // This lets us use SIMD bulk multiply instead of per-sample IIR.
         // ═══════════════════════════════════════════════════════════════
         let delta = (combined_target - self.current_volume).abs();
-        if delta < 1e-6 {
+        // BUG-080 FIX: Relaxed from 1e-6 to 1e-4 (~-80dB, inaudible).
+        // The old threshold was so tight that FP drift kept the strip
+        // permanently in the slow IIR path; 1e-4 enables SIMD ~10× more often.
+        if delta < 1e-4 {
             // Converged — snap to target and use SIMD bulk multiply.
             self.current_volume = combined_target;
             let gain = combined_target;

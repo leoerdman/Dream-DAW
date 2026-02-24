@@ -33,15 +33,8 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     accent,
 }: DryWetKnobProps) {
     const param = resolveMixParam(device);
-    const hasMixParam = Boolean(param);
-    const resolvedParam: DeviceSlot['params'][number] = param ?? {
-        name: '__dry_wet_placeholder__',
-        value: 0,
-        min: 0,
-        max: 1,
-        step: 0.01,
-        suffix: '%',
-    };
+    if (!param) return null;
+    const resolvedParam: DeviceSlot['params'][number] = param;
 
     const accentColor = accent ?? 'var(--color-accent-primary)';
 
@@ -89,7 +82,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
 
     // Wheel support
     const handleWheel = useCallback((e: WheelEvent) => {
-        if (!hasMixParam || !param) return;
+        if (!param) return;
         e.preventDefault();
         e.stopPropagation();
         if (!wheelGestureActive.current) {
@@ -105,7 +98,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
         const mul = e.shiftKey ? 4 : e.altKey ? 0.2 : 1;
         const delta = (e.deltaY < 0 ? 1 : -1) * step * mul;
         onChange(param.name, quantize(safeValue + delta));
-    }, [hasMixParam, onChange, onGestureEnd, onGestureStart, param, safeValue, quantize]);
+    }, [onChange, onGestureEnd, onGestureStart, param, safeValue, quantize]);
 
     useEffect(() => {
         const node = dialRef.current;
@@ -123,21 +116,19 @@ export const DryWetKnob = React.memo(function DryWetKnob({
 
     // Double-click to reset to 50% (or default)
     const onDoubleClick = useCallback((e: React.MouseEvent) => {
-        if (!hasMixParam || !param) return;
+        if (!param) return;
         e.preventDefault();
         const def = Number.isFinite(param.defaultValue)
             ? param.defaultValue as number
             : (param.min + param.max) * 0.5;
         onChange(param.name, quantize(def));
-    }, [hasMixParam, onChange, param, quantize]);
+    }, [onChange, param, quantize]);
 
     // Display value
     const displayPct = Math.round(pct * 100);
     // Ensure unique filter id per knob instance (device + param), otherwise
     // SVG filter references can collide across multiple plugin slots.
     const filterId = `drywet-glow-${device.id.replace(/[^a-zA-Z0-9]/g, '_')}-${resolvedParam.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    if (!hasMixParam) return null;
-
     return (
         <div
             style={{

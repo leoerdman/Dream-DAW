@@ -7,6 +7,7 @@ import { Workspace } from '@/pages/Workspace'
 import { SplashScreen } from '@/widgets/SplashScreen'
 import * as engineApi from '@/shared/api/engine'
 import { useAutoSave } from '@/shared/hooks/useAutoSave'
+import { useSettingsStore } from '@/shared/stores/useSettingsStore'
 
 const img = new Image()
 img.src = '/appicon.png'
@@ -43,6 +44,17 @@ class ErrorBoundary extends Component<
           <pre style={{ marginTop: 16, opacity: 0.6, fontSize: 12 }}>
             {this.state.error.stack}
           </pre>
+          {/* BUG-039 FIX: Recovery button */}
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              marginTop: 24, padding: '10px 24px', fontSize: 14, fontWeight: 600,
+              background: '#ff4444', color: '#fff', border: 'none', borderRadius: 6,
+              cursor: 'pointer', fontFamily: 'sans-serif',
+            }}
+          >
+            🔄 Reload Application
+          </button>
         </div>
       )
     }
@@ -52,11 +64,39 @@ class ErrorBoundary extends Component<
 
 function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const theme = useSettingsStore((s) => s.settings.theme)
+  const darkThemeShade = useSettingsStore((s) => s.settings.darkThemeShade)
+  const darkThemeTintPercent = useSettingsStore((s) => s.settings.darkThemeTintPercent)
+  const settingsLoaded = useSettingsStore((s) => s.loaded)
 
   useEffect(() => {
-    engineApi.expandWindow().catch((err) => {
-      console.warn('[App] expandWindow failed, continuing:', err)
-    })
+    if (!settingsLoaded) return
+    const root = document.documentElement
+    const normalizedTheme = theme === 'light' || theme === 'forest' ? theme : 'dark'
+    root.setAttribute('data-theme', normalizedTheme)
+    const clampedShade = Number.isFinite(darkThemeShade) ? Math.min(255, Math.max(0, Math.round(darkThemeShade))) : 0
+    const clampedPercent = Number.isFinite(darkThemeTintPercent) ? Math.min(100, Math.max(0, Math.round(darkThemeTintPercent))) : 0
+    const appliedPercent = normalizedTheme === 'dark' && clampedShade > 0 ? clampedPercent : 0
+    root.style.setProperty('--theme-dark-tint-rgb', `${clampedShade} ${clampedShade} ${clampedShade}`)
+    root.style.setProperty('--theme-dark-tint-strength', `${appliedPercent}%`)
+  }, [theme, darkThemeShade, darkThemeTintPercent, settingsLoaded])
+
+  useEffect(() => {
+    // BUG-005 FIX: Retry expandWindow with exponential backoff (max 3 attempts)
+    const retryExpandWindow = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await engineApi.expandWindow()
+          return // success
+        } catch (err) {
+          const delay = (attempt + 1) * 500 // 500ms, 1000ms, 1500ms
+          console.warn(`[App] expandWindow attempt ${attempt + 1} failed, retrying in ${delay}ms:`, err)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+      }
+      console.error('[App] expandWindow failed after 3 attempts')
+    }
+    retryExpandWindow()
   }, [])
 
   // ── Strike 6: Auto-Save (3 min timer, dirty-check) ──

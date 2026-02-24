@@ -24,6 +24,7 @@ pub(super) struct CommandDrainContext<'a> {
     pub track_soloed: &'a mut [bool; MAX_TRACKS],
     pub any_solo: &'a mut bool,
     pub last_loop_region: &'a mut Option<LoopRegion>,
+    pub loop_enabled: &'a mut bool,
     pub test_tone_phase: &'a mut f64,
     pub test_tone_enabled: &'a mut bool,
     pub test_tone_target_freq: &'a mut f32,
@@ -102,7 +103,8 @@ pub(super) fn drain_commands(
                 loop_region,
             } => {
                 *ctx.bpm = new_bpm.clamp(10.0, 999.0);
-                if !loop_enabled {
+                *ctx.loop_enabled = loop_enabled;
+                if !*ctx.loop_enabled {
                     ctx.render_ctx.loop_region = None;
                 } else if let Some((start, end)) = loop_region {
                     let region = LoopRegion { start, end };
@@ -116,7 +118,8 @@ pub(super) fn drain_commands(
                 ctx.render_ctx.set_timeline_sample_rate(sample_rate);
             }
             EngineCommand::SetLoopEnabled(enabled) => {
-                if !enabled {
+                *ctx.loop_enabled = enabled;
+                if !*ctx.loop_enabled {
                     ctx.render_ctx.loop_region = None;
                 } else if let Some(ref lr) = *ctx.last_loop_region {
                     ctx.render_ctx.loop_region = Some(*lr);
@@ -126,7 +129,11 @@ pub(super) fn drain_commands(
                 if end > start {
                     let region = LoopRegion { start, end };
                     *ctx.last_loop_region = Some(region);
-                    ctx.render_ctx.loop_region = Some(region);
+                    // Keep loop markers cached, but only apply loop playback when
+                    // loop mode is explicitly enabled.
+                    if *ctx.loop_enabled {
+                        ctx.render_ctx.loop_region = Some(region);
+                    }
                 }
             }
             EngineCommand::SetTrackVolume {

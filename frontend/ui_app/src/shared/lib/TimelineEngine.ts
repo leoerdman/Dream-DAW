@@ -1,23 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — TimelineEngine
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// THE CORE ENGINE. Pure TypeScript — ZERO React dependencies.
-//
-// This class owns the canvas element, viewport, and render loop.
-// It replaces ALL DOM-based timeline rendering with a single <canvas>.
-//
-// Architecture (Figma pattern):
-//   1. React creates a <canvas> and passes the ref to this engine
-//   2. Engine attaches wheel/mouse/keyboard listeners directly to canvas
-//   3. requestAnimationFrame render loop draws everything
-//   4. React feeds data (clips, playhead, etc.) via setter methods
-//   5. Engine fires callbacks (onClipClick, onClipMove, etc.) to React
-//
-// Hot-path operations (scroll, zoom, drag, playhead) NEVER touch React.
-// Cold-path operations (clip selection, data updates) happen via callbacks.
-//
-// ═══════════════════════════════════════════════════════════════════════════
 
 import { ViewportMatrix, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
@@ -40,22 +20,17 @@ import {
     type TrimPreviewState,
 } from './TimelineEngine.types';
 
-// ── Engine Class ──────────────────────────────────────────────────────────
-
 export class TimelineEngine {
-    // ── Sub-systems ───────────────────────────────────────────────────
     private readonly _viewport: ViewportMatrix;
     private readonly _renderer: CanvasClipRenderer;
     private readonly _waveformCache: WaveformCache;
 
-    // ── Canvas ────────────────────────────────────────────────────────
     private _canvas: HTMLCanvasElement | null = null;
     private _ctx: CanvasRenderingContext2D | null = null;
     private _rafId: number = 0;
     private _resizeObserver: ResizeObserver | null = null;
     private _resizeRafId = 0;
 
-    // ── Data (fed by React) ───────────────────────────────────────────
     private _clips: TimelineClipData[] = [];
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
@@ -71,14 +46,12 @@ export class TimelineEngine {
     private _fadeCurvePoints: Record<string, { in: boolean; out: boolean }> = {};
     private _hoverClipId: string | null = null;
 
-    // ── Config ────────────────────────────────────────────────────────
     private _beatsPerBar: number;
     private _bpm: number;
     private _sampleRate: number;
     private _snapBeats: number;
     private _snapEnabled: boolean;
 
-    // ── Drag state ────────────────────────────────────────────────────
     private _drag: DragState = {
         mode: DragMode.None,
         clipId: null,
@@ -94,7 +67,6 @@ export class TimelineEngine {
     /** Whether the snap-override key is held (⌘ on Mac, Ctrl on Win/Linux). */
     private _metaKeyHeld = false;
 
-    // ── Bound event handlers (for cleanup) ────────────────────────────
     private _boundWheel: (e: WheelEvent) => void;
     private _boundMouseDown: (e: MouseEvent) => void;
     private _boundMouseMove: (e: MouseEvent) => void;
@@ -103,13 +75,11 @@ export class TimelineEngine {
     private _boundContextMenu: (e: MouseEvent) => void;
     private _boundKeyDown: (e: KeyboardEvent) => void;
 
-    // ── Waveform prefetch cancel handles ──────────────────────────────
     /** requestIdleCallback handle for deferred waveform redraw. */
     private _prefetchIdleId: number = 0;
     /** setTimeout handle for browsers without requestIdleCallback. */
     private _prefetchTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    // ── Callbacks (to React shell) ────────────────────────────────────
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
@@ -133,10 +103,6 @@ export class TimelineEngine {
         this._requestRedraw();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // CONSTRUCTOR
-    // ═══════════════════════════════════════════════════════════════════
-
     constructor(config: TimelineEngineConfig) {
         this._beatsPerBar = config.beatsPerBar;
         this._bpm = config.bpm;
@@ -148,20 +114,14 @@ export class TimelineEngine {
         this._renderer = new CanvasClipRenderer(this._waveformCache);
         this._viewport = new ViewportMatrix(config.viewport);
 
-        // Wire viewport flush to React callback
         this._viewport.setFlushCallback((snap) => {
             this.onViewportFlush?.(snap);
         });
 
-        // SSOT: Wire scroll-Y changes to the sync callback.
-        // This replaces the old onScrollTop call in _onWheel, which only
-        // covered the non-modifier branch. Now ALL paths that change scrollY
-        // (wheel, zoom clamp, scrollTo, resize, trackHeight) are synced.
         this._viewport.setScrollYChangeCallback((scrollY) => {
             this.onScrollTop?.(scrollY);
         });
 
-        // Pre-bind event handlers
         this._boundWheel = this._onWheel.bind(this);
         this._boundMouseDown = this._onMouseDown.bind(this);
         this._boundMouseMove = this._onMouseMove.bind(this);
@@ -170,10 +130,6 @@ export class TimelineEngine {
         this._boundContextMenu = this._onContextMenu.bind(this);
         this._boundKeyDown = this._onKeyDown.bind(this);
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // LIFECYCLE
-    // ═══════════════════════════════════════════════════════════════════
 
     /**
      * Attach the engine to a canvas element.
@@ -185,28 +141,22 @@ export class TimelineEngine {
         this._canvas = canvas;
         this._ctx = canvas.getContext('2d', { alpha: false })!;
 
-        // Set initial size
         this._syncCanvasSize();
 
-        // Observe resize
         this._resizeObserver = new ResizeObserver(() => {
             this._scheduleCanvasResizeSync();
         });
         this._resizeObserver.observe(canvas);
 
-        // Attach event listeners
         canvas.addEventListener('wheel', this._boundWheel, { passive: false });
         canvas.addEventListener('mousedown', this._boundMouseDown);
         canvas.addEventListener('dblclick', this._boundDblClick);
         canvas.addEventListener('contextmenu', this._boundContextMenu);
 
-        // Global listeners for drag (must work even when cursor leaves canvas)
         window.addEventListener('mousemove', this._boundMouseMove);
         window.addEventListener('mouseup', this._boundMouseUp);
-        // Escape key cancels active drag operations.
         window.addEventListener('keydown', this._boundKeyDown, { capture: true });
 
-        // Start render loop
         this._tick();
     }
 
@@ -236,7 +186,6 @@ export class TimelineEngine {
         window.removeEventListener('mouseup', this._boundMouseUp);
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
 
-        // Cancel any in-flight waveform prefetch redraw timers.
         if (this._prefetchIdleId) {
             if (typeof cancelIdleCallback === 'function') {
                 cancelIdleCallback(this._prefetchIdleId);
@@ -259,16 +208,9 @@ export class TimelineEngine {
         this._waveformCache.clear();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // DATA SETTERS (called by React shell)
-    // ═══════════════════════════════════════════════════════════════════
-
-    // ── P6: Track last input reference to skip re-normalization on identical data ──
     private _lastClipInput: TimelineClipData[] | null = null;
 
     setClips(clips: TimelineClipData[]): void {
-        // Fast-path: skip normalization + mapping when the exact same array reference is passed.
-        // This avoids O(2n) spread allocations on React re-renders that don't change clip data.
         if (clips === this._lastClipInput && clips.length === this._clips.length) {
             return;
         }
@@ -286,8 +228,6 @@ export class TimelineEngine {
             };
         });
 
-        // Bug #80: prune _fadeCurvePoints for clips that no longer exist to avoid
-        // unbounded memory growth on long sessions with many clip create/delete cycles.
         const currentIds = new Set(normalizedInput.map((c) => c.id));
         for (const id of Object.keys(this._fadeCurvePoints)) {
             if (!currentIds.has(id)) delete this._fadeCurvePoints[id];
@@ -323,13 +263,15 @@ export class TimelineEngine {
 
     setClipSelection(selectedClipIds: string[]): void {
         const selected = new Set(selectedClipIds);
+        const primarySelectedId = selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null;
         let changed = false;
 
         this._clips = this._clips.map((clip) => {
             const nextSelected = selected.has(clip.id);
-            if (clip.selected === nextSelected) return clip;
+            const nextPrimarySelected = primarySelectedId === clip.id;
+            if (clip.selected === nextSelected && clip.primarySelected === nextPrimarySelected) return clip;
             changed = true;
-            return { ...clip, selected: nextSelected };
+            return { ...clip, selected: nextSelected, primarySelected: nextPrimarySelected };
         });
 
         if (!changed) return;
@@ -362,7 +304,6 @@ export class TimelineEngine {
             .map((t) => Math.max(0, Math.min(this._viewport.trackCount - 1, Math.trunc(t))))
             .filter((t) => Number.isFinite(t));
 
-        // Ensure primary is included when valid.
         if (normalizedPrimary >= 0 && !cleaned.includes(normalizedPrimary)) cleaned.unshift(normalizedPrimary);
 
         const samePrimary = normalizedPrimary === this._selectedTrack;
@@ -375,8 +316,6 @@ export class TimelineEngine {
     }
 
     setLoop(loop: LoopRegion | null): void {
-        // While dragging, ignore external updates to prevent "fighting" with React round-trips.
-        // This is the core fix for the "markers jumping/flying away" bug.
         if (this._drag.mode === DragMode.LoopStartMove || this._drag.mode === DragMode.LoopEndMove) {
             return;
         }
@@ -387,7 +326,6 @@ export class TimelineEngine {
                 this._requestRedraw();
             }
         } else {
-            // Only update if actually different (sub-sample precision check)
             const changed = !this._loop ||
                 Math.abs(this._loop.start - loop.start) > 0.000001 ||
                 Math.abs(this._loop.end - loop.end) > 0.000001 ||
@@ -432,17 +370,9 @@ export class TimelineEngine {
         this._viewport.scrollTo(this._viewport.scrollX, y);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // VIEWPORT ACCESS (for React cold-path)
-    // ═══════════════════════════════════════════════════════════════════
-
     get viewport(): ViewportMatrix {
         return this._viewport;
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // RENDER LOOP (requestAnimationFrame)
-    // ═══════════════════════════════════════════════════════════════════
 
     private _needsRedraw = true;
     /** Tracks edit cursor blink state (on/off) for the 500ms blink cycle (PERF-FIX-3). */
@@ -453,10 +383,6 @@ export class TimelineEngine {
     }
 
     private _drawFrameNow(force = false): void {
-        // PERF-FIX-3: Previously, animateEditCursor = (editCursorBeat >= 0)
-        // caused the entire canvas to redraw EVERY frame (~60fps) even when
-        // nothing changed. Now we use a 500ms blink cycle and only request
-        // redraws when the blink state toggles.
         const hasEditCursor = this._editCursorBeat >= 0;
         if (hasEditCursor) {
             const now = performance.now();
@@ -518,17 +444,9 @@ export class TimelineEngine {
             }
 
             if (!preview.allowStretch) {
-                // Trim preview must keep waveform scale static:
-                // - update visible sample window length to preview duration
-                // - when trimming from the left, advance source offset by trimmed frames
                 const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
                 nextClip.durationSamples = previewFrames;
 
-                // BUG-H01 FIX: For warped clips during trim preview, the waveform
-                // renderer uses warpSourceDurationFrames as the source peak window.
-                // Overriding durationSamples alone causes the waveform to scale
-                // incorrectly. Preserve the warp source window and let the renderer
-                // handle the mapping.
                 if (clip.isWarped && clip.warpSourceDurationFrames && clip.warpSourceDurationFrames > 0) {
                     nextClip.warpSourceDurationFrames = clip.warpSourceDurationFrames;
                 }
@@ -539,10 +457,6 @@ export class TimelineEngine {
                     nextClip.sourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + trimmedFrames);
                 }
             } else {
-                // BUG-H03 FIX: In stretch preview, update durationSamples
-                // proportionally so the waveform visually stretches during the drag.
-                // Previously, durationSamples was left untouched, causing the waveform
-                // to remain static until the commit mutator fired.
                 const ratio = preview.durationBeats / (clip.durationBeats || 1);
                 nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
             }
@@ -570,7 +484,6 @@ export class TimelineEngine {
             if ((a.fadeOutCurve ?? 0.5) !== (b.fadeOutCurve ?? 0.5)) return true;
             if ((a.muted ?? false) !== (b.muted ?? false)) return true;
             if ((a.isOffline ?? false) !== (b.isOffline ?? false)) return true;
-            // Detect color/name changes so canvas redraws on track color or clip rename
             if ((a.color ?? '') !== (b.color ?? '')) return true;
             if ((a.name ?? '') !== (b.name ?? '')) return true;
         }
@@ -581,16 +494,11 @@ export class TimelineEngine {
         const canvas = this._canvas;
         if (!canvas) return { beat: 0, trackIndex: 0 };
         const rect = canvas.getBoundingClientRect();
-        // Uses viewport inverse mapping from screen-space back to world-space.
         return {
             beat: this._viewport.screenToBeats(clientX, rect),
             trackIndex: this._viewport.screenToTrack(clientY, rect),
         };
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // CANVAS SIZE MANAGEMENT
-    // ═══════════════════════════════════════════════════════════════════
 
     private _syncCanvasSize(): void {
         const canvas = this._canvas;
@@ -600,7 +508,6 @@ export class TimelineEngine {
         if (rect.width <= 0 || rect.height <= 0) return;
         const dpr = window.devicePixelRatio || 1;
 
-        // Set backing store size (sharp rendering on HiDPI)
         const backingW = Math.round(rect.width * dpr);
         const backingH = Math.round(rect.height * dpr);
 
@@ -618,8 +525,6 @@ export class TimelineEngine {
         if (viewportChanged || backingChanged) {
             this._viewport.setViewportSize(rect.width, rect.height);
             this._requestRedraw();
-            // Draw immediately after backing-store resize to avoid visible blank-frame flicker
-            // while panes are being resized/zoomed.
             this._drawFrameNow(true);
         }
     }
@@ -632,10 +537,6 @@ export class TimelineEngine {
         });
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // WHEEL HANDLER (Zoom + Scroll — zero React)
-    // ═══════════════════════════════════════════════════════════════════
-
     private _onWheel(e: WheelEvent): void {
         e.preventDefault();
         const canvas = this._canvas;
@@ -644,24 +545,15 @@ export class TimelineEngine {
         const rect = canvas.getBoundingClientRect();
 
         if (e.ctrlKey || e.metaKey) {
-            // Zoom — anchored at mouse position
             this._viewport.zoomAtScreenX(e.deltaY, e.clientX, rect);
         } else if (e.shiftKey) {
-            // Force horizontal scroll
             this._viewport.scrollBy(e.deltaY, 0);
         } else {
-            // Standard scroll
             this._viewport.scrollBy(e.deltaX, e.deltaY);
-            // NOTE: onScrollTop is now fired by ViewportMatrix._clampScroll()
-            // via setScrollYChangeCallback — no need to call it here.
         }
 
         this._prefetchVisibleWaveforms();
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // HIT TESTING (Mathematical raycasting — zero DOM)
-    // ═══════════════════════════════════════════════════════════════════
 
     hitTest(clientX: number, clientY: number): HitTestResult {
         const canvas = this._canvas;
@@ -670,21 +562,17 @@ export class TimelineEngine {
         const rect = canvas.getBoundingClientRect();
         const localY = clientY - rect.top;
 
-        // Check if in ruler area
         if (localY < this._viewport.rulerHeight) {
             const beat = this._viewport.screenToBeats(clientX, rect);
 
-            // Loop handle hit testing
             if (this._loop) {
                 const startPx = this._viewport.beatsToScreenX(this._loop.start);
                 const endPx = this._viewport.beatsToScreenX(this._loop.end);
                 const localX = clientX - rect.left;
 
-                // Start handle
                 if (Math.abs(localX - startPx) <= EDGE_GRIP_PX + 4) {
                     return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'start' };
                 }
-                // End handle
                 if (Math.abs(localX - endPx) <= EDGE_GRIP_PX + 4) {
                     return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'end' };
                 }
@@ -697,7 +585,6 @@ export class TimelineEngine {
         const beat = world.beat;
         const trackIndex = world.trackIndex;
 
-        // Check clips (reverse order — topmost first, since selected are sorted last)
         for (let i = this._clips.length - 1; i >= 0; i--) {
             const clip = this._clips[i];
             if (clip.trackIndex !== trackIndex) continue;
@@ -706,7 +593,6 @@ export class TimelineEngine {
             const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
             const localX = clientX - rect.left;
 
-            // Check if cursor is within clip bounds OR within EDGE_GRIP_PX of edges
             const isInsideOrNear = localX >= clipLeftPx - EDGE_GRIP_PX && localX <= clipRightPx + EDGE_GRIP_PX;
 
             if (isInsideOrNear) {
@@ -774,7 +660,6 @@ export class TimelineEngine {
                     edge = undefined;
                 }
 
-                // If we are NOT near an edge, but outside the actual clip bounds, ignore this clip
                 if (!edge && (localX < clipLeftPx || localX > clipRightPx)) {
                     continue;
                 }
@@ -796,16 +681,11 @@ export class TimelineEngine {
         const maxBeat = Math.max(startBeat, endBeat);
         const minTrack = Math.min(startTrack, endTrack);
         const maxTrack = Math.max(startTrack, endTrack);
-        // Bug #70: use overlap test, not full-containment — a clip partially
-        // inside the marquee should be selected.
-        // Bug #71: removed visible-range filter so offscreen clips can be selected
-        // when the user drags the marquee beyond the current viewport.
         const selectedIds = this._clips
             .filter((clip) => {
                 const clipStart = clip.startBeat;
                 const clipEnd = clip.startBeat + clip.durationBeats;
                 if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
-                // Overlap: clip intersects [minBeat, maxBeat]
                 return clipEnd > minBeat && clipStart < maxBeat;
             })
             .map((clip) => clip.id);
@@ -875,13 +755,10 @@ export class TimelineEngine {
     }
 
     private _syncHoveredClip(clipId: string | null): void {
-        // Bug #81: avoid in-place mutation of clip objects; derive hovered state from
-        // _hoverClipId when the renderer reads it via _shouldShowFadeUiForClip.
         if (this._hoverClipId === clipId) return;
         this._hoverClipId = clipId;
         const activeFadeClipId = this._isFadeDragMode(this._drag.mode) ? this._drag.clipId : null;
 
-        // Update the lightweight hovered flag on each clip without full object replacement.
         for (const clip of this._clips) {
             const next = clip.id === this._hoverClipId || (Boolean(activeFadeClipId) && clip.id === activeFadeClipId);
             clip.hovered = next; // This flag is only used for rendering — not for React state.
@@ -889,15 +766,10 @@ export class TimelineEngine {
         this._requestRedraw();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // MOUSE HANDLERS
-    // ═══════════════════════════════════════════════════════════════════
-
     private _onMouseDown(e: MouseEvent): void {
         if (e.button !== 0) return; // Left click only
         if (!this._canvas) return;
 
-        // Bug #72: snap override should work on both Mac (metaKey) and Win/Linux (ctrlKey).
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
         const hit = this.hitTest(e.clientX, e.clientY);
 
@@ -929,10 +801,6 @@ export class TimelineEngine {
                         clipOriginalDuration: 0,
                     };
                 } else {
-                    // Ruler click = set edit cursor position (queued seek on play start).
-                    // NOTE: We do NOT fire onPlayheadSeek here — that triggers a Tauri IPC
-                    // seekToBeat call. Instead, the edit cursor position is stored in React
-                    // state and used as the start anchor when transport starts playing.
                     const snapped = this._snapBeat(Math.max(0, hit.beat));
                     this._drag = {
                         mode: DragMode.RulerScrub,
@@ -957,7 +825,6 @@ export class TimelineEngine {
                 const clip = this._clips.find(c => c.id === hit.clipId);
                 if (!clip) break;
 
-                // ── Fade Curve Handle (highest priority) ──
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
@@ -978,7 +845,6 @@ export class TimelineEngine {
                     break;
                 }
 
-                // ── Fade Handle ──
                 if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false, false);
                     this._drag = {
@@ -997,7 +863,6 @@ export class TimelineEngine {
                     break;
                 }
 
-                // ── Edge Resize (left / right) ──
                 if (hit.edge === 'left') {
                     this.onClipClick?.(hit.clipId, false, false);
                     const allowStretch = e.shiftKey;
@@ -1051,49 +916,28 @@ export class TimelineEngine {
                     break;
                 }
 
-                // ── Body click → Move playhead cursor to clicked position ──
-                // Clicking the waveform/note area positions the cursor, NOT select the clip.
-                // This matches industry-standard DAW behavior (Logic, Ableton, Pro Tools).
-                // Shift/Cmd click on body still does additive selection for power users.
                 const isShift = e.shiftKey;
                 const isCtrl = e.metaKey || e.ctrlKey;
                 const isAdditive = isShift || isCtrl;
 
                 if (hit.region === 'body' && !isAdditive) {
-                    // Body click: move edit cursor to click position (snapped)
                     const snapped = this._snapBeat(hit.beat);
                     this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
-                    // FIX: Also select the track where the body was clicked.
                     this.onTrackSelect?.(hit.trackIndex);
-                    // Do NOT select the clip, do NOT arm drag.
                     break;
                 }
 
-                // ── Header click (or additive body click) → Select + Arm Drag ──
-                // Enterprise-grade multi-clip drag (matches Logic Pro / Ableton behavior):
-                //   • If the clicked clip is ALREADY selected in a multi-selection:
-                //     → DON'T call onClipClick (which would destroy the multi-select).
-                //     → Preserve existing selection, compute co-movers, arm drag.
-                //     → If user releases without dragging → THEN deselect to single (deferred).
-                //   • If the clicked clip is NOT selected:
-                //     → Call onClipClick to select it (replacing selection unless Shift held).
-                //   • Shift/Cmd click always toggles additive selection.
                 const isAlreadySelected = clip.selected === true;
                 const multipleSelected = this._clips.filter(c => c.selected).length > 1;
                 const preserveMultiSelect = isAlreadySelected && multipleSelected && !isAdditive;
 
                 if (!preserveMultiSelect) {
-                    // Single clip click or additive toggle — update selection now.
                     this.onClipClick?.(hit.clipId, isShift, isCtrl);
                 }
 
-                // Move edit cursor to clip start so the cursor line hides on selection.
                 this.setEditCursor(clip.startBeat, hit.trackIndex, hit.trackIndex);
                 this.onEditCursorChange?.(clip.startBeat, hit.trackIndex, hit.trackIndex);
 
-                // Compute co-movers BEFORE any async React update can change selection.
-                // When preserveMultiSelect is true, the _clips[i].selected flags are still
-                // intact because we didn't call onClipClick.
                 const coMovers = new Map<string, { beat: number; track: number }>();
                 for (const sc of this._clips) {
                     if (sc.selected && sc.id !== hit.clipId) {
@@ -1119,24 +963,24 @@ export class TimelineEngine {
             }
 
             case 'track': {
-                // Empty area -> potential marquee box selection (grid-snapped).
                 const snappedBeat = this._snapBeat(hit.beat);
+                const hasSelectedClips = this._clips.some((c) => c.selected);
+
+                if (e.shiftKey && hasSelectedClips) {
+                    // Shift+click on empty timeline should not replace clip selection with marquee.
+                    break;
+                }
 
                 if (e.shiftKey) {
-                    // Shift+click on empty area → create time selection from edit cursor to click position.
-                    // This is standard DAW behavior: cursor at pos A, Shift+click at pos B → select A..B.
-                    // Fallback: if no edit cursor, try selected clip as anchor.
                     let anchorBeat: number;
                     let anchorTrack: number;
                     let hasAnchor = false;
 
                     if (this._editCursorBeat >= 0) {
-                        // Primary anchor: edit cursor position
                         anchorBeat = this._editCursorBeat;
                         anchorTrack = this._editCursorTrack >= 0 ? this._editCursorTrack : hit.trackIndex;
                         hasAnchor = true;
                     } else {
-                        // Fallback: first selected clip
                         const selectedClips = this._clips.filter((c) => c.selected);
                         if (selectedClips.length > 0) {
                             anchorBeat = selectedClips[0].startBeat;
@@ -1161,7 +1005,6 @@ export class TimelineEngine {
                             startClientY: e.clientY,
                         };
 
-                        // Immediately do one selection pass and draw the box
                         const minBeat = Math.min(anchorBeat!, snappedBeat);
                         const maxBeat = Math.max(anchorBeat!, snappedBeat);
                         const minTrack = Math.min(anchorTrack!, hit.trackIndex);
@@ -1169,7 +1012,6 @@ export class TimelineEngine {
                         this._setMarquee({ startBeat: minBeat, endBeat: maxBeat, startTrack: minTrack, endTrack: maxTrack }, false);
                         this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
 
-                        // Update edit cursor end to the shift+click position
                         this.onEditCursorChange?.(anchorBeat!, anchorTrack!, hit.trackIndex);
                         break;
                     }
@@ -1189,7 +1031,6 @@ export class TimelineEngine {
                     startClientX: e.clientX,
                     startClientY: e.clientY,
                 };
-                // Multi-track cursor visual (thin line across tracks).
                 this._setMarquee({
                     startBeat: snappedBeat,
                     endBeat: snappedBeat,
@@ -1202,12 +1043,10 @@ export class TimelineEngine {
     }
 
     private _onMouseMove(e: MouseEvent): void {
-        // Bug #72: track both metaKey (Mac) and ctrlKey (Win/Linux).
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
         const canvas = this._canvas;
         if (!canvas) return;
 
-        // ── Cursor management (when NOT dragging) ──
         if (this._drag.mode === DragMode.None) {
             const hit = this.hitTest(e.clientX, e.clientY);
             this._syncHoveredClip(hit.type === 'clip' && hit.clipId ? hit.clipId : null);
@@ -1248,8 +1087,6 @@ export class TimelineEngine {
                 }
                 this._drag.mode = DragMode.ClipMove;
                 canvas.style.cursor = 'grabbing';
-                // Snapshot original positions of all other selected clips so we can
-                // move them together with the dragged clip (multi-select group move).
                 const coMoverOrigins = new Map<string, { beat: number; track: number }>();
                 for (const c of this._clips) {
                     if (c.selected && c.id !== this._drag.clipId) {
@@ -1257,7 +1094,6 @@ export class TimelineEngine {
                     }
                 }
                 this._drag.coMoverOrigins = coMoverOrigins;
-                // Apply first drag frame immediately.
                 const deltaBeat = beat - this._drag.startBeat;
                 const deltaTrack = track - this._drag.startTrack;
                 const newBeat = this._snapBeat(
@@ -1272,7 +1108,6 @@ export class TimelineEngine {
                     clip.startBeat = newBeat;
                     clip.trackIndex = newTrack;
                 }
-                // Move all co-movers by the raw (unsnapped) delta too.
                 for (const [id, origin] of coMoverOrigins) {
                     const co = this._clips.find(c => c.id === id);
                     if (co) {
@@ -1285,11 +1120,6 @@ export class TimelineEngine {
             }
 
             case DragMode.RulerScrub: {
-                // Ruler drag = continuous edit-cursor repositioning.
-                // NOTE: We do NOT fire onPlayheadSeek on every frame — that would
-                // flood Tauri IPC with seekToBeat calls and freeze the UI.
-                // The edit cursor position is applied as the start anchor when
-                // transport starts playing (via queuedStartBeatRef).
                 canvas.style.cursor = 'col-resize';
                 const snapped = this._snapBeat(Math.max(0, beat));
                 this.onEditCursorChange?.(snapped, this._editCursorTrack, this._editCursorTrackEnd);
@@ -1328,10 +1158,6 @@ export class TimelineEngine {
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 const maxNewStart = clipEnd - 0.25;
 
-                // ── Neighbor-aware left clamp ──
-                // Find the nearest clip to the LEFT on the same track.
-                // The new start cannot go before the end of the left neighbor.
-                // FIX: Use _drag.clipOriginalTrack so track is always correct even mid-drag.
                 const clipTrack = this._drag.clipOriginalTrack;
                 let leftBound = 0;
                 for (const c of this._clips) {
@@ -1343,8 +1169,6 @@ export class TimelineEngine {
                 }
                 const clampedStart = Math.max(leftBound, Math.min(maxNewStart, rawNewStart));
                 const newStart = this._snapBeat(clampedStart);
-                // FIX: After snapping, re-clamp to leftBound to prevent snap from pushing
-                // start before the left neighbor.
                 const safeStart = Math.max(leftBound, newStart);
                 const newDuration = Math.max(0.25, clipEnd - safeStart);
                 this._trimPreview = {
@@ -1365,9 +1189,6 @@ export class TimelineEngine {
                 if (!this._drag.clipId) break;
                 const rawNewEnd = beat;
 
-                // ── Neighbor-aware right clamp ──
-                // Find the nearest clip to the RIGHT on the same track.
-                // FIX: Use _drag.clipOriginalTrack so track is always correct even mid-drag.
                 const rClipTrack = this._drag.clipOriginalTrack;
                 const originalEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 let rightBound = Infinity;
@@ -1379,7 +1200,6 @@ export class TimelineEngine {
                 }
                 const clampedEnd = Math.min(rightBound, rawNewEnd);
                 const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, clampedEnd));
-                // Final safety: ensure snapped end doesn't exceed right bound
                 const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
                 const newDuration = Math.max(0.25, finalEnd - this._drag.clipOriginalBeat);
                 this._trimPreview = {
@@ -1526,10 +1346,6 @@ export class TimelineEngine {
 
         switch (this._drag.mode) {
             case DragMode.ClipMoveArmed: {
-                // Click without passing drag threshold.
-                // If user clicked a selected clip in a multi-selection (preserveMultiSelect
-                // was true on mousedown), the selection was preserved for potential drag.
-                // Since no drag happened, NOW we deselect to single (deferred deselection).
                 if (this._drag.clipId && this._drag.coMoverOrigins && this._drag.coMoverOrigins.size > 0) {
                     this.onClipClick?.(this._drag.clipId, false, false);
                 }
@@ -1551,13 +1367,11 @@ export class TimelineEngine {
                     const isTinyMove =
                         Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
                     if (isTinyMove) {
-                        // Bug #76: restore the dragged clip's visual position.
                         const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
                         }
-                        // Also restore co-movers to their original positions.
                         if (this._drag.coMoverOrigins) {
                             for (const [id, origin] of this._drag.coMoverOrigins) {
                                 const co = this._clips.find(c => c.id === id);
@@ -1567,7 +1381,6 @@ export class TimelineEngine {
                                 }
                             }
                         }
-                        // Clear ghost/trim preview to prevent stale visual artifacts.
                         this._trimPreview = null;
                         this._ghost = null;
                         this._requestRedraw();
@@ -1581,11 +1394,6 @@ export class TimelineEngine {
                         Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
                     );
 
-                    // Fire callback for the primary dragged clip if position changed.
-                    // NOTE: We ONLY fire onClipMove for the primary clip.
-                    // DawShell's handleClipMove detects moveAsGroup and automatically
-                    // moves ALL selected clips with the same delta. Firing onClipMove
-                    // per co-mover would cause N² redundant IPC calls.
                     if (
                         finalBeat !== this._drag.clipOriginalBeat ||
                         finalTrack !== this._drag.clipOriginalTrack
@@ -1601,7 +1409,6 @@ export class TimelineEngine {
                 if (this._drag.clipId) {
                     const preview = this._trimPreview;
                     if (preview && preview.clipId === this._drag.clipId) {
-                        // Commit trim to Rust only on pointerup.
                         if (
                             preview.startBeat !== this._drag.clipOriginalBeat ||
                             preview.durationBeats !== this._drag.clipOriginalDuration
@@ -1666,15 +1473,12 @@ export class TimelineEngine {
                     Math.abs(maxBeat - minBeat) >= 1e-6 || minTrack !== maxTrack;
 
                 if (!moved) {
-                    // Plain click on empty area: set cursor/track only.
                     const snappedBeat = this._snapBeat(this._drag.startBeat);
                     this.onEditCursorChange?.(snappedBeat, this._drag.startTrack, this._drag.startTrack);
                     this.onTrackSelect?.(this._drag.startTrack);
-                    // Empty-space click clears current clip selection.
                     this.onClipBoxSelection?.([]);
                     this._setMarquee(null);
                 } else if (isVerticalLine) {
-                    // Vertical-only marquee becomes multi-cursor stripe.
                     const snappedBeat = this._snapBeat(Math.max(0, this._drag.startBeat));
                     this.onEditCursorChange?.(snappedBeat, this._drag.startTrack, this._drag.currentTrack);
                     this.onTrackSelect?.(this._drag.currentTrack);
@@ -1700,11 +1504,9 @@ export class TimelineEngine {
                 this.onTrackSelect?.(this._drag.currentTrack);
 
                 if (!moved) {
-                    // Plain click on clip body: place cursor and clear box selection overlay.
                     this.onClipBoxSelection?.([]);
                     this._setMarquee(null);
                 } else {
-                    // Keep thin multi-cursor stripe active for subsequent Cmd+E split.
                     this._setMarquee({
                         startBeat: snappedBeat,
                         endBeat: snappedBeat,
@@ -1729,9 +1531,6 @@ export class TimelineEngine {
             clipOriginalBeat: 0,
             clipOriginalTrack: 0,
             clipOriginalDuration: 0,
-            // BUG-B1 FIX: Reset startClientX/Y to prevent stale values leaking
-            // into the next drag state, which could cause incorrect dx/dy threshold
-            // calculations in MarqueeSelect and MultiCursorSelect.
             startClientX: 0,
             startClientY: 0,
             clipResizeAllowStretch: false,
@@ -1739,7 +1538,6 @@ export class TimelineEngine {
     }
 
     private _onDoubleClick(e: MouseEvent): void {
-        // BUG-B2 FIX: Prevent browser text selection overlay on canvas.
         e.preventDefault();
         const hit = this.hitTest(e.clientX, e.clientY);
 
@@ -1796,8 +1594,6 @@ export class TimelineEngine {
                             break;
                         }
                     }
-                    // Body double-click: place edit cursor (same as single-click) — do NOT open
-                    // the MIDI editor. Only a header double-click opens the MIDI editor.
                     if (hit.region === 'body') {
                         const snapped = this._snapBeat(hit.beat);
                         this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
@@ -1816,7 +1612,6 @@ export class TimelineEngine {
 
     private _onContextMenu(e: MouseEvent): void {
         const hit = this.hitTest(e.clientX, e.clientY);
-        // Bug #79: only intercept right-click on fade zone/curve handles.
         if (hit.type !== 'clip' || !hit.clipId) {
             return; // let native menu show
         }
@@ -1862,10 +1657,6 @@ export class TimelineEngine {
         return Math.max(1, beatDurationToFrames(clip.durationBeats, this._bpm, this._sampleRate));
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // WAVEFORM PREFETCH
-    // ═══════════════════════════════════════════════════════════════════
-
     private _prefetchVisibleWaveforms(): void {
         const range = this._viewport.getVisibleRange();
         const bufferBeats = 10;
@@ -1904,12 +1695,7 @@ export class TimelineEngine {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // SNAP UTILITY
-    // ═══════════════════════════════════════════════════════════════════
-
     private _snapBeat(beat: number): number {
-        // ⌘ key override — free positioning when held
         if (this._metaKeyHeld) return beat;
         if (!this._snapEnabled || this._snapBeats <= 0) return beat;
         return Math.round(beat / this._snapBeats) * this._snapBeats;
@@ -1920,14 +1706,11 @@ export class TimelineEngine {
 
         if (e.key === 'Escape') {
             if (this._drag.mode !== DragMode.None) {
-                // Cancel drag: restore positions and end drag.
                 if (this._drag.clipId) {
                     const c = this._clips.find(cl => cl.id === this._drag.clipId);
                     if (c) {
                         c.startBeat = this._drag.clipOriginalBeat;
                         c.trackIndex = this._drag.clipOriginalTrack;
-                        // FIX: Restore fade values when cancelling a fade drag so the
-                        // in-flight mutation on the clip object is reverted.
                         if (this._isFadeDragMode(this._drag.mode)) {
                             c.fadeIn = this._drag.clipOriginalFadeIn ?? c.fadeIn;
                             c.fadeOut = this._drag.clipOriginalFadeOut ?? c.fadeOut;
@@ -1945,7 +1728,6 @@ export class TimelineEngine {
                         }
                     }
                 }
-                // FIX: Clear trim preview on escape so stale resize ghost doesn't persist.
                 this._trimPreview = null;
                 this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0, clipResizeAllowStretch: false };
                 if (this._canvas) this._canvas.style.cursor = 'default';

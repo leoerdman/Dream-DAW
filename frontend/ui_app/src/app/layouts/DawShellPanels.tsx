@@ -1,10 +1,11 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { isTrackActive } from '@/shared/utils/routing';
+import { SessionIoRow, SessionSendRow, SessionStripFader, sessionClipTransportBtnStyle, sessionMixerBtnStyle } from './DawShellPanelControls';
+import { SessionMasterScenes, SessionMasterStrip } from './DawShellPanelMaster';
 export { EmptyClipEditor, SampleClipEditor } from './ClipEditors';
 
 export const SessionWorkspace = ({
@@ -19,20 +20,52 @@ export const SessionWorkspace = ({
     const meters = useEngineStore((s) => s.meters);
     const setTrackMute = useEngineStore((s) => s.setTrackMute);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
+    const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
+    const setTrackPan = useEngineStore((s) => s.setTrackPan);
+    const setTrackSendLevel = useEngineStore((s) => s.setTrackSendLevel);
+    const masterVolume = useEngineStore((s) => s.masterVolume);
+    const setMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const togglePlay = useEngineStore((s) => s.togglePlay);
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
-    const SESSION_TRACK_WIDTH = 116;
-    const SESSION_MASTER_WIDTH = 104;
-    const SESSION_SCENE_ROWS = 3;
+    const SESSION_TRACK_WIDTH = 120;
+    const SESSION_MASTER_WIDTH = 110;
+    const SESSION_SCENE_ROWS = 6;
     const scenes = useMemo(() => Array.from({ length: SESSION_SCENE_ROWS }, (_, i) => i), []);
     const [sessionClips, setSessionClips] = useState<Record<string, { id: string; name: string; color: string; looped: boolean }>>({});
     const [selectedSessionClipId, setSelectedSessionClipId] = useState<string | null>(null);
-    const [playingSessionClipId, setPlayingSessionClipId] = useState<string | null>(null);
+    const [playingSessionClipByTrack, setPlayingSessionClipByTrack] = useState<Record<string, string | null>>({});
+    const [activeSceneIndex, setActiveSceneIndex] = useState<number | null>(null);
 
     const masterMeterL = meters.master_left;
     const masterMeterR = meters.master_right;
     const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
     const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
+    const slotKey = (trackId: string, sceneIndex: number) => `${trackId}:${sceneIndex}`;
+
+    const launchScene = (sceneIndex: number) => {
+        setActiveSceneIndex(sceneIndex);
+        setPlayingSessionClipByTrack((prev) => {
+            const next: Record<string, string | null> = { ...prev };
+            for (const track of tracks) {
+                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                next[track.id] = clip?.id ?? null;
+            }
+            return next;
+        });
+        if (!isPlaying) void togglePlay();
+    };
+
+    const stopScene = (sceneIndex: number) => {
+        setPlayingSessionClipByTrack((prev) => {
+            const next: Record<string, string | null> = { ...prev };
+            for (const track of tracks) {
+                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                if (clip && next[track.id] === clip.id) next[track.id] = null;
+            }
+            return next;
+        });
+        setActiveSceneIndex((current) => (current === sceneIndex ? null : current));
+    };
 
     return (
         <div style={{
@@ -48,7 +81,6 @@ export const SessionWorkspace = ({
                 <div style={{ overflow: 'auto', minHeight: 0 }}>
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
-                            const slotKey = (sceneIndex: number) => `${track.id}:${sceneIndex}`;
                             const contrast = getContrastColor(track.color) === 'black'
                                 ? 'var(--color-text-primary)'
                                 : 'var(--color-bg-panel)';
@@ -74,12 +106,12 @@ export const SessionWorkspace = ({
                                         {track.name}
                                     </button>
                                     {scenes.map((sceneIndex) => {
-                                        const clip = sessionClips[slotKey(sceneIndex)] ?? null;
+                                        const clip = sessionClips[slotKey(track.id, sceneIndex)] ?? null;
                                         const isSelected = clip ? selectedSessionClipId === clip.id : false;
                                         const clipText = clip
                                             ? (getContrastColor(clip.color) === 'black' ? 'var(--color-text-primary)' : 'var(--color-bg-panel)')
                                             : 'var(--color-text-tertiary)';
-                                        const isPlayingClip = clip ? playingSessionClipId === clip.id && isPlaying : false;
+                                        const isPlayingClip = clip ? (playingSessionClipByTrack[track.id] === clip.id && isPlaying) : false;
                                         return (
                                             <div
                                                 key={`${track.id}:${sceneIndex}`}
@@ -89,7 +121,7 @@ export const SessionWorkspace = ({
                                                     const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
                                                     setSessionClips((prev) => ({
                                                         ...prev,
-                                                        [slotKey(sceneIndex)]: {
+                                                        [slotKey(track.id, sceneIndex)]: {
                                                             id,
                                                             name: 'MIDI Loop',
                                                             color: track.color,
@@ -130,7 +162,11 @@ export const SessionWorkspace = ({
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setSelectedSessionClipId(clip.id);
-                                                                    setPlayingSessionClipId(clip.id);
+                                                                    setActiveSceneIndex(sceneIndex);
+                                                                    setPlayingSessionClipByTrack((prev) => ({
+                                                                        ...prev,
+                                                                        [track.id]: clip.id,
+                                                                    }));
                                                                     if (!isPlaying) togglePlay();
                                                                 }}
                                                                 style={sessionClipTransportBtnStyle(isPlayingClip)}
@@ -143,8 +179,10 @@ export const SessionWorkspace = ({
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setSelectedSessionClipId(clip.id);
-                                                                    setPlayingSessionClipId(null);
-                                                                    if (isPlaying) togglePlay();
+                                                                    setPlayingSessionClipByTrack((prev) => ({
+                                                                        ...prev,
+                                                                        [track.id]: null,
+                                                                    }));
                                                                 }}
                                                                 style={sessionClipTransportBtnStyle(false)}
                                                                 title="Stop Clip"
@@ -162,24 +200,14 @@ export const SessionWorkspace = ({
                         })}
                     </div>
                 </div>
-                <div style={{ width: SESSION_MASTER_WIDTH, borderLeft: 'var(--space-px) solid var(--color-divider)', background: 'var(--color-bg-panel)' }}>
-                    <div style={{
-                        height: 28,
-                        borderBottom: 'var(--space-px) solid var(--color-overlay-medium)',
-                        background: 'var(--color-bg-header)',
-                        color: 'var(--color-text-primary)',
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 800,
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '0 var(--space-2)',
-                    }}>
-                        Master
-                    </div>
-                    {scenes.map((_, i) => (
-                        <div key={`master-scene-${i}`} style={{ height: 26, borderBottom: 'var(--space-px) solid var(--token-color-hex-2a2a2a)' }} />
-                    ))}
-                </div>
+                <SessionMasterScenes
+                    width={SESSION_MASTER_WIDTH}
+                    scenes={scenes}
+                    activeSceneIndex={activeSceneIndex}
+                    isPlaying={isPlaying}
+                    launchScene={launchScene}
+                    stopScene={stopScene}
+                />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-0e0e0e))' }}>
                 <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
@@ -194,7 +222,12 @@ export const SessionWorkspace = ({
                         const isActive = isTrackActive(trackIndex, tracks);
                         return (
                             <div key={`mix-${track.id}`} style={{
-                                width: SESSION_TRACK_WIDTH, borderRight: 'var(--space-px) solid var(--token-color-hex-2d2d2d)', padding: 'var(--space-2) var(--space-2) var(--space-1-5)', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6,
+                                width: SESSION_TRACK_WIDTH,
+                                borderRight: 'var(--space-px) solid var(--token-color-hex-2d2d2d)',
+                                padding: 'var(--space-2) var(--space-1-5) var(--space-1-5)',
+                                display: 'grid',
+                                gridTemplateRows: 'auto auto auto auto auto 1fr auto',
+                                gap: 4,
                                 opacity: isActive ? 1 : 0.35,
                                 filter: isActive ? 'none' : 'grayscale(0.9)',
                                 transition: 'opacity 0.15s ease, filter 0.15s ease',
@@ -202,6 +235,24 @@ export const SessionWorkspace = ({
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
                                     {track.track_type}
                                 </div>
+                                <SessionIoRow
+                                    label="Audio From"
+                                    value={track.input || 'No Input'}
+                                />
+                                <SessionIoRow
+                                    label="Audio To"
+                                    value={track.output || 'Master'}
+                                />
+                                <SessionIoRow
+                                    label="Monitor"
+                                    value={track.is_armed ? 'In' : 'Auto'}
+                                />
+                                <SessionSendRow
+                                    sendA={track.send_a ?? 0}
+                                    sendB={track.send_b ?? 0}
+                                    onChangeA={(next) => { void setTrackSendLevel(trackIndex, 'A', next); }}
+                                    onChangeB={(next) => { void setTrackSendLevel(trackIndex, 'B', next); }}
+                                />
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                         <button
@@ -218,23 +269,14 @@ export const SessionWorkspace = ({
                                         >S</button>
                                         <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
                                     </div>
-                                    <div style={{
-                                        flex: 1,
-                                        minHeight: 82,
-                                        borderRadius: 'var(--radius-xs)',
-                                        border: 'var(--space-px) solid var(--token-color-hex-3d3d3d)',
-                                        background: 'var(--color-bg-canvas)',
-                                        position: 'relative',
-                                        overflow: 'hidden',
-                                    }}>
-                                        {/* Stereo meter: unified MeterStrip */}
-                                        <MeterStrip
-                                            levelL={trackMeterL}
-                                            levelR={trackMeterR}
-                                            width={8}
-                                            style={{ position: 'absolute', inset: 4 }}
-                                        />
-                                    </div>
+                                    <SessionStripFader
+                                        gain={track.volume}
+                                        pan={track.pan}
+                                        meterL={trackMeterL}
+                                        meterR={trackMeterR}
+                                        onGainChange={(nextGain) => { void setTrackVolume(trackIndex, nextGain); }}
+                                        onPanChange={(nextPan) => { void setTrackPan(trackIndex, nextPan); }}
+                                    />
                                 </div>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
                                     {peakLabel}
@@ -243,46 +285,14 @@ export const SessionWorkspace = ({
                         );
                     })}
                 </div>
-                <div style={{ width: SESSION_MASTER_WIDTH, padding: 'var(--space-2) var(--space-2) var(--space-1-5)', borderLeft: 'var(--space-px) solid var(--token-color-hex-3b3b3b)', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
-                    <div style={{ position: 'relative', border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
-                        {/* Stereo master: unified MeterStrip */}
-                        <MeterStrip
-                            levelL={masterLevelL}
-                            levelR={masterLevelR}
-                            width={8}
-                            style={{ position: 'absolute', inset: 2 }}
-                        />
-                    </div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
-                </div>
+                <SessionMasterStrip
+                    width={SESSION_MASTER_WIDTH}
+                    masterVolume={masterVolume}
+                    masterLevelL={masterLevelL}
+                    masterLevelR={masterLevelR}
+                    setMasterVolume={setMasterVolume}
+                />
             </div>
         </div >
     );
 };
-
-const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
-    minWidth: 24,
-    height: 18,
-    borderRadius: 'var(--radius-sm)',
-    border: active ? 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 55%, transparent)' : 'var(--space-px) solid var(--token-color-hex-4b4b4b)',
-    background: active ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-header)',
-    color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-    fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-    cursor: 'default',
-});
-
-const sessionClipTransportBtnStyle = (active: boolean): CSSProperties => ({
-    minWidth: 16,
-    height: 14,
-    borderRadius: 'var(--radius-sm)',
-    border: active ? 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 50%, transparent)' : 'var(--space-px) solid var(--color-overlay-medium)',
-    background: active ? 'color-mix(in srgb, var(--color-text-bright) 25%, transparent)' : 'var(--color-overlay-dark)',
-    color: active ? 'var(--color-text-bright)' : 'color-mix(in srgb, var(--color-text-bright) 90%, transparent)',
-    fontSize: 'var(--font-size-2xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-    lineHeight: 1,
-    padding: 0,
-    cursor: 'pointer',
-});

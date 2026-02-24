@@ -12,6 +12,7 @@ export interface TimelineClipData {
     type: 'audio' | 'midi';
     color: string;
     selected?: boolean;
+    primarySelected?: boolean;
     hovered?: boolean;
     filePath?: string;
     durationSamples?: number;
@@ -58,6 +59,7 @@ const CLIP_RADIUS = 4;
 const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
+const PRIMARY_SELECTION_BORDER_COLOR = 'rgba(255, 204, 96, 0.98)';
 const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
 const DROP_TARGET_BORDER = 'rgba(255, 255, 255, 0.6)';
 const GHOST_CLIP_ALPHA = 0.45;
@@ -447,7 +449,11 @@ export class CanvasClipRenderer {
             }
         }
 
-        filtered.sort((a, b) => (a.selected ? 1 : 0) - (b.selected ? 1 : 0));
+        filtered.sort((a, b) => {
+            const aPriority = a.primarySelected ? 2 : (a.selected ? 1 : 0);
+            const bPriority = b.primarySelected ? 2 : (b.selected ? 1 : 0);
+            return aPriority - bPriority;
+        });
 
         for (const clip of filtered) {
             this._drawSingleClip(ctx, vp, clip, sampleRate, trackPitchRange.get(clip.trackIndex));
@@ -550,24 +556,36 @@ export class CanvasClipRenderer {
             );
         }
 
-        if (w > 30) {
-            ctx.font = '11px Inter, -apple-system, sans-serif';
+        const textPad = 3;
+        const maxTextW = w - textPad * 2;
+        if (maxTextW > 4 && headerH > 8) {
             const contrastColor = getContrastColor(clip.color);
             const isMutedVisual = clip.muted || isTrackMuted;
-            ctx.fillStyle = isMutedVisual
-                ? 'rgba(210, 215, 223, 0.95)'
-                : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)');
-            ctx.textBaseline = 'middle';
-            ctx.textAlign = 'left';
-            const maxTextW = w - 6;
-            const textX = x + 3;
-            const textY = y + 1 + headerH / 2;
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(textX, y + 1, maxTextW, headerH);
-            ctx.clip();
-            ctx.fillText(clip.name, textX, textY);
-            ctx.restore();
+
+            // Smooth label degradation with zoom-out:
+            // no hard width threshold, size/alpha taper continuously.
+            const widthT = Math.max(0, Math.min(1, (maxTextW - 8) / 84));
+            const heightT = Math.max(0, Math.min(1, (headerH - 9) / 11));
+            const textScale = Math.min(widthT, heightT);
+            const fontSize = 6.4 + (11 - 6.4) * textScale;
+            const alphaT = Math.max(0, Math.min(1, (maxTextW - 4) / 18));
+            if (alphaT > 0.02) {
+                ctx.font = `${fontSize.toFixed(2)}px Inter, -apple-system, sans-serif`;
+                ctx.fillStyle = isMutedVisual
+                    ? 'rgb(210, 215, 223)'
+                    : (contrastColor === 'black' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+                ctx.globalAlpha *= (isMutedVisual ? 0.95 : 0.9) * alphaT;
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+                const textX = x + textPad;
+                const textY = y + 1 + headerH / 2;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(textX, y + 1, maxTextW, headerH);
+                ctx.clip();
+                ctx.fillText(clip.name, textX, textY);
+                ctx.restore();
+            }
         }
 
         // ── P3: Reuse cached highlight gradient (avoids createLinearGradient per clip) ──
@@ -594,6 +612,15 @@ export class CanvasClipRenderer {
             ctx.shadowBlur = 6;
             this._roundRect(ctx, x, y + 1, w, h, r);
             ctx.stroke();
+
+            if (clip.primarySelected) {
+                ctx.strokeStyle = PRIMARY_SELECTION_BORDER_COLOR;
+                ctx.lineWidth = 1.5;
+                ctx.shadowColor = 'rgba(255, 204, 96, 0.45)';
+                ctx.shadowBlur = 4;
+                this._roundRect(ctx, x + 1, y + 2, Math.max(0, w - 2), Math.max(0, h - 2), Math.max(0, r - 0.5));
+                ctx.stroke();
+            }
             ctx.restore();
         }
 

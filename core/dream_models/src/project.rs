@@ -2005,6 +2005,11 @@ fn default_global_groove_amount() -> f64 {
     100.0
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProjectNormalizationReport {
+    pub default_tracks_injected: bool,
+}
+
 impl Project {
     /// Creates a new empty project with default settings.
     pub fn new(name: impl Into<String>, bpm: f64, sample_rate: f64) -> Self {
@@ -2188,27 +2193,41 @@ impl Project {
             self.tracks.insert(to, track);
         }
     }
-}
 
-impl Default for Project {
-    fn default() -> Self {
-        let mut project = Self::new("Untitled Project", 120.0, 44100.0);
-
-        // Start with 3 Audio + 3 MIDI tracks by default.
+    fn populate_default_tracks(&mut self) {
         let audio_names = ["Audio 1", "Audio 2", "Audio 3"];
         let midi_names = ["MIDI 1", "MIDI 2", "MIDI 3"];
 
         for (i, name) in audio_names.iter().enumerate() {
-            project.add_track(Track::with_type(*name, TrackType::Audio, i));
+            self.add_track(Track::with_type(*name, TrackType::Audio, i));
         }
         for (i, name) in midi_names.iter().enumerate() {
-            project.add_track(Track::with_type(
+            self.add_track(Track::with_type(
                 *name,
                 TrackType::Midi,
                 audio_names.len() + i,
             ));
         }
+    }
 
+    /// Normalizes project invariants after deserialize/import.
+    ///
+    /// Guarantees:
+    /// - non-empty track list (default template is injected if empty)
+    pub fn normalize_invariants(&mut self) -> ProjectNormalizationReport {
+        let mut report = ProjectNormalizationReport::default();
+        if self.tracks.is_empty() {
+            self.populate_default_tracks();
+            report.default_tracks_injected = true;
+        }
+        report
+    }
+}
+
+impl Default for Project {
+    fn default() -> Self {
+        let mut project = Self::new("Untitled Project", 120.0, 44100.0);
+        project.populate_default_tracks();
         project
     }
 }

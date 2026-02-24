@@ -18,6 +18,44 @@ use log::info;
 use crate::descriptor::PluginDescriptor;
 use crate::format::{PluginCategory, PluginFormat};
 
+#[cfg(target_os = "macos")]
+fn read_au_bundle_metadata(path: &Path) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    use plist::Value;
+
+    let info_plist = path.join("Contents").join("Info.plist");
+    let value = Value::from_file(&info_plist).ok()?;
+    let dict = value.as_dictionary()?;
+
+    let bundle_name = dict
+        .get("CFBundleName")
+        .and_then(Value::as_string)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let bundle_vendor = dict
+        .get("CFBundleIdentifier")
+        .and_then(Value::as_string)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    let au_uid = dict
+        .get("AudioComponents")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .and_then(Value::as_dictionary)
+        .and_then(|entry| {
+            let t = entry.get("type").and_then(Value::as_string)?.trim();
+            let st = entry.get("subtype").and_then(Value::as_string)?.trim();
+            let m = entry.get("manufacturer").and_then(Value::as_string)?.trim();
+            if t.is_empty() || st.is_empty() || m.is_empty() {
+                None
+            } else {
+                Some(format!("au:{t}:{st}:{m}"))
+            }
+        });
+
+    Some((bundle_name, bundle_vendor, au_uid))
+}
+
 /// Discovers plugins installed on the system.
 ///
 /// Scans standard platform directories for plugin bundles:
@@ -153,13 +191,30 @@ impl PluginScanner {
         // Vendor extraction: best-effort from parent folder or name
         let vendor = Self::guess_vendor(path, &name);
 
-        Some(PluginDescriptor::new(
+        let mut desc = PluginDescriptor::new(
             name,
             vendor,
             format,
             category,
             path.to_path_buf(),
-        ))
+        );
+
+        #[cfg(target_os = "macos")]
+        if format == PluginFormat::AudioUnit
+            && let Some((bundle_name, bundle_vendor, au_uid)) = read_au_bundle_metadata(path)
+        {
+            if let Some(bundle_name) = bundle_name {
+                desc.name = bundle_name;
+            }
+            if let Some(bundle_vendor) = bundle_vendor {
+                desc.vendor = bundle_vendor;
+            }
+            if let Some(au_uid) = au_uid {
+                desc.unique_id = Some(au_uid);
+            }
+        }
+
+        Some(desc)
     }
 
     /// Best-effort vendor extraction.

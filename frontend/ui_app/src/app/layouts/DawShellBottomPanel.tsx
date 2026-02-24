@@ -14,10 +14,13 @@ const DeviceRack = lazy(async () => ({
 const PianoRoll = lazy(async () => ({
     default: (await import('@/widgets/PianoRoll/PianoRoll')).PianoRoll,
 }));
+const MixerPanelLazy = lazy(async () => ({
+    default: (await import('@/widgets/MixerPanel/MixerPanel')).MixerPanel,
+}));
 
 interface DawShellBottomPanelProps {
     selectedTrackId: string;
-    bottomPanelMode: 'rack' | 'clip';
+    bottomPanelMode: 'rack' | 'clip' | 'mixer';
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
     setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
@@ -31,6 +34,8 @@ interface DawShellBottomPanelProps {
     onMidiNotesChange: (notes: MidiNote[]) => void;
     onMidiEnvelopesChange: (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void;
     onGenerateVariation: () => void;
+    /** BUG-017 FIX: Handler for selecting a track from the mixer panel. */
+    onSelectTrack: (trackId: string) => void;
 }
 
 /** Minimum vertical drag distance to trigger a toggle (prevents accidental clicks). */
@@ -52,6 +57,7 @@ export function DawShellBottomPanel({
     onMidiNotesChange,
     onMidiEnvelopesChange,
     onGenerateVariation,
+    onSelectTrack,
 }: DawShellBottomPanelProps) {
     const settleRafRef = useRef<number | null>(null);
     const rackExpanded = bottomPanelHeightPx >= BOTTOM_PANEL_RACK_EXPANDED_PX;
@@ -149,6 +155,15 @@ export function DawShellBottomPanel({
                             selectedTrackId={selectedTrackId}
                             rackExpanded={rackExpanded}
                             onDropPluginToTrack={(item, trackId) => onDropPluginToTrack(item, trackId)}
+                        />
+                    </Suspense>
+                </ErrorBoundary>
+            ) : bottomPanelMode === 'mixer' ? (
+                <ErrorBoundary module="Mixer Panel">
+                    <Suspense fallback={null}>
+                        <MixerPanelLazy
+                            selectedTrackId={selectedTrackId}
+                            onSelectTrack={onSelectTrack}
                         />
                     </Suspense>
                 </ErrorBoundary>

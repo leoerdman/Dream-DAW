@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import type { Timeline } from '@/widgets/Timeline/Timeline';
@@ -37,6 +37,8 @@ export function useTimelineCommandBusBindings({
     trackIdsRef,
     propsRef,
 }: CommandBusBindingsParams) {
+    const selectionAnchorClipIdRef = useRef<string | null>(null);
+
     useEffect(() => {
         const unsubscribe = commandBusRef.current.subscribe((command) => {
             switch (command.type) {
@@ -52,14 +54,16 @@ export function useTimelineCommandBusBindings({
                         const currentClips = propsRef.current.clips ?? [];
                         const targetClip = currentClips.find((c) => c.id === command.clipId);
                         if (!targetClip) break;
-                        if (prev.length === 0) {
+                        const anchorId = selectionAnchorClipIdRef.current ?? prev[0] ?? null;
+                        if (!anchorId) {
                             callbacksRef.current.onClipSelect?.(command.clipId);
+                            selectionAnchorClipIdRef.current = command.clipId;
                             break;
                         }
-                        const anchorId = prev[0];
                         const anchorClip = currentClips.find((c) => c.id === anchorId);
                         if (!anchorClip) {
                             callbacksRef.current.onClipSelect?.(command.clipId);
+                            selectionAnchorClipIdRef.current = command.clipId;
                             break;
                         }
                         const minBeat = Math.min(anchorClip.startBeat, targetClip.startBeat);
@@ -80,12 +84,15 @@ export function useTimelineCommandBusBindings({
                             ? prev.filter((id) => id !== command.clipId)
                             : [...prev, command.clipId];
                         callbacksRef.current.onClipSelectionChange?.(next);
+                        selectionAnchorClipIdRef.current = next.length > 0 ? command.clipId : null;
                     } else {
                         callbacksRef.current.onClipSelect?.(command.clipId);
+                        selectionAnchorClipIdRef.current = command.clipId;
                     }
                     break;
                 case 'clip-selection':
                     callbacksRef.current.onClipSelectionChange?.(command.clipIds);
+                    selectionAnchorClipIdRef.current = command.clipIds.length > 0 ? command.clipIds[command.clipIds.length - 1] : null;
                     break;
                 case 'clip-move':
                     callbacksRef.current.onClipMove?.(command.clipId, command.beat, command.trackIndex);

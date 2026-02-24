@@ -3,10 +3,24 @@ import { listen } from '@tauri-apps/api/event';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
-type BottomPanelMode = 'rack' | 'clip';
+type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 
 type ImportFileFn = (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
+
+interface AlsImportSummaryPayload {
+    project_name: string;
+    track_count: number;
+    missing_slots_before: number;
+    missing_slots_after: number;
+    auto_resolved_internal: number;
+    auto_resolved_external: number;
+    warped_clip_count: number;
+    warp_marker_count: number;
+    warped_with_source_frames: number;
+    unresolved_missing_labels: string[];
+}
 
 export function useDawShellGlobalShortcuts(args: {
     setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -77,7 +91,11 @@ export function useDawShellGlobalShortcuts(args: {
             if (e.key === 'Tab' && e.shiftKey) {
                 if (isEditableTarget(e.target)) return;
                 e.preventDefault();
-                setBottomPanelModeForActiveTrack((prev) => (prev === 'rack' ? 'clip' : 'rack'));
+                setBottomPanelModeForActiveTrack((prev) => {
+                    if (prev === 'rack') return 'clip';
+                    if (prev === 'clip') return 'mixer';
+                    return 'rack';
+                });
                 return;
             }
 
@@ -246,63 +264,33 @@ export function useInitialLayoutSync(): void {
     }, []);
 }
 
-// ── Auto-Recovery: Re-fetch project when frontend state is lost ────────
-// After HMR page reload or any event that resets the Zustand store,
-// the frontend has 0 tracks and 0 clips while the Rust backend still
-// has the full project in memory. This hook detects that scenario and
-// automatically re-fetches the project snapshot from the backend.
-// ───────────────────────────────────────────────────────────────────────
-let _recoveryInFlight = false;
-
-export function useProjectAutoRecovery(): void {
+export function useAlsImportSummaryStatus(): void {
     useEffect(() => {
-        // Wait 2s after mount — gives splash screen time to populate store normally.
-        const timerId = setTimeout(() => {
-            const state = useEngineStore.getState();
-            const hasNoTracks = state.tracks.allIds.length === 0;
-            const isConnected = state.connected || state.telemetryRunning;
+        let unlisten: (() => void) | null = null;
+        let cancelled = false;
 
-            if (!hasNoTracks || !isConnected || _recoveryInFlight) return;
-
-            _recoveryInFlight = true;
-            console.warn('[AutoRecovery] Store has 0 tracks but backend is connected — re-fetching project...');
-
-            void (async () => {
-                try {
-                    // 1. Ask backend for current project path
-                    const status = await engineApi.getProjectStatus();
-                    const filePath = (status as { filePath?: string }).filePath;
-
-                    if (filePath) {
-                        // 2. Re-open the project to get a full ProjectSnapshotReplaced delta
-                        const response = await engineApi.openProject(filePath);
-                        await useEngineStore.getState().applyProjectDeltas(
-                            response.deltas,
-                            'auto-recovery:resync',
-                        );
-                        console.info('[AutoRecovery] Project re-synced successfully:', filePath);
-                    } else {
-                        // No project file — might be a new project, try newProject()
-                        const response = await engineApi.newProject();
-                        await useEngineStore.getState().applyProjectDeltas(
-                            response.deltas,
-                            'auto-recovery:new-project',
-                        );
-                        console.info('[AutoRecovery] Loaded default project');
-                    }
-
-                    // 3. Re-activate plugins
-                    engineApi.eagerActivateExternalPlugins().catch((err) =>
-                        console.warn('[AutoRecovery] Plugin activation (non-fatal):', err),
-                    );
-                } catch (err) {
-                    console.error('[AutoRecovery] Failed to recover project state:', err);
-                } finally {
-                    _recoveryInFlight = false;
+        const setup = async () => {
+            const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
+                const p = event.payload;
+                const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;
+                const status = useStatusStore.getState();
+                const baseMsg =
+                    `ALS: ${p.project_name} | tracks ${p.track_count} | missing ${p.missing_slots_before}→${p.missing_slots_after} | auto ${autoResolved} | warped ${p.warped_clip_count} (${p.warp_marker_count} markers)`;
+                if (p.missing_slots_after > 0) {
+                    const labels = (p.unresolved_missing_labels ?? []).slice(0, 3);
+                    const details = labels.length > 0 ? ` | unresolved: ${labels.join(', ')}` : '';
+                    status.setError(`${baseMsg}${details}`);
+                    return;
                 }
-            })();
-        }, 2000);
+                status.setInfo(baseMsg);
+            });
+            if (cancelled) fn(); else unlisten = fn;
+        };
 
-        return () => clearTimeout(timerId);
+        void setup();
+        return () => {
+            cancelled = true;
+            if (unlisten) unlisten();
+        };
     }, []);
 }

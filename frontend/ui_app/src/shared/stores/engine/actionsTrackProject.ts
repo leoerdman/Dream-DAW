@@ -6,8 +6,11 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { TrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 
-const throttledVolumeSends = new Map<number, (volume: number) => void>();
-const throttledPanSends = new Map<number, (pan: number) => void>();
+// BUG-007 FIX: Proper type for lodash‑throttled functions (includes cancel/flush).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ThrottledFn<T extends (...args: any[]) => any> = T & { cancel(): void; flush(): void };
+const throttledVolumeSends = new Map<number, ThrottledFn<(volume: number) => void>>();
+const throttledPanSends = new Map<number, ThrottledFn<(pan: number) => void>>();
 const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
@@ -46,6 +49,7 @@ export function createTrackProjectActions(
     EngineStore,
     | 'setTrackVolume'
     | 'setTrackPan'
+    | 'setTrackSendLevel'
     | 'setMasterVolume'
     | 'flushTrackControlFinals'
     | 'setTrackMute'
@@ -109,6 +113,24 @@ export function createTrackProjectActions(
             }
         },
 
+        setTrackSendLevel: async (trackIndex: number, send: 'A' | 'B', value: number) => {
+            try {
+                const clamped = Math.max(0, Math.min(1, value));
+                set((s) => {
+                    const trackId = s.tracks.allIds[trackIndex];
+                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    if (!track) return s;
+                    if (send === 'A' && track.send_a === clamped) return s;
+                    if (send === 'B' && track.send_b === clamped) return s;
+                    return patchTrackByIndex(s, trackIndex, send === 'A' ? { send_a: clamped } : { send_b: clamped });
+                });
+                const response = await engine.setTrackSendLevelWithDeltas(trackIndex, send, clamped);
+                await get().applyProjectDeltas(response.deltas, `setTrackSendLevel-${send}`);
+            } catch (e) {
+                set({ lastError: String(e) });
+            }
+        },
+
         setMasterVolume: async (volume: number) => {
             try {
                 const clamped = Math.max(0, Math.min(2, volume));
@@ -122,6 +144,13 @@ export function createTrackProjectActions(
 
         flushTrackControlFinals: async () => {
             try {
+                // BUG-007 FIX: Cancel all pending throttled calls BEFORE sending final values.
+                // Without this, a trailing throttled call can fire after flush and overwrite
+                // the flushed value with a stale one.
+                for (const fn of throttledVolumeSends.values()) fn.cancel?.();
+                for (const fn of throttledPanSends.values()) fn.cancel?.();
+                throttledMasterVolumeSend.cancel?.();
+
                 const volumeEntries = Array.from(pendingVolumeValues.entries());
                 const panEntries = Array.from(pendingPanValues.entries());
                 await Promise.all([

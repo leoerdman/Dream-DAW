@@ -4,6 +4,7 @@ import {
     VB_H,
     MARGIN_L,
     MARGIN_R,
+    PLOT_W,
     freqToX,
     xToFreq,
     gainToY,
@@ -44,6 +45,29 @@ const FREQ_LABELS = [
     { freq: 10000, label: '10k' }, { freq: 20000, label: '20k' },
 ];
 const FREQ_SUB_LINES = [40, 60, 80, 150, 300, 400, 700, 800, 1500, 3000, 4000, 7000, 8000, 15000];
+type EqGradientStop = { offsetPct: number; color: string };
+
+function buildEqGradientStops(enabledBands: Array<{ freq: number; color: string }>): EqGradientStop[] {
+    if (enabledBands.length === 0) {
+        return [{ offsetPct: 0, color: 'var(--eq-curve-stroke, #4FC3F7)' }, { offsetPct: 100, color: 'var(--eq-curve-stroke, #4FC3F7)' }];
+    }
+    const sorted = [...enabledBands].sort((a, b) => a.freq - b.freq);
+    if (sorted.length === 1) {
+        const only = sorted[0];
+        return [{ offsetPct: 0, color: only.color }, { offsetPct: 100, color: only.color }];
+    }
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const stops: EqGradientStop[] = [{ offsetPct: 0, color: first.color }];
+    for (const band of sorted) {
+        const px = freqToX(band.freq);
+        const normalized = (px - MARGIN_L) / PLOT_W;
+        const offsetPct = Math.max(0, Math.min(100, normalized * 100));
+        stops.push({ offsetPct, color: band.color });
+    }
+    stops.push({ offsetPct: 100, color: last.color });
+    return stops;
+}
 
 export function PluginGuiSurfaceEqCanvas({
     deviceId,
@@ -65,6 +89,8 @@ export function PluginGuiSurfaceEqCanvas({
     curvePath,
     fillPath,
 }: Props): React.ReactNode {
+    const enabledBands = bands.filter((b) => b.enabled);
+    const curveStops = buildEqGradientStops(enabledBands);
     return (
         <div style={{ position: 'relative', flex: 1 }}>
             <svg
@@ -163,8 +189,15 @@ export function PluginGuiSurfaceEqCanvas({
             >
                 <defs>
                     <linearGradient id={`eqGrad-${deviceId}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--eq-curve-stroke, #4FC3F7)" stopOpacity="0.18" />
-                        <stop offset="100%" stopColor="var(--eq-curve-stroke, #4FC3F7)" stopOpacity="0" />
+                        {curveStops.map((stop, idx) => (
+                            <stop key={`eqfill-${idx}-${stop.offsetPct}`} offset={`${stop.offsetPct}%`} stopColor={stop.color} stopOpacity="0.18" />
+                        ))}
+                        <stop offset="100%" stopColor={curveStops[curveStops.length - 1]?.color ?? 'var(--eq-curve-stroke, #4FC3F7)'} stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id={`eqCurveStroke-${deviceId}`} x1="0" y1="0" x2="1" y2="0">
+                        {curveStops.map((stop, idx) => (
+                            <stop key={`eqcurve-${idx}-${stop.offsetPct}`} offset={`${stop.offsetPct}%`} stopColor={stop.color} />
+                        ))}
                     </linearGradient>
                 </defs>
                 {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
@@ -183,9 +216,13 @@ export function PluginGuiSurfaceEqCanvas({
                     </linearGradient>
                 </defs>
                 {spectrumPath && <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.6" />}
-                <path d={fillPath} fill={`url(#eqGrad-${deviceId})`} opacity="0.5" />
-                <path d={curvePath} fill="none" stroke="var(--eq-curve-stroke, #4FC3F7)" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round" />
-                {bands.filter((b) => b.enabled).length === 0 && (
+                {enabledBands.length > 0 && (
+                    <>
+                        <path d={fillPath} fill={`url(#eqGrad-${deviceId})`} opacity="0.5" />
+                        <path d={curvePath} fill="none" stroke={`url(#eqCurveStroke-${deviceId})`} strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round" />
+                    </>
+                )}
+                {enabledBands.length === 0 && (
                     <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="color-mix(in srgb, var(--color-text-primary) 34%, transparent)" fontSize="10" fontFamily="var(--font-sans)">
                         Double-click to add EQ point
                     </text>

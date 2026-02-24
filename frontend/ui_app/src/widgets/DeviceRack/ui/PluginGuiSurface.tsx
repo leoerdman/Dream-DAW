@@ -13,9 +13,6 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { useEqBandDragEffect } from '@/widgets/DeviceRack/model/useEqBandDragEffect';
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 
-/* ── Module-level EQ filter type cache (persists across component remounts) ── */
-// BUG-H12 FIX: Use a Map with a max-size eviction to prevent memory leak.
-// Over long sessions with many EQ create/delete cycles, old entries are evicted.
 const MAX_EQ_CACHE_SIZE = 64;
 const eqFilterTypeCache = new Map<string, string[]>();
 const EQ_DEFAULT_TYPES = ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
@@ -44,7 +41,6 @@ export const PluginGuiSurface = ({
     const [dragEqBand, setDragEqBand] = useState<number | null>(null);
     const [selectedEqBand, setSelectedEqBand] = useState<number | null>(null);
     const [eqContextMenu, setEqContextMenu] = useState<{ x: number; y: number; bandIdx: number } | null>(null);
-    // Persist EQ filter types across component remounts via module-level cache
     const [eqBandFilterTypes, setEqBandFilterTypes] = useState<string[]>(() => {
         const cached = eqFilterTypeCache.get(device.id);
         return cached ?? EQ_DEFAULT_TYPES;
@@ -58,7 +54,6 @@ export const PluginGuiSurface = ({
         const next = resolvedEqBandFilterTypes;
         if (!cached || cached.length !== next.length || cached.some((v, i) => v !== next[i])) {
             eqFilterTypeCache.set(device.id, next);
-            // BUG-H12 FIX: Evict oldest entries when cache exceeds max size.
             if (eqFilterTypeCache.size > MAX_EQ_CACHE_SIZE) {
                 const firstKey = eqFilterTypeCache.keys().next().value;
                 if (firstKey !== undefined) eqFilterTypeCache.delete(firstKey);
@@ -70,26 +65,23 @@ export const PluginGuiSurface = ({
         });
     }, [device.id, resolvedEqBandFilterTypes]);
 
-    // ── Spectrum analyzer state ──
     const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
     const [spectrumData, setSpectrumData] = useState<number[] | null>(null);
     const lastSpectrumRef = useRef<number[] | null>(null);
 
-    // Poll spectrum data from the Rust FFT engine at ~20fps when enabled
-    // BUG-P17 FIX: Check active flag BEFORE invoke to prevent stale result stacking on rapid toggle.
     useEffect(() => {
         if (!eqSpectrumEnabled) { setSpectrumData(null); return; }
         let active = true;
-        let errorBackoff = 50; // BUG-H13 FIX: Start with 50ms, double on error, max 2000ms.
+        let errorBackoff = 50;
         const poll = async () => {
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
                 while (active) {
-                    if (!active) break; // Pre-invoke guard
+                    if (!active) break;
                     try {
                         const data = await invoke<number[]>('get_spectrum_data');
                         if (!active) break;
-                        errorBackoff = 50; // Reset backoff on success.
+                        errorBackoff = 50;
                         if (Array.isArray(data) && data.length > 0) {
                             const prev = lastSpectrumRef.current;
                             if (prev && prev.length === data.length) {
@@ -104,14 +96,13 @@ export const PluginGuiSurface = ({
                             lastSpectrumRef.current = null;
                             setSpectrumData(null);
                         }
-                        await new Promise(r => setTimeout(r, 50)); // ~20fps
+                        await new Promise(r => setTimeout(r, 50));
                     } catch {
-                        // BUG-H13 FIX: Exponential backoff on repeated errors.
                         errorBackoff = Math.min(errorBackoff * 2, 2000);
                         await new Promise(r => setTimeout(r, errorBackoff));
                     }
                 }
-            } catch { /* silence errors when component unmounts */ }
+            } catch {}
         };
         poll();
         return () => {
@@ -119,7 +110,6 @@ export const PluginGuiSurface = ({
             lastSpectrumRef.current = null;
         };
     }, [eqSpectrumEnabled]);
-    // SSOT: canonical source of sample rate — consumed by EQ biquad curve renderer
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
 
     useEffect(() => {
@@ -130,7 +120,6 @@ export const PluginGuiSurface = ({
         }
         const samplePath = device.samplePath?.trim();
         if (!samplePath) {
-            // BUG-80 FIX: Clear stale waveform when device/sample changes.
             setWaveformPeaks(null);
             return;
         }
@@ -199,7 +188,6 @@ export const PluginGuiSurface = ({
         return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
     }, [waveformPeaks]);
 
-    /* ── 8-band EQ gesture helpers ── */
     const beginEqBandGesture = useCallback((bandIdx: number) => {
         const gestureGroupId = `${device.id}:eq-band:${bandIdx}:${Date.now()}`;
         onParamGestureStart?.(`B${bandIdx}Freq`, gestureGroupId);
@@ -222,7 +210,6 @@ export const PluginGuiSurface = ({
         setDragEqBand,
     });
 
-    // Close context menu on click outside
     useEffect(() => {
         if (!eqContextMenu) return;
         const handler = () => setEqContextMenu(null);

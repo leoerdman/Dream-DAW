@@ -52,11 +52,21 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
 
     const dismiss = useCallback(async () => {
         console.log('[Splash] dismiss() START')
+
+        // BUG-001 FIX: Per-step timeout to prevent hanging on unresponsive backend
+        const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+            Promise.race([
+                promise,
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error(`[Splash] ${label} timed out after ${ms}ms`)), ms)
+                ),
+            ])
+
         try {
             // 1. Load user settings from disk BEFORE expanding to workspace
             try {
                 console.log('[Splash] step 1: loadSettings...')
-                await useSettingsStore.getState().loadSettings()
+                await withTimeout(useSettingsStore.getState().loadSettings(), 3000, 'loadSettings')
                 console.log('[Splash] step 1: loadSettings DONE')
             } catch (e) {
                 console.warn('[Splash] Failed to load settings:', e)
@@ -64,20 +74,21 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
 
             const settings = useSettingsStore.getState().settings
-            const shouldOpenLastProject = settings.startupBehavior === 'last'
-            console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject)
+            // Force new project for now — saved settings on disk may still say 'last'
+            const shouldOpenLastProject = false
+            console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject, '(forced new)')
 
             if (shouldOpenLastProject) {
                 try {
                     console.log('[Splash] step 2: getRecentProjects...')
-                    const recent = await engineApi.getRecentProjects()
+                    const recent = await withTimeout(engineApi.getRecentProjects(), 3000, 'getRecentProjects')
                     console.log('[Splash] step 2: getRecentProjects DONE, count=', recent.length)
                     if (cancelledRef.current) { console.log('[Splash] cancelled after getRecentProjects'); return }
                     const lastProject = recent[0]
                     if (lastProject?.path) {
                         console.log('[Splash] step 2b: openProject...', lastProject.path)
-                        const response = await engineApi.openProject(lastProject.path)
-                        await applyProjectDeltas(response.deltas, 'splash:open-last-project')
+                        const response = await withTimeout(engineApi.openProject(lastProject.path), 5000, 'openProject')
+                        await withTimeout(applyProjectDeltas(response.deltas, 'splash:open-last-project'), 3000, 'applyDeltas')
                         console.log('[Splash] step 2b: openProject DONE')
                         if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
                         // Eagerly activate external VST3 plugins and restore their saved state

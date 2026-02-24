@@ -20,6 +20,7 @@
 pub mod descriptor;
 pub mod format;
 pub mod instance;
+pub mod au_host;
 pub mod sandbox_host;
 pub mod sandbox_instance;
 pub mod sandbox_ipc;

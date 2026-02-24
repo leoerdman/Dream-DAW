@@ -23,7 +23,14 @@ export function agentBridgePlugin(): Plugin {
         enforce: 'post',
 
         configureServer(server) {
-            wss = new WebSocketServer({ port: BRIDGE_PORT });
+            try {
+                wss = new WebSocketServer({ port: BRIDGE_PORT });
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                console.warn(`  \u{1F309} Agent Bridge disabled: ${message}`);
+                wss = null;
+                return;
+            }
             console.log(`  \u{1F309} Agent Bridge listening on ws://localhost:${BRIDGE_PORT}`);
 
             wss.on('connection', (ws: WebSocket) => {
@@ -63,6 +70,16 @@ export function agentBridgePlugin(): Plugin {
             });
 
             wss.on('error', (err: Error) => {
+                if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+                    console.warn(`  \u{1F309} Agent Bridge disabled: port ${BRIDGE_PORT} is already in use`);
+                    try {
+                        wss?.close();
+                    } catch {
+                        // best effort shutdown
+                    }
+                    wss = null;
+                    return;
+                }
                 console.warn('  \u{1F309} Agent Bridge server error:', err.message);
             });
         },

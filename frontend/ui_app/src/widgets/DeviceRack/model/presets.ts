@@ -18,9 +18,27 @@ export const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], Q
         { label: 'Wash', values: { time: 560, fb: 60, 'dry/wet': 48 } },
     ],
     reverb: [
-        { label: 'Room', values: { decay: 26, tone: 32, 'dry/wet': 16 } },
-        { label: 'Hall', values: { decay: 52, tone: 50, 'dry/wet': 24 } },
-        { label: 'Shimmer', values: { decay: 72, tone: 76, 'dry/wet': 34 } },
+        {
+            label: 'Room',
+            values: {
+                decay: 28, tone: 36, 'dry/wet': 16, predelay: 5, width: 90,
+                'lo cut': 120, 'hi cut': 12000, diffusion: 58, density: 62, chorus: 10,
+            },
+        },
+        {
+            label: 'Hall',
+            values: {
+                decay: 56, tone: 52, 'dry/wet': 24, predelay: 14, width: 100,
+                'lo cut': 80, 'hi cut': 14500, diffusion: 78, density: 82, chorus: 22,
+            },
+        },
+        {
+            label: 'Shimmer',
+            values: {
+                decay: 76, tone: 74, 'dry/wet': 34, predelay: 22, width: 100,
+                'lo cut': 140, 'hi cut': 17800, diffusion: 92, density: 90, chorus: 34,
+            },
+        },
     ],
     chorus: [
         { label: 'Subtle', values: { rate: 0.8, depth: 24, mix: 18 } },

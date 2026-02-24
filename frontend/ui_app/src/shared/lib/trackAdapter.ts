@@ -103,6 +103,8 @@ export interface ProjectTrack {
     color: string;
     volume: number;
     pan: number;
+    send_a: number;
+    send_b: number;
     is_mute: boolean;
     is_solo: boolean;
     is_armed: boolean;
@@ -186,6 +188,16 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         ? flattenDeviceNode(raw.instrument as DeviceNode)
         : null;
 
+    const automationLanes = Array.isArray(raw.automation_lanes) ? raw.automation_lanes : [];
+    const readSend = (paramId: 'send.A' | 'send.B'): number => {
+        const lane = automationLanes.find((l) => (l?.param_id ?? '').toLowerCase() === paramId.toLowerCase());
+        if (!lane || !Array.isArray(lane.points) || lane.points.length === 0) return 0;
+        const last = lane.points[lane.points.length - 1];
+        const v = Number(last?.value ?? 0);
+        if (!Number.isFinite(v)) return 0;
+        return Math.max(0, Math.min(1, v));
+    };
+
     return {
         id: raw.id,
         name: raw.name,
@@ -193,6 +205,8 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         color,
         volume: raw.volume ?? 1.0,
         pan: raw.pan ?? 0.0,
+        send_a: readSend('send.A'),
+        send_b: readSend('send.B'),
         is_mute: Boolean(raw.is_mute ?? false),
         is_solo: Boolean(raw.is_solo ?? false),
         is_armed: Boolean(raw.is_armed ?? false),
@@ -212,6 +226,6 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         instrument,
         sampler: raw.sampler ?? null,
         sample_rack: raw.sample_rack ?? null,
-        automation_lanes: Array.isArray(raw.automation_lanes) ? raw.automation_lanes : [],
+        automation_lanes: automationLanes,
     };
 }

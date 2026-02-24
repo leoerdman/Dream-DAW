@@ -26,13 +26,23 @@ const readSlotName = (slot: unknown): string => readSlotStringField(slot, 'name'
 const readSlotId = (slot: unknown): string => readSlotStringField(slot, 'id');
 
 const decodeWantedPluginName = (pluginId: string, displayName: string): string => {
+    const decode = (value: string): string => {
+        try {
+            return decodeURIComponent(value);
+        } catch {
+            return value;
+        }
+    };
     if (pluginId.startsWith('missing://')) {
         const query = pluginId.split('?')[1] ?? '';
         const params = new URLSearchParams(query);
         const name = params.get('name') || params.get('vst3') || params.get('user') || params.get('vst2');
-        if (name && name.trim()) return name.trim();
+        const decoded = decode(name ?? '');
+        if (decoded.trim()) return decoded.trim();
     }
-    return displayName.replace(/^Plugin Not Found:\s*/i, '').trim() || 'plugin';
+    const stripped = displayName.replace(/^Plugin Not Found:\s*/i, '').trim();
+    const primary = stripped.split('[')[0]?.trim() ?? stripped;
+    return primary || 'plugin';
 };
 
 export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps) => {
@@ -43,6 +53,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
 
     const [pluginEntries, setPluginEntries] = useState<engineApi.BrowserFileEntry[]>([]);
     const [scanBusy, setScanBusy] = useState(false);
+    const [autoResolveBusy, setAutoResolveBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
     const missingClips = useMemo<MissingClipItem[]>(() => {
@@ -103,7 +114,27 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
         void engineApi.scanPluginFolders()
             .then((entries) => {
                 if (!mounted) return;
-                setPluginEntries(entries.filter((e) => e.file_type === 'plugin' && e.extension.toUpperCase() === 'VST3'));
+                setPluginEntries(entries.filter((e) => e.file_type === 'plugin'));
+                // Auto-retry resolver immediately after scan so user does not
+                // need to click Auto Resolve manually every time.
+                return engineApi.autoResolveMissingPluginsReportWithDeltas();
+            })
+            .then(async (response) => {
+                if (!mounted || !response) return;
+                if (response.deltas.length > 0) {
+                    await applyProjectDeltas(response.deltas, 'missing-assets:scan-auto-resolve');
+                }
+                const resolved = response.resolved_internal + response.resolved_external;
+                if (resolved > 0) {
+                    setMessage(`Auto-resolved ${resolved} missing plugin slot(s) after scan`);
+                } else if (response.missing_after > 0) {
+                    const unresolvedPreview = response.unresolved_labels.slice(0, 2).join(', ');
+                    setMessage(unresolvedPreview.length > 0
+                        ? `Scan complete: ${response.missing_after} unresolved (${unresolvedPreview})`
+                        : `Scan complete: ${response.missing_after} unresolved`);
+                } else {
+                    setMessage('Scan complete: no missing plugin slots');
+                }
             })
             .catch((err) => {
                 console.error('[MissingAssets] scanPluginFolders failed:', err);
@@ -116,7 +147,33 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             mounted = false;
             window.cancelAnimationFrame(raf);
         };
-    }, [isOpen, missingPlugins.length]);
+    }, [isOpen, missingPlugins.length, applyProjectDeltas]);
+
+    const runAutoResolvePlugins = async () => {
+        if (autoResolveBusy || missingPlugins.length === 0) return;
+        setAutoResolveBusy(true);
+        setMessage('Auto-resolving missing plugins...');
+        try {
+            const response = await engineApi.autoResolveMissingPluginsReportWithDeltas();
+            await applyProjectDeltas(response.deltas, 'missing-assets:auto-resolve-bulk');
+            const resolved = response.resolved_internal + response.resolved_external;
+            if (resolved > 0) {
+                setMessage(`Auto Resolve complete: fixed ${resolved} slot(s), ${response.missing_after} unresolved`);
+            } else if (response.missing_after > 0) {
+                const unresolvedPreview = response.unresolved_labels.slice(0, 3).join(', ');
+                setMessage(unresolvedPreview.length > 0
+                    ? `Auto Resolve: ${response.missing_after} unresolved (${unresolvedPreview})`
+                    : `Auto Resolve: ${response.missing_after} unresolved`);
+            } else {
+                setMessage('Auto Resolve complete');
+            }
+        } catch (err) {
+            console.error('[MissingAssets] auto resolve failed:', err);
+            setMessage('Auto Resolve failed');
+        } finally {
+            setAutoResolveBusy(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -146,17 +203,37 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         {missingClips.length} files offline · {missingPlugins.length} plugins missing
                     </span>
                 </div>
-                <button onClick={onClose} style={{
-                    border: 'var(--border-width-1) solid var(--color-divider)',
-                    background: 'var(--color-bg-header)',
-                    color: 'var(--color-text-secondary)',
-                    borderRadius: 'var(--radius-lg)',
-                    fontSize: 'var(--font-size-sm)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                    padding: 'var(--space-1) var(--space-2)',
-                    cursor: 'pointer',
-                    transition: `background var(--transition-fast)`,
-                }}>Close</button>
+                <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
+                    <button
+                        onClick={() => { void runAutoResolvePlugins(); }}
+                        disabled={autoResolveBusy || missingPlugins.length === 0}
+                        style={{
+                            border: 'var(--border-width-1) solid var(--color-divider)',
+                            background: 'var(--color-bg-header)',
+                            color: 'var(--color-text-secondary)',
+                            borderRadius: 'var(--radius-lg)',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                            padding: 'var(--space-1) var(--space-2)',
+                            cursor: autoResolveBusy || missingPlugins.length === 0 ? 'default' : 'pointer',
+                            opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.6 : 1,
+                            transition: `background var(--transition-fast)`,
+                        }}
+                    >
+                        {autoResolveBusy ? 'Resolving...' : 'Auto Resolve'}
+                    </button>
+                    <button onClick={onClose} style={{
+                        border: 'var(--border-width-1) solid var(--color-divider)',
+                        background: 'var(--color-bg-header)',
+                        color: 'var(--color-text-secondary)',
+                        borderRadius: 'var(--radius-lg)',
+                        fontSize: 'var(--font-size-sm)',
+                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                        padding: 'var(--space-1) var(--space-2)',
+                        cursor: 'pointer',
+                        transition: `background var(--transition-fast)`,
+                    }}>Close</button>
+                </div>
             </div>
 
             <div style={{ overflowY: 'auto', padding: 'var(--space-2-5)', display: 'grid', gap: 'var(--space-3)' }}>

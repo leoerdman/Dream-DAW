@@ -1,3 +1,79 @@
+fn restore_slot_state_for_export(
+    plugin_host_state: &PluginHostState,
+    slot: &dream_models::project::PluginSlot,
+    instance_id: uuid::Uuid,
+    restored_state_count: &mut usize,
+) {
+    if slot.external_state_blob.is_none() && slot.external_preset_blob.is_none() {
+        return;
+    }
+
+    let Ok(mut host) = plugin_host_state.host.lock() else {
+        log::warn!(
+            "[Export] Host lock failed for plugin state restore (slot='{}' id={})",
+            slot.name,
+            slot.id
+        );
+        return;
+    };
+
+    if let Err(err) = crate::commands::plugins_routing_helpers::apply_imported_external_state_blob(
+        &mut host,
+        instance_id,
+        slot,
+    ) {
+        log::warn!(
+            "[Export] Failed to restore imported state for slot '{}' ({}): {}",
+            slot.name,
+            slot.id,
+            err
+        );
+    } else {
+        *restored_state_count = restored_state_count.saturating_add(1);
+    }
+}
+
+fn ensure_slot_loaded_for_export(
+    plugin_host_state: &PluginHostState,
+    slot: &dream_models::project::PluginSlot,
+    slot_instance_map: &mut std::sync::Arc<std::collections::HashMap<uuid::Uuid, uuid::Uuid>>,
+    ensure_loaded_count: &mut usize,
+    restored_state_count: &mut usize,
+) {
+    let plugin_id = slot.plugin_id.as_str();
+    if plugin_id.starts_with("internal://") || plugin_id.starts_with("missing://") {
+        return;
+    }
+
+    if let Some(instance_id) = slot_instance_map.get(&slot.id).copied() {
+        restore_slot_state_for_export(plugin_host_state, slot, instance_id, restored_state_count);
+        return;
+    }
+
+    match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, plugin_id) {
+        Ok(_) => {
+            *ensure_loaded_count = ensure_loaded_count.saturating_add(1);
+            *slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            if let Some(instance_id) = slot_instance_map.get(&slot.id).copied() {
+                restore_slot_state_for_export(
+                    plugin_host_state,
+                    slot,
+                    instance_id,
+                    restored_state_count,
+                );
+            }
+        }
+        Err(err) => {
+            log::warn!(
+                "[Export] Failed to ensure plugin instance for slot '{}' ({}): {}",
+                slot.name,
+                plugin_id,
+                err
+            );
+        }
+    }
+}
+
 /// Offline bounce/export command.
 #[tauri::command]
 async fn export_mix_cmd(
@@ -88,57 +164,64 @@ async fn export_mix_cmd(
     // to a plugin instance, VST instruments/FX can render as silence.
     // Re-bind missing external slots before snapshotting.
     let mut ensure_loaded_count = 0usize;
+    let mut restored_state_count = 0usize;
     let mut slot_instance_map = plugin_host_state.slot_instance_snapshot();
-    let mut ensure_loaded_slot = |slot: &dream_models::project::PluginSlot| {
-        let plugin_id = slot.plugin_id.as_str();
-        if plugin_id.starts_with("internal://") || plugin_id.starts_with("missing://") {
-            return;
-        }
-        if slot_instance_map.contains_key(&slot.id) {
-            return;
-        }
-        match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, plugin_id) {
-            Ok(_) => {
-                ensure_loaded_count = ensure_loaded_count.saturating_add(1);
-                slot_instance_map = plugin_host_state.slot_instance_snapshot();
-            }
-            Err(err) => {
-                log::warn!(
-                    "[Export] Failed to ensure plugin instance for slot '{}' ({}): {}",
-                    slot.name,
-                    plugin_id,
-                    err
-                );
-            }
-        }
-    };
-
     for track in &project.tracks {
         if let Some(inst) = &track.instrument {
             for slot in inst.collect_plugin_slots() {
-                ensure_loaded_slot(slot);
+                ensure_slot_loaded_for_export(
+                    &plugin_host_state,
+                    slot,
+                    &mut slot_instance_map,
+                    &mut ensure_loaded_count,
+                    &mut restored_state_count,
+                );
             }
         }
         for node in &track.effects {
             for slot in node.collect_plugin_slots() {
-                ensure_loaded_slot(slot);
+                ensure_slot_loaded_for_export(
+                    &plugin_host_state,
+                    slot,
+                    &mut slot_instance_map,
+                    &mut ensure_loaded_count,
+                    &mut restored_state_count,
+                );
             }
         }
     }
     if let Some(inst) = &project.master_track.instrument {
         for slot in inst.collect_plugin_slots() {
-            ensure_loaded_slot(slot);
+            ensure_slot_loaded_for_export(
+                &plugin_host_state,
+                slot,
+                &mut slot_instance_map,
+                &mut ensure_loaded_count,
+                &mut restored_state_count,
+            );
         }
     }
     for node in &project.master_track.effects {
         for slot in node.collect_plugin_slots() {
-            ensure_loaded_slot(slot);
+            ensure_slot_loaded_for_export(
+                &plugin_host_state,
+                slot,
+                &mut slot_instance_map,
+                &mut ensure_loaded_count,
+                &mut restored_state_count,
+            );
         }
     }
     if ensure_loaded_count > 0 {
         log::info!(
             "[Export] Ensured {} previously-unbound external plugin slot(s) before bounce",
             ensure_loaded_count
+        );
+    }
+    if restored_state_count > 0 {
+        log::info!(
+            "[Export] Restored imported plugin state/preset for {} external slot(s) before bounce",
+            restored_state_count
         );
     }
 
@@ -225,9 +308,12 @@ async fn export_mix_cmd(
 
     // Ensure plugins are reactivated for the current export processing format.
     // This avoids silent passthrough when a plugin stayed in a stale inactive state.
-    plugin_host_state
-        .reactivate_all(project.sample_rate.max(1.0), 512)
-        .map_err(|e| format!("Export aborted: failed to reactivate plugin runtime: {e}"))?;
+    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), 512) {
+        log::warn!(
+            "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
+            e
+        );
+    }
 
     // ── ENTERPRISE FIX: Stop playback before VST pre-render ────────────
     // The RT audio thread shares PluginInstanceArc with this export thread.

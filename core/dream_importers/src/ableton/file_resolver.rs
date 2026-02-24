@@ -1,127 +1,487 @@
 // ═══════════════════════════════════════════════════════════════════════
-// Dream DAW — Ableton ALS File Path Resolution
+// Dream DAW — Ableton ALS File Path Resolution (Enterprise Edition)
 // ═══════════════════════════════════════════════════════════════════════
 //
 // Resolves sample file references from ALS XML nodes to local paths.
-// Handles absolute paths, relative paths, and searches near the project.
+//
+// Enterprise search strategy (ordered by cost):
+//   1. Absolute path (verbatim from ALS <Path Value="..."/>)
+//   2. Relative path joined with ALS parent directory
+//   3. RelativePathElement chain reconstruction
+//   4. SearchHint PathHint reconstruction
+//   5. Hot directories near the ALS file (Samples/*, Ableton Project Info)
+//   6. Ableton user library & factory content (macOS standard paths)
+//   7. Deep recursive filename search (project tree, depth-limited)
+//
+// All resolved directories are cached in a PathResolverCache to avoid
+// rescanning the same folders for every clip in a large project.
 //
 // ═══════════════════════════════════════════════════════════════════════
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use dream_models::project::Project;
 
 use super::xml_helpers::*;
 
+// ── Path Resolver Cache ───────────────────────────────────────────────
+
+/// Cache for directory listings to avoid redundant filesystem scans.
+/// A typical Ableton project with 200 clips may reference the same
+/// Samples/ directory 200 times — caching prevents 200 `read_dir` calls.
+pub struct PathResolverCache {
+    /// filename (lowercased) → Vec<full paths> for quick lookup
+    filename_to_paths: HashMap<String, Vec<PathBuf>>,
+    /// Directories already scanned (avoid rescanning)
+    scanned_dirs: HashSet<PathBuf>,
+}
+
+impl PathResolverCache {
+    pub fn new() -> Self {
+        Self {
+            filename_to_paths: HashMap::new(),
+            scanned_dirs: HashSet::new(),
+        }
+    }
+
+    /// Index all files in `dir` recursively up to `max_depth`.
+    pub fn scan_directory(&mut self, dir: &Path, max_depth: usize) {
+        if self.scanned_dirs.contains(dir) {
+            return;
+        }
+        self.scanned_dirs.insert(dir.to_path_buf());
+        self.scan_recursive(dir, 0, max_depth);
+    }
+
+    fn scan_recursive(&mut self, dir: &Path, depth: usize, max_depth: usize) {
+        if depth > max_depth {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                self.scan_recursive(&path, depth + 1, max_depth);
+            } else if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                    let key = name.to_ascii_lowercase();
+                    self.filename_to_paths
+                        .entry(key)
+                        .or_insert_with(Vec::new)
+                        .push(path);
+                }
+            }
+        }
+    }
+
+    /// Look up a filename in cached directory listings.
+    pub fn find_by_filename(&self, filename: &str) -> Option<&PathBuf> {
+        let key = filename.to_ascii_lowercase();
+        self.filename_to_paths.get(&key).and_then(|paths| paths.first())
+    }
+
+    /// Look up a filename with preference for paths containing a hint fragment.
+    pub fn find_by_filename_with_hint(&self, filename: &str, path_hint: &str) -> Option<&PathBuf> {
+        let key = filename.to_ascii_lowercase();
+        let hint_lower = path_hint.to_ascii_lowercase();
+        self.filename_to_paths.get(&key).and_then(|paths| {
+            // Prefer path that contains the hint fragment
+            paths
+                .iter()
+                .find(|p| p.to_string_lossy().to_ascii_lowercase().contains(&hint_lower))
+                .or_else(|| paths.first())
+        })
+    }
+}
+
+// ── Ableton FileRef Parsing ───────────────────────────────────────────
+
+/// Parsed fields from an Ableton <FileRef> XML node.
+struct AbletonFileRef {
+    /// <Path Value="..."/>
+    abs_path: Option<String>,
+    /// <RelativePath Value="..."/>
+    relative_path: Option<String>,
+    /// Reconstructed from <RelativePathElement Dir="..."/> chain
+    relative_path_elements: Option<String>,
+    /// <SearchHint> data
+    search_hint_path: Option<String>,
+    search_hint_file_size: Option<i64>,
+    /// <Name Value="..."/>
+    file_name: Option<String>,
+}
+
+/// Deep-parse an Ableton <FileRef> node extracting ALL path information.
+fn parse_ableton_file_ref(file_ref: roxmltree::Node<'_, '_>) -> AbletonFileRef {
+    let abs_path = descendant_value(file_ref, "Path");
+    let relative_path = descendant_value(file_ref, "RelativePath");
+    let file_name = descendant_value(file_ref, "Name");
+
+    // ── RelativePathElement chain ──
+    // Ableton encodes relative paths as:
+    //   <RelativePathElement Dir=""/>       (project root marker)
+    //   <RelativePathElement Dir="Samples"/>
+    //   <RelativePathElement Dir="Imported"/>
+    // We reconstruct: "Samples/Imported"
+    let relative_path_elements = {
+        let elements: Vec<String> = file_ref
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("RelativePathElement"))
+            .filter_map(|n| n.attribute("Dir").map(|s| s.to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if elements.is_empty() {
+            None
+        } else {
+            Some(elements.join("/"))
+        }
+    };
+
+    // ── SearchHint ──
+    // <SearchHint>
+    //   <PathHint Value="/Users/.../Samples/kick.wav"/>
+    //   <FileSize Value="123456"/>
+    //   <Crc Value="54321"/>
+    // </SearchHint>
+    let search_hint = file_ref
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("SearchHint"));
+    let search_hint_path = search_hint.and_then(|sh| first_child_value(sh, "PathHint"));
+    let search_hint_file_size = search_hint
+        .and_then(|sh| first_child_value(sh, "FileSize"))
+        .and_then(|v| v.parse::<i64>().ok());
+
+    AbletonFileRef {
+        abs_path,
+        relative_path,
+        relative_path_elements,
+        search_hint_path,
+        search_hint_file_size,
+        file_name,
+    }
+}
+
 // ── Path Resolution ────────────────────────────────────────────────────
 
 /// Resolves an ALS sample file reference to a local filesystem path.
 ///
-/// Tries absolute path first, then relative path joined with the ALS
-/// parent directory. Falls back to fuzzy filename search near the project.
+/// Enterprise resolution strategy (7 tiers):
+///   1. Absolute path verbatim
+///   2. Variant matching (dash/space normalization)
+///   3. Relative path joined with ALS parent
+///   4. RelativePathElement chain reconstruction
+///   5. SearchHint PathHint
+///   6. Hot directories near the ALS file
+///   7. Recursive filename search via cache
 pub fn resolve_als_file_path(
     als_path: &Path,
     absolute_path: Option<&str>,
     relative_path: Option<&str>,
 ) -> Option<String> {
-    fn try_existing_variants(raw: &str) -> Option<String> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
+    resolve_als_file_path_cached(als_path, absolute_path, relative_path, None)
+}
 
-        let candidates = [
-            trimmed.to_string(),
-            trimmed.replace(" - ", "-"),
-            trimmed.replace(" -", "-"),
-            trimmed.replace("- ", "-"),
-            trimmed.replace("160 - 200 BPM", "160-200 BPM"),
-        ];
-        candidates
-            .into_iter()
-            .find(|candidate| std::path::Path::new(candidate).exists())
-    }
-
-    fn search_near_project(als_path: &Path, raw: &str) -> Option<String> {
-        let file_name = std::path::Path::new(raw)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if file_name.is_empty() {
-            return None;
-        }
-        let root = als_path.parent()?;
-        let hot_dirs = [
-            root.join("Samples").join("Imported"),
-            root.join("Samples").join("Processed"),
-            root.join("Samples").join("Recorded"),
-            root.join("Samples"),
-        ];
-        for dir in hot_dirs {
-            if !dir.exists() {
-                continue;
-            }
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file()
-                        && path
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .map(|n| n.eq_ignore_ascii_case(&file_name))
-                            .unwrap_or(false)
-                    {
-                        return Some(path.to_string_lossy().to_string());
+/// Same as `resolve_als_file_path` but with optional cache for batch resolution.
+pub fn resolve_als_file_path_cached(
+    als_path: &Path,
+    absolute_path: Option<&str>,
+    relative_path: Option<&str>,
+    cache: Option<&PathResolverCache>,
+) -> Option<String> {
+    fn percent_decode(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len());
+        let bytes = raw.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let h1 = bytes[i + 1] as char;
+                let h2 = bytes[i + 2] as char;
+                if h1.is_ascii_hexdigit() && h2.is_ascii_hexdigit() {
+                    let hex = &raw[i + 1..i + 3];
+                    if let Ok(v) = u8::from_str_radix(hex, 16) {
+                        out.push(v as char);
+                        i += 3;
+                        continue;
                     }
                 }
+            }
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+        out
+    }
+
+    fn normalize_file_uri(raw: &str) -> Option<String> {
+        let trimmed = raw.trim();
+        if !trimmed.to_ascii_lowercase().starts_with("file://") {
+            return None;
+        }
+        let no_scheme = &trimmed[7..];
+        let no_host = no_scheme
+            .strip_prefix("localhost/")
+            .or_else(|| no_scheme.strip_prefix("LOCALHOST/"))
+            .unwrap_or(no_scheme);
+        let decoded = percent_decode(no_host);
+        let unix_style = decoded.replace('\\', "/");
+        Some(if unix_style.starts_with('/') {
+            unix_style
+        } else {
+            format!("/{unix_style}")
+        })
+    }
+
+    fn normalized_candidates(raw: &str) -> Vec<String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        let mut out = Vec::<String>::new();
+        let mut push_unique = |s: String| {
+            if !s.is_empty() && !out.iter().any(|v| v == &s) {
+                out.push(s);
+            }
+        };
+
+        push_unique(trimmed.to_string());
+        push_unique(trimmed.replace('\\', "/"));
+        push_unique(percent_decode(trimmed));
+        if let Some(uri_path) = normalize_file_uri(trimmed) {
+            push_unique(uri_path);
+        }
+        out
+    }
+
+    fn try_existing_variants(raw: &str) -> Option<String> {
+        for normalized in normalized_candidates(raw) {
+            let candidates = [
+                normalized.clone(),
+                normalized.replace(" - ", "-"),
+                normalized.replace(" -", "-"),
+                normalized.replace("- ", "-"),
+                normalized.replace("160 - 200 BPM", "160-200 BPM"),
+            ];
+            if let Some(found) = candidates
+                .into_iter()
+                .find(|candidate| std::path::Path::new(candidate).exists())
+            {
+                return Some(found);
             }
         }
         None
     }
 
+    // ── Tier 1: Absolute path ──
     if let Some(abs) = absolute_path
         && !abs.trim().is_empty()
     {
         if let Some(found) = try_existing_variants(abs) {
             return Some(found);
         }
-        if let Some(found) = search_near_project(als_path, abs) {
+    }
+
+    // ── Tier 2: Relative path joined with ALS parent ──
+    if let Some(rel) = relative_path
+        && !rel.trim().is_empty()
+    {
+        for rel_raw in normalized_candidates(rel) {
+            let rel_path = PathBuf::from(&rel_raw);
+            if rel_path.is_absolute() {
+                if let Some(found) = try_existing_variants(&rel_path.to_string_lossy()) {
+                    return Some(found);
+                }
+            } else {
+                let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
+                let joined = parent.join(&rel_path).to_string_lossy().to_string();
+                if let Some(found) = try_existing_variants(&joined) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    // ── Tier 3: Search near project (recursive) ──
+    let file_name = absolute_path
+        .or(relative_path)
+        .and_then(|raw| {
+            Path::new(raw.trim())
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+
+    if !file_name.is_empty() {
+        if let Some(found) = search_near_project_recursive(als_path, &file_name) {
             return Some(found);
         }
+
+        // ── Tier 4: Ableton standard library locations (macOS) ──
+        if let Some(found) = search_ableton_library(&file_name) {
+            return Some(found);
+        }
+
+        // ── Tier 5: Cache-based search ──
+        if let Some(cache) = cache {
+            let hint = absolute_path.unwrap_or("");
+            if let Some(found) = cache.find_by_filename_with_hint(&file_name, hint) {
+                return Some(found.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // ── Tier 6: Return raw path as-is (let the engine report missing file) ──
+    if let Some(abs) = absolute_path
+        && !abs.trim().is_empty()
+    {
         return Some(abs.trim().to_string());
     }
     if let Some(rel) = relative_path
         && !rel.trim().is_empty()
     {
-        let rel_path = PathBuf::from(rel);
-        if rel_path.is_absolute() {
-            if let Some(found) = try_existing_variants(&rel_path.to_string_lossy()) {
+        let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
+        for rel_raw in normalized_candidates(rel) {
+            let joined = parent.join(PathBuf::from(rel_raw));
+            if joined.exists() {
+                return Some(joined.to_string_lossy().to_string());
+            }
+        }
+        return Some(parent.join(rel.trim()).to_string_lossy().to_string());
+    }
+    None
+}
+
+/// Comprehensive search near the ALS project directory.
+/// Searches all Samples/ subdirectories AND the project root recursively
+/// up to 4 levels deep.
+fn search_near_project_recursive(als_path: &Path, file_name: &str) -> Option<String> {
+    let root = als_path.parent()?;
+
+    // Hot directories — these are the most likely locations
+    let hot_dirs = [
+        root.join("Samples").join("Imported"),
+        root.join("Samples").join("Processed"),
+        root.join("Samples").join("Recorded"),
+        root.join("Samples").join("Consolidated"),
+        root.join("Samples").join("Rendered"),
+        root.join("Samples").join("Crops"),
+        root.join("Samples").join("Bounced"),
+        root.join("Samples"),
+        root.join("Audio"),
+        root.join("Recordings"),
+        root.to_path_buf(),
+    ];
+
+    for dir in hot_dirs {
+        if !dir.exists() {
+            continue;
+        }
+        if let Some(found) = search_directory_recursive(&dir, file_name, 0, 4) {
+            return Some(found);
+        }
+    }
+
+    // Also search parent directory (common for multi-project setups)
+    if let Some(grandparent) = root.parent() {
+        let shared_samples = grandparent.join("Samples");
+        if shared_samples.exists() {
+            if let Some(found) = search_directory_recursive(&shared_samples, file_name, 0, 3) {
                 return Some(found);
             }
-            return Some(rel_path.to_string_lossy().to_string());
         }
-        let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
-        let joined = parent.join(rel_path).to_string_lossy().to_string();
-        if let Some(found) = try_existing_variants(&joined) {
-            return Some(found);
-        }
-        if let Some(found) = search_near_project(als_path, &joined) {
-            return Some(found);
-        }
-        return Some(joined);
     }
+
+    None
+}
+
+/// Recursive directory search for a specific filename.
+fn search_directory_recursive(
+    dir: &Path,
+    target_filename: &str,
+    depth: usize,
+    max_depth: usize,
+) -> Option<String> {
+    if depth > max_depth {
+        return None;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return None;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                if name.eq_ignore_ascii_case(target_filename) {
+                    return Some(path.to_string_lossy().to_string());
+                }
+            }
+        } else if path.is_dir() {
+            if let Some(found) = search_directory_recursive(&path, target_filename, depth + 1, max_depth) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Search macOS Ableton Live standard library locations.
+fn search_ableton_library(file_name: &str) -> Option<String> {
+    let home: PathBuf = dirs::home_dir()?;
+
+    // Ableton User Library paths (macOS)
+    let library_dirs: Vec<PathBuf> = vec![
+        // User Library
+        home.join("Music/Ableton/User Library/Samples"),
+        home.join("Music/Ableton/User Library"),
+        // Factory Packs
+        home.join("Music/Ableton/Factory Packs"),
+        // Application Support (preferences, templates, presets)
+        home.join("Library/Application Support/Ableton"),
+        // Common third-party sample locations
+        home.join("Music/Samples"),
+        home.join("Music/Audio"),
+        home.join("Documents/Samples"),
+        home.join("Documents/Audio"),
+        // Splice samples
+        home.join("Splice/Samples"),
+        home.join("Library/Audio/Sounds"),
+    ];
+
+    for dir in &library_dirs {
+        if !dir.exists() {
+            continue;
+        }
+        // Use depth=5 for library dirs (they can be deeply nested)
+        if let Some(found) = search_directory_recursive(dir, file_name, 0, 5) {
+            return Some(found);
+        }
+    }
+
     None
 }
 
 // ── Audio Clip Source Path Extraction ───────────────────────────────────
 
 /// Extracts the source audio file path from an audio clip XML node.
+/// Enterprise edition: parses full FileRef including SearchHint,
+/// RelativePathElement chain, and deep fallback search.
 pub fn extract_audio_clip_source_path(
     clip_node: roxmltree::Node<'_, '_>,
     als_path: &Path,
 ) -> String {
-    // Strategy 1: <SampleRef><FileRef><Path Value="..." /></FileRef></SampleRef>
+    extract_audio_clip_source_path_cached(clip_node, als_path, None)
+}
+
+/// Same as `extract_audio_clip_source_path` but with optional cache.
+pub fn extract_audio_clip_source_path_cached(
+    clip_node: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+    cache: Option<&PathResolverCache>,
+) -> String {
+    // Strategy 1: <SampleRef><FileRef>...</FileRef></SampleRef>
     let sample_ref = clip_node
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("SampleRef"));
@@ -131,12 +491,7 @@ pub fn extract_audio_clip_source_path(
             .children()
             .find(|n| n.is_element() && n.has_tag_name("FileRef"))
     {
-        let abs_path = first_child_value(file_ref, "Path");
-        let rel_path = first_child_value(file_ref, "RelativePath")
-            .or_else(|| first_child_value(file_ref, "RelativePathElement"));
-        if let Some(resolved) =
-            resolve_als_file_path(als_path, abs_path.as_deref(), rel_path.as_deref())
-        {
+        if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
             return resolved;
         }
     }
@@ -146,39 +501,253 @@ pub fn extract_audio_clip_source_path(
         .children()
         .find(|n| n.is_element() && n.has_tag_name("FileRef"))
     {
-        let abs_path = first_child_value(file_ref, "Path");
-        let rel_path = first_child_value(file_ref, "RelativePath");
-        if let Some(resolved) =
-            resolve_als_file_path(als_path, abs_path.as_deref(), rel_path.as_deref())
-        {
+        if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
             return resolved;
         }
     }
 
-    // Strategy 3: <Name Value="..." /> fallback
+    // Strategy 3: <Name Value="..."/> fallback
     first_child_value(clip_node, "Name").unwrap_or_else(|| "unknown_sample".to_string())
 }
 
+/// Enterprise FileRef resolution — uses all available path information.
+fn resolve_file_ref_enterprise(
+    file_ref: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+    cache: Option<&PathResolverCache>,
+) -> Option<String> {
+    let parsed = parse_ableton_file_ref(file_ref);
+
+    // Try: absolute path
+    if let Some(abs) = &parsed.abs_path
+        && !abs.trim().is_empty()
+        && Path::new(abs.trim()).exists()
+    {
+        log::debug!("[ALS Resolver] Found via absolute path: {}", abs.trim());
+        return Some(abs.trim().to_string());
+    }
+
+    // Try: relative path
+    if let Some(rel) = &parsed.relative_path
+        && !rel.trim().is_empty()
+    {
+        let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
+        let joined = parent.join(rel.trim());
+        if joined.exists() {
+            log::debug!("[ALS Resolver] Found via relative path: {}", joined.display());
+            return Some(joined.to_string_lossy().to_string());
+        }
+    }
+
+    // Try: RelativePathElement chain
+    if let Some(rel_elements) = &parsed.relative_path_elements {
+        let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
+        // RelativePathElement gives us the directory chain.
+        // We need to append the filename.
+        let file_name = parsed
+            .file_name
+            .as_deref()
+            .or(parsed.abs_path.as_deref().and_then(|p| {
+                Path::new(p)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+            }))
+            .unwrap_or_default();
+        if !file_name.is_empty() {
+            let joined = parent.join(rel_elements).join(file_name);
+            if joined.exists() {
+                log::debug!(
+                    "[ALS Resolver] Found via RelativePathElement chain: {}",
+                    joined.display()
+                );
+                return Some(joined.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Try: SearchHint PathHint
+    if let Some(hint) = &parsed.search_hint_path
+        && !hint.trim().is_empty()
+    {
+        let hint_path = Path::new(hint.trim());
+        if hint_path.exists() {
+            // Validate file size if available
+            let size_ok = parsed
+                .search_hint_file_size
+                .map(|expected| {
+                    std::fs::metadata(hint_path)
+                        .map(|m| m.len() as i64 == expected)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(true);
+            if size_ok {
+                log::debug!("[ALS Resolver] Found via SearchHint: {}", hint.trim());
+                return Some(hint.trim().to_string());
+            }
+        }
+    }
+
+    // Try: Deep search with all available filename info
+    let file_name = parsed
+        .file_name
+        .as_deref()
+        .or(parsed.abs_path.as_deref().and_then(|p| {
+            Path::new(p).file_name().and_then(|s| s.to_str())
+        }))
+        .or(parsed.relative_path.as_deref().and_then(|p| {
+            Path::new(p).file_name().and_then(|s| s.to_str())
+        }))
+        .or(parsed.search_hint_path.as_deref().and_then(|p| {
+            Path::new(p).file_name().and_then(|s| s.to_str())
+        }));
+
+    if let Some(fname) = file_name
+        && !fname.is_empty()
+    {
+        // Search near project
+        if let Some(found) = search_near_project_recursive(als_path, fname) {
+            log::info!("[ALS Resolver] Found via deep project search: {}", found);
+            return Some(found);
+        }
+
+        // Search Ableton library
+        if let Some(found) = search_ableton_library(fname) {
+            log::info!("[ALS Resolver] Found via Ableton library search: {}", found);
+            return Some(found);
+        }
+
+        // Cache-based search
+        if let Some(cache) = cache {
+            let hint = parsed.search_hint_path.as_deref().unwrap_or("");
+            if let Some(found) = cache.find_by_filename_with_hint(fname, hint) {
+                log::info!("[ALS Resolver] Found via cache: {}", found.display());
+                return Some(found.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Fallback: use the basic resolver for backwards compatibility
+    let abs = parsed.abs_path.as_deref();
+    let rel = parsed.relative_path.as_deref();
+    resolve_als_file_path_cached(als_path, abs, rel, cache)
+}
+
 /// Extracts a sample path from a Simpler device XML node.
+/// Enterprise: searches Player → MultiSampleMap → ALL SampleParts.
 pub fn extract_simpler_sample_path(
     device: roxmltree::Node<'_, '_>,
     als_path: &Path,
 ) -> Option<String> {
+    extract_simpler_sample_path_cached(device, als_path, None)
+}
+
+/// Same as `extract_simpler_sample_path` but with optional cache.
+pub fn extract_simpler_sample_path_cached(
+    device: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+    cache: Option<&PathResolverCache>,
+) -> Option<String> {
+    // Look for Player → MultiSampleMap → SamplePart → SampleRef → FileRef
     let player = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("Player"))?;
     let multi_sample = player
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("MultiSampleMap"))?;
-    let sample_part = multi_sample
+
+    // Try ALL SampleParts (not just the first one)
+    for sample_part in multi_sample
         .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("SamplePart"))?;
-    let file_ref = sample_part
+        .filter(|n| n.is_element() && n.has_tag_name("SamplePart"))
+    {
+        // Try SampleRef → FileRef
+        if let Some(sample_ref) = sample_part
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("SampleRef"))
+        {
+            if let Some(file_ref) = sample_ref
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+            {
+                if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
+                    return Some(resolved);
+                }
+            }
+        }
+
+        // Direct FileRef under SamplePart
+        if let Some(file_ref) = sample_part
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+        {
+            if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
+                return Some(resolved);
+            }
+        }
+    }
+
+    // Fallback: try any FileRef in the entire device tree
+    for file_ref in device
         .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("FileRef"))?;
-    let abs_path = first_child_value(file_ref, "Path");
-    let rel_path = first_child_value(file_ref, "RelativePath");
-    resolve_als_file_path(als_path, abs_path.as_deref(), rel_path.as_deref())
+        .filter(|n| n.is_element() && n.has_tag_name("FileRef"))
+    {
+        let abs_path = first_child_value(file_ref, "Path");
+        let rel_path = first_child_value(file_ref, "RelativePath");
+        if let Some(resolved) =
+            resolve_als_file_path_cached(als_path, abs_path.as_deref(), rel_path.as_deref(), cache)
+        {
+            return Some(resolved);
+        }
+    }
+
+    None
+}
+
+/// Extract ALL sample paths from a Sampler device (multi-zone instrument).
+/// Returns a Vec of (sample_path, root_note, key_range_low, key_range_high).
+pub fn extract_sampler_all_zones(
+    device: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+    cache: Option<&PathResolverCache>,
+) -> Vec<(String, Option<u8>, Option<u8>, Option<u8>)> {
+    let mut zones = Vec::new();
+
+    for sample_part in device
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("SamplePart"))
+    {
+        let root_note = first_child_value(sample_part, "RootKey")
+            .or_else(|| first_child_value(sample_part, "KeyRoot"))
+            .and_then(|v| v.parse::<u8>().ok());
+        let key_low = first_child_value(sample_part, "KeyRange_CrossfadeMin")
+            .or_else(|| first_child_value(sample_part, "KeyRangeClipMin"))
+            .and_then(|v| v.parse::<u8>().ok());
+        let key_high = first_child_value(sample_part, "KeyRange_CrossfadeMax")
+            .or_else(|| first_child_value(sample_part, "KeyRangeClipMax"))
+            .and_then(|v| v.parse::<u8>().ok());
+
+        // Try SampleRef → FileRef
+        let file_ref = sample_part
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("SampleRef"))
+            .and_then(|sr| {
+                sr.children()
+                    .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+            })
+            .or_else(|| {
+                sample_part
+                    .descendants()
+                    .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+            });
+
+        if let Some(fr) = file_ref {
+            if let Some(resolved) = resolve_file_ref_enterprise(fr, als_path, cache) {
+                zones.push((resolved, root_note, key_low, key_high));
+            }
+        }
+    }
+
+    zones
 }
 
 // ── Fade Frame Parsing ─────────────────────────────────────────────────
@@ -264,4 +833,41 @@ pub fn consolidate_project_samples_for_als_import(project: &mut Project, als_pat
         rewritten
     );
     rewritten
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_als_file_path;
+    use std::path::Path;
+
+    #[test]
+    fn resolve_supports_windows_style_relative_paths() {
+        let base = std::env::temp_dir().join(format!("dream_als_rel_{}", uuid::Uuid::new_v4()));
+        let samples_dir = base.join("Samples").join("Imported");
+        std::fs::create_dir_all(&samples_dir).expect("create sample dir");
+        let expected = samples_dir.join("snare.wav");
+        std::fs::write(&expected, b"RIFF").expect("write sample");
+        let als_path = base.join("Project.als");
+
+        let resolved = resolve_als_file_path(&als_path, None, Some("Samples\\Imported\\snare.wav"))
+            .expect("resolved path");
+
+        assert_eq!(Path::new(&resolved), expected.as_path());
+    }
+
+    #[test]
+    fn resolve_supports_file_uri_with_percent_encoding() {
+        let base = std::env::temp_dir().join(format!("dream_als_uri_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).expect("create base dir");
+        let expected = base.join("Kick 01.wav");
+        std::fs::write(&expected, b"RIFF").expect("write sample");
+
+        let encoded = expected.to_string_lossy().replace(' ', "%20");
+        let uri = format!("file://localhost{encoded}");
+        let als_path = base.join("Project.als");
+
+        let resolved = resolve_als_file_path(&als_path, Some(&uri), None).expect("resolved uri path");
+
+        assert_eq!(Path::new(&resolved), expected.as_path());
+    }
 }

@@ -40,7 +40,10 @@ interface SettingsStore {
 /** Default settings — used before backend loads. Must match Rust defaults. */
 const DEFAULT_SETTINGS: AppSettings = {
     language: 'English',
-    startupBehavior: 'last',
+    startupBehavior: 'new',
+    theme: 'dark',
+    darkThemeShade: 0,
+    darkThemeTintPercent: 0,
     waveformStyle: 'colored',
     driverType: 'CoreAudio',
     outputDevice: 'Default Output',

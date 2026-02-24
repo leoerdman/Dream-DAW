@@ -6,21 +6,18 @@ import {
     FILTER_TYPES,
     LFO_TARGETS,
     PRESETS,
-    PRESET_VALUES,
     WAVEFORMS,
     wavePath,
 } from './EssenceSynth.config';
+import { applyEssencePreset, randomizeEssenceSynth } from './EssenceSynth.actions';
 import './EssenceSynth.css';
-
 const BOTTOM_KNOB_NAMES = ['osc1vol', 'osc2vol', 'detune', 'sub', 'cutoff', 'res', 'vol', 'attack', 'decay', 'sustain', 'release', 'pulsewidth'] as const;
-
 interface EssenceSynthProps {
     params: PluginParam[];
     onParamChange: (paramName: string, value: number) => void;
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
 }
-
 export const EssenceSynth = ({
     params,
     onParamChange,
@@ -53,71 +50,30 @@ export const EssenceSynth = ({
             pulseWidth: v('pulsewidth', 0.5),
         };
     }, [params]);
-
     const findParam = useCallback((name: string): PluginParam | null => {
         return params.find(pp => pp.name.toLowerCase() === name.toLowerCase()) ?? null;
     }, [params]);
-
     const clampToParam = useCallback((name: string, value: number): number => {
         const pp = findParam(name);
         if (!pp) return value;
         return Math.max(pp.min, Math.min(pp.max, value));
     }, [findParam]);
-
     const applyPreset = useCallback((presetId: string) => {
-        const values = PRESET_VALUES[presetId];
-        if (!values) return;
-        for (const [name, value] of Object.entries(values)) {
-            onParamChange(name, clampToParam(name, value));
-        }
-        // Presets always enable OSC1; enable OSC2 only if preset uses it
-        onParamChange('Osc1Enabled', 1);
-        onParamChange('Osc2Enabled', 1);
-        // Apply per-osc volumes from preset
-        if (values.Osc1Vol !== undefined) onParamChange('Osc1Vol', values.Osc1Vol);
-        if (values.Osc2Vol !== undefined) onParamChange('Osc2Vol', values.Osc2Vol);
+        applyEssencePreset(presetId, onParamChange, clampToParam);
     }, [onParamChange, clampToParam]);
-
     const randomize = useCallback(() => {
-        const r = (min: number, max: number, step = 0.01) => {
-            const raw = min + Math.random() * (max - min);
-            return Math.round(raw / step) * step;
-        };
-        onParamChange('Osc1Enabled', 1);
-        onParamChange('Osc2Enabled', Math.random() > 0.3 ? 1 : 0);
-        onParamChange('Osc1Wave', clampToParam('Osc1Wave', Math.floor(Math.random() * 4)));
-        onParamChange('Osc2Wave', clampToParam('Osc2Wave', Math.floor(Math.random() * 4)));
-        onParamChange('Osc1Vol', clampToParam('Osc1Vol', r(0.5, 1.0)));
-        onParamChange('Osc2Vol', clampToParam('Osc2Vol', r(0.3, 0.9)));
-        onParamChange('Detune', clampToParam('Detune', r(-18, 18, 0.1)));
-        onParamChange('Sub', clampToParam('Sub', r(0, 0.5)));
-        onParamChange('Cutoff', clampToParam('Cutoff', r(200, 8000, 1)));
-        onParamChange('Res', clampToParam('Res', r(0, 0.8)));
-        onParamChange('FiltType', clampToParam('FiltType', Math.floor(Math.random() * 4)));
-        onParamChange('Vol', clampToParam('Vol', r(0.7, 1.0)));
-        onParamChange('Attack', clampToParam('Attack', r(0.001, 0.18, 0.001)));
-        onParamChange('Decay', clampToParam('Decay', r(0.03, 1.8, 0.001)));
-        onParamChange('Sustain', clampToParam('Sustain', r(0.25, 1.0)));
-        onParamChange('Release', clampToParam('Release', r(0.02, 2.2, 0.001)));
-        onParamChange('LfoRate', clampToParam('LfoRate', r(0.1, 12, 0.1)));
-        onParamChange('LfoDepth', clampToParam('LfoDepth', r(0, 0.6)));
-        onParamChange('LfoTarget', clampToParam('LfoTarget', Math.floor(Math.random() * 3)));
-        onParamChange('PulseWidth', clampToParam('PulseWidth', r(0.1, 0.9, 0.01)));
+        randomizeEssenceSynth(onParamChange, clampToParam);
     }, [onParamChange, clampToParam]);
-
     const adsrPath = useMemo(
         () => buildAdsrPath(p.attack, p.decay, p.sustain, p.release),
         [p.attack, p.decay, p.sustain, p.release],
     );
-
     const bottomKnobs = useMemo(
         () => BOTTOM_KNOB_NAMES
             .map(n => findParam(n))
             .filter((pp): pp is PluginParam => pp !== null),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [params],
     );
-
     return (
         <div className="essence" data-no-drag>
             {/* ── Header ──────────────────────────────────────── */}
@@ -139,7 +95,6 @@ export const EssenceSynth = ({
                     </button>
                 </div>
             </div>
-
             {/* ── Body: 3 column block grid ───────────────────── */}
             <div className="essence__body">
                 {/* ═══ Column 1: Oscillators ═══ */}
@@ -237,7 +192,6 @@ export const EssenceSynth = ({
                         <span className="essence__param-value">{(p.pulseWidth * 100).toFixed(0)}%</span>
                     </div>
                 </div>
-
                 {/* ═══ Column 2: Filter + Envelope ═══ */}
                 <div className="essence__section">
                     <span className="essence__section-label">Filter</span>
@@ -263,7 +217,6 @@ export const EssenceSynth = ({
                         <span className="essence__param-label">Res</span>
                         <span className="essence__param-value">{(p.res * 100).toFixed(0)}%</span>
                     </div>
-
                     <span className="essence__section-label" style={{ marginTop: 4 }}>Envelope</span>
                     <svg className="essence__adsr-graph" viewBox="0 0 120 28" preserveAspectRatio="none">
                         <path d={adsrPath} fill="none" stroke="var(--token-color-hex-5be3a7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -286,7 +239,6 @@ export const EssenceSynth = ({
                         <span className="essence__param-value">{p.release < 0.1 ? `${(p.release * 1000).toFixed(0)}ms` : `${p.release.toFixed(2)}s`}</span>
                     </div>
                 </div>
-
                 {/* ═══ Column 3: LFO + Master ═══ */}
                 <div className="essence__section" style={{ borderRight: 'none' }}>
                     <span className="essence__section-label">LFO</span>
@@ -310,7 +262,6 @@ export const EssenceSynth = ({
                         <span className="essence__param-label">Depth</span>
                         <span className="essence__param-value">{(p.lfoDepth * 100).toFixed(0)}%</span>
                     </div>
-
                     <span className="essence__section-label" style={{ marginTop: 6 }}>Master</span>
                     <div className="essence__param-row">
                         <span className="essence__param-label">Volume</span>
@@ -318,7 +269,6 @@ export const EssenceSynth = ({
                     </div>
                 </div>
             </div>
-
             {/* ── Bottom: Knob strip ─────────────────────────── */}
             <div className="essence__knobs">
                 {bottomKnobs.map(pp => (

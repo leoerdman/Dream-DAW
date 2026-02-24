@@ -40,8 +40,9 @@ use crate::ableton::routing::{
 };
 
 use crate::ableton::xml_helpers::{
-    maybe_parse_bool_manual, maybe_parse_f64_manual, node_child_value, parse_bool_value,
-    parse_i64_value, parse_track_bool_flag_legacy as parse_track_bool_flag,
+    ableton_volume_to_linear_gain, maybe_parse_bool_manual, maybe_parse_f64_manual,
+    node_child_value, parse_bool_value, parse_i64_value,
+    parse_track_bool_flag_legacy as parse_track_bool_flag,
     parse_track_i64_value_legacy as parse_track_i64_value,
     parse_track_key_note_target_legacy as parse_track_key_note_target,
     parse_track_send_manual_values,
@@ -256,7 +257,7 @@ pub fn import_als_project_with_target_sample_rate(
             let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
 
             if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
-                track.volume = volume.clamp(0.0, 2.0);
+                track.volume = ableton_volume_to_linear_gain(volume);
                 static_mixer_values.push(("volume".to_string(), track.volume));
             }
             let pan_manual = maybe_parse_f64_manual(mixer, "Pan");
@@ -495,10 +496,26 @@ pub fn import_als_project_with_target_sample_rate(
 
     normalize_internal_plugins_for_import(&mut project);
 
-    crate::ableton::file_resolver::consolidate_project_samples_for_als_import(
-        &mut project,
-        file_path,
-    );
+    // Import must stay responsive even on large projects with huge sample libraries.
+    // Sample consolidation can copy gigabytes and block UI command completion,
+    // so keep it opt-in for now.
+    let consolidate_on_import = std::env::var("DREAM_DAW_ALS_CONSOLIDATE")
+        .ok()
+        .map(|v| {
+            let s = v.trim().to_ascii_lowercase();
+            matches!(s.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false);
+    if consolidate_on_import {
+        crate::ableton::file_resolver::consolidate_project_samples_for_als_import(
+            &mut project,
+            file_path,
+        );
+    } else {
+        log::info!(
+            "[ALS Import] Sample consolidation skipped (set DREAM_DAW_ALS_CONSOLIDATE=1 to enable)."
+        );
+    }
 
     Ok(project)
 }

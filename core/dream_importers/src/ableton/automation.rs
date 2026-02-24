@@ -13,8 +13,9 @@ use crate::ableton::routing::{
     collapse_split_stereo_pan, parse_output_target,
 };
 use crate::ableton::xml_helpers::{
-    collect_track_devices, maybe_parse_bool_manual, maybe_parse_f64_manual, node_child_value,
-    parse_bool_value, parse_f64_value, parse_i64_value, parse_track_bool_flag_legacy,
+    ableton_volume_to_linear_gain, collect_track_devices, maybe_parse_bool_manual,
+    maybe_parse_f64_manual, node_child_value, parse_bool_value, parse_f64_value, parse_i64_value,
+    parse_track_bool_flag_legacy,
 };
 use dream_models::project::{AutomationLane, AutomationPoint, Track, TrackType};
 
@@ -43,7 +44,7 @@ pub fn build_main_track_mixer_snapshot(
         let split_pan_r = maybe_parse_f64_manual(mixer, "SplitStereoPanR");
 
         if let Some(v) = maybe_parse_f64_manual(mixer, "Volume") {
-            let normalized = v.clamp(0.0, 2.0);
+            let normalized = ableton_volume_to_linear_gain(v);
             volume = Some(normalized);
             static_mixer_values.push(("volume".to_string(), normalized));
         }

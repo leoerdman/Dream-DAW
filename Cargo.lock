@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "desktop_host"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -861,6 +861,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
+ "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -992,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "dream_automation"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "log",
  "serde",
@@ -1001,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "dream_clip_engine"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "arc-swap",
  "crossbeam-utils",
@@ -1013,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "dream_dsp"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "log",
  "rubato",
@@ -1022,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "dream_engine"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "arc-swap",
  "cpal",
@@ -1045,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "dream_graph"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "arc-swap",
  "dream_ipc",
@@ -1058,9 +1059,11 @@ dependencies = [
 
 [[package]]
 name = "dream_importers"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "base64 0.22.1",
+ "dirs 6.0.0",
+ "dream_io",
  "dream_models",
  "dream_plugins",
  "flate2",
@@ -1071,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "dream_io"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1086,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "dream_ipc"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "bytemuck",
  "rtrb",
@@ -1094,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "dream_mixer"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "log",
  "wide",
@@ -1102,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "dream_models"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "parking_lot",
  "serde",
@@ -1113,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "dream_mutators"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "dream_models",
  "uuid",
@@ -1121,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "dream_orchestrator"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "dream_clip_engine",
  "dream_graph",
@@ -1137,7 +1140,7 @@ dependencies = [
 
 [[package]]
 name = "dream_plugins"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "bytemuck",
  "cocoa",
@@ -1148,6 +1151,7 @@ dependencies = [
  "memmap2",
  "objc",
  "parking_lot",
+ "plist",
  "serde",
  "serde_json",
  "uuid",
@@ -1155,7 +1159,7 @@ dependencies = [
 
 [[package]]
 name = "dream_renderer"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1165,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "dream_transport"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "dream_models",
  "log",
@@ -2725,6 +2729,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
+name = "ntapi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3355,7 +3368,7 @@ dependencies = [
 
 [[package]]
 name = "plugin_host_daemon"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "base64 0.22.1",
  "bytemuck",
@@ -3966,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "rubato_test_project"
-version = "1.0.204"
+version = "1.0.221"
 dependencies = [
  "rubato",
 ]
@@ -4814,6 +4827,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.115",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.34.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4b93974b3d3aeaa036504b8eefd4c039dced109171c1ae973f1dc63b2c7e4b2"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "windows 0.56.0",
 ]
 
 [[package]]

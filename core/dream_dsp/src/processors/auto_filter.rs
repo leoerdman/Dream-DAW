@@ -194,6 +194,7 @@ impl DspProcessor for AutoFilterProcessor {
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
         let lfo_inc = self.lfo_rate as f64 / sr as f64;
+        let lfo_stereo_phase_offset = 0.20f32;
         let zdf_mode = Self::zdf_mode(self.filter_type);
         self.resonance_sm.set_target(self.resonance.clamp(0.0, 1.0));
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
@@ -222,7 +223,13 @@ impl DspProcessor for AutoFilterProcessor {
 
             // LFO
             let phase = (self.lfo_phase as f32).fract();
-            let lfo = self.lfo_value(phase);
+            let lfo_l = self.lfo_value(phase);
+            // For random S&H keep L/R tied (same held value) to avoid noisey jumps.
+            let lfo_r = if self.lfo_shape == 5 {
+                lfo_l
+            } else {
+                self.lfo_value((phase + lfo_stereo_phase_offset).fract())
+            };
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
 
@@ -232,11 +239,16 @@ impl DspProcessor for AutoFilterProcessor {
 
             // Modulated cutoff (log scale).
             let base_log_cutoff = (self.cutoff_smooth_hz / 20.0).max(1.0).log2();
-            let mod_offset = lfo * self.lfo_depth * max_range * 0.5
+            let mod_offset_l = lfo_l * self.lfo_depth * max_range * 0.5
+                + self.env_follower * self.env_amount * max_range;
+            let mod_offset_r = lfo_r * self.lfo_depth * max_range * 0.5
                 + self.env_follower * self.env_amount * max_range;
             let nyq_safe_max = (sr * 0.45).max(40.0);
-            let mod_cutoff = (20.0
-                * 2.0_f32.powf((base_log_cutoff + mod_offset).clamp(0.0, max_range)))
+            let mod_cutoff_l = (20.0
+                * 2.0_f32.powf((base_log_cutoff + mod_offset_l).clamp(0.0, max_range)))
+            .clamp(20.0, nyq_safe_max);
+            let mod_cutoff_r = (20.0
+                * 2.0_f32.powf((base_log_cutoff + mod_offset_r).clamp(0.0, max_range)))
             .clamp(20.0, nyq_safe_max);
 
             // Drive
@@ -246,8 +258,8 @@ impl DspProcessor for AutoFilterProcessor {
             // ZDF/TPT filter core
             self.zdf_l.set_mode(zdf_mode);
             self.zdf_r.set_mode(zdf_mode);
-            self.zdf_l.set_params(mod_cutoff, zdf_res);
-            self.zdf_r.set_params(mod_cutoff, zdf_res);
+            self.zdf_l.set_params(mod_cutoff_l, zdf_res);
+            self.zdf_r.set_params(mod_cutoff_r, zdf_res);
             let wet_l = self.zdf_l.process(driven_l);
             let wet_r = self.zdf_r.process(driven_r);
 
@@ -346,5 +358,30 @@ mod tests {
             let mut r = vec![0.3f32; 2048];
             proc.process_stereo(&mut l, &mut r, 44100.0);
         }
+    }
+
+    #[test]
+    fn auto_filter_stereo_lfo_decorrelates_channels() {
+        let mut proc = AutoFilterProcessor::new(44100.0);
+        proc.set_param(5, 0.0); // LP
+        proc.set_param(2, 2.5); // LFO rate
+        proc.set_param(3, 80.0); // LFO depth
+        proc.set_param(4, 0.0); // no envelope
+        proc.set_param(7, 0.0); // sine
+        proc.set_param(6, 100.0); // wet
+
+        let mut l = vec![0.2f32; 4096];
+        let mut r = vec![0.2f32; 4096];
+        proc.process_stereo(&mut l, &mut r, 44100.0);
+
+        let diff_energy: f32 = l
+            .iter()
+            .zip(r.iter())
+            .map(|(a, b)| {
+                let d = a - b;
+                d * d
+            })
+            .sum();
+        assert!(diff_energy > 1.0e-6, "Stereo LFO should decorrelate channels");
     }
 }

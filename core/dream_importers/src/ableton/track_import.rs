@@ -12,15 +12,19 @@
 
 use std::path::Path;
 
+use dream_io::audio_reader::AudioReader;
 use dream_models::midi::{MidiClip, MidiNote};
 use dream_models::project::{AudioClip, Track};
 use dream_models::time::AbsoluteTime;
 
 use super::clip_parser::{
-    parse_audio_clip_warp, parse_clip_envelopes, parse_clip_follow_action, parse_clip_groove,
-    parse_clip_launch, parse_clip_loop, parse_clip_scale_info, parse_clip_time_signature,
+    parse_audio_clip_warp, parse_audio_clip_warp_base_bpm, parse_clip_envelopes,
+    parse_clip_follow_action, parse_clip_groove, parse_clip_launch, parse_clip_loop,
+    parse_clip_scale_info, parse_clip_time_signature,
 };
-use super::color_map::{ableton_color_index_to_hex, ableton_color_to_track_color};
+use super::color_map::{
+    ableton_color_index_to_hex, ableton_color_to_track_color, extract_ableton_color_index,
+};
 use super::xml_helpers::*;
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -65,11 +69,20 @@ fn import_audio_clips(
     sample_rate: f64,
     pointee_map: &std::collections::HashMap<String, String>,
 ) {
+    let mut source_duration_cache: std::collections::HashMap<String, Option<i64>> =
+        std::collections::HashMap::new();
     for clip_node in track_node
         .descendants()
         .filter(|n| n.is_element() && n.has_tag_name("AudioClip"))
     {
-        let Some(clip) = parse_audio_clip(clip_node, als_path, bpm, sample_rate, pointee_map)
+        let Some(clip) = parse_audio_clip(
+            clip_node,
+            als_path,
+            bpm,
+            sample_rate,
+            pointee_map,
+            &mut source_duration_cache,
+        )
         else {
             continue;
         };
@@ -83,6 +96,7 @@ fn parse_audio_clip(
     bpm: f64,
     sample_rate: f64,
     pointee_map: &std::collections::HashMap<String, String>,
+    source_duration_cache: &mut std::collections::HashMap<String, Option<i64>>,
 ) -> Option<AudioClip> {
     let (start_beats, duration_beats) = parse_clip_position(clip_node)?;
 
@@ -141,6 +155,12 @@ fn parse_audio_clip(
     clip.is_warped = is_warped;
     clip.warp_mode = warp_mode;
     clip.warp_markers = warp_markers;
+    if clip.is_warped {
+        clip.warp_base_bpm = parse_audio_clip_warp_base_bpm(clip_node)
+            .or_else(|| infer_warp_base_bpm_from_markers(&clip))
+            .unwrap_or_else(|| bpm.max(1.0));
+    }
+    hydrate_warp_source_duration_frames(&mut clip, source_duration_cache);
 
     // Take ID
     clip.take_id = parse_i64_child(clip_node, "TakeId")
@@ -158,6 +178,51 @@ fn parse_audio_clip(
     clip.envelopes = parse_clip_envelopes(clip_node, pointee_map);
 
     Some(clip)
+}
+
+fn hydrate_warp_source_duration_frames(
+    clip: &mut AudioClip,
+    source_duration_cache: &mut std::collections::HashMap<String, Option<i64>>,
+) {
+    let key = clip.file_path.trim();
+    if key.is_empty() {
+        return;
+    }
+    let cached = if let Some(cached) = source_duration_cache.get(key) {
+        *cached
+    } else {
+        let resolved = AudioReader::read_metadata(key)
+            .ok()
+            .and_then(|(_, _, frames_opt)| frames_opt)
+            .and_then(|frames| i64::try_from(frames).ok())
+            .filter(|frames| *frames > 0);
+        source_duration_cache.insert(key.to_string(), resolved);
+        resolved
+    };
+    if let Some(frames) = cached {
+        clip.warp_source_duration_frames = frames.max(1);
+    }
+}
+
+fn infer_warp_base_bpm_from_markers(clip: &AudioClip) -> Option<f64> {
+    if !clip.is_warped {
+        return None;
+    }
+    if clip.warp_markers.len() < 2 {
+        return None;
+    }
+    let first = &clip.warp_markers[0];
+    let last = &clip.warp_markers[clip.warp_markers.len() - 1];
+    let sec_span = (last.sec_time - first.sec_time).abs();
+    let beat_span = (last.beat_time - first.beat_time).abs();
+    if sec_span <= f64::EPSILON || beat_span <= f64::EPSILON {
+        return None;
+    }
+    let bpm = (beat_span * 60.0) / sec_span;
+    if bpm.is_finite() && (20.0..=320.0).contains(&bpm) {
+        return Some(bpm);
+    }
+    None
 }
 
 // ── MIDI Clip Import ───────────────────────────────────────────────────
@@ -364,19 +429,6 @@ fn parse_clip_position(clip_node: roxmltree::Node<'_, '_>) -> Option<(f64, f64)>
         return None;
     }
     Some((start_beats, duration_beats))
-}
-
-fn extract_ableton_color_index(node: roxmltree::Node<'_, '_>) -> Option<i64> {
-    node.children()
-        .find(|n| n.is_element() && n.has_tag_name("Color"))
-        .and_then(|n| n.attribute("Value"))
-        .and_then(parse_i64_value)
-        .or_else(|| {
-            node.children()
-                .find(|n| n.is_element() && n.has_tag_name("ColorIndex"))
-                .and_then(|n| n.attribute("Value"))
-                .and_then(parse_i64_value)
-        })
 }
 
 fn apply_clip_disabled(clip_node: roxmltree::Node<'_, '_>, is_muted: &mut bool) {

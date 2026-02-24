@@ -271,3 +271,60 @@ fn set_track_solo_with_deltas(
         }],
     })
 }
+
+/// Sets a track send level (A/B) as normalized value 0.0..1.0.
+#[tauri::command]
+fn set_track_send_level(
+    track_index: u16,
+    send: String,
+    value: f32,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
+        track_index,
+        send,
+        value,
+    };
+    let _ = execute_orchestrator_command(&project_state, &cmd)?;
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_track_send_level_with_deltas(
+    track_index: u16,
+    send: String,
+    value: f32,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<TrackDeltaResponse, String> {
+    let cmd = dream_orchestrator::commands::SetTrackSendLevelByIndexCommand {
+        track_index,
+        send,
+        value,
+    };
+    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    let project_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    Ok(TrackDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::AutomationPointsChanged {
+            track_id: result.track_id,
+            param_id: result.param_id,
+            points: vec![dream_models::delta::AutomationPointDelta {
+                beat: 0.0,
+                value: result.value as f64,
+                curve_type: "linear".to_string(),
+                tension: None,
+            }],
+        }],
+    })
+}

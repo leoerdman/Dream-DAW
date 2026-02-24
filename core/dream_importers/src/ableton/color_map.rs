@@ -13,7 +13,16 @@ use dream_models::project::TrackColor;
 /// Maps an Ableton color index (0–69) to the nearest TrackColor variant.
 /// Falls back to `TrackColor::for_index(fallback)` for out-of-range indices.
 pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
-    match index {
+    // Ableton uses a 70-slot palette with multiple shade banks.
+    // We preserve hue semantics across the whole range instead of
+    // collapsing high indices into a single gray bucket.
+    let semantic_index = match index {
+        0..=37 => index,
+        38..=69 => index - 38,
+        _ => return TrackColor::for_index(fallback),
+    };
+
+    match semantic_index {
         // Reds / Coral
         0..=2 => TrackColor::Coral,
         // Oranges
@@ -44,9 +53,8 @@ pub fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
         32..=34 => TrackColor::Pink,
         // Roses
         35..=37 => TrackColor::Rose,
-        // Grays / Slates
-        38..=69 => TrackColor::Slate,
-        _ => TrackColor::for_index(fallback),
+        // Defensive fallback (should be unreachable for valid ALS color indices)
+        _ => TrackColor::Slate,
     }
 }
 
@@ -85,10 +93,7 @@ mod tests {
     fn color_hex_is_derived_from_track_color_mapping() {
         assert_eq!(ableton_color_index_to_hex(17), Some(TrackColor::Teal.hex()));
         assert_eq!(ableton_color_index_to_hex(24), Some(TrackColor::Blue.hex()));
-        assert_eq!(
-            ableton_color_index_to_hex(56),
-            Some(TrackColor::Slate.hex())
-        );
+        assert_eq!(ableton_color_index_to_hex(56), Some(TrackColor::Cyan.hex()));
         assert_eq!(ableton_color_index_to_hex(-1), None);
         assert_eq!(ableton_color_index_to_hex(70), None);
     }

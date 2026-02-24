@@ -8,8 +8,10 @@ license.workspace = true
 [dependencies]
 dream_models = { path = "../dream_models" }
 dream_plugins = { path = "../dream_plugins" }
+dream_io = { path = "../dream_io" }
 uuid = { workspace = true }
 log = { workspace = true }
 roxmltree = "0.20"
 flate2 = "1.0"
 base64 = "0.22"
+dirs = "6.0.0"

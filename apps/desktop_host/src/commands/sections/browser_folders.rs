@@ -199,6 +199,7 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
 #[tauri::command]
 fn scan_plugin_folders(
     settings_state: tauri::State<'_, SettingsState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<Vec<BrowserFileEntry>, String> {
     let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
     let mut entries = Vec::new();
@@ -286,6 +287,14 @@ fn scan_plugin_folders(
     }
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    if let Err(err) = plugin_host_state.clear_scan_cache() {
+        log::warn!(
+            "[IPC] scan_plugin_folders: failed to clear plugin descriptor cache: {}",
+            err
+        );
+    } else {
+        log::info!("[IPC] scan_plugin_folders: plugin descriptor cache invalidated");
+    }
     log::info!("[IPC] scan_plugin_folders: found {} plugins", entries.len());
     Ok(entries)
 }

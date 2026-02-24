@@ -26,8 +26,8 @@ interface StatusBarProps {
     duration?: string;
     /** BUG-32 FIX: Accept time signature numerator (default 4). */
     timeSigNum?: number;
-    panelMode?: 'rack' | 'clip';
-    onPanelModeChange?: (mode: 'rack' | 'clip') => void;
+    panelMode?: 'rack' | 'clip' | 'mixer';
+    onPanelModeChange?: (mode: 'rack' | 'clip' | 'mixer') => void;
     panelInfo?: string;
 }
 

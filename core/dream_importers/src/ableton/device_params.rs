@@ -464,7 +464,7 @@ fn import_sampler_params(track: &mut Track, params: &HashMap<String, f64>) {
     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
 
     if let Some(v) = first_param_value(params, &["Volume", "Vol", "SampleVolume", "Gain"]) {
-        cfg.volume = v.clamp(0.0, 2.0);
+        cfg.volume = ableton_volume_to_linear_gain(v);
         lane_updates.push(("sampler.volume".to_string(), cfg.volume));
     }
     if let Some(v) = first_param_value(params, &["Attack", "AttackTime", "EnvAttack"]) {

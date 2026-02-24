@@ -19,6 +19,7 @@ libloading = { workspace = true }
 parking_lot = "0.12"
 memmap2 = "0.9"
 bytemuck = { workspace = true }
+plist = "1.7"
 
 dream_models = { path = "../dream_models" }
 

@@ -106,6 +106,9 @@ export interface TrackStateUpdate {
 export interface AppSettings {
     language: string;
     startupBehavior: string;
+    theme: 'dark' | 'light' | 'forest';
+    darkThemeShade: number;
+    darkThemeTintPercent: number;
     waveformStyle: string;
     driverType: string;
     outputDevice: string;

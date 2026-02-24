@@ -232,11 +232,13 @@ impl DspProcessor for LimiterProcessor {
 
     fn reset(&mut self) {
         self.gain = 1.0;
-        // BUG-L08 FIX: Only clear the active lookahead region instead of
-        // the full 1024-entry arrays. At la_samples=44, this is 23x less work.
-        self.la_buf_l[..self.la_samples].fill(0.0);
-        self.la_buf_r[..self.la_samples].fill(0.0);
-        self.la_gain[..self.la_samples].fill(1.0);
+        // Reset must make output equivalent to a fresh instance.
+        // The lookahead delay is a ring buffer; clearing only the first
+        // `la_samples` entries leaves stale data in other indices that can
+        // be read immediately after reset depending on read position.
+        self.la_buf_l.fill(0.0);
+        self.la_buf_r.fill(0.0);
+        self.la_gain.fill(1.0);
         self.la_pos = 0;
         self.threshold_sm_lin.set_instant(self.threshold_lin);
         self.ceiling_sm_lin.set_instant(self.ceiling_lin);

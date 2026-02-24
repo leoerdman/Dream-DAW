@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
     VB_W, VB_H, MARGIN_L, MARGIN_R, freqToX, gainToY, isFilterOnlyType,
-    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams, EQ_BAND_COLORS, EQ_RANDOM_POINT_COLORS
+    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams
 } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
@@ -10,6 +10,12 @@ import { EqBandContextMenu, EqBandOverlays, type EqContextMenu } from './PluginG
 import { PluginGuiSurfaceEqControls } from './PluginGuiSurfaceEqControls';
 import { PluginGuiSurfaceEqBandStrip } from './PluginGuiSurfaceEqBandStrip';
 import { EQ_FREQ_LABELS, EQ_FREQ_SUB_LINES, pluginPanelCardBaseStyle, pluginPanelMetaStyle } from './PluginGuiSurfaceEqLayout';
+import {
+    assignNextEqBandColor,
+    buildEqGradientStops,
+    buildInitialEqBandColors,
+    EQ_PRIMARY_ACCENT,
+} from './PluginGuiSurfaceEq.utils';
 
 type Props = {
     device: DeviceSlot;
@@ -31,35 +37,6 @@ type Props = {
     onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
 };
-
-const EQ_BAND_COLOR_CACHE = new Map<string, string[]>();
-const EQ_BAND_COUNT = 8;
-const EQ_PRIMARY_ACCENT = 'var(--color-accent-primary)';
-
-function pickRandomBandColor(exclude?: string): string {
-    const colorPool: readonly string[] = EQ_RANDOM_POINT_COLORS;
-    const poolSize = colorPool.length;
-    if (poolSize <= 0) return 'var(--color-effect-eq)';
-    if (poolSize === 1) return colorPool[0] ?? 'var(--color-effect-eq)';
-    let next = colorPool[Math.floor(Math.random() * poolSize)] ?? 'var(--color-effect-eq)';
-    if (exclude && next === exclude) {
-        next = colorPool[(Math.floor(Math.random() * (poolSize - 1)) + 1) % poolSize] ?? next;
-    }
-    return next;
-}
-
-function buildInitialEqBandColors(deviceId: string): string[] {
-    const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
-    if (cached && cached.length === EQ_BAND_COUNT) return [...cached];
-    // Build per-device randomized colors so new instances don't default to a
-    // single repeated hue family.
-    const seeded: string[] = [];
-    for (let i = 0; i < EQ_BAND_COUNT; i++) {
-        seeded.push(pickRandomBandColor(seeded[i - 1]));
-    }
-    EQ_BAND_COLOR_CACHE.set(deviceId, seeded);
-    return seeded;
-}
 
 export function PluginGuiSurfaceEq({
     device,
@@ -93,10 +70,7 @@ export function PluginGuiSurfaceEq({
 
     const assignRandomBandColor = useCallback((bandIdx: number) => {
         setEqBandColors((prev) => {
-            const next = [...prev];
-            next[bandIdx] = pickRandomBandColor(prev[bandIdx] ?? EQ_BAND_COLORS[bandIdx]);
-            EQ_BAND_COLOR_CACHE.set(device.id, next);
-            return next;
+            return assignNextEqBandColor(device.id, bandIdx, prev);
         });
     }, [device.id]);
 
@@ -117,7 +91,7 @@ export function PluginGuiSurfaceEq({
     const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
-    const curveColor = EQ_PRIMARY_ACCENT;
+    const curveStops = useMemo(() => buildEqGradientStops(enabledBands), [enabledBands]);
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
     const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
         eqSurfaceRef,
@@ -171,8 +145,20 @@ export function PluginGuiSurfaceEq({
                     >
                         <defs>
                             <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={`color-mix(in srgb, ${curveColor} 38%, transparent)`} stopOpacity="0.24" />
-                                <stop offset="100%" stopColor={`color-mix(in srgb, ${curveColor} 12%, transparent)`} stopOpacity="0" />
+                                {curveStops.map((stop, idx) => (
+                                    <stop
+                                        key={`eqfill-${idx}-${stop.offsetPct}`}
+                                        offset={`${stop.offsetPct}%`}
+                                        stopColor={stop.color}
+                                        stopOpacity="0.22"
+                                    />
+                                ))}
+                                <stop offset="100%" stopColor={curveStops[curveStops.length - 1]?.color ?? EQ_PRIMARY_ACCENT} stopOpacity="0" />
+                            </linearGradient>
+                            <linearGradient id={`eqCurveStroke-${device.id}`} x1="0" y1="0" x2="1" y2="0">
+                                {curveStops.map((stop, idx) => (
+                                    <stop key={`eqcurve-${idx}-${stop.offsetPct}`} offset={`${stop.offsetPct}%`} stopColor={stop.color} />
+                                ))}
                             </linearGradient>
                             <filter id={`eqCurveGlow-${device.id}`} x="-20%" y="-20%" width="140%" height="140%">
                                 <feGaussianBlur stdDeviation="1.2" result="blur" />
@@ -201,17 +187,21 @@ export function PluginGuiSurfaceEq({
                         {eqSpectrumEnabled && spectrumPath && (
                             <path d={spectrumPath} fill={`url(#specGrad-${device.id})`} opacity="0.36" />
                         )}
-                        <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
-                        <path
-                            d={curvePath}
-                            fill="none"
-                            stroke={curveColor}
-                            strokeWidth="2.15"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            vectorEffect="non-scaling-stroke"
-                            shapeRendering="geometricPrecision"
-                        />
+                        {enabledBands.length > 0 && (
+                            <>
+                                <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
+                                <path
+                                    d={curvePath}
+                                    fill="none"
+                                    stroke={`url(#eqCurveStroke-${device.id})`}
+                                    strokeWidth="2.15"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    vectorEffect="non-scaling-stroke"
+                                    shapeRendering="geometricPrecision"
+                                />
+                            </>
+                        )}
                         {enabledBands.length === 0 && (
                             <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d32)" fontSize="10" fontFamily="var(--font-sans)">
                                 Double-click to add EQ point

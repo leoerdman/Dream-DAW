@@ -15,7 +15,6 @@ import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/master
 import { AutomationOverlay } from './AutomationOverlay';
 import { useTimelineDnD } from './model/useTimelineDnD';
 import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from './model/useTimelineCommandBindings';
-
 interface TimelineProps {
     bpm?: number;
     timeSignature?: [number, number];
@@ -56,12 +55,11 @@ interface TimelineProps {
     automationVisible?: boolean;
     fitHorizontalToken?: number;
 }
-
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
-
+const MASTER_OVERLAY_X_ALIGNMENT_PX = -1;
 export const Timeline = (props: TimelineProps) => {
     const {
         bpm = 120,
@@ -97,11 +95,9 @@ export const Timeline = (props: TimelineProps) => {
         onClipResize,
         fitHorizontalToken = 0,
     } = props;
-
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
-
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const snapEnabled = useGridStore((s) => s.snapEnabled);
@@ -117,7 +113,6 @@ export const Timeline = (props: TimelineProps) => {
         () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat),
         [gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat],
     );
-
     const engineConfig: UseTimelineEngineConfig = {
         beatsPerBar,
         bpm,
@@ -132,7 +127,6 @@ export const Timeline = (props: TimelineProps) => {
         snapBeats: snapBeatsValue,
         snapEnabled,
     };
-
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
     const [arrangementWidth, setArrangementWidth] = useState(800);
     const effectivePixelsPerBeat = viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat;
@@ -145,6 +139,20 @@ export const Timeline = (props: TimelineProps) => {
         [],
     );
     const masterGridViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
+    const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
+    // Master-lane overlay is DOM/SVG while timeline body is canvas.
+    // Apply a fixed alignment bias so loop/playhead remain pixel-perfect
+    // with the canvas-rendered lines at all zoom levels.
+    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
+    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
+    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
+    const playheadLineX = Math.round(playheadX) - 0.5;
+    const loopStartLineX = Math.round(loopStartX) - 0.5;
+    const loopEndLineX = Math.round(loopEndX) - 0.5;
+    const loopLeftX = Math.min(loopStartX, loopEndX);
+    const loopRightX = Math.max(loopStartX, loopEndX);
+    const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < masterGridViewportWidth;
+    const playheadVisible = playheadX >= -10 && playheadX <= masterGridViewportWidth + 10;
     const masterLaneGridLines = useMemo(
         () => buildMasterLaneGridLines(
             effectivePixelsPerBeat,
@@ -165,7 +173,6 @@ export const Timeline = (props: TimelineProps) => {
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
-
     const callbacksRef = useRef({
         onPlayheadChange,
         onEditCursorChange,
@@ -184,7 +191,6 @@ export const Timeline = (props: TimelineProps) => {
     });
     const selectedClipIdsRef = useRef(selectedClipIds);
     const trackIdsRef = useRef(trackIds);
-
     useTimelineCommandBusBindings({
         commandBusRef,
         callbacksRef,
@@ -192,7 +198,6 @@ export const Timeline = (props: TimelineProps) => {
         trackIdsRef,
         propsRef,
     });
-
     useTimelineEngineCommandBindings({
         engineRef,
         commandBusRef,
@@ -200,7 +205,6 @@ export const Timeline = (props: TimelineProps) => {
     });
     const pendingLoopRef = useRef<{ start: number; end: number; enabled: boolean } | null>(null);
     const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => { });
-
     useEffect(() => {
         commitLoopRef.current = (loop) => {
             const currentBpm = propsRef.current.bpm || 120;
@@ -210,13 +214,10 @@ export const Timeline = (props: TimelineProps) => {
             useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
         };
     }, []);
-
     const throttledLoopCommitRef = useRef<ReturnType<typeof throttle> | null>(null);
-
     useEffect(() => {
         propsRef.current = props;
     }, [props]);
-
     useEffect(() => {
         callbacksRef.current = {
             onPlayheadChange,
@@ -250,15 +251,12 @@ export const Timeline = (props: TimelineProps) => {
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
     ]);
-
     useEffect(() => {
         selectedClipIdsRef.current = selectedClipIds;
     }, [selectedClipIds]);
-
     useEffect(() => {
         trackIdsRef.current = trackIds;
     }, [trackIds]);
-
     useEffect(() => {
         const throttled = throttle(() => {
             const pending = pendingLoopRef.current;
@@ -271,7 +269,6 @@ export const Timeline = (props: TimelineProps) => {
             throttledLoopCommitRef.current = null;
         };
     }, []);
-
     useEffect(() => {
         const throttledLoopCommit = throttledLoopCommitRef.current;
         if (!throttledLoopCommit) return;
@@ -289,7 +286,6 @@ export const Timeline = (props: TimelineProps) => {
             window.removeEventListener('touchend', flush, true);
         };
     }, []);
-
     useEffect(() => {
         const node = arrangementRef.current;
         if (!node) return;
@@ -302,7 +298,6 @@ export const Timeline = (props: TimelineProps) => {
         observer.observe(node);
         return () => observer.disconnect();
     }, []);
-
     const tracksEntity = useEngineStore((s) => s.tracks);
     const trackActiveStates = useMemo(() => {
         const orderedTracks = tracksEntity.allIds
@@ -310,7 +305,6 @@ export const Timeline = (props: TimelineProps) => {
             .filter((track): track is NonNullable<typeof track> => Boolean(track));
         return orderedTracks.map((_t, i, arr) => isTrackActive(i, arr));
     }, [tracksEntity]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -342,24 +336,19 @@ export const Timeline = (props: TimelineProps) => {
             pitchShiftSemitones: c.pitchShiftSemitones,
             midiNotes: c.midiNotes,
         }));
-
         engine.setClips(clipData);
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         const viewport = engine.viewport;
         const viewportWidth = viewport.viewportWidth;
         if (viewportWidth <= 8) return;
-
         const currentClips = propsRef.current.clips ?? [];
         const currentBeatsPerBar = Math.max(1, propsRef.current.timeSignature?.[0] ?? beatsPerBar);
-
         let minBeat = 0;
         let maxBeat = Math.max(4, currentBeatsPerBar * 4);
-
         if (currentClips.length > 0) {
             minBeat = Infinity;
             maxBeat = -Infinity;
@@ -374,32 +363,26 @@ export const Timeline = (props: TimelineProps) => {
                 maxBeat = Math.max(4, currentBeatsPerBar * 4);
             }
         }
-
         const span = Math.max(1, maxBeat - minBeat);
         const pad = Math.max(0.5, span * 0.05);
         const paddedStart = Math.max(0, minBeat - pad);
         const paddedEnd = Math.max(paddedStart + 1, maxBeat + pad);
         const targetPpb = viewportWidth / (paddedEnd - paddedStart);
-
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
     }, [fitHorizontalToken, beatsPerBar, engineRef]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.setClipSelection(selectedClipIds);
     }, [selectedClipIds, engineRef]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-
         const unsub = useEngineStore.subscribe((state, prevState) => {
             const beats = state.transport.position_beats ?? 0;
             const prevBeats = prevState?.transport.position_beats ?? 0;
             const playing = state.transport.is_playing;
-
             if (beats !== prevBeats) {
                 engine.setPlayheadBeat(beats);
                 if (playing && propsRef.current.followPlayhead) {
@@ -407,16 +390,13 @@ export const Timeline = (props: TimelineProps) => {
                 }
             }
         });
-
         return unsub;
     }, [engineRef]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.setEditCursor(editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd ?? editCursorTrackIndex);
     }, [editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd, engineRef]);
-
     useEffect(() => {
         setTimelineLayout({
             pixelsPerBeat: viewportState.ppb,
@@ -424,7 +404,6 @@ export const Timeline = (props: TimelineProps) => {
             scrollTop: viewportState.scrollY,
         });
     }, [viewportState, setTimelineLayout]);
-
     useEffect(() => {
         if (restorePixelsPerBeat == null || restoreScrollLeft == null) return;
         const engine = engineRef.current;
@@ -433,7 +412,6 @@ export const Timeline = (props: TimelineProps) => {
         engine.viewport.scrollTo(restoreScrollLeft, restoreScrollTop ?? engine.viewport.scrollY);
         clearViewportRestore();
     }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, restoreScrollTop, engineRef, clearViewportRestore]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -442,7 +420,6 @@ export const Timeline = (props: TimelineProps) => {
             : (selectedTrackIndex >= 0 ? [selectedTrackIndex] : []);
         engine.setSelectedTracks(selectedTrackIndex, list);
     }, [selectedTrackIndex, selectedTrackIndices, engineRef]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -452,7 +429,6 @@ export const Timeline = (props: TimelineProps) => {
             enabled: loopEnabled,
         });
     }, [loopStart, loopEnd, loopEnabled, engineRef]);
-
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -461,11 +437,9 @@ export const Timeline = (props: TimelineProps) => {
             throttledLoopCommitRef.current?.();
         };
     }, [engineRef]);
-
     const draggingItem = useDragStore(s => s.draggingItem);
     const dragCursorX = useDragStore(s => s.cursorX);
     const dragCursorY = useDragStore(s => s.cursorY);
-
     const { handleDragOver, handleDragLeave, handleDrop } = useTimelineDnD({
         engineRef,
         canvasRef,
@@ -475,7 +449,6 @@ export const Timeline = (props: TimelineProps) => {
         dragCursorX,
         dragCursorY,
     });
-
     return (
         <div
             ref={rootRef}
@@ -511,8 +484,6 @@ export const Timeline = (props: TimelineProps) => {
                         left: 0,
                         top: 0,
                         width: '100%',
-                        // Keep viewport height equal to arrangement viewport height.
-                        // Extra vertical scroll room is owned by ViewportMatrix.bottomPaddingPx.
                         height: '100%',
                         display: 'block',
                     }}
@@ -578,6 +549,68 @@ export const Timeline = (props: TimelineProps) => {
                         ))}
                     </g>
                 </svg>
+                {loopVisible && (
+                    <>
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: Math.max(0, loopLeftX),
+                                width: Math.max(0, Math.min(masterGridViewportWidth, loopRightX) - Math.max(0, loopLeftX)),
+                                background: 'var(--color-timeline-loop-fill)',
+                            }}
+                        />
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: loopStartLineX,
+                                width: 1,
+                                background: 'var(--color-timeline-loop-border)',
+                                opacity: 0.9,
+                            }}
+                        />
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: loopEndLineX,
+                                width: 1,
+                                background: 'var(--color-timeline-loop-border)',
+                                opacity: 0.9,
+                            }}
+                        />
+                    </>
+                )}
+                {playheadVisible && (
+                    <>
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: playheadLineX - 1,
+                                width: 3,
+                                background: 'var(--color-timeline-playhead-glow)',
+                                pointerEvents: 'none',
+                            }}
+                        />
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: playheadLineX,
+                                width: 1,
+                                background: 'var(--color-timeline-playhead)',
+                                pointerEvents: 'none',
+                            }}
+                        />
+                    </>
+                )}
             </div>
         </div>
     );

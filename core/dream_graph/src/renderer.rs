@@ -167,13 +167,17 @@ impl PdcDelayLine {
 
     #[inline]
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], frame_count: usize) {
-        if self.delay_samples == 0 && self.frac_delay == 0.0 {
+        // BUG-048 FIX: Use epsilon instead of == 0.0 for float comparison.
+        // FP drift from set_delay_f32 could leave frac_delay at ~1e-15,
+        // keeping the PDC permanently in the slow interpolation path.
+        const FRAC_EPS: f32 = 1e-7;
+        if self.delay_samples == 0 && self.frac_delay < FRAC_EPS {
             return;
         }
 
         let n = frame_count.min(left.len()).min(right.len());
 
-        if self.frac_delay == 0.0 {
+        if self.frac_delay < FRAC_EPS {
             for i in 0..n {
                 let wp = (self.write_pos + i) & self.mask;
                 let rp = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
@@ -297,19 +301,23 @@ unsafe fn sum_node_inputs_raw(
             );
         }
     } else {
-        let src_indices: Vec<usize> = dag
+        // BUG-001 FIX: Zero-alloc fallback — iterate edges directly instead of
+        // collecting into a Vec. Heap allocation on the RT thread causes dropouts.
+        for edge in dag
             .graph()
             .edges_directed(node_idx, petgraph::Direction::Incoming)
-            .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
-            .map(|e| e.source().index())
-            .filter(|&src_idx| src_idx != idx)
-            .collect();
+        {
+            if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
+                continue;
+            }
+            let src_idx = edge.source().index();
+            if src_idx == idx {
+                continue;
+            }
 
-        for src_idx in src_indices {
             let src = unsafe { &*node_buffers_ptr.add(src_idx) };
-            let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
-
             let copy_n = frame_count.min(src.valid_frames);
+            let dst = unsafe { &mut *node_buffers_ptr.add(idx) };
             mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
             mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
         }
@@ -492,19 +500,23 @@ impl GraphRenderer {
                 );
             }
         } else {
-            let src_indices: Vec<usize> = dag
+            // BUG-020 FIX: Zero-alloc fallback — iterate edges directly instead of
+            // collecting into a Vec. Heap allocation on the RT thread causes dropouts.
+            for edge in dag
                 .graph()
                 .edges_directed(node_idx, petgraph::Direction::Incoming)
-                .filter(|e| e.weight().kind != crate::dag::AudioEdgeKind::Sidechain)
-                .map(|e| e.source().index())
-                .filter(|&src_idx| src_idx < self.node_buffers.len() && src_idx != idx)
-                .collect();
+            {
+                if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
+                    continue;
+                }
+                let src_idx = edge.source().index();
+                if src_idx >= self.node_buffers.len() || src_idx == idx {
+                    continue;
+                }
 
-            for src_idx in src_indices {
                 let src = unsafe { &*self.node_buffers.as_ptr().add(src_idx) };
-                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
-
                 let copy_n = frame_count.min(src.valid_frames);
+                let dst = unsafe { &mut *self.node_buffers.as_mut_ptr().add(idx) };
                 mix_in_place(&mut dst.left[..copy_n], &src.left[..copy_n], copy_n);
                 mix_in_place(&mut dst.right[..copy_n], &src.right[..copy_n], copy_n);
             }

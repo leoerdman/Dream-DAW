@@ -26,6 +26,12 @@ pub(crate) struct AppSettings {
     pub(crate) language: String,
     #[serde(default = "default_startup_behavior")]
     pub(crate) startup_behavior: String,
+    #[serde(default = "default_theme")]
+    pub(crate) theme: String,
+    #[serde(default = "default_dark_theme_shade")]
+    pub(crate) dark_theme_shade: u8,
+    #[serde(default = "default_dark_theme_tint_percent")]
+    pub(crate) dark_theme_tint_percent: u8,
     #[serde(default = "default_waveform_style")]
     pub(crate) waveform_style: String,
     #[serde(default = "default_driver_type")]
@@ -102,7 +108,16 @@ pub(crate) fn default_language() -> String {
     "English".into()
 }
 pub(crate) fn default_startup_behavior() -> String {
-    "last".into()
+    "new".into()
+}
+pub(crate) fn default_theme() -> String {
+    "dark".into()
+}
+pub(crate) fn default_dark_theme_shade() -> u8 {
+    0
+}
+pub(crate) fn default_dark_theme_tint_percent() -> u8 {
+    0
 }
 pub(crate) fn default_waveform_style() -> String {
     "colored".into()
@@ -165,7 +180,10 @@ impl Default for AppSettings {
         let music_dir = home.join("Music").join("Dream DAW");
         Self {
             language: "English".into(),
-            startup_behavior: "last".into(),
+            startup_behavior: "new".into(),
+            theme: default_theme(),
+            dark_theme_shade: default_dark_theme_shade(),
+            dark_theme_tint_percent: default_dark_theme_tint_percent(),
             waveform_style: "colored".into(),
             driver_type: "CoreAudio".into(),
             output_device: "Default Output".into(),

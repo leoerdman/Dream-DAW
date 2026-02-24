@@ -63,6 +63,16 @@ pub struct PluginDescriptor {
 }
 
 impl PluginDescriptor {
+    #[cfg(target_os = "macos")]
+    fn is_runtime_supported(format: PluginFormat) -> bool {
+        matches!(format, PluginFormat::VST2 | PluginFormat::VST3 | PluginFormat::AudioUnit)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn is_runtime_supported(format: PluginFormat) -> bool {
+        matches!(format, PluginFormat::VST2 | PluginFormat::VST3)
+    }
+
     /// Creates a new descriptor with minimal required fields.
     pub fn new(
         name: impl Into<String>,
@@ -84,7 +94,7 @@ impl PluginDescriptor {
             audio_outputs: 2,
             accepts_midi: category == PluginCategory::Instrument,
             is_validated: false,
-            runtime_supported: format == PluginFormat::VST3 || format == PluginFormat::VST2,
+            runtime_supported: Self::is_runtime_supported(format),
         }
     }
 

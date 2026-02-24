@@ -191,7 +191,9 @@ impl DspProcessor for DelayProcessor {
             let base_dl = self.delay_l_sm.next_value();
             let base_dr = self.delay_r_sm.next_value();
             let dl = (base_dl + mod_offset).clamp(1.0, (bs - 2) as f32);
-            let dr = (base_dr - mod_offset * 0.7).clamp(1.0, (bs - 2) as f32);
+            // BUG-029 FIX: Symmetric modulation — removed 0.7 factor that caused
+            // permanent pitch imbalance between L/R during modulation.
+            let dr = (base_dr - mod_offset).clamp(1.0, (bs - 2) as f32);
 
             // Read delayed signals
             let delayed_l = Self::read_interp(&self.buf_l, self.write_pos, dl, bs);
@@ -275,10 +277,10 @@ impl DspProcessor for DelayProcessor {
     }
 
     fn reset(&mut self) {
-        // BUG-022 FIX: Only clear the active region (buf_size) instead of full
-        // buf_capacity (384K samples). At 44.1kHz this is 4.3x less work.
-        self.buf_l[..self.buf_size].fill(0.0);
-        self.buf_r[..self.buf_size].fill(0.0);
+        // BUG-030 FIX: Clear full physical capacity, not just logical buf_size.
+        // If SR increases later, old data beyond previous buf_size would contaminate the new region.
+        self.buf_l[..self.buf_capacity].fill(0.0);
+        self.buf_r[..self.buf_capacity].fill(0.0);
         self.write_pos = 0;
         self.fb_filter_l = 0.0;
         self.fb_filter_r = 0.0;

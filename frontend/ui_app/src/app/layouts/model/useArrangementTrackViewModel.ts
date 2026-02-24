@@ -5,7 +5,7 @@ import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 
-type BottomPanelMode = 'rack' | 'clip';
+type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 
 type Args = {
     tracksEntity: EntityState<ProjectTrack>;

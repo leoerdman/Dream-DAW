@@ -7,6 +7,37 @@
 //
 // ═══════════════════════════════════════════════════════════════════════
 
+// ── Ableton Volume Conversion ──────────────────────────────────────────
+
+/// Ableton Live unity gain reference point.
+///
+/// In ALS XML, `<Volume><Manual Value="0.85"/></Volume>` corresponds to
+/// the fader at 0 dB (unity). Dream DAW uses 1.0 as unity.
+///
+/// Conversion: `dream_gain = ableton_vol / ABLETON_UNITY_GAIN`
+///
+/// Reference values:
+///   Ableton 0.0    → -∞ dB  (silent)
+///   Ableton 0.85   → 0 dB   (unity)
+///   Ableton 1.0    → ~+1.4 dB
+///   Ableton 1.413  → ~+4.4 dB (max Ableton slider)
+const ABLETON_UNITY_GAIN: f64 = 0.85;
+
+/// Converts an Ableton ALS XML volume value to Dream DAW linear gain.
+///
+/// Ableton stores volume fader values in its own linear scale where
+/// 0.85 = 0 dB (unity). Dream DAW uses 1.0 = 0 dB (standard linear gain).
+///
+/// This function rescales the Ableton value so that 0.85 → 1.0,
+/// and clamps the result to a safe range [0.0, 4.0] (+12 dB max).
+#[inline]
+pub fn ableton_volume_to_linear_gain(ableton_vol: f64) -> f64 {
+    if ableton_vol <= 0.0 {
+        return 0.0;
+    }
+    (ableton_vol / ABLETON_UNITY_GAIN).clamp(0.0, 4.0)
+}
+
 // ── Scalar Value Parsers ───────────────────────────────────────────────
 
 pub fn parse_bool_value(raw: &str) -> Option<bool> {

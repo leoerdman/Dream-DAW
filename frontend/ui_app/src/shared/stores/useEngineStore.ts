@@ -63,6 +63,7 @@ export interface EngineStore {
     setFrequency: (freq: number) => Promise<void>;
     setTrackVolume: (trackIndex: number, volume: number) => Promise<void>;
     setTrackPan: (trackIndex: number, pan: number) => Promise<void>;
+    setTrackSendLevel: (trackIndex: number, send: 'A' | 'B', value: number) => Promise<void>;
     setMasterVolume: (volume: number) => Promise<void>;
     flushTrackControlFinals: () => Promise<void>;
     setTrackMute: (trackIndex: number, muted: boolean) => Promise<void>;

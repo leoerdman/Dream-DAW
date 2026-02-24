@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dream_models::project::{PROJECT_FORMAT_VERSION, Project};
+use dream_models::project::{PROJECT_FORMAT_VERSION, Project, ProjectNormalizationReport};
 use serde::{Deserialize, Serialize};
 
 /// Errors during project file operations.
@@ -60,6 +60,11 @@ pub struct ProjectFile;
 struct ProjectEnvelope {
     format_version: u32,
     project: Project,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProjectLoadReport {
+    pub default_tracks_injected: bool,
 }
 
 impl ProjectFile {
@@ -162,6 +167,13 @@ impl ProjectFile {
     /// # Arguments
     /// - `path`: Path to the project file (`.ddpj`).
     pub fn load(path: impl AsRef<Path>) -> Result<Project, ProjectFileError> {
+        Self::load_with_report(path).map(|(project, _)| project)
+    }
+
+    /// Loads a project and returns a normalization report.
+    pub fn load_with_report(
+        path: impl AsRef<Path>,
+    ) -> Result<(Project, ProjectLoadReport), ProjectFileError> {
         let path = path.as_ref();
 
         // Look for .bak in the Backup/ subdirectory first, then fall back to legacy
@@ -181,7 +193,7 @@ impl ProjectFile {
             }
         };
 
-        let project = match fs::read_to_string(path) {
+        let (project, report) = match fs::read_to_string(path) {
             Ok(data) => match Self::parse_project_document(&data) {
                 Ok(project) => project,
                 Err(err) => {
@@ -223,7 +235,14 @@ impl ProjectFile {
             project.track_count(),
         );
 
-        Ok(project)
+        if report.default_tracks_injected {
+            log::warn!(
+                "[ProjectLoad] '{}' had empty track list; default tracks were injected",
+                path.display()
+            );
+        }
+
+        Ok((project, report))
     }
 
     /// Validates a project file without fully loading it.
@@ -233,7 +252,9 @@ impl ProjectFile {
         Self::load(path).is_ok()
     }
 
-    fn parse_project_document(data: &str) -> Result<Project, ProjectFileError> {
+    fn parse_project_document(
+        data: &str,
+    ) -> Result<(Project, ProjectLoadReport), ProjectFileError> {
         // ── Step 1: Parse raw JSON to inspect format_version ─────────
         let raw: serde_json::Value = serde_json::from_str(data)
             .map_err(|e| ProjectFileError::SerializationError(e.to_string()))?;
@@ -267,8 +288,16 @@ impl ProjectFile {
 
         // ── Step 4: Post-deserialization migrations ──────────────────
         Self::migrate_project_post(&mut project, from_version);
+        let ProjectNormalizationReport {
+            default_tracks_injected,
+        } = project.normalize_invariants();
 
-        Ok(project)
+        Ok((
+            project,
+            ProjectLoadReport {
+                default_tracks_injected,
+            },
+        ))
     }
 
     /// V2→V3 migration (JSON level).
@@ -433,6 +462,25 @@ mod tests {
 
         let loaded = ProjectFile::load(&path).unwrap();
         assert_eq!(loaded.name, "Legacy Project");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_empty_tracks_is_normalized_to_default_template() {
+        let path = temp_path("normalize_empty_tracks");
+
+        let mut project = Project::default();
+        project.tracks.clear();
+        assert_eq!(project.track_count(), 0);
+
+        ProjectFile::save(&project, &path).unwrap();
+        let loaded = ProjectFile::load(&path).unwrap();
+
+        assert!(
+            loaded.track_count() >= 1,
+            "project invariants should inject default tracks on load"
+        );
 
         let _ = fs::remove_file(&path);
     }

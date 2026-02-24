@@ -163,7 +163,14 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             : (lanePoints.length > 0
                 ? [...track.automation_lanes, { param_id: delta.data.param_id, points: lanePoints }]
                 : track.automation_lanes);
-        patchTrack(state, delta.data.track_id, { automation_lanes: nextLanes });
+        const nextPatch: Partial<ProjectTrack> = { automation_lanes: nextLanes };
+        const param = (delta.data.param_id ?? '').toLowerCase();
+        if (param === 'send.a') {
+            nextPatch.send_a = Math.max(0, Math.min(1, delta.data.points.at(-1)?.value ?? 0));
+        } else if (param === 'send.b') {
+            nextPatch.send_b = Math.max(0, Math.min(1, delta.data.points.at(-1)?.value ?? 0));
+        }
+        patchTrack(state, delta.data.track_id, nextPatch);
         return true;
     }
 
@@ -176,6 +183,8 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             color: colorForTrackIndex(insertIndex),
             volume: 1,
             pan: 0,
+            send_a: 0,
+            send_b: 0,
             is_mute: false,
             is_solo: false,
             is_armed: false,

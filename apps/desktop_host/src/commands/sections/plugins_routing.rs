@@ -66,7 +66,7 @@ fn get_plugin_slot_runtime_status_cmd(
             });
         }
     };
-    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+    if descriptor.format == PluginFormat::CLAP {
         return Ok(PluginSlotRuntimeStatus {
             loaded: false,
             editor_supported: false,
@@ -74,7 +74,7 @@ fn get_plugin_slot_runtime_status_cmd(
             sidechain_ready: false,
             latency_frames: None,
             message: Some(format!(
-                "{} is detected but runtime currently supports VST2/VST3 only.",
+                "{} is detected but runtime currently supports VST2/VST3/AU.",
                 descriptor.format
             )),
         });
@@ -164,9 +164,9 @@ fn ensure_plugin_slot_active_cmd(
                 .map(|diag| format!("{err}. {diag}"))
                 .unwrap_or(err)
         })?;
-    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+    if descriptor.format == PluginFormat::CLAP {
         return Err(format!(
-            "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST2/VST3 only.",
+            "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST2/VST3/AU.",
             descriptor.format
         ));
     }
@@ -278,9 +278,9 @@ fn replace_missing_plugin_slot_impl(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&replacement_plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+    if descriptor.format == PluginFormat::CLAP {
         return Err(format!(
-            "Replacement plugin format '{}' is not supported in runtime. Use VST2 or VST3.",
+            "Replacement plugin format '{}' is not supported in runtime. Use VST2, VST3, or AU.",
             descriptor.format
         ));
     }
@@ -322,6 +322,42 @@ fn replace_missing_plugin_slot_impl(
             replacement_plugin_id,
             err
         );
+    } else if let Ok(slot_state) = execute_orchestrator_query(
+        project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    ) && (slot_state.external_state_blob.is_some() || slot_state.external_preset_blob.is_some())
+    {
+        if let Some(instance_id) = plugin_host_state.slot_instance_snapshot().get(&slot_uuid).copied()
+            && let Ok(mut host) = plugin_host_state.host.lock()
+        {
+            let mut slot_restore = dream_models::project::PluginSlot::new(
+                slot_state.name.clone(),
+                slot_state.plugin_id.clone(),
+            );
+            slot_restore.id = slot_state.slot_id;
+            slot_restore.supports_sidechain_input = slot_state.supports_sidechain_input;
+            slot_restore.external_parameter_count = slot_state.external_parameter_count;
+            slot_restore.external_state_blob = slot_state.external_state_blob.clone();
+            slot_restore.external_state_blob_kind = slot_state.external_state_blob_kind.clone();
+            slot_restore.external_preset_blob = slot_state.external_preset_blob.clone();
+            slot_restore.external_preset_blob_kind = slot_state.external_preset_blob_kind.clone();
+            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot_restore) {
+                log::warn!(
+                    "[IPC] replace_missing_plugin_slot: state restore failed (slot={}, plugin={}): {}",
+                    slot_uuid,
+                    replacement_plugin_id,
+                    err
+                );
+            } else {
+                log::info!(
+                    "[IPC] replace_missing_plugin_slot: restored imported plugin state for slot {}",
+                    slot_uuid
+                );
+            }
+        }
     }
 
     sync_plugin_runtime_and_mark_dirty(

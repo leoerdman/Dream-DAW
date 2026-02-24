@@ -27,20 +27,21 @@ import { usePaneResizeHandlers } from './model/usePaneResizeHandlers';
 import { useArrangementTrackViewModel } from './model/useArrangementTrackViewModel';
 import {
     useAudioFailoverRecovery,
+    useAlsImportSummaryStatus,
     useDawShellGlobalShortcuts,
     useInitialLayoutSync,
-    useProjectAutoRecovery,
     useSelectedTrackConsistency,
     useTauriFileDropImport,
     useTelemetryBootstrap,
 } from './model/useDawShellEffects';
+import { useProjectAutoRecovery } from './model/useProjectAutoRecovery';
 import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
 import { useDawShellUiPreferences } from './model/useDawShellUiPreferences';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
-type BottomPanelMode = 'rack' | 'clip';
+type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 type MainViewMode = 'arrangement' | 'session';
 export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -48,7 +49,8 @@ export const DawShell = () => {
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
     const selectedTrackIdRef = useRef(selectedTrackId);
     const selectedTrackIdsRef = useRef(selectedTrackIds);
-    useEffect(() => { selectedTrackIdRef.current = selectedTrackId; selectedTrackIdsRef.current = selectedTrackIds; }, [selectedTrackId, selectedTrackIds]);
+    selectedTrackIdRef.current = selectedTrackId;
+    selectedTrackIdsRef.current = selectedTrackIds;
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     const selectedClipId = useMemo(
         () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
@@ -106,11 +108,9 @@ export const DawShell = () => {
         startTrack: number;
         endTrack: number;
     } | null>(null);
-
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
-
     useDawShellUiPreferences({
         settingsLoaded,
         settings,
@@ -122,11 +122,9 @@ export const DawShell = () => {
         gridSnapEnabled,
         setFollowPlayhead,
     });
-
     const activePanelTrackKey = selectedTrackId && selectedTrackId.length > 0
         ? selectedTrackId
         : 'master';
-
     const setBottomPanelModeForActiveTrack = useCallback(
         (next: BottomPanelMode | ((prev: BottomPanelMode) => BottomPanelMode)) => {
             setBottomPanelMode((prev) => {
@@ -142,11 +140,8 @@ export const DawShell = () => {
         },
         [activePanelTrackKey],
     );
-
     const { filePath: projectFilePath } = useProjectManager();
-
     useNativeMenu();
-
     useKeyboardShortcuts({
         selectedClipId,
         selectedClipIds,
@@ -159,7 +154,6 @@ export const DawShell = () => {
         onTogglePlayback: togglePlay,
         onClipSelectionChanged: setSelectedClipIds,
     });
-
     useDawShellGlobalShortcuts({
         setSettingsOpen,
         setExportOpen,
@@ -167,7 +161,6 @@ export const DawShell = () => {
         setBottomPanelModeForActiveTrack,
     });
     useTauriFileDropImport(importFile, importingRef);
-
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
     const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => {
@@ -175,9 +168,7 @@ export const DawShell = () => {
         try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
         return next;
     }), []);
-
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
-
     useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
@@ -189,18 +180,16 @@ export const DawShell = () => {
             }
         };
     }, []);
-
     useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });
     const { beginBrowserResize, beginBottomPanelResize } = usePaneResizeHandlers({
         mainSplitRef,
         setBrowserWidth,
         setBottomPanelHeightPx,
     });
-
     useTelemetryBootstrap(startTelemetryLoop);
+    useAlsImportSummaryStatus();
     useInitialLayoutSync();
     useProjectAutoRecovery();
-
     const transportBpm = useEngineStore(s => s.transport.bpm);
     const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
@@ -260,18 +249,16 @@ export const DawShell = () => {
         () => selectedClipIdsForView.length > 0 ? selectedClipIdsForView[selectedClipIdsForView.length - 1] : null,
         [selectedClipIdsForView],
     );
-
     useEffect(() => {
         if (tracksEntity.allIds.length === 0) {
-            if (selectedTrackId !== 'master') queueMicrotask(() => setSelectedTrackId('master'));
+            if (selectedTrackId !== 'master') setSelectedTrackId('master');
             return;
         }
         const exists = Boolean(tracksEntity.byId[selectedTrackId]);
         if (!exists) {
-            queueMicrotask(() => setSelectedTrackId(tracksEntity.allIds[0]));
+            setSelectedTrackId(tracksEntity.allIds[0]);
         }
     }, [tracksEntity, selectedTrackId]);
-
     const {
         panelInfo,
         collapsedGroups,
@@ -310,8 +297,10 @@ export const DawShell = () => {
         setMarqueeSelection,
         queuedStartBeatRef,
     });
-
-    const _loopBpm = Math.max(1, projectBpm || transportBpm || DEFAULT_BPM);
+    const _loopBpm = useMemo(
+        () => Math.max(1, projectBpm || transportBpm || DEFAULT_BPM),
+        [projectBpm, transportBpm],
+    );
     const loopStartBeat = useMemo(
         () => frameToBeat(transportLoopStart, _loopBpm, projectSampleRate),
         [transportLoopStart, _loopBpm, projectSampleRate],
@@ -320,7 +309,6 @@ export const DawShell = () => {
         () => frameToBeat(transportLoopEnd, _loopBpm, projectSampleRate),
         [transportLoopEnd, _loopBpm, projectSampleRate],
     );
-
     const missingMediaSummary = useMemo(() => {
         const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
         let missingPluginCount = 0;
@@ -336,7 +324,6 @@ export const DawShell = () => {
             total: offlineClipCount + missingPluginCount,
         };
     }, [timelineClipsForView, tracksEntity]);
-
     const prevMissingTotalRef = useRef(0);
     useEffect(() => {
         const prev = prevMissingTotalRef.current;
@@ -347,10 +334,11 @@ export const DawShell = () => {
     }, [missingMediaSummary.total]);
     const selectedMidiTotalBars = useMemo(() => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
-        return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
-    }, [selectedTimelineClip]);
+        const parsed = parseInt(gridDivision.split('/')[0], 10);
+        const beatsPerBar = parsed > 0 && isFinite(parsed) ? parsed : 4;
+        return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / beatsPerBar));
+    }, [selectedTimelineClip, gridDivision]);
     const hasResizableClipEditor = false;
-
     usePointerUpFinalizer({
         flushTrackControlFinals,
         flushMidiThrottles,
@@ -361,7 +349,6 @@ export const DawShell = () => {
         serializeMidiNotesToFrames,
         applyProjectDeltas,
     });
-
     const {
         trackHeightBase: TRACK_HEIGHT_BASE,
         timelineTrackHeights,
@@ -373,7 +360,6 @@ export const DawShell = () => {
         selectedTrackIdsRef,
         applyProjectDeltas,
     });
-
     usePlaybackStartAnchor({
         transportIsPlaying,
         selectedClipIds: selectedClipIdsForView,
@@ -381,7 +367,6 @@ export const DawShell = () => {
         editCursorBeat,
         queuedStartBeatRef,
     });
-
     const {
         dropBrowserItemOnTimeline,
         dropPluginOnTrack,
@@ -393,7 +378,6 @@ export const DawShell = () => {
         importFile,
         applyProjectDeltas,
     });
-
     const {
         handleFitTimelineHorizontally,
         handlePlayheadChange,
@@ -407,7 +391,6 @@ export const DawShell = () => {
         queuedStartBeatRef,
         dropBrowserItemOnTimeline,
     });
-
     const {
         handleDoubleClickTrack,
         handleClipMove,
@@ -427,7 +410,6 @@ export const DawShell = () => {
         setSelectedClipIds,
         setBottomPanelModeForActiveTrack,
     });
-
     usePendingMidiFlush({
         flushTrackControlFinals,
         flushMidiThrottles,
@@ -438,7 +420,6 @@ export const DawShell = () => {
         serializeMidiNotesToFrames,
         applyProjectDeltas,
     });
-
     const timelineProps = useDawShellTimelineProps({
         bpm: projectBpm || transportBpm || DEFAULT_BPM,
         clips: timelineClipsForView,
@@ -484,7 +465,6 @@ export const DawShell = () => {
         automationVisible,
         fitHorizontalToken: fitTimelineToken,
     });
-
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
             <DawShellContent
@@ -551,7 +531,7 @@ export const DawShell = () => {
                 onCloseMissingAssets={() => setMissingAssetsOpen(false)}
                 exportOpen={exportOpen}
                 onCloseExport={() => setExportOpen(false)}
-                projectName={projectFilePath ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
+                projectName={projectFilePath ? projectFilePath.split(/[\/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
                 selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
                 bpm={projectBpm || transportBpm || DEFAULT_BPM}
@@ -563,5 +543,4 @@ export const DawShell = () => {
         </div>
     );
 };
-
 export default DawShell;

@@ -32,7 +32,7 @@ interface DawShellContentProps {
     collapsedGroups: Set<string>;
     toggleGroupCollapse: (trackId: string) => void;
     timelineProps: React.ComponentProps<typeof import('@/widgets/Timeline/Timeline').Timeline>;
-    bottomPanelMode: 'rack' | 'clip';
+    bottomPanelMode: 'rack' | 'clip' | 'mixer';
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
     setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
@@ -49,7 +49,7 @@ interface DawShellContentProps {
     missingAssetsOpen: boolean;
     missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; total: number };
     setMissingAssetsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    setBottomPanelModeForActiveTrack: (next: 'rack' | 'clip' | ((prev: 'rack' | 'clip') => 'rack' | 'clip')) => void;
+    setBottomPanelModeForActiveTrack: (next: 'rack' | 'clip' | 'mixer' | ((prev: 'rack' | 'clip' | 'mixer') => 'rack' | 'clip' | 'mixer')) => void;
     panelInfo: string;
 }
 
@@ -109,6 +109,7 @@ export function DawShellContent(props: DawShellContentProps) {
                     onMidiNotesChange={(notes) => props.handlePianoRollNotesChange(props.selectedTimelineClip ?? undefined, notes)}
                     onMidiEnvelopesChange={(envelopes) => props.handlePianoRollEnvelopesChange(props.selectedTimelineClip ?? undefined, envelopes)}
                     onGenerateVariation={() => props.handleGenerateMidiVariation(props.selectedTimelineClip ?? undefined)}
+                    onSelectTrack={props.handleSelectTrack}
                 />
             </ErrorBoundary>
 

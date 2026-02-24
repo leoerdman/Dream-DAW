@@ -17,7 +17,8 @@ use dream_models::project::{
 };
 
 use super::plugin_mapper::{
-    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
+    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_from_plugin_device_node,
+    canonical_internal_plugin_for_import,
     MissingExternalPluginSlotSpec, infer_device_display_name,
     make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
@@ -474,7 +475,7 @@ pub fn parse_als_rack_chains(
                         .and_then(parse_f64_value)
                 })
             {
-                chain.volume = vol.clamp(0.0, 2.0);
+                chain.volume = ableton_volume_to_linear_gain(vol);
             }
             if let Some(pan) = mixer
                 .children()
@@ -555,17 +556,33 @@ fn resolve_external_plugin_device(
         "Unknown Plugin".to_string()
     };
 
-    let resolved_plugin_id = if !vst2_path.is_empty() {
-        Some(vst2_path.to_string())
-    } else if !vst3_path.is_empty() {
+    let resolved_plugin_id = if !vst3_path.is_empty() && Path::new(vst3_path).exists() {
         Some(vst3_path.to_string())
+    } else if !vst2_path.is_empty() && Path::new(vst2_path).exists() {
+        Some(vst2_path.to_string())
     } else if !vst3_name.is_empty() {
         external_plugins.resolve_by_name(vst3_name)
     } else if !vst2_name.is_empty() {
         external_plugins.resolve_by_name(vst2_name)
     } else {
         None
-    };
+    }
+    .or_else(|| {
+        if !vst3_path.is_empty()
+            && let Some(stem) = Path::new(vst3_path).file_stem().and_then(|s| s.to_str())
+        {
+            return external_plugins.resolve_by_name(stem);
+        }
+        None
+    })
+    .or_else(|| {
+        if !vst2_path.is_empty()
+            && let Some(stem) = Path::new(vst2_path).file_stem().and_then(|s| s.to_str())
+        {
+            return external_plugins.resolve_by_name(stem);
+        }
+        None
+    });
 
     if let Some(plugin_id) = resolved_plugin_id {
         log::info!(
@@ -582,7 +599,7 @@ fn resolve_external_plugin_device(
         ));
         node
     } else if let Some((pid, pname, _)) =
-        canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
+        canonical_internal_from_plugin_device_node(child_device, &preferred_name)
     {
         log::info!(
             "[ALS Import] Plugin CANONICAL: '{}' → internal '{}'",

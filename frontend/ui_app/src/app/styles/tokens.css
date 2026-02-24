@@ -258,9 +258,9 @@
    /* ─────────────────────────────────────────────────────────────
      ANIMATION GLOW COLORS (CSS keyframes)
      ───────────────────────────────────────────────────────────── */
-   --glow-cursor: rgba(255, 255, 255, 0.55);
-   --glow-cursor-dim: rgba(255, 255, 255, 0.22);
-   --glow-drop-line: rgba(255, 255, 255, 0.52);
+   --glow-cursor: rgba(212, 216, 222, 0.52);
+   --glow-cursor-dim: rgba(212, 216, 222, 0.22);
+   --glow-drop-line: rgba(212, 216, 222, 0.46);
    --glow-accent: rgba(74, 158, 255, 0.3);
    --glow-success: rgba(102, 204, 51, 0.3);
    --glow-record: rgba(217, 64, 64, 0.3);
@@ -283,6 +283,10 @@
    --color-meter-mid-midi: #ffd34d;
    --color-meter-green-start: #2fa64a;
    --color-meter-green-end: #46d165;
+
+   /* Runtime dark-theme tint controls (driven by settings). */
+   --theme-dark-tint-rgb: 0 0 0;
+   --theme-dark-tint-strength: 0%;
 
 
 /* AUTO-GENERATED TOKENIZED RAW COLORS — DO NOT EDIT MANUALLY */
@@ -704,40 +708,27 @@
 :root[data-theme="dark"] {
 
    /* ── Backgrounds (9-level gray scale from DarkTheme) ──────── */
-   --color-bg-base: #141414;
-   /* bgBase:   white 0.08 */
-   --color-bg-app: #1e1e1e;
-   /* bgPrimary: white 0.12 */
-   --color-bg-canvas: #1e1e1e;
-   /* bgPrimary: main workspace */
-   --color-bg-secondary: #262626;
-   /* bgSecondary: white 0.15 (even rows) */
-   --color-bg-tertiary: #2a2a2a;
-   /* bgTertiary: white 0.165 (odd rows) */
-   --color-bg-panel: #303030;
-   /* bgSurface: white 0.19 */
-   --color-bg-elevated: #353535;
-   /* bgElevated: white 0.21 */
-   --color-bg-hover: #3a3a3a;
-   /* bgHover: white 0.23 */
+   --color-bg-base: color-mix(in srgb, #141414 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-app: color-mix(in srgb, #1e1e1e calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-canvas: color-mix(in srgb, #1e1e1e calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-secondary: color-mix(in srgb, #262626 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-tertiary: color-mix(in srgb, #2a2a2a calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-panel: color-mix(in srgb, #303030 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-elevated: color-mix(in srgb, #353535 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-hover: color-mix(in srgb, #3a3a3a calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
    --color-bg-selected: #1d3557;
    /* bgSelected: blue tint */
-   --color-bg-input: #252525;
-   /* bgInput: white 0.145 */
-   --color-bg-header: #454545;
-   /* Brightened from #353535 per user request */
-   --color-bg-active: #3a3a3a;
-   /* alias for bgHover */
-   --color-bg-sidebar: #282828;
-   /* sidebar: slightly darker than panel */
-   --color-bg-surface: #303030;
-   /* surface: alias for panel */
+   --color-bg-input: color-mix(in srgb, #252525 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-header: color-mix(in srgb, #454545 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-active: var(--color-bg-hover);
+   --color-bg-sidebar: color-mix(in srgb, #282828 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-bg-surface: var(--color-bg-panel);
 
    /* ── Semantic Tokens v2 (UI surface/text/accent) ── */
-   --surface-1: #1e1e1e;
-   --surface-2: #2a2a2a;
-   --surface-3: #303030;
-   --surface-elevated: #353535;
+   --surface-1: var(--color-bg-app);
+   --surface-2: var(--color-bg-tertiary);
+   --surface-3: var(--color-bg-panel);
+   --surface-elevated: var(--color-bg-elevated);
    --text-primary: #e0e0e0;
    --text-secondary: #999999;
    --text-muted: #666666;
@@ -825,8 +816,7 @@
    --color-drop-target: rgba(51, 51, 51, 0.5);
 
    /* ── VU Meters (from DarkTheme — 4 states) ──────────────── */
-   --color-meter-bg: #1e1e1e;
-   /* meterBackground: white 0.12 */
+   --color-meter-bg: color-mix(in srgb, #1e1e1e calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
    --color-meter-normal: #66cc33;
    /* meterNormal: green */
    --color-meter-hot: #ffcc1a;
@@ -837,12 +827,9 @@
    /* meterSilent: white 0.30 */
 
    /* ── Controls (from DarkTheme) ────────────────────────────── */
-   --color-control-bg: #404040;
-   /* controlBg: white 0.25 */
-   --color-control-bg-active: #595959;
-   /* controlBgActive: white 0.35 */
-   --color-control-border: #383838;
-   /* controlBorder: white 0.22 */
+   --color-control-bg: color-mix(in srgb, #404040 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-control-bg-active: color-mix(in srgb, #595959 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
+   --color-control-border: color-mix(in srgb, #383838 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
    --color-control-tint: #999999;
    /* controlTint: white 0.60 */
 
@@ -907,18 +894,18 @@
    --color-piano-sub: rgba(36, 36, 36, 0.5);
 
    /* ── Timeline (Arrangement View) ── */
-   --color-timeline-bg: #141414;
-   --color-timeline-ruler-bg: #232323;
+   --color-timeline-bg: var(--color-bg-base);
+   --color-timeline-ruler-bg: color-mix(in srgb, #232323 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength));
    --color-timeline-grid-line: rgba(255, 255, 255, 0.07);
    --color-timeline-grid-bar: rgba(255, 255, 255, 0.15);
-   --color-timeline-track-default: #1e1e1e;
-   --color-timeline-track-selected: #282828;
-   --color-timeline-playhead: #ffffff;
-   --color-timeline-playhead-glow: rgba(255, 255, 255, 0.25);
-   --color-timeline-edit-cursor: rgba(255, 255, 255, 0.8);
-   --color-timeline-loop-fill: rgba(255, 255, 255, 0.06);
-   --color-timeline-loop-border: rgba(255, 255, 255, 0.5);
-   --color-timeline-ruler-text: rgba(255, 255, 255, 0.6);
+   --color-timeline-track-default: var(--color-bg-app);
+   --color-timeline-track-selected: var(--color-bg-sidebar);
+   --color-timeline-playhead: #d3d8de;
+   --color-timeline-playhead-glow: rgba(211, 216, 222, 0.24);
+   --color-timeline-edit-cursor: rgba(211, 216, 222, 0.74);
+   --color-timeline-loop-fill: rgba(211, 216, 222, 0.06);
+   --color-timeline-loop-border: rgba(211, 216, 222, 0.46);
+   --color-timeline-ruler-text: rgba(211, 216, 222, 0.62);
 
    /* ── Glass (HUD — from DarkTheme) ─────────────────────────── */
    --glass-bg: rgba(18, 18, 18, 0.92);
@@ -937,6 +924,7 @@
    /* ── Gradients ── */
    --gradient-primary: linear-gradient(135deg, #4a9eff 0%, #5cadff 100%);
    --gradient-meter: linear-gradient(to top, #66cc33 0%, #ffcc1a 70%, #ff3333 100%);
+   --theme-app-bg: linear-gradient(180deg, color-mix(in srgb, #171717 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength)) 0%, color-mix(in srgb, #111111 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength)) 100%);
 }
 
 
@@ -945,49 +933,49 @@
    Complete 1:1 parity with dark theme.
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
-   --color-bg-base: #ffffff;
-   --color-bg-app: #f5f5f5;
-   --color-bg-canvas: #f5f5f5;
-   --color-bg-secondary: #ebebeb;
-   --color-bg-tertiary: #e3e3e3;
-   --color-bg-panel: #f0f0f0;
-   --color-bg-elevated: #ffffff;
-   --color-bg-hover: #e5e5e5;
-   --color-bg-selected: #d9ebff;
-   --color-bg-input: #ffffff;
-   --color-bg-header: #ffffff;
-   --color-bg-active: #e5e5e5;
-   --color-bg-sidebar: #eaeaea;
-   --color-bg-surface: #f0f0f0;
+   --color-bg-base: #c2c7cd;
+   --color-bg-app: #cbd1d8;
+   --color-bg-canvas: #cbd1d8;
+   --color-bg-secondary: #b8bfc7;
+   --color-bg-tertiary: #aeb6bf;
+   --color-bg-panel: #c0c7cf;
+   --color-bg-elevated: #d1d6dd;
+   --color-bg-hover: #a6afb8;
+   --color-bg-selected: #b7cbe2;
+   --color-bg-input: #d3d8de;
+   --color-bg-header: #c6ccd3;
+   --color-bg-active: #a6afb8;
+   --color-bg-sidebar: #b6bec6;
+   --color-bg-surface: #c0c7cf;
 
    /* ── Semantic Tokens v2 (light) ── */
-   --surface-1: #ffffff;
-   --surface-2: #f6f6f6;
-   --surface-3: #f0f0f0;
-   --surface-elevated: #e7e7e7;
-   --text-primary: #1f1f1f;
-   --text-secondary: #585858;
-   --text-muted: #777777;
-   --accent: #2a78ff;
-   --accent-weak: rgba(42, 120, 255, 0.16);
-   --accent-strong: #2e84ff;
+   --surface-1: #cbd1d8;
+   --surface-2: #c0c7cf;
+   --surface-3: #b8bfc7;
+   --surface-elevated: #a6afb8;
+   --text-primary: #1f242a;
+   --text-secondary: #444c55;
+   --text-muted: #66707a;
+   --accent: #2f80df;
+   --accent-weak: rgba(47, 128, 223, 0.14);
+   --accent-strong: #2a74cc;
 
-   --color-bg-node: #f0f0f0;
-   --color-bg-node-header: #e5e5e5;
-   --color-bg-node-body: #ebebeb;
+   --color-bg-node: #c4c9cf;
+   --color-bg-node-header: #b6bcc3;
+   --color-bg-node-body: #bcc2c9;
 
-   --color-text-primary: #1a1a1a;
-   --color-text-secondary: #666666;
-   --color-text-tertiary: #999999;
-   --color-text-bright: #000000;
+   --color-text-primary: #1e242b;
+   --color-text-secondary: #454e58;
+   --color-text-tertiary: #6d7883;
+   --color-text-bright: #111418;
    --color-text-inverse: #ffffff;
    --color-text-on-accent: #ffffff;
    --color-text-on-color: #ffffff;
 
-   --color-accent-primary: #007aff;
-   --color-accent-primary-hover: #0066e0;
-   --color-accent-primary-glow: rgba(0, 122, 255, 0.3);
-   --color-accent-primary-dim: rgba(0, 122, 255, 0.10);
+   --color-accent-primary: #2f80df;
+   --color-accent-primary-hover: #2a74cc;
+   --color-accent-primary-glow: rgba(47, 128, 223, 0.28);
+   --color-accent-primary-dim: rgba(47, 128, 223, 0.10);
 
    --color-status-success: #33b326;
    --color-status-warning: #cc9900;
@@ -1001,33 +989,33 @@
    --color-btn-arm: #cc2626;
    --color-midi-indicator: #cc9900;
 
-   --color-border-subtle: rgba(0, 0, 0, 0.08);
-   --color-border-default: #cccccc;
-   --color-border-highlight: rgba(0, 122, 255, 0.5);
-   --color-border-selected: #1a1a1a;
+   --color-border-subtle: rgba(20, 28, 36, 0.12);
+   --color-border-default: #9ea5ad;
+   --color-border-highlight: rgba(47, 128, 223, 0.45);
+   --color-border-selected: #1f242a;
 
-   --color-divider: #d1d1d1;
-   --color-divider-light: #e0e0e0;
+   --color-divider: #a7adb5;
+   --color-divider-light: #b8bec6;
 
    /* ── UI Elements (light) ── */
-   --color-grid-line: #d5d5d5;
-   --color-grid-line-major: #bfbfbf;
+   --color-grid-line: #a9b0b8;
+   --color-grid-line-major: #8e97a1;
    --color-playhead: #1a1a1a;
    --color-selection-border: rgba(0, 122, 255, 0.7);
    --color-selection-fill: rgba(0, 122, 255, 0.12);
    --color-clip-highlight: rgba(0, 0, 0, 0.06);
    --color-drop-target: rgba(200, 200, 200, 0.5);
 
-   --color-meter-bg: #e0e0e0;
+   --color-meter-bg: #b8bec5;
    --color-meter-normal: #33b326;
    --color-meter-hot: #f2b30d;
    --color-meter-clip: #e62626;
    --color-meter-silent: #bfbfbf;
 
-   --color-control-bg: #d9d9d9;
-   --color-control-bg-active: #c7c7c7;
-   --color-control-border: #cccccc;
-   --color-control-tint: #737373;
+   --color-control-bg: #afb6be;
+   --color-control-bg-active: #9da5ae;
+   --color-control-border: #8f98a2;
+   --color-control-tint: #3f4750;
 
    /* ── Effect Type Tints (light) ── */
    --color-effect-eq: #3a6cbf;
@@ -1045,11 +1033,11 @@
    --color-browser-plugin: #8060bf;
    --color-browser-preset: #26b36d;
 
-   --color-knob-arc-inactive: #c7c7c7;
-   --color-knob-fill: #ebebeb;
-   --color-knob-value-text: #4d4d4d;
-   --color-fader-track-bg: #e0e0e0;
-   --color-fader-groove: #e6e6e6;
+   --color-knob-arc-inactive: #98a0a9;
+   --color-knob-fill: #cfd4da;
+   --color-knob-value-text: #2e353d;
+   --color-fader-track-bg: #b7bec6;
+   --color-fader-groove: #c5ccd3;
 
    /* ── Port Colors (light) ── */
    --color-port-audio: #007aff;
@@ -1057,35 +1045,35 @@
    --color-port-sidechain: #e67300;
 
    /* ── Piano Roll (light) ── */
-   --color-piano-white: #e8e8e8;
-   --color-piano-black: #d0d0d0;
-   --color-piano-white-row: #f0f0f0;
-   --color-piano-black-row: #e0e0e0;
-   --color-piano-grid: #dcdcdc;
-   --color-piano-c-line: #c0c0c0;
-   --color-piano-bar: #b3b3b3;
-   --color-piano-beat: #d5d5d5;
-   --color-piano-sub: rgba(220, 220, 220, 0.5);
+   --color-piano-white: #bcc2c9;
+   --color-piano-black: #aab2bb;
+   --color-piano-white-row: #c9ced5;
+   --color-piano-black-row: #b9c0c8;
+   --color-piano-grid: #a9b1ba;
+   --color-piano-c-line: #8e97a1;
+   --color-piano-bar: #838d98;
+   --color-piano-beat: #aeb6bf;
+   --color-piano-sub: rgba(151, 161, 172, 0.5);
 
    /* ── Timeline (light) ── */
-   --color-timeline-bg: #f5f5f5;
-   --color-timeline-ruler-bg: #eaeaea;
-   --color-timeline-grid-line: rgba(0, 0, 0, 0.06);
-   --color-timeline-grid-bar: rgba(0, 0, 0, 0.12);
-   --color-timeline-track-default: #f0f0f0;
-   --color-timeline-track-selected: #e5e5e5;
-   --color-timeline-playhead: #1a1a1a;
-   --color-timeline-playhead-glow: rgba(0, 0, 0, 0.15);
-   --color-timeline-edit-cursor: rgba(0, 0, 0, 0.7);
-   --color-timeline-loop-fill: rgba(0, 122, 255, 0.06);
-   --color-timeline-loop-border: rgba(0, 122, 255, 0.4);
-   --color-timeline-ruler-text: rgba(0, 0, 0, 0.5);
+   --color-timeline-bg: #cbd0d6;
+   --color-timeline-ruler-bg: #bec4cb;
+   --color-timeline-grid-line: rgba(17, 24, 32, 0.10);
+   --color-timeline-grid-bar: rgba(17, 24, 32, 0.16);
+   --color-timeline-track-default: #c3c9d0;
+   --color-timeline-track-selected: #b6bdc5;
+   --color-timeline-playhead: #161d25;
+   --color-timeline-playhead-glow: rgba(17, 24, 32, 0.22);
+   --color-timeline-edit-cursor: rgba(17, 24, 32, 0.75);
+   --color-timeline-loop-fill: rgba(47, 128, 223, 0.08);
+   --color-timeline-loop-border: rgba(47, 128, 223, 0.42);
+   --color-timeline-ruler-text: rgba(17, 24, 32, 0.60);
 
    /* ── Glass (light) ── */
-   --glass-bg: rgba(255, 255, 255, 0.92);
-   --glass-bg-hover: rgba(255, 255, 255, 0.97);
-   --glass-border: rgba(0, 0, 0, 0.08);
-   --glass-border-hover: rgba(0, 0, 0, 0.14);
+   --glass-bg: rgba(208, 213, 219, 0.92);
+   --glass-bg-hover: rgba(214, 219, 225, 0.97);
+   --glass-border: rgba(22, 30, 38, 0.10);
+   --glass-border-hover: rgba(22, 30, 38, 0.16);
    --glass-blur: 12px;
    --glass-radius: 4px;
 
@@ -1096,8 +1084,9 @@
    --color-overlay-modal: rgba(0, 0, 0, 0.5);
 
    /* ── Gradients (light) ── */
-   --gradient-primary: linear-gradient(135deg, #007aff 0%, #0066e0 100%);
+   --gradient-primary: linear-gradient(135deg, #2f80df 0%, #2a74cc 100%);
    --gradient-meter: linear-gradient(to top, #33b326 0%, #f2b30d 70%, #e62626 100%);
+   --theme-app-bg: linear-gradient(180deg, #cfd5dc 0%, #bcc4cd 100%);
 
    /* ── Plugin Tokens (light) ── */
    --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #8a97a8);
@@ -1105,4 +1094,161 @@
    --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
    --plugin-title-color: #1a2a44;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOREST THEME
+   Dark UI tuned to green/cyan accents for reduced eye fatigue.
+   ═══════════════════════════════════════════════════════════════ */
+:root[data-theme="forest"] {
+   --color-bg-base: #09150d;
+   --color-bg-app: #0d1c13;
+   --color-bg-canvas: #0d1c13;
+   --color-bg-secondary: #12261a;
+   --color-bg-tertiary: #173224;
+   --color-bg-panel: #1a3a29;
+   --color-bg-elevated: #214935;
+   --color-bg-hover: #2b6246;
+   --color-bg-selected: #2d5a41;
+   --color-bg-input: #132a1e;
+   --color-bg-header: #25543c;
+   --color-bg-active: #2b6246;
+   --color-bg-sidebar: #102015;
+   --color-bg-surface: #1a3a29;
+
+   --surface-1: #0d1c13;
+   --surface-2: #173224;
+   --surface-3: #1a3a29;
+   --surface-elevated: #214935;
+   --text-primary: #e6f9ed;
+   --text-secondary: #bbdcc7;
+   --text-muted: #8bad99;
+   --accent: #5fe08d;
+   --accent-weak: rgba(95, 224, 141, 0.24);
+   --accent-strong: #7cf2a8;
+
+   --color-bg-node: #234031;
+   --color-bg-node-header: #294a39;
+   --color-bg-node-body: #1d3528;
+
+   --color-text-primary: rgba(234, 248, 240, 0.94);
+   --color-text-secondary: rgba(191, 217, 203, 0.74);
+   --color-text-tertiary: rgba(164, 190, 176, 0.54);
+   --color-text-bright: #f3fff8;
+   --color-text-inverse: #0b130f;
+   --color-text-on-accent: #08120d;
+   --color-text-on-color: #08120d;
+
+   --color-accent-primary: #5fe08d;
+   --color-accent-primary-hover: #7cf2a8;
+   --color-accent-primary-glow: rgba(95, 224, 141, 0.44);
+   --color-accent-primary-dim: rgba(95, 224, 141, 0.18);
+
+   --color-status-success: #6ce65b;
+   --color-status-warning: #dcb957;
+   --color-status-error: #d86363;
+   --color-status-info: #52cfb8;
+   --color-status-record: #d86363;
+
+   --color-btn-mute: #dcb957;
+   --color-btn-solo: #52cfb8;
+   --color-btn-arm: #d86363;
+   --color-midi-indicator: #dcb957;
+
+   --color-border-subtle: rgba(214, 241, 226, 0.09);
+   --color-border-default: #375745;
+   --color-border-highlight: rgba(95, 224, 141, 0.52);
+   --color-border-selected: rgba(225, 233, 230, 0.92);
+
+   --color-divider: #2f473a;
+   --color-divider-light: #3b5d4c;
+   --color-grid-line: #2f4f3d;
+   --color-grid-line-major: #497b61;
+   --color-playhead: #d6dfda;
+   --color-selection-border: rgba(95, 224, 141, 0.78);
+   --color-selection-fill: rgba(95, 224, 141, 0.24);
+   --color-clip-highlight: rgba(230, 234, 232, 0.08);
+   --color-drop-target: rgba(64, 101, 82, 0.56);
+
+   --color-meter-bg: #132419;
+   --color-meter-normal: #72f56e;
+   --color-meter-hot: #ffd47b;
+   --color-meter-clip: #f27676;
+   --color-meter-silent: #506f5d;
+
+   --color-control-bg: #2d4f3d;
+   --color-control-bg-active: #386a4f;
+   --color-control-border: #2f5842;
+   --color-control-tint: #9fbeae;
+
+   --color-effect-eq: #4da6e3;
+   --color-effect-compressor: #c78f52;
+   --color-effect-delay: #4dc775;
+   --color-effect-reverb: #8c7bd1;
+   --color-effect-chorus: #6ac7c7;
+   --color-effect-utility: #8ca89a;
+   --color-effect-vst: #4dc7b0;
+
+   --color-browser-default: #9ec3a7;
+   --color-browser-audio: #e4c367;
+   --color-browser-midi: #56d7dc;
+   --color-browser-plugin: #9181d5;
+   --color-browser-preset: #54cf7f;
+
+   --color-knob-arc-inactive: #3a5d4a;
+   --color-knob-fill: #1d3025;
+   --color-knob-value-text: #bed9ca;
+   --color-fader-track-bg: #223629;
+   --color-fader-groove: #17261d;
+
+   --color-port-audio: #4dc7cc;
+   --color-port-midi: #d9b64f;
+   --color-port-sidechain: #f29f5c;
+
+   --color-piano-white: #2f493b;
+   --color-piano-black: #213329;
+   --color-piano-white-row: #2a4033;
+   --color-piano-black-row: #1a2b22;
+   --color-piano-grid: #2a4335;
+   --color-piano-c-line: #436653;
+   --color-piano-bar: #507864;
+   --color-piano-beat: #365344;
+   --color-piano-sub: rgba(48, 71, 58, 0.52);
+
+   --color-timeline-bg: #09150d;
+   --color-timeline-ruler-bg: #193324;
+   --color-timeline-grid-line: rgba(201, 231, 215, 0.12);
+   --color-timeline-grid-bar: rgba(201, 231, 215, 0.22);
+   --color-timeline-track-default: #0d1c13;
+   --color-timeline-track-selected: #173427;
+   --color-timeline-playhead: #dce6e0;
+   --color-timeline-playhead-glow: rgba(196, 218, 207, 0.24);
+   --color-timeline-edit-cursor: rgba(221, 230, 225, 0.8);
+   --color-timeline-loop-fill: rgba(95, 224, 141, 0.16);
+   --color-timeline-loop-border: rgba(124, 242, 168, 0.62);
+   --color-timeline-ruler-text: rgba(201, 231, 215, 0.74);
+
+   --glass-bg: rgba(10, 23, 15, 0.9);
+   --glass-bg-hover: rgba(15, 33, 22, 0.95);
+   --glass-border: rgba(201, 231, 215, 0.09);
+   --glass-border-hover: rgba(201, 231, 215, 0.16);
+
+   --color-overlay-light: rgba(0, 0, 0, 0.25);
+   --color-overlay-medium: rgba(0, 0, 0, 0.45);
+   --color-overlay-dark: rgba(0, 0, 0, 0.62);
+   --color-overlay-modal: rgba(0, 0, 0, 0.72);
+
+   --gradient-primary: linear-gradient(135deg, #5fe08d 0%, #7cf2a8 100%);
+   --gradient-meter: linear-gradient(to top, #72f56e 0%, #ffd47b 70%, #f27676 100%);
+   --theme-app-bg:
+      radial-gradient(circle at 12% -10%, rgba(95, 224, 141, 0.34) 0%, rgba(9, 21, 13, 0) 44%),
+      radial-gradient(circle at 86% 0%, rgba(86, 215, 220, 0.16) 0%, rgba(9, 21, 13, 0) 34%),
+      radial-gradient(circle at 52% 102%, rgba(30, 84, 56, 0.34) 0%, rgba(9, 21, 13, 0) 48%),
+      linear-gradient(180deg, #112518 0%, #09150d 100%);
+
+   --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #577663);
+   --plugin-card-shadow: inset 0 1px 0 rgba(240, 255, 248, 0.06), 0 6px 18px rgba(0, 0, 0, 0.30);
+   --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 90%, #1d2b22) 0%, color-mix(in srgb, var(--surface-1) 94%, #121c16) 100%);
+   --plugin-title-color: #d7ede0;
+   --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ec3ac);
 }

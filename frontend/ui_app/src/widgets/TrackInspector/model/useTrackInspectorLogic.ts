@@ -69,14 +69,12 @@ export function useTrackInspectorLogic({
     const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
     const [rowHeightOverrides, setRowHeightOverrides] = useState<Record<string, number>>({});
     const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string> | null>(null);
-
     const effectiveSelectedTrackIds = useMemo(() => {
         if (selectedTrackIdsProp) return selectedTrackIdsProp;
         if (localSelectedTrackIds) return Array.from(localSelectedTrackIds);
         if (selectedTrackId && selectedTrackId !== 'master') return [selectedTrackId];
         return [];
     }, [selectedTrackIdsProp, localSelectedTrackIds, selectedTrackId]);
-
     const selectedTrackIdSet = useMemo(() => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')), [effectiveSelectedTrackIds]);
     const applySelection = useCallback((ids: string[], primaryId: string) => {
         const cleaned = Array.from(new Set(ids)).filter((id) => id && id !== 'master');
@@ -84,7 +82,6 @@ export function useTrackInspectorLogic({
         else setLocalSelectedTrackIds(new Set(cleaned));
         onSelectTrack(primaryId);
     }, [onSelectTrack, onSelectTracks]);
-
     const {
         trackActiveStates,
         liveTracks,
@@ -113,7 +110,6 @@ export function useTrackInspectorLogic({
         collapsedGroupsProp,
         onToggleGroupCollapseProp,
     });
-
     const {
         toggleMute,
         toggleSolo,
@@ -128,7 +124,6 @@ export function useTrackInspectorLogic({
         engineSetTrackSolo,
         setLocalOverrides,
     });
-
     const applyTrackHeightOptimistic = useCallback((trackId: string, height: number) => {
         if (!trackId || trackId === 'master') return;
         useEngineStore.setState((state) => {
@@ -141,7 +136,6 @@ export function useTrackInspectorLogic({
             return buildTrackStatePatch(state.tracks.allIds, nextById);
         });
     }, []);
-
     const { resizingTrackId, beginRowResize } = useTrackInspectorResize({
         applyTrackHeightOptimistic,
         setRowHeightOverrides,
@@ -154,7 +148,6 @@ export function useTrackInspectorLogic({
         trackHeight,
         setRowHeightOverrides,
     );
-
     const {
         contextMenu,
         colorPickerState,
@@ -192,7 +185,6 @@ export function useTrackInspectorLogic({
         onSelectTracks,
         renameTrackAction,
     });
-
     const {
         draggingTrackId,
         dropInsertIndex,
@@ -210,11 +202,7 @@ export function useTrackInspectorLogic({
         visibleTracks,
         scrollRef,
     });
-
     useEffect(() => {
-        // SSOT: Subscribe to scrollSync and directly manipulate DOM transform.
-        // We bypass React setState entirely to achieve same-frame sync with
-        // the Timeline canvas. React re-renders would introduce visible lag.
         const unsub = scrollSync.subscribe('inspector', (y) => {
             virtualScrollYRef.current = y;
             if (innerScrollRef.current) {
@@ -223,7 +211,6 @@ export function useTrackInspectorLogic({
         });
         return unsub;
     }, []);
-
     useTrackInspectorKeyboardShortcuts({
         selectedTrackId,
         selectedTrackIdSet,

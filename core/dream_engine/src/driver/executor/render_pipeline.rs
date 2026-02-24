@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::render_callback::soft_clip;
-use dream_ipc::metering::{compute_peak, compute_rms};
+// BUG-007 FIX: compute_peak/compute_rms removed — metering now in finalize_output_and_publish only.
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
@@ -80,8 +80,8 @@ pub(super) fn process_master_runtime_fx_and_gain(
     master_gain_target: f32,
     master_gain_current: &mut f32,
     master_gain_smooth: f32,
-    render_ctx: &mut RenderContext,
-    graph_peak_decay: f32,
+    // BUG-007 FIX: render_ctx and graph_peak_decay removed — metering
+    // is now done exclusively in finalize_output_and_publish().
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
@@ -152,20 +152,11 @@ pub(super) fn process_master_runtime_fx_and_gain(
         graph_out_right[i] *= *master_gain_current;
     }
 
-    let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
-    let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
-    let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
-    let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
-    render_ctx.meter_bank.master_left().store_rms(rms_l);
-    render_ctx.meter_bank.master_right().store_rms(rms_r);
-    render_ctx
-        .meter_bank
-        .master_left()
-        .store_peak_decay(peak_l, graph_peak_decay);
-    render_ctx
-        .meter_bank
-        .master_right()
-        .store_peak_decay(peak_r, graph_peak_decay);
+    // BUG-007 FIX: Removed redundant master metering here.
+    // finalize_output_and_publish() already performs authoritative post-soft-clip
+    // metering on the final output. The pre-soft-clip measurement here was:
+    // (a) immediately overwritten by finalize_output, and
+    // (b) wasting ~4μs per buffer on compute_rms/compute_peak.
 }
 
 pub(super) fn interleave_graph_output(
@@ -262,12 +253,13 @@ pub(super) fn mix_preview_audio(
                         let p_left = preview_data[p_idx];
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
+                            // BUG-006 FIX: Don't soft_clip here — finalize_output_and_publish does it once.
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                                (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
                         } else {
-                            data[d_idx] += soft_clip(p_left);
+                            data[d_idx] += p_left;
                             if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += soft_clip(p_right);
+                                data[d_idx + 1] += p_right;
                             }
                         }
                     }
@@ -395,6 +387,26 @@ pub(super) fn finalize_output_and_publish(
                 .meter_bank
                 .master_right()
                 .store_peak_decay(linear_to_db(peak_r), master_decay);
+        }
+    } else if channels == 1 {
+        // BUG-007 FIX: Mono outputs now get RMS/peak metering.
+        let mut sum_sq = 0.0f64;
+        let mut peak = 0.0f32;
+        let mono_data = &data[..n];
+        for &s in mono_data {
+            sum_sq += (s as f64) * (s as f64);
+            peak = peak.max(s.abs());
+        }
+        if n > 0 {
+            let rms = (sum_sq / n as f64).sqrt() as f32;
+            let master_decay = peak_decay_for_block(sample_rate_f64, n);
+            let rms_db = linear_to_db(rms);
+            let peak_db = linear_to_db(peak);
+            // Mirror mono signal to both L/R master meters.
+            render_ctx.meter_bank.master_left().store_rms(rms_db);
+            render_ctx.meter_bank.master_right().store_rms(rms_db);
+            render_ctx.meter_bank.master_left().store_peak_decay(peak_db, master_decay);
+            render_ctx.meter_bank.master_right().store_peak_decay(peak_db, master_decay);
         }
     }
 }

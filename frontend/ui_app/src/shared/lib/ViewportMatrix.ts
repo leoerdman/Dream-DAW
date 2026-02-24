@@ -29,7 +29,6 @@ export class ViewportMatrix {
     private _dirty = true;
     private _onFlush: ((snapshot: ViewportSnapshot) => void) | null = null;
     private _onScrollYChange: ((scrollY: number) => void) | null = null;
-    /** Persists across calls — tracks the last scrollY we notified about. */
     private _lastNotifiedScrollY = 0;
 
     constructor(config: ViewportConfig) {
@@ -84,7 +83,6 @@ export class ViewportMatrix {
         return this._trackCount * this._trackHeight;
     }
 
-    /** Track top offset in track-space (0..contentHeight). */
     trackOffsetY(trackIndex: number): number {
         if (this._trackOffsets.length === this._trackCount + 1) {
             return this._trackOffsets[Math.max(0, Math.min(this._trackCount, trackIndex))] ?? 0;
@@ -92,12 +90,10 @@ export class ViewportMatrix {
         return Math.max(0, Math.min(this._trackCount, trackIndex)) * this._trackHeight;
     }
 
-    /** Track boundary offset (0..trackCount). */
     trackBoundaryOffsetY(boundaryIndex: number): number {
         return this.trackOffsetY(boundaryIndex);
     }
 
-    /** Height for a specific track. */
     trackHeightAt(trackIndex: number): number {
         const idx = Math.max(0, Math.min(this._trackCount - 1, trackIndex));
         return this._trackHeights ? (this._trackHeights[idx] ?? this._trackHeight) : this._trackHeight;
@@ -147,30 +143,25 @@ export class ViewportMatrix {
         }
     }
 
-    /** Convert screen clientX → beat position (f64 precision). */
     screenToBeats(clientX: number, canvasRect: DOMRect): number {
         const localX = clientX - canvasRect.left;
         return (localX + this._scrollX) / this._ppb;
     }
 
-    /** Convert beat → screen-space X relative to canvas origin. */
     beatsToScreenX(beat: number): number {
         return beat * this._ppb - this._scrollX;
     }
 
-    /** Convert screen clientY → track index (clamped). */
     screenToTrack(clientY: number, canvasRect: DOMRect): number {
         const localY = clientY - canvasRect.top;
         const trackY = localY + this._scrollY - this._rulerHeight;
         return this._trackIndexAtOffsetY(trackY);
     }
 
-    /** Convert screen clientY → pixel Y in canvas content space. */
     screenToContentY(clientY: number, canvasRect: DOMRect): number {
         return clientY - canvasRect.top + this._scrollY;
     }
 
-    /** Convert beat + track → canvas-space pixel coordinates. */
     beatTrackToPixel(beat: number, track: number): { x: number; y: number } {
         return {
             x: beat * this._ppb - this._scrollX,
@@ -220,7 +211,6 @@ export class ViewportMatrix {
         this._markDirty();
     }
 
-    /** Ensure playhead beat is visible (auto-follow). */
     ensureBeatVisible(beat: number): void {
         const px = beat * this._ppb;
         const margin = this._viewportW * 0.15;
@@ -233,10 +223,6 @@ export class ViewportMatrix {
         }
     }
 
-    /**
-     * Zoom in/out anchored at a screen X position.
-     * The beat under the focal point stays fixed after zoom.
-     */
     zoomAtScreenX(deltaY: number, focalScreenX: number, canvasRect: DOMRect): void {
         const focalLocalX = focalScreenX - canvasRect.left;
         const beatAtFocal = (focalLocalX + this._scrollX) / this._ppb;
@@ -252,7 +238,6 @@ export class ViewportMatrix {
         this._markDirty();
     }
 
-    /** Direct zoom setter (for programmatic use). */
     setZoom(ppb: number): void {
         const clamped = Math.max(MIN_PPB, Math.min(MAX_PPB, ppb));
         if (clamped === this._ppb) return;
@@ -281,12 +266,6 @@ export class ViewportMatrix {
         this._onFlush = cb;
     }
 
-    /**
-     * Enterprise scroll sync: fires synchronously whenever scrollY changes.
-     * This is the SSOT notification path — ensures ALL scroll-Y mutations
-     * (wheel, zoom clamp, scrollTo, resize, track height change) are
-     * propagated to TrackInspector and any other synced panel.
-     */
     setScrollYChangeCallback(cb: (scrollY: number) => void): void {
         this._onScrollYChange = cb;
     }
@@ -301,9 +280,6 @@ export class ViewportMatrix {
         const maxScrollY = Math.max(0, scrollableContentHeight - (this._viewportH - this._rulerHeight));
         this._scrollX = Math.max(0, Math.min(maxScrollX, this._scrollX));
         this._scrollY = Math.max(0, Math.min(maxScrollY, this._scrollY));
-        // SSOT: Fire synchronous scroll-Y notification when scrollY changed
-        // since the last notification. Uses persistent _lastNotifiedScrollY
-        // (NOT a local variable) so that scrollBy()'s delta is detected.
         if (Math.abs(this._scrollY - this._lastNotifiedScrollY) > 0.25) {
             this._lastNotifiedScrollY = this._scrollY;
             this._onScrollYChange?.(this._scrollY);
@@ -312,8 +288,6 @@ export class ViewportMatrix {
 
     private _markDirty(): void {
         this._dirty = true;
-        // Immediate flush keeps Timeline side-panels (master lane grid,
-        // automation overlay, UI mirrors) in lockstep with viewport movement.
         this._onFlush?.(this.snapshot);
     }
 }

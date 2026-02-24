@@ -36,9 +36,68 @@ interface AppearanceTabProps {
 }
 
 export function AppearanceTab({ settings, updateSetting }: AppearanceTabProps) {
+    const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
     return (
         <div>
             <h2 style={titleStyle}>Appearance</h2>
+            <SettingRow label="Theme">
+                <div style={{ display: 'flex', gap: 8 }}>
+                    {([
+                        { key: 'dark', label: 'Dark' },
+                        { key: 'forest', label: 'Forest' },
+                        { key: 'light', label: 'Light' },
+                    ] as const).map((themeOption) => (
+                        <button
+                            key={themeOption.key}
+                            onClick={() => updateSetting('theme', themeOption.key)}
+                            style={{
+                                ...chipStyle,
+                                background: settings.theme === themeOption.key ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                color: settings.theme === themeOption.key ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                            }}
+                        >
+                            {themeOption.label}
+                        </button>
+                    ))}
+                </div>
+            </SettingRow>
+            {settings.theme === 'dark' && (
+                <>
+                    <SettingRow label="Dark Shade (0-255, 0 = no tint)">
+                        <input
+                            type="range"
+                            min={0}
+                            max={255}
+                            step={1}
+                            value={settings.darkThemeShade}
+                            onChange={(e) => updateSetting('darkThemeShade', clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
+                            style={{ width: 180 }}
+                        />
+                        <input
+                            type="number"
+                            min={0}
+                            max={255}
+                            step={1}
+                            value={settings.darkThemeShade}
+                            onChange={(e) => updateSetting('darkThemeShade', clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
+                            style={inputStyle}
+                        />
+                    </SettingRow>
+                    <SettingRow label="Dark Tint Strength (%)">
+                        <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={settings.darkThemeTintPercent}
+                            onChange={(e) => updateSetting('darkThemeTintPercent', clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
+                            style={{ width: 180 }}
+                        />
+                        <span style={valueStyle}>{settings.darkThemeTintPercent}%</span>
+                    </SettingRow>
+                </>
+            )}
             <SettingRow label="Waveform Style">
                 <div style={{ display: 'flex', gap: 8 }}>
                     {(['colored', 'classic'] as const).map((styleKey) => (

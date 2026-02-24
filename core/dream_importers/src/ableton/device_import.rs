@@ -24,7 +24,8 @@ use super::device_params::{
     upsert_static_import_lane, upsert_static_import_lane_if_missing,
 };
 use super::plugin_mapper::{
-    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_plugin_for_import,
+    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_from_plugin_device_node,
+    canonical_internal_plugin_for_import,
     MissingExternalPluginSlotSpec, infer_device_display_name,
     make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
@@ -192,7 +193,7 @@ fn import_external_plugin_device(
         apply_external_plugin_meta(&mut slot, &meta);
         DeviceNode::Single(slot)
     } else if let Some((pid, pname, slot_kind)) =
-        canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
+        canonical_internal_from_plugin_device_node(device, &preferred_name)
     {
         log::info!(
             "[ALS Import] PluginDevice CANONICAL: '{}' → internal '{}' (kind='{}')",
@@ -389,15 +390,43 @@ fn resolve_plugin_id(
     vst2_name: &str,
     external_plugins: &ExternalPluginIndex,
 ) -> Option<String> {
-    if !vst2_path.trim().is_empty() {
-        Some(vst2_path.trim().to_string())
-    } else if !vst3_path.trim().is_empty() {
-        Some(vst3_path.trim().to_string())
-    } else if !vst3_name.trim().is_empty() {
-        external_plugins.resolve_by_name(vst3_name)
-    } else if !vst2_name.trim().is_empty() {
-        external_plugins.resolve_by_name(vst2_name)
-    } else {
-        None
+    let v3_path = vst3_path.trim();
+    let v2_path = vst2_path.trim();
+
+    // Prefer real, existing bundle paths on this machine.
+    if !v3_path.is_empty() && Path::new(v3_path).exists() {
+        return Some(v3_path.to_string());
     }
+    if !v2_path.is_empty() && Path::new(v2_path).exists() {
+        return Some(v2_path.to_string());
+    }
+
+    // Fallback to scanner index by plugin names from ALS metadata.
+    if !vst3_name.trim().is_empty()
+        && let Some(path) = external_plugins.resolve_by_name(vst3_name)
+    {
+        return Some(path);
+    }
+    if !vst2_name.trim().is_empty()
+        && let Some(path) = external_plugins.resolve_by_name(vst2_name)
+    {
+        return Some(path);
+    }
+
+    // Last-resort: derive bundle stem from non-local paths (e.g. Windows path
+    // inside ALS on macOS) and resolve by scanned plugin names.
+    if !v3_path.is_empty()
+        && let Some(stem) = Path::new(v3_path).file_stem().and_then(|s| s.to_str())
+        && let Some(path) = external_plugins.resolve_by_name(stem)
+    {
+        return Some(path);
+    }
+    if !v2_path.is_empty()
+        && let Some(stem) = Path::new(v2_path).file_stem().and_then(|s| s.to_str())
+        && let Some(path) = external_plugins.resolve_by_name(stem)
+    {
+        return Some(path);
+    }
+
+    None
 }

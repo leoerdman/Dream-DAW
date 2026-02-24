@@ -83,14 +83,34 @@ export function MissingPluginsSection({
     scanBusy: boolean;
     onReplacePlugin: ResolveCallbacks['onReplacePlugin'];
 }) {
+    const normalize = (raw: string): string => raw.trim().toLowerCase();
+    const compact = (raw: string): string => raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const scorePluginMatch = (wantedName: string, pluginName: string): number => {
+        const w = normalize(wantedName);
+        const p = normalize(pluginName);
+        if (!w || !p) return 0;
+        if (w === p) return 100;
+        const wc = compact(w);
+        const pc = compact(p);
+        if (wc && wc === pc) return 95;
+        if (p.startsWith(w) || w.startsWith(p)) return 80;
+        if (pc && wc && (pc.includes(wc) || wc.includes(pc))) return 70;
+        if (p.includes(w)) return 60;
+        return 0;
+    };
+
     return (
         <section style={sectionStyle}>
             <div style={sectionTitleStyle}>Missing Plugins</div>
             {missingPlugins.length === 0 ? (
                 <div style={emptyTextStyle}>No missing plugin placeholders.</div>
             ) : missingPlugins.map((item) => {
-                const query = item.wantedName.toLowerCase();
-                const matches = pluginEntries.filter((p) => p.name.toLowerCase().includes(query)).slice(0, 4);
+                const matches = pluginEntries
+                    .map((entry) => ({ entry, score: scorePluginMatch(item.wantedName, entry.name) }))
+                    .filter((v) => v.score > 0)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 4)
+                    .map((v) => v.entry);
                 return (
                     <div key={item.slotId} style={cardStyle}>
                         <div style={cardTitleStyle}>{item.displayName}</div>
@@ -108,7 +128,7 @@ export function MissingPluginsSection({
                                     <span style={{ opacity: 0.7 }}>Use</span>
                                 </button>
                             )) : (
-                                <div style={emptyTextStyle}>{scanBusy ? 'Scanning plugins...' : 'No close VST3 match found'}</div>
+                                <div style={emptyTextStyle}>{scanBusy ? 'Scanning plugins...' : 'No close plugin match found'}</div>
                             )}
                         </div>
 
@@ -118,7 +138,7 @@ export function MissingPluginsSection({
                                     const picked = await open({
                                         multiple: false,
                                         title: `Replace missing plugin: ${item.wantedName}`,
-                                        filters: [{ name: 'Plugins', extensions: ['vst3'] }],
+                                        filters: [{ name: 'Plugins', extensions: ['vst3', 'component', 'vst', 'dll'] }],
                                     });
                                     const path = typeof picked === 'string' ? picked : null;
                                     if (!path) return;
@@ -126,7 +146,7 @@ export function MissingPluginsSection({
                                 }}
                                 style={actionBtnStyle}
                             >
-                                Pick VST3...
+                                Pick Plugin...
                             </button>
                             <button
                                 onClick={() => {
@@ -172,4 +192,3 @@ const actionBtnStyle: CSSProperties = {
     cursor: 'pointer',
     transition: 'background var(--transition-fast)',
 };
-

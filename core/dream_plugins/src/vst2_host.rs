@@ -1137,7 +1137,7 @@ mod tests {
                 0.0,
             )
         };
-        assert_eq!(result, 44100);
+        assert_eq!(result, DEFAULT_HOST_SAMPLE_RATE as VstIntPtr);
     }
 
     #[test]
@@ -1152,7 +1152,7 @@ mod tests {
                 0.0,
             )
         };
-        assert_eq!(result, 1024);
+        assert_eq!(result, DEFAULT_HOST_BLOCK_SIZE as VstIntPtr);
     }
 
     #[test]

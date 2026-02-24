@@ -1,27 +1,9 @@
-// ═══════════════════════════════════════════════════════════════════════
-// Dream DAW — Ableton ALS Plugin Mapper
-// ═══════════════════════════════════════════════════════════════════════
-//
-// Maps Ableton Live device XML tags (EQ8, Compressor2, PluginDevice, etc.)
-// to Dream DAW's canonical internal plugin IDs.
-//
-// Also handles:
-//   • ExternalPluginMeta — VST2/VST3/AU metadata from ALS XML
-//   • ExternalPluginIndex — Runtime plugin scanner index for name resolution
-//   • Missing plugin slot construction for unresolved devices
-//
-// ═══════════════════════════════════════════════════════════════════════
-
 use dream_models::midi::SamplerConfig;
 use dream_models::project::{DeviceNode, PluginSlot, Project};
 use std::path::Path;
 
 use super::xml_helpers::*;
 
-// ── Canonical Plugin ID Resolution ─────────────────────────────────────
-
-/// Maps an Ableton device XML tag and plugin name to a canonical
-/// Dream DAW plugin ID, display name, and slot kind ("instrument" or "effect").
 pub fn canonical_internal_plugin_for_import(
     plugin_id: &str,
     plugin_name: &str,
@@ -83,6 +65,9 @@ pub fn canonical_internal_plugin_for_import(
             "mxdevicescale" | "midichord" => {
                 return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
             }
+            "mxdeviceaudioeffect" => {
+                return Some(("internal://effect/utility", "Utility", "effect"));
+            }
             "mxdevicevelocity" | "midinotelength" | "midivelocity" => {
                 return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
             }
@@ -119,6 +104,30 @@ pub fn canonical_internal_plugin_for_import(
                     "instrument",
                 ));
             }
+            "utility" | "bass mono" | "mono bass" | "gain utility" => {
+                return Some(("internal://effect/utility", "Utility", "effect"));
+            }
+            "auto filter" | "autofilter" => {
+                return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
+            }
+            "eq eight" | "eq8" | "channel eq" => {
+                return Some(("internal://effect/eq-eight", "EQ", "effect"));
+            }
+            "drum buss" | "drumbuss" | "compressor" | "glue compressor" => {
+                return Some(("internal://effect/compressor", "Compressor", "effect"));
+            }
+            "echo" | "delay" | "ping pong delay" => {
+                return Some(("internal://effect/delay", "Delay", "effect"));
+            }
+            "hybrid reverb" | "reverb" => {
+                return Some(("internal://effect/reverb", "Reverb", "effect"));
+            }
+            "saturator" | "dynamic tube" => {
+                return Some(("internal://effect/saturator", "Saturator", "effect"));
+            }
+            "amp" | "pedal" | "overdrive" | "distortion" | "roar" => {
+                return Some(("internal://effect/distortion", "Distortion", "effect"));
+            }
             _ => return None,
         }
     }
@@ -126,17 +135,212 @@ pub fn canonical_internal_plugin_for_import(
     None
 }
 
-// ── Plugin Normalization ───────────────────────────────────────────────
+pub fn canonical_internal_from_plugin_device_node(
+    device: roxmltree::Node<'_, '_>,
+    preferred_name: &str,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    fn strip_known_preset_ext(raw: &str) -> String {
+        let lower = raw.trim().to_lowercase();
+        for ext in [".adv", ".adg", ".aupreset", ".vstpreset", ".fxp", ".fxb"] {
+            if lower.ends_with(ext) {
+                return raw.trim().trim_end_matches(ext).trim().to_string();
+            }
+        }
+        raw.trim().to_string()
+    }
 
-/// Recursively normalizes plugin IDs across all tracks in a project.
+    fn push_candidate(out: &mut Vec<String>, value: Option<String>) {
+        if let Some(v) = value {
+            let t = v.trim();
+            if !t.is_empty() {
+                out.push(t.to_string());
+            }
+        }
+    }
+
+    if let Some(mapped) = canonical_internal_plugin_for_import("PluginDevice", preferred_name) {
+        return Some(mapped);
+    }
+
+    let mut candidates = Vec::<String>::new();
+    let preferred = preferred_name.trim();
+    if !preferred.is_empty() {
+        candidates.push(preferred.to_string());
+        candidates.push(strip_known_preset_ext(preferred));
+    }
+
+    push_candidate(&mut candidates, node_child_value(device, "UserName"));
+    push_candidate(
+        &mut candidates,
+        device
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
+            .and_then(|v| {
+                v.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Name"))
+                    .and_then(|n| n.attribute("Value"))
+            })
+            .map(str::to_string),
+    );
+    push_candidate(
+        &mut candidates,
+        device
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"))
+            .and_then(|v| {
+                v.children()
+                    .find(|n| n.is_element() && n.has_tag_name("PlugName"))
+                    .and_then(|n| n.attribute("Value"))
+            })
+            .map(str::to_string),
+    );
+    push_candidate(
+        &mut candidates,
+        device
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AuPluginInfo"))
+            .and_then(|v| {
+                v.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Name"))
+                    .and_then(|n| n.attribute("Value"))
+            })
+            .map(str::to_string),
+    );
+    for field in [
+        "DeviceClass",
+        "DeviceClassName",
+        "ClassName",
+        "PluginDesc",
+        "OriginalName",
+        "DeviceType",
+        "MxDeviceAudioEffect",
+        "MxDeviceMidiEffect",
+        "MxDeviceInstrument",
+    ] {
+        push_candidate(&mut candidates, node_child_value(device, field));
+    }
+    for node in device.descendants().filter(|n| n.is_element()) {
+        let tag = node.tag_name().name();
+        let tag_lc = tag.to_ascii_lowercase();
+        if !(tag_lc.contains("class")
+            || tag_lc.contains("devicetype")
+            || tag_lc.contains("mxdevice")
+            || tag_lc.contains("plugindesc"))
+        {
+            continue;
+        }
+        if let Some(v) = node.attribute("Value") {
+            let trimmed = v.trim();
+            if !trimmed.is_empty() {
+                candidates.push(trimmed.to_string());
+            }
+        }
+    }
+
+    let rel = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !rel.is_empty() {
+        candidates.push(rel.clone());
+        for part in rel.replace('\\', "/").split('/') {
+            let token = part.trim();
+            if token.is_empty() {
+                continue;
+            }
+            candidates.push(token.to_string());
+            candidates.push(strip_known_preset_ext(token));
+        }
+    }
+
+    let abs = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("Path"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !abs.is_empty() {
+        candidates.push(abs.clone());
+        for part in abs.replace('\\', "/").split('/') {
+            let token = part.trim();
+            if token.is_empty() {
+                continue;
+            }
+            candidates.push(token.to_string());
+            candidates.push(strip_known_preset_ext(token));
+        }
+        if let Some(stem) = Path::new(&abs).file_stem().and_then(|s| s.to_str()) {
+            candidates.push(stem.trim().to_string());
+        }
+    }
+
+    let mut seen = std::collections::HashSet::<String>::new();
+    for candidate in candidates {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let key = trimmed.to_lowercase();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+
+        if let Some(mapped) = canonical_internal_plugin_for_import("PluginDevice", trimmed) {
+            return Some(mapped);
+        }
+        if let Some(mapped) = canonical_internal_plugin_for_import(trimmed, trimmed) {
+            return Some(mapped);
+        }
+        let normalized = normalize_plugin_key(trimmed);
+        if !normalized.is_empty()
+            && let Some(mapped) = canonical_internal_plugin_for_import(&normalized, trimmed)
+        {
+            return Some(mapped);
+        }
+    }
+
+    None
+}
+
 pub fn normalize_internal_plugins_for_import(project: &mut Project) {
+    fn canonical_from_missing_slot_name(
+        display_name: &str,
+    ) -> Option<(&'static str, &'static str, &'static str)> {
+        let raw = display_name.trim();
+        let stripped = raw
+            .strip_prefix("Plugin Not Found:")
+            .unwrap_or(raw)
+            .trim();
+        let primary = stripped
+            .split_once('[')
+            .map(|(left, _)| left.trim())
+            .unwrap_or(stripped)
+            .trim();
+        if primary.is_empty() {
+            return None;
+        }
+        if let Some(mapped) = canonical_internal_plugin_for_import(primary, primary) {
+            return Some(mapped);
+        }
+        let normalized = normalize_plugin_key(primary);
+        if normalized.is_empty() {
+            return None;
+        }
+        canonical_internal_plugin_for_import(&normalized, primary)
+    }
+
     for track in &mut project.tracks {
         if let Some(inst) = &mut track.instrument {
             let pid = inst.plugin_id();
-            if pid.is_empty() || pid.starts_with("internal://") {
+            if pid.is_empty() || pid.starts_with("internal://") || pid.starts_with("missing://") {
                 let pname = inst.name().to_string();
-                if let Some((canonical_id, canonical_name, slot)) =
-                    canonical_internal_plugin_for_import(&pid, &pname)
+                let mapped = canonical_internal_plugin_for_import(&pid, &pname)
+                    .or_else(|| canonical_from_missing_slot_name(&pname));
+                if let Some((canonical_id, canonical_name, slot)) = mapped
                     && slot == "instrument"
                 {
                     inst.set_plugin_id(canonical_id);
@@ -163,22 +367,50 @@ pub fn normalize_internal_plugins_for_import(project: &mut Project) {
     }
 }
 
-/// Recursively normalize a single `DeviceNode` and all children inside racks.
 fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
+    fn canonical_from_missing_slot_name(
+        display_name: &str,
+    ) -> Option<(&'static str, &'static str, &'static str)> {
+        let raw = display_name.trim();
+        let stripped = raw
+            .strip_prefix("Plugin Not Found:")
+            .unwrap_or(raw)
+            .trim();
+        let primary = stripped
+            .split_once('[')
+            .map(|(left, _)| left.trim())
+            .unwrap_or(stripped)
+            .trim();
+        if primary.is_empty() {
+            return None;
+        }
+        if let Some(mapped) = canonical_internal_plugin_for_import(primary, primary) {
+            return Some(mapped);
+        }
+        let normalized = normalize_plugin_key(primary);
+        if normalized.is_empty() {
+            return None;
+        }
+        canonical_internal_plugin_for_import(&normalized, primary)
+    }
+
     if depth > 16 {
         log::warn!("[normalize_effect_node] Recursion depth limit reached, skipping nested rack");
         return;
     }
     match node {
         DeviceNode::Single(slot) => {
-            if !slot.plugin_id.is_empty() && !slot.plugin_id.starts_with("internal://") {
+            if !slot.plugin_id.is_empty()
+                && !slot.plugin_id.starts_with("internal://")
+                && !slot.plugin_id.starts_with("missing://")
+            {
                 return;
             }
             let pid = slot.plugin_id.clone();
             let pname = slot.name.clone();
-            if let Some((canonical_id, canonical_name, _slot_kind)) =
-                canonical_internal_plugin_for_import(&pid, &pname)
-            {
+            let mapped = canonical_internal_plugin_for_import(&pid, &pname)
+                .or_else(|| canonical_from_missing_slot_name(&pname));
+            if let Some((canonical_id, canonical_name, _slot_kind)) = mapped {
                 slot.plugin_id = canonical_id.to_string();
                 if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase()
                 {
@@ -196,9 +428,6 @@ fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
     }
 }
 
-// ── Missing Plugin Slots ───────────────────────────────────────────────
-
-/// Creates a missing-plugin placeholder slot for an unresolved Ableton device.
 pub fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
     let normalized = ableton_name
         .chars()
@@ -343,8 +572,6 @@ pub fn make_missing_external_plugin_slot_with_metadata(
     }
     DeviceNode::Single(slot)
 }
-
-// ── External Plugin Metadata ───────────────────────────────────────────
 
 #[derive(Default)]
 pub struct ExternalPluginMeta {
@@ -535,16 +762,12 @@ pub fn apply_external_plugin_meta(slot: &mut PluginSlot, meta: &ExternalPluginMe
     slot.external_preset_blob_kind = meta.preset_blob_kind.clone();
 }
 
-// ── Plugin Key Normalization ───────────────────────────────────────────
-
 pub fn normalize_plugin_key(raw: &str) -> String {
     raw.chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_lowercase())
         .collect()
 }
-
-// ── External Plugin Index (Scanner) ────────────────────────────────────
 
 pub struct ExternalPluginIndex {
     pub by_name: std::collections::HashMap<String, String>,
@@ -722,8 +945,6 @@ impl Default for ExternalPluginIndex {
         )
     }
 }
-
-// ── Device Display Name Inference ──────────────────────────────────────
 
 pub fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
     if let Some(user_name) = node_child_value(device, "UserName")

@@ -31,6 +31,7 @@ fn new_project(
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let mut new = dream_models::project::Project::default();
+    new.normalize_invariants();
     refresh_offline_flags(&mut new);
     *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
     *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
@@ -278,6 +279,7 @@ fn open_project(
         .map(|s| s.eq_ignore_ascii_case("als"))
         .unwrap_or(false);
 
+    let mut normalized_empty_tracks_on_load = false;
     let mut loaded = if importing_als {
         let runtime_sample_rate = handle
             .playback_state
@@ -294,13 +296,25 @@ fn open_project(
         // mapping to internal://). Calling it on native .ddpj projects destroys
         // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
         // keyword matcher hits on substrings like "shaper" in "ShaperBox".
-        ProjectFile::load(&file_path).map_err(|e| e.to_string())?
+        let (project, report) = ProjectFile::load_with_report(&file_path).map_err(|e| e.to_string())?;
+        normalized_empty_tracks_on_load = report.default_tracks_injected;
+        project
     };
+    let mut als_auto_resolve_stats = MissingPluginAutoResolveStats::default();
+    let missing_slots_before_auto_resolve = count_missing_plugin_slots(&loaded);
+    if importing_als || missing_slots_before_auto_resolve > 0 {
+        als_auto_resolve_stats = auto_resolve_missing_external_plugin_slots(&mut loaded);
+    }
     if importing_als {
         for track in &mut loaded.tracks {
             track.height = track.height.clamp(24.0, 120.0);
         }
     }
+    let als_norm_report = loaded.normalize_invariants();
+    if importing_als && als_norm_report.default_tracks_injected {
+        normalized_empty_tracks_on_load = true;
+    }
+    normalize_runtime_external_plugin_slots(&mut loaded, &plugin_host_state);
     refresh_offline_flags(&mut loaded);
 
     let _ = plugin_host_state.unload_all_instances();
@@ -330,6 +344,38 @@ fn open_project(
     *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
     let source_kind = if importing_als { "als_import" } else { "project_open" };
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
+    if normalized_empty_tracks_on_load {
+        project_state.record_history(
+            "project_invariant_fix",
+            format!(
+                "auto-injected default tracks for '{}' because source project had empty track list",
+                loaded.name
+            ),
+        )?;
+    }
+
+    // ALS projects often rely on external instrument slots (e.g. Serum) on
+    // MIDI tracks. Lazy activation leaves those tracks silent until the user
+    // manually opens/fixes each plugin. For ALS import, eagerly activate
+    // external plugin slots best-effort so imported tracks are audible
+    // immediately after open.
+    if importing_als {
+        match eager_activate_external_plugins(
+            plugin_host_state.clone(),
+            project_state.clone(),
+            clip_pool_state.clone(),
+        ) {
+            Ok(stats) => {
+                log::info!("[ALS Import] Eager external plugin activation: {}", stats);
+            }
+            Err(err) => {
+                log::warn!(
+                    "[ALS Import] Eager external plugin activation failed (non-fatal): {}",
+                    err
+                );
+            }
+        }
+    }
 
     // Derive project folder from file path
     let folder = if importing_als {
@@ -362,6 +408,36 @@ fn open_project(
             loaded.track_count(),
             file_path.display()
         );
+
+        let missing_after = count_missing_plugin_slots(&loaded);
+        let mut warped_clip_count = 0usize;
+        let mut warp_marker_count = 0usize;
+        let mut warped_with_source_frames = 0usize;
+        for track in &loaded.tracks {
+            for clip in &track.clips {
+                if clip.is_warped {
+                    warped_clip_count = warped_clip_count.saturating_add(1);
+                    warp_marker_count = warp_marker_count.saturating_add(clip.warp_markers.len());
+                    if clip.warp_source_duration_frames > 0 {
+                        warped_with_source_frames = warped_with_source_frames.saturating_add(1);
+                    }
+                }
+            }
+        }
+
+        let summary = AlsImportSummaryPayload {
+            project_name: loaded.name.clone(),
+            track_count: loaded.track_count(),
+            missing_slots_before: missing_slots_before_auto_resolve,
+            missing_slots_after: missing_after,
+            auto_resolved_internal: als_auto_resolve_stats.replaced_internal,
+            auto_resolved_external: als_auto_resolve_stats.replaced_external,
+            warped_clip_count,
+            warp_marker_count,
+            warped_with_source_frames,
+            unresolved_missing_labels: collect_missing_slot_labels(&loaded, 10),
+        };
+        let _ = app.emit("als_import_summary", &summary);
     } else {
         log::info!("Project opened: '{}' ({} tracks)", loaded.name, loaded.track_count());
     }
@@ -372,7 +448,8 @@ fn open_project(
     })
 }
 
-/// Returns the list of recently opened projects.
+include!("project_management_missing.rs");
+
 #[tauri::command]
 fn get_recent_projects(
     app: tauri::AppHandle,
@@ -396,6 +473,119 @@ fn get_project_status(
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
         "projectFolder": project_folder.as_ref().map(|p| p.display().to_string()),
     }))
+}
+
+/// Bulk-resolves missing plugin slots using importer metadata + scanned runtime
+/// descriptors and returns a full project snapshot delta for frontend sync.
+#[tauri::command]
+fn auto_resolve_missing_plugins_with_deltas_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<DeltaMutationResponse, String> {
+    let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let missing_before = count_missing_plugin_slots(&project);
+        let stats = auto_resolve_missing_external_plugin_slots(&mut project);
+        normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
+        let missing_after = count_missing_plugin_slots(&project);
+        let unresolved_labels = collect_missing_slot_labels(&project, 20);
+        (
+            project.clone(),
+            project.name.clone(),
+            missing_before,
+            missing_after,
+            stats,
+            unresolved_labels,
+        )
+    };
+
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&snapshot, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+
+    if stats.replaced_internal > 0 || stats.replaced_external > 0 || missing_before != missing_after {
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    }
+
+    log::info!(
+        "[Missing plugins] bulk auto-resolve: before={}, after={}, internal_resolved={}, external_resolved={}, unresolved={}",
+        missing_before,
+        missing_after,
+        stats.replaced_internal,
+        stats.replaced_external,
+        unresolved_labels.len(),
+    );
+
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(snapshot),
+        }],
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AutoResolveMissingPluginsReportResponse {
+    deltas: Vec<dream_models::delta::ProjectDelta>,
+    missing_before: usize,
+    missing_after: usize,
+    resolved_internal: usize,
+    resolved_external: usize,
+    unresolved_labels: Vec<String>,
+}
+
+#[tauri::command]
+fn auto_resolve_missing_plugins_report_with_deltas_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<AutoResolveMissingPluginsReportResponse, String> {
+    let (snapshot, project_name, missing_before, missing_after, stats, unresolved_labels) = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let missing_before = count_missing_plugin_slots(&project);
+        let stats = auto_resolve_missing_external_plugin_slots(&mut project);
+        normalize_runtime_external_plugin_slots(&mut project, &plugin_host_state);
+        let missing_after = count_missing_plugin_slots(&project);
+        let unresolved_labels = collect_missing_slot_labels(&project, 20);
+        (
+            project.clone(),
+            project.name.clone(),
+            missing_before,
+            missing_after,
+            stats,
+            unresolved_labels,
+        )
+    };
+
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&snapshot, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+
+    if stats.replaced_internal > 0 || stats.replaced_external > 0 || missing_before != missing_after {
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    }
+
+    log::info!(
+        "[Missing plugins] auto-resolve report: before={}, after={}, internal_resolved={}, external_resolved={}, unresolved={}",
+        missing_before,
+        missing_after,
+        stats.replaced_internal,
+        stats.replaced_external,
+        unresolved_labels.len(),
+    );
+
+    Ok(AutoResolveMissingPluginsReportResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(snapshot),
+        }],
+        missing_before,
+        missing_after,
+        resolved_internal: stats.replaced_internal,
+        resolved_external: stats.replaced_external,
+        unresolved_labels,
+    })
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

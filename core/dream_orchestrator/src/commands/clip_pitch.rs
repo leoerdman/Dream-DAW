@@ -50,6 +50,14 @@ impl Command for SetClipPitchCommand {
         for track in &mut project.tracks {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
                 clip.pitch_shift_semitones = self.pitch_shift_semitones.clamp(-48.0, 48.0);
+                if clip.warp_source_duration_frames <= 0 {
+                    let source_frames = ctx
+                        .clip_pool
+                        .get_clip_audio(&clip.file_path)
+                        .map(|audio| audio.num_frames as i64)
+                        .unwrap_or_else(|| clip.duration.sample_frame.max(1));
+                    clip.warp_source_duration_frames = source_frames.max(1);
+                }
 
                 // When not warped, pitch shift changes duration (vinyl speed effect)
                 if !clip.is_warped {

@@ -2,7 +2,14 @@
 import React from 'react';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
-import { EFFECT_PARAM_CATALOG } from '@/widgets/DeviceRack/model/deviceRackCatalog';
+import {
+    EFFECT_PARAM_ORDER,
+    EFFECT_PARAM_WHITELIST,
+    HIDDEN_SURFACE_PARAM_NAMES,
+    HIDE_ALL_PARAMS_INTERNAL_IDS,
+    INTERNAL_PLUGIN_PARAM_ALLOWLIST,
+} from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardCatalog';
+export { PLUGIN_TITLE_MAP } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardCatalog';
 
 export const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
@@ -140,42 +147,28 @@ export function resolveMixParam(device: DeviceSlot): DeviceSlot['params'][number
 }
 
 export function shouldShowDryWet(device: DeviceSlot): boolean {
+    const nonMixDeviceTypes: ReadonlySet<DeviceSlot['effectType']> = new Set([
+        'instrument',
+        'sampler',
+        'sample_rack',
+        'waveSynth',
+        'midiPitch',
+        'midiScale',
+        'midiVelocity',
+        'midiRandom',
+        'midiChord',
+        'midiNoteLength',
+        'midiCcControl',
+        'midiExpressionControl',
+        'midiArpeggiator',
+    ]);
+    if (nonMixDeviceTypes.has(device.effectType)) return false;
     return resolveMixParam(device) != null;
 }
 
 type SurfaceParamFilterOptions = {
     omitMixWhenDryWet?: boolean;
 };
-
-const HIDE_ALL_PARAMS_INTERNAL_IDS = new Set([
-    'internal://effect/tuner',
-    'internal://effect/auto-shift',
-    'internal://effect/shifter',
-    'internal://effect/external-audio-effect',
-    'internal://effect/looper',
-]);
-
-const HIDDEN_SURFACE_PARAM_NAMES = new Set([
-    'bypass',
-    'is_bypassed',
-    'enabled',
-    'active',
-    'latency',
-    'latency_frames',
-    'lookahead_samples',
-    'meter',
-    'meter_l',
-    'meter_r',
-    'peak',
-    'peak_l',
-    'peak_r',
-    'rms',
-    'rms_l',
-    'rms_r',
-    'sidechain',
-    'sidechain_source',
-    'sidechain_track',
-]);
 
 function semanticParamKey(name: string): string {
     const normalized = name.toLowerCase();
@@ -185,109 +178,6 @@ function semanticParamKey(name: string): string {
     return normalized;
 }
 
-const EFFECT_PARAM_WHITELIST: Partial<Record<DeviceSlot['effectType'], Set<string>>> = Object
-    .entries(EFFECT_PARAM_CATALOG)
-    .reduce((acc, [effectType, params]) => {
-        if (!Array.isArray(params) || params.length === 0) return acc;
-        acc[effectType as DeviceSlot['effectType']] = new Set(
-            params.map((p) => p.name.toLowerCase().trim()),
-        );
-        return acc;
-    }, {} as Partial<Record<DeviceSlot['effectType'], Set<string>>>);
-
-// Internal alias variants that intentionally expose only a subset of the
-// shared DSP parameter bank to avoid misleading "dead" controls in UI.
-const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
-    'internal://effect/eq-three': new Set([
-        'lowfreq', 'low', 'lowq',
-        'midfreq', 'mid', 'midq',
-        'highfreq', 'high', 'highq',
-        'out',
-    ]),
-    'internal://effect/channel-eq': new Set([
-        'lowfreq', 'low',
-        'midfreq', 'mid',
-        'highfreq', 'high',
-        'out',
-    ]),
-    // Glue Compressor: same DSP as compressor, limit to relevant subset.
-    'internal://effect/glue-compressor': new Set([
-        'thr', 'ratio', 'atk', 'rel', 'makeup', 'mix',
-    ]),
-    // Multiband Dynamics: limited to single-band compressor params.
-    'internal://effect/multiband-dynamics': new Set([
-        'thr', 'ratio', 'atk', 'rel', 'knee', 'mix', 'rms',
-    ]),
-    // Transient Shaper: transient envelope mode of compressor.
-    'internal://effect/transient-shaper': new Set([
-        'atk', 'rel', 'mix',
-    ]),
-    // ── Delay variants ──
-    'internal://effect/simple-delay': new Set([
-        'time l', 'time r', 'fb', 'dry/wet',
-    ]),
-    'internal://effect/filter-delay': new Set([
-        'time l', 'time r', 'fb', 'dry/wet',
-    ]),
-    'internal://effect/grain-delay': new Set([
-        'time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth',
-    ]),
-    'internal://effect/echo': new Set([
-        'time l', 'time r', 'fb', 'dry/wet',
-    ]),
-    'internal://effect/spectral-time': new Set([
-        'time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth',
-    ]),
-    'internal://effect/beat-repeat': new Set([
-        'time l', 'fb', 'dry/wet',
-    ]),
-    // ── Reverb variants ──
-    'internal://effect/hybrid-reverb': new Set([
-        'size', 'damp', 'predelay', 'dry/wet', 'mod rate', 'mod depth',
-    ]),
-    'internal://effect/corpus': new Set([
-        'size', 'damp', 'predelay', 'dry/wet',
-    ]),
-    'internal://effect/resonators': new Set([
-        'size', 'damp', 'dry/wet',
-    ]),
-    'internal://effect/spectral-resonator': new Set([
-        'size', 'damp', 'dry/wet',
-    ]),
-    // ── Distortion variants ──
-    'internal://effect/drum-buss': new Set([
-        'drive', 'tone', 'mix',
-    ]),
-    'internal://effect/dynamic-tube': new Set([
-        'drive', 'tone', 'mix', 'mode',
-    ]),
-    'internal://effect/amp': new Set([
-        'drive', 'tone', 'output',
-    ]),
-    'internal://effect/cabinet': new Set([
-        'tone', 'output',
-    ]),
-    'internal://effect/overdrive': new Set([
-        'drive', 'tone', 'mix', 'output',
-    ]),
-    'internal://effect/pedal': new Set([
-        'drive', 'tone', 'mix', 'output',
-    ]),
-    'internal://effect/roar': new Set([
-        'drive', 'tone', 'mix', 'output', 'tight',
-    ]),
-    'internal://effect/erosion': new Set([
-        'drive', 'tone', 'mix',
-    ]),
-    'internal://effect/phaser-flanger': new Set([
-        'rate', 'depth', 'fb', 'mix', 'stages', 'spread',
-    ]),
-    // Vocoder: maps to autoFilter core, only expose valid params.
-    'internal://effect/vocoder': new Set([
-        'cutoff', 'res', 'mix',
-    ]),
-    'internal://effect/spectrum': new Set(['reset']),
-};
 
 export function buildSurfaceKnobParams(
     device: DeviceSlot,
@@ -334,7 +224,23 @@ export function buildSurfaceKnobParams(
             }
         }
     }
-    return Array.from(bySemantic.values());
+    const out = Array.from(bySemantic.values());
+    if (!isInternal) return out;
+
+    const effectOrder = EFFECT_PARAM_ORDER[device.effectType];
+    if (!effectOrder || effectOrder.size === 0) return out;
+
+    out.sort((a, b) => {
+        const aKey = a.name.toLowerCase().trim();
+        const bKey = b.name.toLowerCase().trim();
+        const aIdx = effectOrder.get(aKey);
+        const bIdx = effectOrder.get(bKey);
+        if (typeof aIdx === 'number' && typeof bIdx === 'number') return aIdx - bIdx;
+        if (typeof aIdx === 'number') return -1;
+        if (typeof bIdx === 'number') return 1;
+        return aKey.localeCompare(bKey);
+    });
+    return out;
 }
 
 export function formatSurfaceParam(
@@ -357,81 +263,6 @@ export function formatSurfaceParam(
     if (suffix === '%' || suffix === '°' || suffix === 'x') return `${valueText}${suffix}`;
     return `${valueText} ${suffix}`;
 }
-
-/**
- * Enterprise title lookup map for internal plugin IDs.
- * Replaces deeply nested ternary chains across all surface files.
- */
-export const PLUGIN_TITLE_MAP: Record<string, string> = {
-    // Core FX (SSOT coverage)
-    'internal://effect/eq-eight': 'EQ Eight',
-    'internal://effect/channel-eq': 'Channel EQ',
-    'internal://effect/eq-three': 'EQ Three',
-    'internal://effect/compressor': 'Compressor',
-    'internal://effect/glue-compressor': 'Glue Compressor',
-    'internal://effect/multiband-dynamics': 'Multiband Dynamics',
-    'internal://effect/delay': 'Delay',
-    'internal://effect/simple-delay': 'Simple Delay',
-    'internal://effect/filter-delay': 'Filter Delay',
-    'internal://effect/reverb': 'Reverb',
-    'internal://effect/chorus': 'Chorus',
-    'internal://effect/saturator': 'Saturator',
-    'internal://effect/utility': 'Utility',
-    'internal://effect/limiter': 'Limiter',
-    'internal://effect/gate': 'Gate',
-    'internal://effect/auto-filter': 'Auto Filter',
-    'internal://effect/auto-pan': 'Auto Pan',
-    'internal://effect/phaser': 'Phaser',
-    'internal://effect/phaser-flanger': 'Phaser-Flanger',
-    'internal://effect/flanger': 'Flanger',
-    'internal://effect/distortion': 'Distortion',
-    'internal://effect/bitcrusher': 'Bitcrusher',
-    'internal://effect/analyzer': 'Analyzer',
-    'internal://effect/noise-machine': 'Noise Machine',
-
-    // Distortion
-    'internal://effect/amp': 'Amp',
-    'internal://effect/cabinet': 'Cabinet',
-    'internal://effect/erosion': 'Erosion',
-    'internal://effect/overdrive': 'Overdrive',
-    'internal://effect/pedal': 'Pedal',
-    'internal://effect/roar': 'Roar',
-    // Delay / Time
-    'internal://effect/echo': 'Echo',
-    'internal://effect/beat-repeat': 'Beat Repeat',
-    'internal://effect/looper': 'Looper',
-    'internal://effect/spectral-time': 'Spectral Time',
-    'internal://effect/grain-delay': 'Grain Delay',
-    // Reverb
-    'internal://effect/hybrid-reverb': 'Hybrid Reverb',
-    'internal://effect/corpus': 'Corpus',
-    'internal://effect/resonators': 'Resonators',
-    'internal://effect/spectral-resonator': 'Spectral Resonator',
-    // Saturator
-    'internal://effect/drum-buss': 'Drum Buss',
-    'internal://effect/dynamic-tube': 'Dynamic Tube',
-    // Utility
-    'internal://effect/tuner': 'Tuner',
-    'internal://effect/external-audio-effect': 'External Audio Effect',
-    'internal://effect/auto-shift': 'Auto Shift',
-    'internal://effect/shifter': 'Shifter',
-    // Compressor
-    'internal://effect/transient-shaper': 'Transient Shaper',
-    // Analyzer / Spectrum
-    'internal://effect/spectrum': 'Spectrum',
-    // MIDI FX
-    'internal://midi-fx/pitch': 'Pitch',
-    'internal://midi-fx/scale': 'Scale',
-    'internal://midi-fx/velocity': 'Velocity',
-    'internal://midi-fx/random': 'Random',
-    'internal://midi-fx/chord': 'Chord',
-    'internal://midi-fx/note-length': 'Note Length',
-    'internal://midi-fx/cc-control': 'CC Control',
-    'internal://midi-fx/expression-control': 'Expression Control',
-    'internal://midi-fx/arpeggiator': 'Arpeggiator',
-    // Modulation
-    'internal://effect/vocoder': 'Vocoder',
-};
 
 /* ── Shared surface layout style helpers (L04/L05) ── */
 

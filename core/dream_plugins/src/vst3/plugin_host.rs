@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
+use crate::au_host::AudioUnitInstance;
 use crate::sandbox_instance::SandboxedPluginInstance;
 use crate::vst2_host::Vst2Instance;
 use crate::vst3_host::Vst3Instance;
@@ -67,6 +68,22 @@ impl PluginHost {
 
         let id = instance.id();
         info!("[PluginHost] Registered VST2 instance: {}", id);
+
+        self.instances
+            .push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(
+                instance,
+            ))));
+        self.instance_index.insert(id, self.instances.len() - 1);
+        Ok(id)
+    }
+
+    /// Loads, activates, and registers an AudioUnit plugin (macOS).
+    pub fn load_au(&mut self, descriptor: PluginDescriptor) -> Result<Uuid, PluginError> {
+        let mut instance = AudioUnitInstance::load(descriptor)?;
+        instance.activate(self.sample_rate, self.buffer_size)?;
+
+        let id = instance.id();
+        info!("[PluginHost] Registered AudioUnit instance: {}", id);
 
         self.instances
             .push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(

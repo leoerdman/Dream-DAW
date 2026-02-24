@@ -112,6 +112,9 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     reverb: {
         size: 0, damp: 1, 'dry/wet': 2, mix: 2,
         predelay: 3, width: 4, 'low damp': 5, 'mod rate': 6, 'mod depth': 7, freeze: 8,
+        'lo cut': 9, 'low cut': 9, locut: 9,
+        'hi cut': 10, 'high cut': 10, hicut: 10,
+        diffusion: 11, density: 12, chorus: 13, 'chorus amount': 13,
         decay: 0,   // Legacy alias → room_size
         tone: 1,    // Legacy alias → damping
     },

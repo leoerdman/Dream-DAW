@@ -11,11 +11,7 @@ struct AddedPluginOutcome {
 fn is_runtime_unsupported_external_id(plugin_id: &str) -> bool {
     let trimmed = plugin_id.trim().trim_end_matches(['/', '\\']);
     let lower = trimmed.to_ascii_lowercase();
-    lower.starts_with("au:")
-        || lower.starts_with("au://")
-        || lower.ends_with(".component")
-        || lower.ends_with(".au")
-        || lower.starts_with("vst2:")
+    lower.starts_with("vst2:")
         || lower.ends_with(".vst")
         || lower.starts_with("clap:")
         || lower.ends_with(".clap")
@@ -39,20 +35,24 @@ fn add_plugin_to_track_impl(
         &payload.plugin_id,
         &payload.plugin_name,
     );
-    let effective_plugin_id = normalized_target.plugin_id;
-    let effective_plugin_name = normalized_target.plugin_name;
+    let mut effective_plugin_id = normalized_target.plugin_id;
+    let mut effective_plugin_name = normalized_target.plugin_name;
     let canonical_slot_hint = normalized_target.canonical_slot_hint;
     
     let mut external_audio_inputs = None;
     let mut external_supports_sidechain_input = None;
     let mut external_plugin_format: Option<PluginFormat> = None;
-    if !effective_plugin_id.starts_with("internal://")
-        && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
-    {
-        external_plugin_format = Some(desc.format);
-        external_audio_inputs = Some(desc.audio_inputs);
-        if desc.format != PluginFormat::VST3 {
-            external_supports_sidechain_input = Some(desc.audio_inputs > 2);
+    if !effective_plugin_id.starts_with("internal://") {
+        if let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id) {
+            // Canonicalize to runtime-resolved descriptor path. This allows
+            // AU/alias/plugin-name inputs to settle onto a concrete VST runtime ID.
+            effective_plugin_id = desc.path.to_string_lossy().to_string();
+            effective_plugin_name = desc.name.clone();
+            external_plugin_format = Some(desc.format);
+            external_audio_inputs = Some(desc.audio_inputs);
+            if desc.format != PluginFormat::VST3 {
+                external_supports_sidechain_input = Some(desc.audio_inputs > 2);
+            }
         }
     }
 
@@ -125,13 +125,13 @@ fn add_plugin_to_track_impl(
     )?;
     
     if let Some(err_msg) = plugin_load_error {
-        // AU/CLAP/VST2 descriptors are still allowed to be inserted into the
+        // CLAP descriptors are still allowed to be inserted into the
         // project graph even when runtime loading is unavailable in this build.
         // This prevents DnD from silently failing and keeps the device chain
         // state visible/editable instead of rolling back the mutation.
         let runtime_unsupported = matches!(
             external_plugin_format,
-            Some(PluginFormat::AudioUnit | PluginFormat::CLAP | PluginFormat::VST2)
+            Some(PluginFormat::CLAP)
         ) || (external_plugin_format.is_none()
             && is_runtime_unsupported_external_id(&effective_plugin_id));
         if runtime_unsupported {

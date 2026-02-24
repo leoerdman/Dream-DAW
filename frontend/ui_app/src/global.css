@@ -153,6 +153,9 @@
 html,
 body {
    background-color: var(--color-bg-base);
+   background-image: var(--theme-app-bg, none);
+   background-attachment: fixed;
+   background-size: cover;
    color: var(--color-text-primary);
 }
 

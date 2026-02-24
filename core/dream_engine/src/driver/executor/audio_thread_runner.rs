@@ -34,7 +34,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
-    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+    _sidechain_snapshot: Arc<SharedSidechainSnapshot>,
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
@@ -118,6 +118,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut any_solo: bool = false;
     // BUG-026 FIX: Persist the last loop region so SetLoopEnabled(true) can restore it.
     let mut last_loop_region: Option<LoopRegion> = None;
+    // Track loop enable state independently from last loop region.
+    let mut loop_enabled: bool = false;
 
     // ── 6. Per-track sampler engines ─────────────────────────────────
     // Pre-allocated sampler engines (one per track max).
@@ -246,6 +248,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 track_soloed: &mut track_soloed,
                                 any_solo: &mut any_solo,
                                 last_loop_region: &mut last_loop_region,
+                                loop_enabled: &mut loop_enabled,
                                 test_tone_phase: &mut test_tone_phase,
                                 test_tone_enabled: &mut test_tone_enabled,
                                 test_tone_target_freq: &mut test_tone_target_freq,
@@ -262,7 +265,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // strip mixer controls here and apply absolute sample-accurate
                         // mixer automation later on graph output buffers.
                         let automation = automation_snapshot.load();
-                        let _sidechain_map = sidechain_snapshot.load();
+                        // BUG-004 FIX: Removed `sidechain_snapshot.load()` here.
+                        // The result was stored in `_sidechain_map` (dead variable).
+                        // Sidechain routing is accessed through `external_fx_map`
+                        // runtime slots, not the raw snapshot. Saves one atomic
+                        // load per audio callback.
                         let external_fx_map = external_fx_snapshot.load();
                         // PERF-FIX: Lock-free plugin processing!
                         // The UI thread now periodically publishes an `Arc<HashMap>` of
@@ -399,7 +406,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // AE-013 FIX: Cache peak_decay_for_block ONCE before the graph
                         // closure. Previously called per-track inside the closure —
                         // exp() is ~5ns × 256 tracks = 1.3μs wasted per buffer.
-                        let graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
+                        let _graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
 
                         graph_renderer.render(
                             &graph_plan,
@@ -511,17 +518,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     let sc_pair = source_slot.map(|src| {
                                                         [&src.buf_left[..c], &src.buf_right[..c]]
                                                     });
-
-                                                    let transport = TransportContext {
-                                                        sample_rate: sample_rate_f64,
-                                                        position_samples: playhead_pos,
-                                                        tempo: bpm,
-                                                        is_playing,
-                                                        is_recording: false,
-                                                        time_sig_numerator: i32::from(time_sig_numerator),
-                                                        time_sig_denominator: i32::from(time_sig_denominator),
-                                                    };
-                                                    host.set_transport_context(transport);
 
                                                     vst3_midi_scratch.clear();
                                                     if track_idx < vst3_rt_midi_queue.len() {
@@ -655,6 +651,28 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             .then_with(|| a.data[0].cmp(&b.data[0]))
                                                     });
 
+                                                    // Some instruments (e.g. Serum) gate MIDI/audio updates when
+                                                    // host transport is reported as stopped.
+                                                    // Keep instrument slots "active" even when timeline is stopped:
+                                                    // - live-preview MIDI queues must process immediately
+                                                    // - many synths otherwise show "DAW suspended processing"
+                                                    //   and ignore incoming notes until transport starts.
+                                                    let is_instrument_slot =
+                                                        runtime_slot.internal_slot_index == Some(255);
+                                                    let transport_is_playing = is_playing
+                                                        || !vst3_midi_scratch.is_empty()
+                                                        || is_instrument_slot;
+                                                    let transport = TransportContext {
+                                                        sample_rate: sample_rate_f64,
+                                                        position_samples: playhead_pos,
+                                                        tempo: bpm,
+                                                        is_playing: transport_is_playing,
+                                                        is_recording: false,
+                                                        time_sig_numerator: i32::from(time_sig_numerator),
+                                                        time_sig_denominator: i32::from(time_sig_denominator),
+                                                    };
+                                                    host.set_transport_context(transport);
+
                                                     let mut out_slices: [&mut [f32]; 2] = [
                                                         &mut external_left[..c],
                                                         &mut external_right[..c],
@@ -782,8 +800,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             master_gain_target,
                             &mut master_gain_current,
                             master_gain_smooth,
-                            &mut render_ctx,
-                            graph_peak_decay,
                         );
                         interleave_graph_output(
                             &graph_out_left,

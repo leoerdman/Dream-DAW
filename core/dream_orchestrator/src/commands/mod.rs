@@ -113,7 +113,8 @@ pub use track_grouping::{
 pub use track_mix::{
     SetMasterVolumeCommand, SetTrackMuteByIndexCommand, SetTrackMuteResult,
     SetTrackPanByIndexCommand, SetTrackPanResult, SetTrackSoloByIndexCommand, SetTrackSoloResult,
-    SetTrackVolumeByIndexCommand, SetTrackVolumeResult,
+    SetTrackSendLevelByIndexCommand, SetTrackSendLevelResult, SetTrackVolumeByIndexCommand,
+    SetTrackVolumeResult,
 };
 pub use track_move_to_index::{MoveTrackToIndexCommand, MoveTrackToIndexResult};
 pub use track_parenting::{

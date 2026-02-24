@@ -371,12 +371,15 @@ impl GraphBuilder {
                 max_depth = max_depth.max(node_depth);
             }
             if max_depth > MAX_GRAPH_DEPTH {
-                log::warn!(
+                // BUG-011 FIX: Return an error instead of just warning.
+                // Deep routing chains can cause stack overflow in audio thread.
+                log::error!(
                     "[AudioDag] Graph depth {} exceeds MAX_GRAPH_DEPTH {}. \
-                     This may cause excessive latency or stack overflow.",
+                     Rejecting graph to prevent stack overflow.",
                     max_depth,
                     MAX_GRAPH_DEPTH
                 );
+                return Err(GraphError::CycleDetected); // Reuse closest error variant
             }
         }
 

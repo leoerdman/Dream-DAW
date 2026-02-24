@@ -311,13 +311,15 @@ impl DspProcessor for CompressorProcessor {
 
             let read_pos =
                 (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
+            // BUG-022 FIX: Output silence during lookahead fill instead of dry signal.
+            // Previously output uncompressed input during initial fill = pre-echo burst.
             let delayed_l = if self.la_filled < self.lookahead_samples {
-                dry_l
+                0.0
             } else {
                 self.la_buf_l[read_pos]
             };
             let delayed_r = if self.la_filled < self.lookahead_samples {
-                dry_r
+                0.0
             } else {
                 self.la_buf_r[read_pos]
             };
@@ -406,13 +408,15 @@ impl DspProcessor for CompressorProcessor {
 
             let read_pos =
                 (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
+            // BUG-002 FIX: Output silence during lookahead fill phase, matching
+            // process_stereo() behavior. Previously output dry signal = pre-echo burst.
             let delayed_l = if self.la_filled < self.lookahead_samples {
-                dry_l
+                0.0
             } else {
                 self.la_buf_l[read_pos]
             };
             let delayed_r = if self.la_filled < self.lookahead_samples {
-                dry_r
+                0.0
             } else {
                 self.la_buf_r[read_pos]
             };
@@ -463,8 +467,9 @@ impl DspProcessor for CompressorProcessor {
         self.sc_hp_prev_r = 0.0;
         self.la_pos = 0;
         self.la_filled = 0;
-        self.la_buf_l = [0.0; MAX_LOOKAHEAD_SAMPLES];
-        self.la_buf_r = [0.0; MAX_LOOKAHEAD_SAMPLES];
+        // BUG-024 FIX: In-place fill instead of stack array literal copy (avoids 2×8KB stack alloc).
+        self.la_buf_l.fill(0.0);
+        self.la_buf_r.fill(0.0);
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.mix_sm.set_instant(self.mix);
     }

@@ -90,6 +90,11 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Mod Rate', value: 0.3, min: 0, max: 3, suffix: 'Hz', step: 0.01 },     // 6
         { name: 'Mod Depth', value: 15, min: 0, max: 100, suffix: '%', step: 1 },       // 7
         { name: 'Freeze', value: 0, min: 0, max: 1, suffix: '', step: 1 },              // 8
+        { name: 'Lo Cut', value: 20, min: 20, max: 12000, suffix: 'Hz', step: 1 },      // 9
+        { name: 'Hi Cut', value: 16000, min: 1200, max: 20000, suffix: 'Hz', step: 1 }, // 10
+        { name: 'Diffusion', value: 75, min: 0, max: 100, suffix: '%', step: 1 },       // 11
+        { name: 'Density', value: 80, min: 0, max: 100, suffix: '%', step: 1 },         // 12
+        { name: 'Chorus', value: 20, min: 0, max: 100, suffix: '%', step: 1 },          // 13
     ],
     chorus: [
         { name: 'Rate', value: 1.0, min: 0.05, max: 10, suffix: 'Hz', step: 0.01 },     // 0  BUG-P16 FIX: min 0.1→0.05

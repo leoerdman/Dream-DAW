@@ -153,6 +153,44 @@ fn import_track_devices_keeps_full_chain_from_wrapper_root() {
 }
 
 #[test]
+fn import_track_devices_maps_adv_plugin_device_to_internal_utility() {
+    let xml = r#"
+    <AudioTrack>
+      <DeviceChain>
+        <AudioToAudioDeviceChain>
+          <Devices>
+            <PluginDevice Id="11">
+              <RelativePath Value="Audio Effects/Utility/Bass Mono.adv" />
+            </PluginDevice>
+          </Devices>
+        </AudioToAudioDeviceChain>
+      </DeviceChain>
+    </AudioTrack>
+    "#;
+    let doc = roxmltree::Document::parse(xml).expect("valid xml");
+    let track_node = doc
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("AudioTrack"))
+        .expect("track");
+    let external_plugins = empty_external_plugin_index();
+    let mut track = Track::with_type("Audio", TrackType::Audio, 0);
+    import_track_devices(
+        track_node,
+        &mut track,
+        &external_plugins,
+        Path::new("/tmp/Test.als"),
+    );
+
+    assert_eq!(track.effects.len(), 1);
+    let slot = match &track.effects[0] {
+        DeviceNode::Single(slot) => slot,
+        _ => panic!("expected single plugin slot"),
+    };
+    assert_eq!(slot.plugin_id, "internal://effect/utility");
+    assert_eq!(slot.name, "Utility");
+}
+
+#[test]
 fn parse_als_rack_supports_deep_branch_device_chain_wrappers() {
     let xml = r#"
     <AudioEffectGroupDevice Id="1">
@@ -353,7 +391,7 @@ fn parse_track_send_manual_values_prefers_holder_id_index() {
 fn ableton_color_hex_matches_enum_mapping_for_common_indices() {
     assert_eq!(ableton_color_index_to_hex(17), Some("#4DC7B0"));
     assert_eq!(ableton_color_index_to_hex(24), Some("#4D7AE3"));
-    assert_eq!(ableton_color_index_to_hex(56), Some("#8C949E"));
+    assert_eq!(ableton_color_index_to_hex(56), Some("#4DC7CC"));
     assert_eq!(ableton_color_index_to_hex(-1), None);
     assert_eq!(ableton_color_index_to_hex(70), None);
 }

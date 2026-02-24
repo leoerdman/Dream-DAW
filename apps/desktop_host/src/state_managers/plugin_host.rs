@@ -1,19 +1,6 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Plugin Host State Manager
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Manages the lifecycle of all loaded VST3 plugin instances:
-//   - In-process (unsandboxed) loading via PluginHost
-//   - Out-of-process (sandboxed) loading via PluginSandboxSupervisor
-//   - Slot ↔ instance binding (slot_instance_map, ArcSwap)
-//   - Plugin state capture into project for serialization
-//   - Descriptor resolution (path or scan-based)
-// ═══════════════════════════════════════════════════════════════════════════
-
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-
 use arc_swap::ArcSwap;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
@@ -21,23 +8,15 @@ use dream_plugins::{
     PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
 use uuid::Uuid;
-
-/// Runtime plugin host state for native VST instance lifecycle.
 pub(crate) struct PluginHostState {
     pub(crate) host: Arc<Mutex<PluginHost>>,
     pub(crate) loaded_by_key: Mutex<HashMap<String, Uuid>>,
     pub(crate) loaded_sandbox_by_key: Mutex<HashMap<String, Uuid>>,
     pub(crate) slot_instance_map: Arc<ArcSwap<HashMap<Uuid, Uuid>>>,
     pub(crate) sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
-    /// Cached plugin scan results to avoid re-scanning the filesystem on every
-    /// `resolve_descriptor` call. Cleared on explicit rescan request.
     pub(crate) cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
-    /// Shared reference to the audio thread's plugin registry.
-    /// Used by `publish_registry()` to publish loaded `PluginInstanceArc`s
-    /// so the RT driver can call `process()` on VST3 instruments/FX.
     pub(crate) plugin_registry: Option<Arc<dream_engine::driver::SharedPluginRegistry>>,
 }
-
 impl PluginHostState {
     const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
     fn normalize_plugin_lookup_key(input: &str) -> String {
@@ -46,7 +25,6 @@ impl PluginHostState {
             .trim_end_matches(['/', '\\'])
             .to_ascii_lowercase()
     }
-
     fn external_scheme_name_hint(input: &str) -> Option<String> {
         let normalized = Self::normalize_plugin_lookup_key(input);
         let schemes = ["au://", "au:", "vst2://", "vst2:", "clap://", "clap:"];
@@ -64,13 +42,107 @@ impl PluginHostState {
         }
         None
     }
-
-    /// Returns `true` when in-process (unsandboxed) VST3 loading is permitted.
-    ///
-    /// Default: **true** — in-process loading is the primary path for native
-    /// plugin editors. Set `DREAM_DAW_FORCE_SANDBOX_ONLY=1` to disable
-    /// in-process loading (useful for crash-isolation testing with the
-    /// sandbox daemon).
+    fn normalize_runtime_redirect_name(raw: &str) -> String {
+        let mut s = raw.trim().to_ascii_lowercase();
+        for suffix in [
+            " (audio unit)",
+            " (au)",
+            " audio unit",
+            " audiounit",
+            " au",
+            ".component",
+            ".vst3",
+            ".vst",
+        ] {
+            if let Some(stripped) = s.strip_suffix(suffix) {
+                s = stripped.trim().to_string();
+            }
+        }
+        s
+    }
+    fn ensure_scan_cache(&self) -> Result<Vec<PluginDescriptor>, String> {
+        let cached = self
+            .cached_scan
+            .lock()
+            .map_err(|e| format!("cached_scan lock poisoned: {e}"))?;
+        if let Some(ref cached_list) = *cached {
+            return Ok(cached_list.clone());
+        }
+        drop(cached);
+        let scanner = PluginScanner::new();
+        let all = scanner.scan_all();
+        *self
+            .cached_scan
+            .lock()
+            .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
+        Ok(all)
+    }
+    fn find_runtime_compatible_redirect(
+        &self,
+        descriptor: &PluginDescriptor,
+    ) -> Result<Option<PluginDescriptor>, String> {
+        if descriptor.format == PluginFormat::VST3 || descriptor.format == PluginFormat::VST2 {
+            return Ok(Some(descriptor.clone()));
+        }
+        let scan_result = self.ensure_scan_cache()?;
+        let name_lower = descriptor.name.to_lowercase();
+        let name_normalized = Self::normalize_runtime_redirect_name(&descriptor.name);
+        let stem_normalized = descriptor
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(Self::normalize_runtime_redirect_name)
+            .unwrap_or_default();
+        let is_name_match = |d: &PluginDescriptor| {
+            let d_name = d.name.to_lowercase();
+            if d_name == name_lower {
+                return true;
+            }
+            let d_name_normalized = Self::normalize_runtime_redirect_name(&d.name);
+            if !name_normalized.is_empty() && d_name_normalized == name_normalized {
+                return true;
+            }
+            let d_stem_normalized = d
+                .path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(Self::normalize_runtime_redirect_name)
+                .unwrap_or_default();
+            !stem_normalized.is_empty() && d_stem_normalized == stem_normalized
+        };
+        let mut redirected = scan_result
+            .iter()
+            .find(|d| d.format == PluginFormat::VST3 && is_name_match(d))
+            .or_else(|| {
+                scan_result
+                    .iter()
+                    .find(|d| d.format == PluginFormat::VST2 && is_name_match(d))
+            })
+            .cloned();
+        if redirected.is_none() {
+            self.clear_scan_cache()?;
+            let refreshed = self.ensure_scan_cache()?;
+            redirected = refreshed
+                .iter()
+                .find(|d| d.format == PluginFormat::VST3 && is_name_match(d))
+                .or_else(|| {
+                    refreshed
+                        .iter()
+                        .find(|d| d.format == PluginFormat::VST2 && is_name_match(d))
+                })
+                .cloned();
+        }
+        if let Some(ref target) = redirected {
+            log::info!(
+                "[resolve_descriptor] {} plugin '{}' → auto-redirected to {} at {}",
+                descriptor.format,
+                descriptor.name,
+                target.format,
+                target.path.display(),
+            );
+        }
+        Ok(redirected)
+    }
     pub(crate) fn allow_unsandboxed_vst3() -> bool {
         let force_sandbox = std::env::var("DREAM_DAW_FORCE_SANDBOX_ONLY")
             .ok()
@@ -81,7 +153,6 @@ impl PluginHostState {
             .unwrap_or(false);
         !force_sandbox
     }
-
     pub(crate) fn try_enable_sandbox_if_available(&self) {
         if let Ok(mut sup) = self.sandbox_supervisor.lock() {
             sup.set_enabled(true);
@@ -92,7 +163,6 @@ impl PluginHostState {
             }
         }
     }
-
     pub(crate) fn new_with_io(sample_rate: f64, buffer_size: usize) -> Self {
         let safe_sample_rate = if sample_rate.is_finite() && sample_rate > 0.0 {
             sample_rate
@@ -114,23 +184,12 @@ impl PluginHostState {
             plugin_registry: None,
         }
     }
-
-
-    /// Attaches the audio thread's plugin registry to this state object.
-    /// Must be called once during engine setup, before any plugins are loaded.
     pub(crate) fn set_plugin_registry(
         &mut self,
         registry: Arc<dream_engine::driver::SharedPluginRegistry>,
     ) {
         self.plugin_registry = Some(registry);
     }
-
-    /// Publishes all loaded plugin instances from `PluginHost` to the audio
-    /// thread's `SharedPluginRegistry`. Call after every plugin load/unload.
-    ///
-    /// Without this, `plugin_registry` remains empty and `driver.rs`
-    /// `plugin_registry_ref.get(&instance_id)` always returns `None`,
-    /// causing "DAW suspended processing" in VST3 instruments.
     pub(crate) fn publish_registry(&self) {
         let Some(registry) = &self.plugin_registry else {
             log::warn!("[publish_registry] plugin_registry not attached — skipping");
@@ -148,15 +207,11 @@ impl PluginHostState {
             log::warn!("[publish_registry] Failed to lock PluginHost — registry not updated");
         }
     }
-
     pub(crate) fn bind_slot_instance(&self, slot_id: Uuid, instance_id: Uuid) {
         let mut map = self.slot_instance_map.load_full().as_ref().clone();
         map.insert(slot_id, instance_id);
         self.slot_instance_map.store(Arc::new(map));
     }
-
-    /// Invalidates the cached plugin scan results, forcing a fresh
-    /// filesystem scan on the next `resolve_descriptor` call.
     #[allow(dead_code)]
     pub(crate) fn clear_scan_cache(&self) -> Result<(), String> {
         *self
@@ -165,9 +220,6 @@ impl PluginHostState {
             .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = None;
         Ok(())
     }
-
-    /// Reactivates all loaded plugin instances with a new sample rate
-    /// and buffer size. Used when the audio device configuration changes.
     #[allow(dead_code)]
     pub(crate) fn reactivate_all(
         &self,
@@ -178,12 +230,6 @@ impl PluginHostState {
         host.reactivate_all(sample_rate, buffer_size);
         Ok(())
     }
-
-    /// Gracefully shuts down all loaded plugin instances.
-    ///
-    /// Must be called before the process exits to prevent SIGSEGV crashes
-    /// from third-party plugins whose C++ static destructors access
-    /// released resources during `exit()` teardown.
     pub(crate) fn shutdown_all_plugins(&self) {
         log::info!("[PluginHostState] Initiating graceful plugin shutdown...");
         match self.host.lock() {
@@ -193,32 +239,26 @@ impl PluginHostState {
                 e
             ),
         }
-        // Also shut down sandbox supervisor to clean up any out-of-process
-        // plugin daemons that may be running.
         if let Ok(mut sup) = self.sandbox_supervisor.lock() {
             sup.set_enabled(false);
             log::info!("[PluginHostState] Sandbox supervisor disabled");
         }
         log::info!("[PluginHostState] Plugin shutdown complete");
     }
-
     pub(crate) fn unbind_slot_instance(&self, slot_id: Uuid) {
         let mut map = self.slot_instance_map.load_full().as_ref().clone();
         map.remove(&slot_id);
         self.slot_instance_map.store(Arc::new(map));
     }
-
     pub(crate) fn take_slot_instance(&self, slot_id: Uuid) -> Option<Uuid> {
         let mut map = self.slot_instance_map.load_full().as_ref().clone();
         let removed = map.remove(&slot_id);
         self.slot_instance_map.store(Arc::new(map));
         removed
     }
-
     pub(crate) fn slot_instance_snapshot(&self) -> Arc<HashMap<Uuid, Uuid>> {
         self.slot_instance_map.load_full()
     }
-
     pub(crate) fn slot_ids_for_instance_ids(&self, instance_ids: &HashSet<Uuid>) -> HashSet<Uuid> {
         self.slot_instance_map
             .load()
@@ -232,23 +272,19 @@ impl PluginHostState {
             })
             .collect()
     }
-
     pub(crate) fn clear_slot_instance_bindings(&self) {
         self.slot_instance_map.store(Arc::new(HashMap::new()));
     }
-
     pub(crate) fn unload_instance(&self, instance_id: Uuid) -> Result<(), String> {
         {
             let mut host = self.host.lock().map_err(|e| e.to_string())?;
             let _ = host.remove(instance_id);
         }
         self.publish_registry();
-
         {
             let mut map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
             map.retain(|_, id| *id != instance_id);
         }
-
         {
             let mut sandbox_map = self
                 .loaded_sandbox_by_key
@@ -262,20 +298,17 @@ impl PluginHostState {
                 supervisor.remove_instance(instance_id);
             }
         }
-
         let mut slot_map = self.slot_instance_map.load_full().as_ref().clone();
         slot_map.retain(|_, id| *id != instance_id);
         self.slot_instance_map.store(Arc::new(slot_map));
         Ok(())
     }
-
     pub(crate) fn unload_slot_instance(&self, slot_id: Uuid) -> Result<(), String> {
         if let Some(instance_id) = self.take_slot_instance(slot_id) {
             self.unload_instance(instance_id)?;
         }
         Ok(())
     }
-
     pub(crate) fn unload_all_instances(&self) -> Result<(), String> {
         let mut ids = HashSet::<Uuid>::new();
         {
@@ -290,11 +323,9 @@ impl PluginHostState {
             ids.extend(map.values().copied());
         }
         ids.extend(self.slot_instance_map.load_full().values().copied());
-
         for id in ids {
             let _ = self.unload_instance(id);
         }
-
         self.loaded_by_key
             .lock()
             .map_err(|e| e.to_string())?
@@ -306,26 +337,22 @@ impl PluginHostState {
         self.clear_slot_instance_bindings();
         Ok(())
     }
-
     pub(crate) fn capture_plugin_states_into_project(
         &self,
         project: &mut dream_models::project::Project,
     ) -> Result<(), String> {
         use base64::Engine;
-
         let slot_map = self.slot_instance_snapshot();
         log::info!(
             "[PluginState-Capture] slot_instance_map has {} entries: {:?}",
             slot_map.len(),
             slot_map.as_ref()
         );
-
         let host = self
             .host
             .lock()
             .map_err(|e| format!("PluginHost lock: {e}"))?;
         let instance_states = host.save_all_states();
-
         log::info!(
             "[PluginState-Capture] save_all_states returned {} instance states",
             instance_states.len()
@@ -337,14 +364,10 @@ impl PluginHostState {
                 bytes.len()
             );
         }
-
         if instance_states.is_empty() {
             log::warn!("[PluginState-Capture] No instance states to save — returning early!");
             return Ok(());
         }
-
-        // Build reverse map: instance_id → Vec<slot_id>
-        // (multiple slots can share the same instance)
         let mut instance_to_slots: std::collections::HashMap<uuid::Uuid, Vec<uuid::Uuid>> =
             std::collections::HashMap::new();
         for (slot_id, instance_id) in slot_map.iter() {
@@ -353,9 +376,7 @@ impl PluginHostState {
                 .or_default()
                 .push(*slot_id);
         }
-
         let mut updated_count = 0usize;
-
         for (instance_id, state_bytes) in &instance_states {
             let Some(slot_ids) = instance_to_slots.get(instance_id) else {
                 log::warn!(
@@ -364,14 +385,10 @@ impl PluginHostState {
                 );
                 continue;
             };
-
             let b64 = base64::engine::general_purpose::STANDARD.encode(state_bytes);
-
             for slot_id in slot_ids {
-                // Find the slot in the project's device trees and update its state blob
                 let mut found = false;
                 for track in &mut project.tracks {
-                    // Walk effects chain (Vec<DeviceNode>)
                     for device in &mut track.effects {
                         for slot in device.collect_plugin_slots_mut() {
                             if slot.id == *slot_id {
@@ -389,7 +406,6 @@ impl PluginHostState {
                             }
                         }
                     }
-                    // Walk instrument (Option<DeviceNode>)
                     if let Some(inst) = &mut track.instrument {
                         for slot in inst.collect_plugin_slots_mut() {
                             if slot.id == *slot_id {
@@ -408,7 +424,6 @@ impl PluginHostState {
                         }
                     }
                 }
-                // Also check master_track effects
                 for device in &mut project.master_track.effects {
                     for slot in device.collect_plugin_slots_mut() {
                         if slot.id == *slot_id {
@@ -434,7 +449,6 @@ impl PluginHostState {
                 }
             }
         }
-
         if updated_count > 0 {
             log::info!(
                 "[PluginHost] Captured live state for {} plugin slot(s) ({} instances)",
@@ -447,10 +461,8 @@ impl PluginHostState {
                 instance_states.len()
             );
         }
-
         Ok(())
     }
-
     pub(crate) fn ensure_loaded_instance_for_slot(
         &self,
         slot_id: Uuid,
@@ -479,16 +491,19 @@ impl PluginHostState {
             );
             self.unbind_slot_instance(slot_id);
         }
-
+        if let Some(existing) =
+            self.bind_slot_to_existing_instance_for_plugin_id(slot_id, plugin_id)?
+        {
+            return Ok(existing);
+        }
         let descriptor = self.resolve_descriptor(plugin_id)?;
-        if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+        if descriptor.format == PluginFormat::CLAP {
             return Err(format!(
-                "External runtime currently supports VST2 and VST3 (got {})",
+                "External runtime currently supports VST2/VST3/AU (got {})",
                 descriptor.format
             ));
         }
-
-        if self.sandbox_enabled().unwrap_or(false) {
+        if descriptor.format == PluginFormat::VST3 && self.sandbox_enabled().unwrap_or(false) {
             match self.open_in_sandbox(plugin_id, descriptor.clone()) {
                 Ok(instance_id) => {
                     self.bind_slot_instance(slot_id, instance_id);
@@ -515,14 +530,12 @@ impl PluginHostState {
                 }
             }
         }
-
-        if !Self::allow_unsandboxed_vst3() {
+        if descriptor.format == PluginFormat::VST3 && !Self::allow_unsandboxed_vst3() {
             return Err(format!(
                 "Plugin sandbox is unavailable for '{}'. In-process loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
                 descriptor.name
             ));
         }
-
         let mut host = self.host.lock().map_err(|e| e.to_string())?;
         let instance_id = match descriptor.format {
             PluginFormat::VST3 => host
@@ -531,6 +544,9 @@ impl PluginHostState {
             PluginFormat::VST2 => host
                 .load_vst2(descriptor.clone())
                 .map_err(|e| format!("Failed to load VST2 plugin '{}': {e}", descriptor.name))?,
+            PluginFormat::AudioUnit => host
+                .load_au(descriptor.clone())
+                .map_err(|e| format!("Failed to load AudioUnit plugin '{}': {e}", descriptor.name))?,
             other => {
                 return Err(format!(
                     "Unsupported plugin format '{}' for '{}'",
@@ -539,7 +555,6 @@ impl PluginHostState {
             }
         };
         drop(host);
-
         self.bind_slot_instance(slot_id, instance_id);
         self.loaded_by_key
             .lock()
@@ -547,15 +562,71 @@ impl PluginHostState {
             .entry(plugin_id.to_string())
             .or_insert(instance_id);
         self.publish_registry();
-
         Ok(instance_id)
     }
-
+    fn is_runtime_instance_alive(&self, instance_id: Uuid) -> bool {
+        let in_process_present = self
+            .host
+            .lock()
+            .map(|host| host.snapshot_registry().contains_key(&instance_id))
+            .unwrap_or(false);
+        if in_process_present {
+            return true;
+        }
+        self.loaded_sandbox_by_key
+            .lock()
+            .map(|map| map.values().any(|id| *id == instance_id))
+            .unwrap_or(false)
+    }
+    pub(crate) fn bind_slot_to_existing_instance_for_plugin_id(
+        &self,
+        slot_id: Uuid,
+        plugin_id: &str,
+    ) -> Result<Option<Uuid>, String> {
+        let mut candidate_keys = std::collections::HashSet::<String>::new();
+        candidate_keys.insert(Self::normalize_plugin_lookup_key(plugin_id));
+        if let Ok(descriptor) = self.resolve_descriptor(plugin_id) {
+            candidate_keys.insert(Self::normalize_plugin_lookup_key(
+                &descriptor.path.to_string_lossy(),
+            ));
+            candidate_keys.insert(Self::normalize_plugin_lookup_key(&descriptor.name));
+            candidate_keys.insert(Self::normalize_plugin_lookup_key(&descriptor.id.to_string()));
+            if let Some(uid) = descriptor.unique_id.as_ref() {
+                candidate_keys.insert(Self::normalize_plugin_lookup_key(uid));
+            }
+        }
+        let mut loaded = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+        let mut matched: Option<Uuid> = None;
+        let mut stale_keys: Vec<String> = Vec::new();
+        for (key, instance_id) in loaded.iter() {
+            if !candidate_keys.contains(&Self::normalize_plugin_lookup_key(key)) {
+                continue;
+            }
+            if self.is_runtime_instance_alive(*instance_id) {
+                matched = Some(*instance_id);
+                break;
+            }
+            stale_keys.push(key.clone());
+        }
+        for key in stale_keys {
+            loaded.remove(&key);
+        }
+        drop(loaded);
+        if let Some(instance_id) = matched {
+            self.bind_slot_instance(slot_id, instance_id);
+            log::info!(
+                "[PluginHostState] Rebound slot {} to existing instance {} for plugin '{}'",
+                slot_id,
+                instance_id,
+                plugin_id
+            );
+            return Ok(Some(instance_id));
+        }
+        Ok(None)
+    }
     pub(crate) fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
         let mut path = PathBuf::from(plugin_id);
         if path.exists() {
-            // If caller passed an inner binary path from a .vst3 bundle
-            // (e.g. .../Foo.vst3/Contents/MacOS/Foo), normalize to the bundle root.
             if !path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -575,13 +646,32 @@ impl PluginHostState {
                     path = bundle_root;
                 }
             }
-
+            let normalized_path = Self::normalize_plugin_lookup_key(&path.to_string_lossy());
+            if let Ok(scan_result) = self.ensure_scan_cache()
+                && let Some(found) = scan_result
+                    .into_iter()
+                    .find(|desc| {
+                        let desc_path = desc.path.to_string_lossy().to_string();
+                        Self::normalize_plugin_lookup_key(&desc_path) == normalized_path
+                    })
+            {
+                if found.format == PluginFormat::CLAP {
+                    if let Some(redirected) = self.find_runtime_compatible_redirect(&found)? {
+                        return Ok(redirected);
+                    }
+                    return Err(format!(
+                        "'{}' is a CLAP plugin. Dream DAW currently supports VST2/VST3/AU. \
+                         No VST2 or VST3 version of this plugin was found on your system.",
+                        found.name
+                    ));
+                }
+                return Ok(found);
+            }
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            // VST2 (.vst) bundles are now supported via Vst2Instance host.
             let name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -593,32 +683,26 @@ impl PluginHostState {
                 "clap" => PluginFormat::CLAP,
                 _ => PluginFormat::VST3,
             };
-            return Ok(PluginDescriptor::new(
+            let descriptor = PluginDescriptor::new(
                 name,
                 "Unknown Vendor",
                 format,
                 PluginCategory::Effect,
                 path,
-            ));
+            );
+            if descriptor.format == PluginFormat::CLAP {
+                if let Some(redirected) = self.find_runtime_compatible_redirect(&descriptor)? {
+                    return Ok(redirected);
+                }
+                return Err(format!(
+                    "'{}' is a CLAP plugin. Dream DAW currently supports VST2/VST3/AU. \
+                     No VST2 or VST3 version of this plugin was found on your system.",
+                    descriptor.name
+                ));
+            }
+            return Ok(descriptor);
         }
-
-        // Use cached scan results to avoid expensive filesystem traversal on every call.
-        let cached = self
-            .cached_scan
-            .lock()
-            .map_err(|e| format!("cached_scan lock poisoned: {e}"))?;
-        let scan_result = if let Some(ref cached_list) = *cached {
-            cached_list.clone()
-        } else {
-            drop(cached);
-            let scanner = PluginScanner::new();
-            let all = scanner.scan_all();
-            *self
-                .cached_scan
-                .lock()
-                .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
-            all
-        };
+        let scan_result = self.ensure_scan_cache()?;
         let normalized_plugin_id = Self::normalize_plugin_lookup_key(plugin_id);
         let name_hint = Self::external_scheme_name_hint(plugin_id);
         let descriptor = scan_result
@@ -632,7 +716,6 @@ impl PluginHostState {
                     .unique_id
                     .as_ref()
                     .map(|u| Self::normalize_plugin_lookup_key(u));
-
                 if desc_path_norm == normalized_plugin_id
                     || desc_name_norm == normalized_plugin_id
                     || desc_id_norm == normalized_plugin_id
@@ -643,7 +726,6 @@ impl PluginHostState {
                 {
                     return true;
                 }
-
                 if let Some(hint) = name_hint.as_deref() {
                     if desc_name_norm == hint {
                         return true;
@@ -662,50 +744,22 @@ impl PluginHostState {
                 false
             })
             .ok_or_else(|| format!("Plugin not found: {plugin_id}"))?;
-
-        // ── AU/CLAP → VST3/VST2 auto-fallback ──
-        // If the resolved descriptor is AudioUnit (or CLAP), the runtime cannot
-        // host it natively yet. Try to find a VST3 or VST2 version with the same name.
-        if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
-            let name_lower = descriptor.name.to_lowercase();
-            let cached = self.cached_scan.lock().map_err(|e| format!("lock: {e}"))?;
-            // Prefer VST3, fall back to VST2
-            let alt = cached.as_ref().and_then(|list| {
-                list.iter()
-                    .find(|d| d.format == PluginFormat::VST3 && d.name.to_lowercase() == name_lower)
-                    .or_else(|| {
-                        list.iter().find(|d| {
-                            d.format == PluginFormat::VST2 && d.name.to_lowercase() == name_lower
-                        })
-                    })
-            }).cloned();
-            drop(cached);
-            if let Some(redirected) = alt {
-                log::info!(
-                    "[resolve_descriptor] {} plugin '{}' → auto-redirected to {} at {}",
-                    descriptor.format,
-                    descriptor.name,
-                    redirected.format,
-                    redirected.path.display(),
-                );
+        if descriptor.format == PluginFormat::CLAP {
+            if let Some(redirected) = self.find_runtime_compatible_redirect(&descriptor)? {
                 return Ok(redirected);
             }
             return Err(format!(
-                "'{}' is an {} plugin. Dream DAW currently supports VST2/VST3. \
+                "'{}' is a CLAP plugin. Dream DAW currently supports VST2/VST3/AU. \
                  No VST2 or VST3 version of this plugin was found on your system.",
                 descriptor.name,
-                descriptor.format,
             ));
         }
-
         Ok(descriptor)
     }
-
     pub(crate) fn sandbox_snapshot(&self) -> Result<PluginSandboxSnapshot, String> {
         let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
         Ok(supervisor.snapshot())
     }
-
     pub(crate) fn set_sandbox_enabled(
         &self,
         enabled: bool,
@@ -714,12 +768,10 @@ impl PluginHostState {
         supervisor.set_enabled(enabled);
         Ok(supervisor.snapshot())
     }
-
     pub(crate) fn sandbox_enabled(&self) -> Result<bool, String> {
         let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
         Ok(supervisor.enabled())
     }
-
     pub(crate) fn open_in_sandbox(
         &self,
         plugin_key: &str,
@@ -733,7 +785,6 @@ impl PluginHostState {
             .shared_region_for_instance(instance_id)
             .ok_or_else(|| "Sandbox shared region was not created".to_string())?;
         drop(supervisor);
-
         {
             let mut host = self.host.lock().map_err(|e| e.to_string())?;
             host.load_vst3_sandboxed(
@@ -747,7 +798,6 @@ impl PluginHostState {
             .map_err(|e| format!("Sandbox plugin bridge registration failed: {e}"))?;
         }
         self.publish_registry();
-
         self.loaded_sandbox_by_key
             .lock()
             .map_err(|e| e.to_string())?
@@ -758,7 +808,6 @@ impl PluginHostState {
         }
         Ok(instance_id)
     }
-
     pub(crate) fn close_in_sandbox(&self, plugin_key: &str) -> Result<(), String> {
         let maybe_id = self
             .loaded_sandbox_by_key
@@ -778,7 +827,6 @@ impl PluginHostState {
         }
         Ok(())
     }
-
     pub(crate) fn tick_sandbox_watchdog_with_events(
         &self,
     ) -> Result<
@@ -818,12 +866,10 @@ impl PluginHostState {
         let snapshot = supervisor.snapshot();
         Ok((snapshot, crashes, recoveries))
     }
-
     pub(crate) fn tick_sandbox_watchdog(&self) -> Result<PluginSandboxSnapshot, String> {
         self.tick_sandbox_watchdog_with_events()
             .map(|(snapshot, _, _)| snapshot)
     }
-
     pub(crate) fn manual_restart_sandbox_instance(
         &self,
         instance_id: Uuid,
@@ -841,7 +887,6 @@ impl PluginHostState {
             .map_err(|e| format!("Sandbox manual restart failed: {e}"))?;
         Ok(slot_ids)
     }
-
     pub(crate) fn open_sandbox_editor(&self, plugin_key: &str) -> Result<bool, String> {
         let maybe_id = self
             .loaded_sandbox_by_key
@@ -856,8 +901,6 @@ impl PluginHostState {
         match supervisor.send_open_editor(id) {
             Ok(()) => Ok(true),
             Err(err) => {
-                // Sandbox daemon is unhealthy or crashed — evict the stale
-                // entry so the caller can fall through to in-process loading.
                 log::warn!(
                     "[PluginSandbox] open_sandbox_editor failed for '{}' (instance={}): {}. Evicting stale sandbox entry.",
                     plugin_key,
@@ -872,7 +915,6 @@ impl PluginHostState {
             }
         }
     }
-
     pub(crate) fn set_sandbox_parameter(
         &self,
         plugin_key: &str,

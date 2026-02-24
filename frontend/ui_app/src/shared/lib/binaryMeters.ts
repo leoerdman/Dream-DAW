@@ -52,11 +52,13 @@ export function decodeMetersBinaryPacket(packet: Uint8Array): MeteringSnapshot {
 
     const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
     const trackCount = view.getUint32(0, true);
-    const body = packet.subarray(4);
+    // BUG-010 FIX: Copy to guarantee 4-byte alignment.
+    // body.byteOffset may not be aligned if packet is a subarray of a larger buffer.
+    const aligned = packet.subarray(4).slice();
     const floats = new Float32Array(
-        body.buffer,
-        body.byteOffset,
-        Math.floor(body.byteLength / 4),
+        aligned.buffer,
+        aligned.byteOffset,
+        Math.floor(aligned.byteLength / 4),
     );
 
     return decodeFromFloatArray(floats, trackCount);

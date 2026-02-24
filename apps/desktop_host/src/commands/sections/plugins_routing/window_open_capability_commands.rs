@@ -40,15 +40,13 @@ fn can_open_plugin_editor(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+    if descriptor.format == PluginFormat::CLAP {
         let reason = match descriptor.format {
             PluginFormat::VST2 | PluginFormat::VST3 => None,
             PluginFormat::CLAP => {
                 Some("CLAP plugin editor is not supported by this host build.".to_string())
             }
-            PluginFormat::AudioUnit => {
-                Some("AudioUnit editor is not supported by this host build.".to_string())
-            }
+            PluginFormat::AudioUnit => None,
         };
         return Ok(PluginEditorCapability {
             supported: false,
@@ -120,4 +118,3 @@ fn can_open_plugin_editor_for_slot(
         },
     })
 }
-

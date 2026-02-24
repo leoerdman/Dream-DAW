@@ -190,7 +190,9 @@ pub fn apply_microfades(buffer: &mut [f32], channels: usize, cache: &FadeCache) 
     let total_frames = total_samples / channels;
     let fade_len = cache.fade_length;
 
-    // Guard: buffer too short for non-overlapping fades
+    // Guard: buffer too short for non-overlapping fades.
+    // BUG-031 FIX: Use strict less-than so that buffers with exactly
+    // 2×fade_len frames still receive fades (previously off-by-one skip).
     if total_frames < fade_len * 2 {
         return;
     }

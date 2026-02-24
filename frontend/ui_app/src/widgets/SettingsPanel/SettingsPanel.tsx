@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engine from '@/shared/api/engine';
 import {
     closeBtnStyle,
@@ -35,6 +36,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const pickAndSetFolder = useSettingsStore(s => s.pickAndSetFolder);
     const [rescanningPlugins, setRescanningPlugins] = useState(false);
     const [rescanResult, setRescanResult] = useState<string | null>(null);
+    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
 
     // ── Audio Device Enumeration (real hardware from cpal) ──
     const [audioDevices, setAudioDevices] = useState<engine.AudioDevices>({ outputs: [], inputs: [] });
@@ -145,14 +147,32 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         try {
             const entries = await engine.scanPluginFolders();
             const pluginCount = entries.filter((e) => e.file_type === 'plugin').length;
-            setRescanResult(`Found ${pluginCount} plugins`);
+            let autoResolved = 0;
+            let unresolvedAfter = 0;
+            try {
+                const report = await engine.autoResolveMissingPluginsReportWithDeltas();
+                autoResolved = report.resolved_internal + report.resolved_external;
+                unresolvedAfter = report.missing_after;
+                if (report.deltas.length > 0) {
+                    await applyProjectDeltas(report.deltas, 'settings:rescan-auto-resolve');
+                }
+            } catch (err) {
+                console.warn('[SettingsPanel] auto-resolve after rescan failed:', err);
+            }
+            setRescanResult(
+                unresolvedAfter > 0
+                    ? `Found ${pluginCount} plugins · auto-resolved ${autoResolved} · unresolved ${unresolvedAfter}`
+                    : autoResolved > 0
+                        ? `Found ${pluginCount} plugins · auto-resolved ${autoResolved}`
+                        : `Found ${pluginCount} plugins`,
+            );
         } catch (err) {
             console.error('[SettingsPanel] plugin rescan failed:', err);
             setRescanResult('Plugin rescan failed');
         } finally {
             setRescanningPlugins(false);
         }
-    }, []);
+    }, [applyProjectDeltas]);
 
     const connectMidiInput = useCallback(async (portName: string) => {
         setMidiConnecting(portName);

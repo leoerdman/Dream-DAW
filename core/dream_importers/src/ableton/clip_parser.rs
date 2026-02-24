@@ -146,6 +146,49 @@ pub fn parse_audio_clip_warp(
     (is_warped, warp_mode, markers)
 }
 
+pub fn parse_audio_clip_warp_base_bpm(clip_node: roxmltree::Node<'_, '_>) -> Option<f64> {
+    fn parse_bpm(v: &str) -> Option<f64> {
+        parse_f64_value(v).filter(|bpm| bpm.is_finite() && *bpm >= 20.0 && *bpm <= 320.0)
+    }
+
+    const DIRECT_TAGS: [&str; 5] = [
+        "WarpBaseBpm",
+        "OriginalTempo",
+        "SourceTempo",
+        "SourceBpm",
+        "SegmentationBpm",
+    ];
+    for tag in DIRECT_TAGS {
+        if let Some(v) = node_child_value(clip_node, tag).as_deref().and_then(parse_bpm) {
+            return Some(v);
+        }
+    }
+
+    const DESC_TAGS: [&str; 8] = [
+        "WarpBaseBpm",
+        "OriginalTempo",
+        "SourceTempo",
+        "SourceBpm",
+        "SegmentationBpm",
+        "Tempo",
+        "NominalTempo",
+        "Bpm",
+    ];
+    for node in clip_node.descendants().filter(|n| n.is_element()) {
+        if !DESC_TAGS.iter().any(|tag| node.has_tag_name(*tag)) {
+            continue;
+        }
+        if let Some(v) = node.attribute("Value").and_then(parse_bpm) {
+            return Some(v);
+        }
+        if let Some(v) = node.text().and_then(parse_bpm) {
+            return Some(v);
+        }
+    }
+
+    None
+}
+
 pub fn parse_clip_time_signature(clip_node: roxmltree::Node<'_, '_>) -> (Option<u8>, Option<u8>) {
     let ts = clip_node
         .children()

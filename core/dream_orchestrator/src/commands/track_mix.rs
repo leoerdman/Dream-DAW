@@ -1,5 +1,6 @@
 use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
+use dream_models::project::{AutomationLane, AutomationPoint};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -147,6 +148,83 @@ impl Command for SetTrackSoloByIndexCommand {
         Ok(SetTrackSoloResult {
             track_id: track.id,
             soloed: self.soloed,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SetTrackSendLevelResult {
+    pub track_id: Uuid,
+    pub param_id: String,
+    pub value: f32,
+}
+
+pub struct SetTrackSendLevelByIndexCommand {
+    pub track_index: u16,
+    pub send: String,
+    pub value: f32,
+}
+
+impl Command for SetTrackSendLevelByIndexCommand {
+    type Result = SetTrackSendLevelResult;
+
+    fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
+        let mut project = ctx.lock_project()?;
+        let idx = self.track_index as usize;
+        let total = project.tracks.len();
+        let track = project
+            .tracks
+            .get_mut(idx)
+            .ok_or(OrchestratorError::TrackOutOfRange {
+                requested: idx,
+                total,
+            })?;
+
+        let send_label = self.send.trim().to_ascii_uppercase();
+        if send_label != "A" && send_label != "B" {
+            return Err(OrchestratorError::Other(format!(
+                "Unsupported send '{}'. Expected 'A' or 'B'.",
+                self.send
+            )));
+        }
+        let param_id = format!("send.{send_label}");
+        let clamped = self.value.clamp(0.0, 1.0);
+
+        if let Some(lane) = track
+            .automation_lanes
+            .iter_mut()
+            .find(|lane| lane.param_id == param_id)
+        {
+            lane.points = vec![AutomationPoint {
+                beat: 0.0,
+                value: clamped as f64,
+                curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            }];
+        } else {
+            track.automation_lanes.push(AutomationLane {
+                param_id: param_id.clone(),
+                points: vec![AutomationPoint {
+                    beat: 0.0,
+                    value: clamped as f64,
+                    curve_type: "linear".to_string(),
+                    tension: None,
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
+                }],
+            });
+        }
+
+        Ok(SetTrackSendLevelResult {
+            track_id: track.id,
+            param_id,
+            value: clamped,
         })
     }
 }

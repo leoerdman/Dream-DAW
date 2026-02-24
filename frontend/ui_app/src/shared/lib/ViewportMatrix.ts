@@ -24,9 +24,13 @@ export class ViewportMatrix {
     private _trackHeights: number[] | null = null;
     private _trackOffsets: number[] = [];
     private _rulerHeight: number;
+    private _bottomPaddingPx: number;
 
     private _dirty = true;
     private _onFlush: ((snapshot: ViewportSnapshot) => void) | null = null;
+    private _onScrollYChange: ((scrollY: number) => void) | null = null;
+    /** Persists across calls — tracks the last scrollY we notified about. */
+    private _lastNotifiedScrollY = 0;
     private _flushTimer: ReturnType<typeof setTimeout> | null = null;
     private static readonly FLUSH_DEBOUNCE_MS = 150;
 
@@ -35,6 +39,7 @@ export class ViewportMatrix {
         this._trackCount = config.trackCount;
         this._trackHeight = config.trackHeight;
         this._rulerHeight = config.rulerHeight;
+        this._bottomPaddingPx = Math.max(0, Math.round(config.bottomPaddingPx ?? 0));
         this._ppb = config.initialPpb ?? DEFAULT_PPB;
         this.setTrackHeights(config.trackHeights ?? null);
     }
@@ -128,6 +133,13 @@ export class ViewportMatrix {
         }
         if (config.rulerHeight !== undefined && config.rulerHeight !== this._rulerHeight) {
             this._rulerHeight = config.rulerHeight;
+            changed = true;
+        }
+        if (
+            config.bottomPaddingPx !== undefined
+            && Math.max(0, Math.round(config.bottomPaddingPx)) !== this._bottomPaddingPx
+        ) {
+            this._bottomPaddingPx = Math.max(0, Math.round(config.bottomPaddingPx));
             changed = true;
         }
         if (changed) {
@@ -260,6 +272,16 @@ export class ViewportMatrix {
         this._onFlush = cb;
     }
 
+    /**
+     * Enterprise scroll sync: fires synchronously whenever scrollY changes.
+     * This is the SSOT notification path — ensures ALL scroll-Y mutations
+     * (wheel, zoom clamp, scrollTo, resize, track height change) are
+     * propagated to TrackInspector and any other synced panel.
+     */
+    setScrollYChangeCallback(cb: (scrollY: number) => void): void {
+        this._onScrollYChange = cb;
+    }
+
     destroy(): void {
         if (this._flushTimer) {
             clearTimeout(this._flushTimer);
@@ -270,9 +292,17 @@ export class ViewportMatrix {
 
     private _clampScroll(): void {
         const maxScrollX = Math.max(0, this.canvasContentWidth - this._viewportW);
-        const maxScrollY = Math.max(0, this.canvasContentHeight - (this._viewportH - this._rulerHeight));
+        const scrollableContentHeight = this.canvasContentHeight + this._bottomPaddingPx;
+        const maxScrollY = Math.max(0, scrollableContentHeight - (this._viewportH - this._rulerHeight));
         this._scrollX = Math.max(0, Math.min(maxScrollX, this._scrollX));
         this._scrollY = Math.max(0, Math.min(maxScrollY, this._scrollY));
+        // SSOT: Fire synchronous scroll-Y notification when scrollY changed
+        // since the last notification. Uses persistent _lastNotifiedScrollY
+        // (NOT a local variable) so that scrollBy()'s delta is detected.
+        if (Math.abs(this._scrollY - this._lastNotifiedScrollY) > 0.25) {
+            this._lastNotifiedScrollY = this._scrollY;
+            this._onScrollYChange?.(this._scrollY);
+        }
     }
 
     private _markDirty(): void {

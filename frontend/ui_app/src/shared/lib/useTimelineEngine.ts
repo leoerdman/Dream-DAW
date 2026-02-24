@@ -34,6 +34,7 @@ export interface UseTimelineEngineConfig {
     /** Optional per-track heights (length == trackCount). */
     trackHeights?: number[];
     rulerHeight: number;
+    bottomPaddingPx?: number;
     initialPpb?: number;
     snapBeats?: number;
     snapEnabled?: boolean;
@@ -80,6 +81,7 @@ export function useTimelineEngine(
                 trackHeight: config.trackHeight,
                 trackHeights: config.trackHeights,
                 rulerHeight: config.rulerHeight,
+                bottomPaddingPx: config.bottomPaddingPx,
                 initialPpb: config.initialPpb,
             },
         };
@@ -121,13 +123,14 @@ export function useTimelineEngine(
                 trackHeight: config.trackHeight,
                 trackHeights: config.trackHeights,
                 rulerHeight: config.rulerHeight,
+                bottomPaddingPx: config.bottomPaddingPx,
             },
         });
     }, [
         config.beatsPerBar, config.bpm, config.sampleRate,
         config.totalBeats, config.trackCount, config.trackHeight,
         config.trackHeights,
-        config.rulerHeight, config.snapBeats, config.snapEnabled,
+        config.rulerHeight, config.bottomPaddingPx, config.snapBeats, config.snapEnabled,
     ]);
 
     return useMemo(() => ({

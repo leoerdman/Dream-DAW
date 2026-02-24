@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::descriptor::PluginDescriptor;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::sandbox_instance::SandboxedPluginInstance;
+use crate::vst2_host::Vst2Instance;
 use crate::vst3_host::Vst3Instance;
 
 pub type PluginInstanceArc = std::sync::Arc<parking_lot::Mutex<Box<dyn PluginInstance>>>;
@@ -46,7 +47,26 @@ impl PluginHost {
         instance.activate(self.sample_rate, self.buffer_size)?;
 
         let id = instance.id();
-        info!("[PluginHost] Registered instance: {}", id);
+        info!("[PluginHost] Registered VST3 instance: {}", id);
+
+        self.instances
+            .push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(
+                instance,
+            ))));
+        self.instance_index.insert(id, self.instances.len() - 1);
+        Ok(id)
+    }
+
+    /// Loads, activates, and registers a VST2 plugin.
+    ///
+    /// Uses the existing `Vst2Instance` host implementation which handles
+    /// the full lifecycle: dlopen → VSTPluginMain → activate → process.
+    pub fn load_vst2(&mut self, descriptor: PluginDescriptor) -> Result<Uuid, PluginError> {
+        let mut instance = Vst2Instance::load(&descriptor.path)?;
+        instance.activate(self.sample_rate, self.buffer_size)?;
+
+        let id = instance.id();
+        info!("[PluginHost] Registered VST2 instance: {}", id);
 
         self.instances
             .push(std::sync::Arc::new(parking_lot::Mutex::new(Box::new(

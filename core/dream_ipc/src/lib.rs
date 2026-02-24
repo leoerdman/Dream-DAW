@@ -143,6 +143,12 @@ pub enum EngineCommand {
     /// Set square wave pulse width (0.05–0.95).
     SetSamplerPulseWidth { track_index: u16, width: f32 },
 
+    /// Enable or disable oscillator 1 (true = enabled, false = silent).
+    SetSamplerOsc1Enabled { track_index: u16, enabled: bool },
+
+    /// Enable or disable oscillator 2 (true = enabled, false = silent).
+    SetSamplerOsc2Enabled { track_index: u16, enabled: bool },
+
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 

@@ -499,6 +499,10 @@ pub struct SamplerEngine {
     /// Pulse width for square wave (0.05–0.95, default 0.5).
     pulse_width: f32,
 
+    /// Per-oscillator enable flags (true = active, false = silent).
+    osc1_enabled: bool,
+    osc2_enabled: bool,
+
     /// Engine/device sample rate (Hz).
     _sample_rate: f64,
 
@@ -537,6 +541,8 @@ impl SamplerEngine {
             lfo_depth: 0.0,
             lfo_target: LfoTarget::FilterCutoff,
             pulse_width: 0.5,
+            osc1_enabled: true,
+            osc2_enabled: true,
             _sample_rate: sample_rate,
             sample_sr_ratio: 1.0,
         }
@@ -626,6 +632,18 @@ impl SamplerEngine {
     /// Set pulse width for square wave (0.05–0.95).
     pub fn set_pulse_width(&mut self, width: f32) {
         self.pulse_width = width.clamp(0.05, 0.95);
+    }
+
+    /// Enable or disable oscillator 1.
+    pub fn set_osc1_enabled(&mut self, enabled: bool) {
+        self.osc1_enabled = enabled;
+        self.oscillator_enabled = true;
+    }
+
+    /// Enable or disable oscillator 2.
+    pub fn set_osc2_enabled(&mut self, enabled: bool) {
+        self.osc2_enabled = enabled;
+        self.oscillator_enabled = true;
     }
 
     /// Change the root note.
@@ -765,6 +783,8 @@ impl SamplerEngine {
                     self.lfo_depth,
                     self.lfo_target,
                     self.pulse_width,
+                    self.osc1_enabled,
+                    self.osc2_enabled,
                     self._sample_rate,
                     left_out,
                     right_out,
@@ -900,6 +920,8 @@ fn render_oscillator_voice(
     lfo_depth: f32,
     lfo_target: LfoTarget,
     pulse_width: f32,
+    osc1_enabled: bool,
+    osc2_enabled: bool,
     sample_rate: f64,
     left_out: &mut [f32],
     right_out: &mut [f32],
@@ -981,8 +1003,16 @@ fn render_oscillator_voice(
                 (p1, p2, sp, dt, dt2)
             };
 
-        let osc1 = oscillator_sample_blep(waveform, phase1, dt_mod, &mut tri1, pw);
-        let osc2 = oscillator_sample_blep(waveform2, phase2, dt2_mod, &mut tri2, pw);
+        let osc1 = if osc1_enabled {
+            oscillator_sample_blep(waveform, phase1, dt_mod, &mut tri1, pw)
+        } else {
+            0.0
+        };
+        let osc2 = if osc2_enabled {
+            oscillator_sample_blep(waveform2, phase2, dt2_mod, &mut tri2, pw)
+        } else {
+            0.0
+        };
         let sub_osc = oscillator_sample_blep_stateless(Waveform::Square, sub_phase, dt_sub);
 
         let mut sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;

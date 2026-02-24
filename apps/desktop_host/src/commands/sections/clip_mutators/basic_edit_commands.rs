@@ -121,7 +121,7 @@ async fn resize_clip_with_deltas_cmd(
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let before_audio_state = {
-        let project = project_state.project.read().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         project
             .tracks
             .iter()
@@ -153,7 +153,7 @@ async fn resize_clip_with_deltas_cmd(
     }];
 
     let after_audio_state = {
-        let project = project_state.project.read().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         project
             .tracks
             .iter()

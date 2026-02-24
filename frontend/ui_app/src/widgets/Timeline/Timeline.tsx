@@ -59,6 +59,7 @@ interface TimelineProps {
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
+const TRAILING_EMPTY_TRACK_SLOTS = 1;
 
 export const Timeline = (props: TimelineProps) => {
     const {
@@ -114,6 +115,18 @@ export const Timeline = (props: TimelineProps) => {
         () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat),
         [gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat],
     );
+    const masterGridStepBeats = useMemo(() => {
+        if (snapBeatsValue > 0) return snapBeatsValue;
+        // Keep master lane grid behavior identical to CanvasClipRenderer._drawGrid.
+        if (pixelsPerBeat < 8) return beatsPerBar * 4;
+        if (pixelsPerBeat < 15) return beatsPerBar;
+        if (pixelsPerBeat < 40) return beatsPerBar;
+        if (pixelsPerBeat < 80) return 1;
+        return 0.5;
+    }, [snapBeatsValue, pixelsPerBeat, beatsPerBar]);
+    const masterGridStepPx = Math.max(1, masterGridStepBeats * pixelsPerBeat);
+    const masterBarStepPx = Math.max(1, beatsPerBar * pixelsPerBeat);
+    const masterGridOffsetPx = -(viewportState.scrollX ?? 0);
 
     const engineConfig: UseTimelineEngineConfig = {
         beatsPerBar,
@@ -124,6 +137,7 @@ export const Timeline = (props: TimelineProps) => {
         trackHeight,
         trackHeights,
         rulerHeight: RULER_HEIGHT,
+        bottomPaddingPx: trackHeight * TRAILING_EMPTY_TRACK_SLOTS,
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
         snapEnabled,
@@ -260,6 +274,9 @@ export const Timeline = (props: TimelineProps) => {
             isOffline: c.isOffline,
             muted: c.muted,
             trackMuted: !trackActiveStates[c.trackIndex],
+            isWarped: c.isWarped,
+            warpSourceDurationFrames: c.warpSourceDurationFrames,
+            pitchShiftSemitones: c.pitchShiftSemitones,
             midiNotes: c.midiNotes,
         }));
 
@@ -303,7 +320,7 @@ export const Timeline = (props: TimelineProps) => {
 
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-    }, [fitHorizontalToken, engineRef]);
+    }, [fitHorizontalToken, beatsPerBar, engineRef]);
 
     useEffect(() => {
         const engine = engineRef.current;
@@ -431,7 +448,9 @@ export const Timeline = (props: TimelineProps) => {
                         left: 0,
                         top: 0,
                         width: '100%',
-                        height: `calc(100% + ${trackHeight}px)`,
+                        // Keep viewport height equal to arrangement viewport height.
+                        // Extra vertical scroll room is owned by ViewportMatrix.bottomPaddingPx.
+                        height: '100%',
                         display: 'block',
                     }}
                 />
@@ -440,6 +459,7 @@ export const Timeline = (props: TimelineProps) => {
                         visible
                         trackCount={trackCount}
                         trackHeight={trackHeight}
+                        trackHeights={trackHeights}
                         scrollTop={useTimelineStore.getState().scrollTop ?? 0}
                         width={arrangementRef.current?.clientWidth ?? 800}
                         bpm={bpm}
@@ -453,7 +473,21 @@ export const Timeline = (props: TimelineProps) => {
                     flexShrink: 0,
                     borderTop: 'none',
                     boxShadow: 'inset 0 var(--space-px) 0 var(--color-border-subtle)',
-                    background: 'transparent',
+                    backgroundColor: 'var(--color-timeline-track-default, var(--surface-1))',
+                    backgroundImage: `
+                        repeating-linear-gradient(
+                            to right,
+                            var(--color-timeline-grid-bar, rgba(74, 158, 255, 0.18)) 0 1px,
+                            transparent 1px ${masterBarStepPx}px
+                        ),
+                        repeating-linear-gradient(
+                            to right,
+                            var(--color-timeline-grid-line, rgba(255, 255, 255, 0.06)) 0 1px,
+                            transparent 1px ${masterGridStepPx}px
+                        )
+                    `,
+                    backgroundSize: `${masterBarStepPx}px 100%, ${masterGridStepPx}px 100%`,
+                    backgroundPosition: `${masterGridOffsetPx}px 0, ${masterGridOffsetPx}px 0`,
                     pointerEvents: 'none',
                     position: 'relative',
                     zIndex: 'var(--z-local)' as unknown as number,

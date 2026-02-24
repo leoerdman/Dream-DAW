@@ -401,25 +401,28 @@ impl RenderContext {
                 if clip.duration.sample_frame <= 0 {
                     ZERO_DURATION_CLIP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-                let clip_source_len = if clip.warp_source_duration_frames > 0 {
+                // BUG-A01/A02 FIX: `warp_source_duration_frames` is in source-domain
+                // frames. To compute a correct playback rate, we need both source and
+                // timeline values in the SAME frame domain. We store the raw source
+                // value here and normalize it to timeline domain inside the pool block
+                // where we know the actual source sample rate.
+                let clip_source_len_raw = if clip.warp_source_duration_frames > 0 {
                     clip.warp_source_duration_frames as f64
                 } else {
-                    clip.duration.sample_frame.max(1) as f64
+                    // A02: Fallback 0 signals "resolve from pool later".
+                    0.0
                 };
-                let is_warped = clip.is_warped && clip_source_len > 1.0;
+                let is_warped = clip.is_warped
+                    && (clip_source_len_raw > 1.0 || clip.warp_source_duration_frames <= 0);
 
-                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+                // F03 FIX: Clamp pitch_shift_semitones to sane range to prevent overflow.
+                let clamped_pitch = clip.pitch_shift_semitones.clamp(-48.0, 48.0);
+                let pitch_multiplier = 2.0_f64.powf(clamped_pitch / 12.0);
 
-                let mut playback_rate = if is_warped {
-                    let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
-                    // If true time-pitch independence is required, rubberband must be integrated.
-                    // For now, Warp mode pitch shift also accelerates read rate (like tape).
-                    rate * pitch_multiplier
-                } else {
-                    pitch_multiplier
-                };
-
-                playback_rate = playback_rate.clamp(0.125, 8.0);
+                // playback_rate is computed below, inside pool lookup, where we know
+                // the source sample rate for correct domain normalization.
+                // For unwarped clips, it stays at pitch_multiplier.
+                let mut playback_rate = pitch_multiplier.clamp(0.125, 8.0);
 
                 let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
                     WarpResampleMode::Standard
@@ -444,7 +447,24 @@ impl RenderContext {
                     let source_to_timeline_ratio =
                         audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
+                    // BUG-A01 FIX: Normalize clip_source_len to timeline domain so
+                    // the ratio source_len / timeline_len is dimensionally correct.
+                    let clip_source_len_timeline = if clip_source_len_raw > 1.0 {
+                        // Convert source frames → timeline frames
+                        clip_source_len_raw / source_to_timeline_ratio.max(0.001)
+                    } else {
+                        // A02 FIX: warp_source_duration_frames was 0 → derive from
+                        // actual source file length in timeline domain.
+                        let src_frames = audio.left().len().max(1) as f64;
+                        src_frames / source_to_timeline_ratio.max(0.001)
+                    };
+
                     if is_warped {
+                        // Recompute playback_rate with SR-normalized values.
+                        let warp_rate = (clip_source_len_timeline / clip_timeline_len)
+                            .clamp(0.125, 8.0);
+                        playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
+
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
@@ -498,7 +518,18 @@ impl RenderContext {
                     let source_to_timeline_ratio =
                         window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
+                    // BUG-A01 FIX: Same SR normalization as pool path.
+                    let clip_source_len_timeline_s = if clip_source_len_raw > 1.0 {
+                        clip_source_len_raw / source_to_timeline_ratio.max(0.001)
+                    } else {
+                        clip_timeline_len
+                    };
+
                     if is_warped {
+                        let warp_rate = (clip_source_len_timeline_s / clip_timeline_len)
+                            .clamp(0.125, 8.0);
+                        playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
+
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.
                         let clip_local_timeline_start =

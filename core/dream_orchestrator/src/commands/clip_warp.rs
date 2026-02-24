@@ -104,22 +104,25 @@ impl Command for SetClipWarpCommand {
 
                     // Initialize default warp markers if empty
                     if clip.warp_markers.is_empty() {
-                        let source_dur_sec =
-                            clip.warp_source_duration_frames.max(1) as f64 / source_sr;
-                        let source_beats = source_dur_sec * (self.warp_base_bpm / 60.0);
-                        clip.warp_markers
-                            .push(dream_models::project::WarpMarkerPoint {
-                                sec_time: 0.0,
-                                beat_time: 0.0,
-                            });
-                        clip.warp_markers
-                            .push(dream_models::project::WarpMarkerPoint {
-                                sec_time: source_dur_sec,
-                                beat_time: source_beats,
-                            });
+                        // C06 FIX: Guard against source_sr == 0 (corrupt file)
+                        if source_sr > 0.0 {
+                            let source_dur_sec =
+                                clip.warp_source_duration_frames.max(1) as f64 / source_sr;
+                            let source_beats = source_dur_sec * (self.warp_base_bpm / 60.0);
+                            clip.warp_markers
+                                .push(dream_models::project::WarpMarkerPoint {
+                                    sec_time: 0.0,
+                                    beat_time: 0.0,
+                                });
+                            clip.warp_markers
+                                .push(dream_models::project::WarpMarkerPoint {
+                                    sec_time: source_dur_sec,
+                                    beat_time: source_beats,
+                                });
+                        }
                     }
                 } else {
-                    let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+                    let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones.clamp(-48.0, 48.0) / 12.0);
                     let source_len_timeline = source_to_timeline_frames(
                         clip.warp_source_duration_frames,
                         source_sr,
@@ -128,7 +131,10 @@ impl Command for SetClipWarpCommand {
                     let new_frames = (source_len_timeline / pitch_multiplier)
                         .round() as i64;
                     clip.duration = AbsoluteTime::new(new_frames.max(1));
-                    clip.warp_markers.clear();
+                    // BUG-C03 FIX: Preserve warp markers when disabling warp.
+                    // Previously markers were cleared, destroying user-placed markers.
+                    // Markers stay dormant — re-enabling warp restores them.
+                    // (Only initialized when empty via the block above.)
                 }
 
                 updated = true;

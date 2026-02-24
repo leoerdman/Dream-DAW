@@ -450,9 +450,9 @@ impl PluginHostState {
         }
 
         let descriptor = self.resolve_descriptor(plugin_id)?;
-        if descriptor.format != PluginFormat::VST3 {
+        if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
             return Err(format!(
-                "External runtime currently supports only VST3 (got {})",
+                "External runtime currently supports VST2 and VST3 (got {})",
                 descriptor.format
             ));
         }
@@ -486,15 +486,26 @@ impl PluginHostState {
 
         if !Self::allow_unsandboxed_vst3() {
             return Err(format!(
-                "Plugin sandbox is unavailable for '{}'. In-process VST3 loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
+                "Plugin sandbox is unavailable for '{}'. In-process loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
                 descriptor.name
             ));
         }
 
         let mut host = self.host.lock().map_err(|e| e.to_string())?;
-        let instance_id = host
-            .load_vst3(descriptor.clone())
-            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+        let instance_id = match descriptor.format {
+            PluginFormat::VST3 => host
+                .load_vst3(descriptor.clone())
+                .map_err(|e| format!("Failed to load VST3 plugin '{}': {e}", descriptor.name))?,
+            PluginFormat::VST2 => host
+                .load_vst2(descriptor.clone())
+                .map_err(|e| format!("Failed to load VST2 plugin '{}': {e}", descriptor.name))?,
+            other => {
+                return Err(format!(
+                    "Unsupported plugin format '{}' for '{}'",
+                    other, descriptor.name
+                ));
+            }
+        };
         drop(host);
 
         self.bind_slot_instance(slot_id, instance_id);
@@ -537,12 +548,7 @@ impl PluginHostState {
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            if ext == "vst" {
-                return Err(
-                    "VST2 runtime is not supported in this build yet. Use VST3 plugins."
-                        .to_string(),
-                );
-            }
+            // VST2 (.vst) bundles are now supported via Vst2Instance host.
             let name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -582,7 +588,7 @@ impl PluginHostState {
         };
         let normalized_plugin_id = Self::normalize_plugin_lookup_key(plugin_id);
         let name_hint = Self::external_scheme_name_hint(plugin_id);
-        scan_result
+        let descriptor = scan_result
             .into_iter()
             .find(|desc| {
                 let desc_path = desc.path.to_string_lossy().to_string();
@@ -622,7 +628,44 @@ impl PluginHostState {
                 }
                 false
             })
-            .ok_or_else(|| format!("Plugin not found: {plugin_id}"))
+            .ok_or_else(|| format!("Plugin not found: {plugin_id}"))?;
+
+        // ── AU/CLAP → VST3/VST2 auto-fallback ──
+        // If the resolved descriptor is AudioUnit (or CLAP), the runtime cannot
+        // host it natively yet. Try to find a VST3 or VST2 version with the same name.
+        if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
+            let name_lower = descriptor.name.to_lowercase();
+            let cached = self.cached_scan.lock().map_err(|e| format!("lock: {e}"))?;
+            // Prefer VST3, fall back to VST2
+            let alt = cached.as_ref().and_then(|list| {
+                list.iter()
+                    .find(|d| d.format == PluginFormat::VST3 && d.name.to_lowercase() == name_lower)
+                    .or_else(|| {
+                        list.iter().find(|d| {
+                            d.format == PluginFormat::VST2 && d.name.to_lowercase() == name_lower
+                        })
+                    })
+            }).cloned();
+            drop(cached);
+            if let Some(redirected) = alt {
+                log::info!(
+                    "[resolve_descriptor] {} plugin '{}' → auto-redirected to {} at {}",
+                    descriptor.format,
+                    descriptor.name,
+                    redirected.format,
+                    redirected.path.display(),
+                );
+                return Ok(redirected);
+            }
+            return Err(format!(
+                "'{}' is an {} plugin. Dream DAW currently supports VST2/VST3. \
+                 No VST2 or VST3 version of this plugin was found on your system.",
+                descriptor.name,
+                descriptor.format,
+            ));
+        }
+
+        Ok(descriptor)
     }
 
     pub(crate) fn sandbox_snapshot(&self) -> Result<PluginSandboxSnapshot, String> {

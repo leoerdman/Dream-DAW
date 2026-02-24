@@ -372,6 +372,8 @@ fn set_internal_plugin_param_cmd(
     let sampler_lfo_depth = result.sampler_lfo_depth;
     let sampler_lfo_target = result.sampler_lfo_target;
     let sampler_pulse_width = result.sampler_pulse_width;
+    let sampler_osc1_enabled = result.sampler_osc1_enabled;
+    let sampler_osc2_enabled = result.sampler_osc2_enabled;
 
     finalize_internal_param_update(
         &project_state,
@@ -472,6 +474,18 @@ fn set_internal_plugin_param_cmd(
         push_command(&handle, EngineCommand::SetSamplerPulseWidth {
             track_index: track_index as u16,
             width,
+        })?;
+    }
+    if let Some(enabled) = sampler_osc1_enabled {
+        push_command(&handle, EngineCommand::SetSamplerOsc1Enabled {
+            track_index: track_index as u16,
+            enabled,
+        })?;
+    }
+    if let Some(enabled) = sampler_osc2_enabled {
+        push_command(&handle, EngineCommand::SetSamplerOsc2Enabled {
+            track_index: track_index as u16,
+            enabled,
         })?;
     }
 

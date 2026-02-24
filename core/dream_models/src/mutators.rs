@@ -197,6 +197,11 @@ pub fn resize_clip(
         if clip.warp_source_duration_frames <= 0 {
             clip.warp_source_duration_frames = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
         }
+        // BUG-B10 FIX: Clear stale warp markers when stretch-resizing.
+        // The duration has changed, so existing absolute markers are invalid.
+        // They will be re-derived from warp_source_duration_frames + warp_base_bpm
+        // by the SetClipWarp command when the user adjusts warp settings.
+        clip.warp_markers.clear();
     }
 
     // Trim behavior (allow_stretch=false): keep playback rate stable and clamp
@@ -212,10 +217,19 @@ pub fn resize_clip(
     }
     clip.duration = AbsoluteTime::new(next_duration.max(MIN_CLIP_FRAMES));
 
-    // Clamp fades to not exceed the new duration
-    let max_fade = (clip.duration.sample_frame / 2).max(0);
-    clip.fade_in_frames = clip.fade_in_frames.min(max_fade);
-    clip.fade_out_frames = clip.fade_out_frames.min(max_fade);
+    // BUG-B07 FIX: Clamp fades to not exceed new duration BOTH individually
+    // and combined. Previously, fade_in=49% + fade_out=49% passed the per-fade
+    // check but exceeded 100% total.
+    let max_single_fade = (clip.duration.sample_frame / 2).max(0);
+    clip.fade_in_frames = clip.fade_in_frames.min(max_single_fade);
+    clip.fade_out_frames = clip.fade_out_frames.min(max_single_fade);
+    // Combined guard: shrink proportionally if sum > duration
+    let total_fade = clip.fade_in_frames + clip.fade_out_frames;
+    if total_fade > clip.duration.sample_frame && total_fade > 0 {
+        let ratio = clip.duration.sample_frame as f64 / total_fade as f64;
+        clip.fade_in_frames = (clip.fade_in_frames as f64 * ratio).floor() as i64;
+        clip.fade_out_frames = (clip.fade_out_frames as f64 * ratio).floor() as i64;
+    }
 
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];
@@ -630,6 +644,21 @@ pub fn resize_midi_clip(
             let mut clip = track.midi_clips.remove(idx);
             clip.position = new_position;
             clip.duration = new_duration;
+            // BUG-B12 FIX: Trim or remove MIDI notes that extend beyond the
+            // new clip duration. Without this, notes can reference beats outside
+            // the clip bounds, causing playback glitches and visual artifacts.
+            let dur = new_duration.sample_frame;
+            clip.notes.retain_mut(|note| {
+                if note.start_frame >= dur {
+                    return false; // Note starts outside clip — remove
+                }
+                // Truncate notes that span across the new clip end
+                let note_end = note.start_frame + note.duration_frames;
+                if note_end > dur {
+                    note.duration_frames = (dur - note.start_frame).max(1);
+                }
+                true
+            });
             extracted = Some(clip);
             source_track_idx = Some(track_idx);
             break;
@@ -1188,6 +1217,35 @@ mod tests {
         assert_eq!(clip_a.position.sample_frame, 22050);
         assert_eq!(clip_a.duration.sample_frame, 22050);
         assert_eq!(clip_a.source_offset.sample_frame, 22050);
+    }
+
+    #[test]
+    fn resize_clip_left_with_stretch_keeps_source_offset_and_enables_warp() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+        let original_warp_source = project.tracks[0].clips[0].warp_source_duration_frames;
+
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(22050),
+            AbsoluteTime::new(22050),
+            true,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.position.sample_frame, 22050);
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.source_offset.sample_frame, 0);
+        assert!(clip_a.is_warped);
+        assert!(clip_a.warp_mode.is_some());
+        assert!(clip_a.warp_base_bpm > 0.0);
+        assert_eq!(clip_a.warp_source_duration_frames, original_warp_source);
     }
 
     #[test]

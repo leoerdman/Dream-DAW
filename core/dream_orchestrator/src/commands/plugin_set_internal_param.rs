@@ -30,6 +30,8 @@ pub struct SetInternalPluginParamResult {
     pub sampler_lfo_depth: Option<f32>,
     pub sampler_lfo_target: Option<u8>,
     pub sampler_pulse_width: Option<f32>,
+    pub sampler_osc1_enabled: Option<bool>,
+    pub sampler_osc2_enabled: Option<bool>,
 }
 
 impl SetInternalPluginParamCommand {
@@ -97,6 +99,8 @@ impl Command for SetInternalPluginParamCommand {
         let mut sampler_lfo_depth = None;
         let mut sampler_lfo_target = None;
         let mut sampler_pulse_width = None;
+        let mut sampler_osc1_enabled: Option<bool> = None;
+        let mut sampler_osc2_enabled: Option<bool> = None;
 
         let (track_index, sampler_cfg_for_rt) = {
             let (idx, track) = project
@@ -258,6 +262,12 @@ impl Command for SetInternalPluginParamCommand {
                     cfg.pulse_width = pw as f64;
                     sampler_pulse_width = Some(pw);
                 }
+                "synth.osc1.enabled" | "sampler.osc1enabled" | "osc1enabled" => {
+                    sampler_osc1_enabled = Some(self.value >= 0.5);
+                }
+                "synth.osc2.enabled" | "sampler.osc2enabled" | "osc2enabled" => {
+                    sampler_osc2_enabled = Some(self.value >= 0.5);
+                }
                 _ => {
                     mutators::upsert_static_automation_lane(track, &self.param_id, self.value);
                 }
@@ -286,6 +296,8 @@ impl Command for SetInternalPluginParamCommand {
             sampler_lfo_depth,
             sampler_lfo_target,
             sampler_pulse_width,
+            sampler_osc1_enabled,
+            sampler_osc2_enabled,
         })
     }
 }

@@ -69,7 +69,9 @@ export function useTrackHeightControls({
             const yInTracks = yInViewport - TIMELINE_RULER_HEIGHT_PX + scrollSync.scrollY;
             if (yInTracks >= 0) {
                 let acc = 0;
-                for (const track of tracks) {
+                for (let i = 0; i < tracks.length; i += 1) {
+                    if (hiddenTrackIndices.has(i)) continue;
+                    const track = tracks[i];
                     if (!track?.id || track.id === 'master') continue;
                     const h = clampTrackHeight(typeof track.height === 'number' ? track.height : TRACK_HEIGHT_DEFAULT_PX);
                     const nextAcc = acc + h;
@@ -83,7 +85,7 @@ export function useTrackHeightControls({
         if (selected.length > 0) return [selected[selected.length - 1]];
         if (selectedTrackId && selectedTrackId !== 'master') return [selectedTrackId];
         return [];
-    }, [clampTrackHeight, selectedTrackIdRef, selectedTrackIdsRef]);
+    }, [clampTrackHeight, hiddenTrackIndices, selectedTrackIdRef, selectedTrackIdsRef]);
 
     const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {
         if (trackIds.length === 0) return;

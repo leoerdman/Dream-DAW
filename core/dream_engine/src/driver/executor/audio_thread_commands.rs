@@ -315,6 +315,18 @@ pub(super) fn drain_commands(
                     ctx.sampler_engines[idx].set_pulse_width(width);
                 }
             }
+            EngineCommand::SetSamplerOsc1Enabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.sampler_engines.len() {
+                    ctx.sampler_engines[idx].set_osc1_enabled(enabled);
+                }
+            }
+            EngineCommand::SetSamplerOsc2Enabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.sampler_engines.len() {
+                    ctx.sampler_engines[idx].set_osc2_enabled(enabled);
+                }
+            }
             EngineCommand::SamplerAllNotesOff { track_index } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {

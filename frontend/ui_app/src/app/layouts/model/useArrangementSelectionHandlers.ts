@@ -116,6 +116,7 @@ export function useArrangementSelectionHandlers({
 
     const handleTimelineTrackSelect = useCallback((trackId: string, trackIndex: number) => {
         const resolvedTrackId = trackIds[trackIndex] ?? trackId;
+        if (!resolvedTrackId || !trackIds.includes(resolvedTrackId)) return;
         handleSelectTrack(resolvedTrackId);
     }, [handleSelectTrack, trackIds]);
 

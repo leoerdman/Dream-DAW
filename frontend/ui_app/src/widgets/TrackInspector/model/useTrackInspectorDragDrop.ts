@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { scrollSync } from '@/shared/lib/useScrollSync';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import {
     canDropTrackIntoGroup,
@@ -196,11 +197,10 @@ export function useTrackInspectorDragDrop({
             }
             if (velocity === 0) return;
 
-            const maxScroll = Math.max(0, listEl.scrollHeight - listEl.clientHeight);
-            const nextScrollTop = Math.max(0, Math.min(maxScroll, listEl.scrollTop + velocity));
-            if (nextScrollTop === listEl.scrollTop) return;
+            // SSOT: use pushScrollDelta for auto-scroll during drag.
+            // ViewportMatrix clamps and notifies all subscribers.
+            scrollSync.pushScrollDelta(velocity);
 
-            listEl.scrollTop = nextScrollTop;
             const activeDragId = draggingTrackIdRef.current ?? draggingTrackId ?? pointerDrag.trackId;
             if (!activeDragId) return;
 

@@ -100,7 +100,8 @@ export function useTimelineCommandBusBindings({
                     callbacksRef.current.onOpenMidiClip?.(command.clipId, command.trackIndex);
                     break;
                 case 'track-select': {
-                    const id = trackIdsRef.current[command.trackIndex] ?? `track-${command.trackIndex}`;
+                    const id = trackIdsRef.current[command.trackIndex];
+                    if (!id) break;
                     callbacksRef.current.onTrackSelect?.(id, command.trackIndex);
                     break;
                 }
@@ -154,13 +155,27 @@ export function useTimelineEngineCommandBindings({
         engine.onTrackSelect = (trackIndex) => commandBusRef.current.emit({ type: 'track-select', trackIndex });
         engine.onMarqueeSelectionStart = () => commandBusRef.current.emit({ type: 'marquee-start' });
         engine.onMarqueeSelectionChange = (marquee) => commandBusRef.current.emit({ type: 'marquee-change', marquee });
-        engine.onScrollTop = (scrollTop) => commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
+        engine.onScrollTop = (scrollTop) => {
+            commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
+        };
 
+        // SSOT: Wire delta listener for external panels (Inspector, Mixer).
+        // When Inspector scrolls, it pushes a delta. We apply it to the
+        // ViewportMatrix which clamps and fires _onScrollYChange →
+        // scrollSync.setScrollY('timeline') → ALL subscribers are notified.
+        const unsubDelta = scrollSync.onDelta((delta) => {
+            const viewport = engine.viewport;
+            viewport.scrollBy(0, delta);
+        });
+
+        // Subscribe to absolute scroll-Y from scrollSync as 'timeline'
+        // (for when non-delta external sources set absolute scroll positions).
         const unsubScroll = scrollSync.subscribe('timeline', (y) => {
             engine.setScrollY(y);
         });
 
         return () => {
+            unsubDelta();
             unsubScroll();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -97,9 +97,11 @@ struct SetClipWarpPayload {
     warp_base_bpm: Option<f64>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SetClipPitchPayload {
     clip_id: String,
+    #[serde(alias = "pitch_shift_semitones")]
     pitch_shift_semitones: f64,
 }
 

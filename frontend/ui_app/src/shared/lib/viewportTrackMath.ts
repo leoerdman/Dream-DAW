@@ -28,5 +28,15 @@ export function trackIndexAtOffsetY(
         if ((offsets[mid + 1] ?? 0) <= y) lo = mid + 1;
         else hi = mid;
     }
-    return Math.max(0, Math.min(trackCount - 1, lo));
+    const idx = Math.max(0, Math.min(trackCount - 1, lo));
+    const heightAt = (i: number) => (offsets[i + 1] ?? 0) - (offsets[i] ?? 0);
+    if (heightAt(idx) > 0) return idx;
+
+    for (let right = idx + 1; right < trackCount; right += 1) {
+        if (heightAt(right) > 0) return right;
+    }
+    for (let left = idx - 1; left >= 0; left -= 1) {
+        if (heightAt(left) > 0) return left;
+    }
+    return idx;
 }

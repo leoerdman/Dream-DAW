@@ -59,6 +59,10 @@ export function useTrackInspectorLogic({
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastProgrammaticScrollRef = useRef<number | null>(null);
+    /** Direct DOM ref to the inner translateY container — bypasses React for 60fps sync. */
+    const innerScrollRef = useRef<HTMLDivElement>(null);
+    /** Current virtual scroll Y — ref (not state!) for zero-latency sync. */
+    const virtualScrollYRef = useRef(0);
 
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
@@ -208,10 +212,13 @@ export function useTrackInspectorLogic({
     });
 
     useEffect(() => {
+        // SSOT: Subscribe to scrollSync and directly manipulate DOM transform.
+        // We bypass React setState entirely to achieve same-frame sync with
+        // the Timeline canvas. React re-renders would introduce visible lag.
         const unsub = scrollSync.subscribe('inspector', (y) => {
-            if (scrollRef.current) {
-                lastProgrammaticScrollRef.current = y;
-                scrollRef.current.scrollTop = y;
+            virtualScrollYRef.current = y;
+            if (innerScrollRef.current) {
+                innerScrollRef.current.style.transform = `translateY(${-y}px)`;
             }
         });
         return unsub;
@@ -231,6 +238,8 @@ export function useTrackInspectorLogic({
     return {
         scrollRef,
         lastProgrammaticScrollRef,
+        innerScrollRef,
+        virtualScrollYRef,
         trackRowRefs,
         suppressNextClickRef,
         draggingTrackIdRef,

@@ -41,9 +41,29 @@ export interface UsePianoRollGPUProps {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/** Parse CSS hex color to RGB [0-1] tuple */
-function hexToRGB(hex: string): [number, number, number] {
-    const clean = hex.replace('#', '');
+function parseRGBFunction(input: string): [number, number, number] | null {
+    const m = input.trim().match(/^rgba?\((.+)\)$/i);
+    if (!m) return null;
+    const parts = m[1]
+        .split(/[,\s/]+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+    if (parts.length < 3) return null;
+    const parse = (v: string) => {
+        if (v.endsWith('%')) return Math.max(0, Math.min(1, Number.parseFloat(v) / 100));
+        return Math.max(0, Math.min(1, Number.parseFloat(v) / 255));
+    };
+    const r = parse(parts[0]);
+    const g = parse(parts[1]);
+    const b = parse(parts[2]);
+    if (![r, g, b].every(Number.isFinite)) return null;
+    return [r, g, b];
+}
+
+function hexToRGB(hex: string): [number, number, number] | null {
+    const clean = hex.trim().replace('#', '');
+    if (!(clean.length === 3 || clean.length === 6)) return null;
+    if (!/^[0-9a-f]+$/i.test(clean)) return null;
     if (clean.length === 3) {
         const r = parseInt(clean[0] + clean[0], 16) / 255;
         const g = parseInt(clean[1] + clean[1], 16) / 255;
@@ -54,6 +74,23 @@ function hexToRGB(hex: string): [number, number, number] {
     const g = parseInt(clean.substring(2, 4), 16) / 255;
     const b = parseInt(clean.substring(4, 6), 16) / 255;
     return [r, g, b];
+}
+
+/** Parse CSS color (hex/rgb/var(--token)) to RGB [0..1], with safe fallback. */
+function cssColorToRGB(input: string): [number, number, number] {
+    const raw = (input ?? '').trim();
+    if (!raw) return [0.35, 0.55, 0.9];
+    const resolved = raw.startsWith('var(')
+        ? (() => {
+            const varName = raw.slice(4, -1).trim();
+            return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+        })()
+        : raw;
+    return (
+        hexToRGB(resolved)
+        ?? parseRGBFunction(resolved)
+        ?? [0.35, 0.55, 0.9]
+    );
 }
 
 /**
@@ -247,8 +284,10 @@ export function usePianoRollGPU({
             dpr,
             pixelsPerBeat,
             noteHeight,
-            scrollX,
-            scrollY,
+            // Canvas spans full piano-roll content; DOM scroll already defines viewport.
+            // Passing scroll to shaders causes double offset and can hide notes.
+            scrollX: 0,
+            scrollY: 0,
             canvasWidth: Math.ceil(canvasWidth * dpr),
             canvasHeight: Math.ceil(canvasHeight * dpr),
             beatsPerBar,
@@ -269,7 +308,7 @@ export function usePianoRollGPU({
     useEffect(() => {
         const renderer = rendererRef.current;
         if (paused || !renderer) return;
-        const noteColor = hexToRGB(color);
+        const noteColor = cssColorToRGB(color);
         // Root row tint: mix accent color at 12% opacity
         const rootRowColor: [number, number, number] = [
             noteColor[0] * 0.12 + 0.08,

@@ -52,7 +52,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                 }}
                 style={{
                     display: 'flex',
-                    alignItems: rackExpanded ? 'flex-start' : 'stretch',
+                    alignItems: 'stretch',
                     flexWrap: rackExpanded ? 'wrap' : 'nowrap',
                     alignContent: rackExpanded ? 'flex-start' : undefined,
                     gap: 'var(--space-1-5)',
@@ -61,6 +61,9 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                     minHeight: 0,
                     overflowX: rackExpanded ? 'hidden' : 'auto',
                     overflowY: rackExpanded ? 'auto' : 'hidden',
+                    // In 2-row mode, each slot fills exactly half the container height
+                    // (minus gap between rows). Fallback: 100% for 1-row mode.
+                    ...(rackExpanded ? { '--rack-row-height': 'calc(50% - var(--space-1-5) / 2)' } as React.CSSProperties : {}),
                 }}
             >
                 <MeterStrip levelL={inLevelL} levelR={inLevelR} isMidi={selectedTrack?.track_type === 'Midi'} />

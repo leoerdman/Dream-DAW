@@ -10,6 +10,8 @@ export interface ViewportConfig {
     trackHeight: number;
     trackHeights?: number[];
     rulerHeight: number;
+    /** Extra vertical scroll room after the last track (px). */
+    bottomPaddingPx?: number;
     initialPpb?: number;
 }
 

@@ -33,6 +33,8 @@ interface AutomationOverlayProps {
     trackCount: number;
     /** Height of each track row in pixels. */
     trackHeight: number;
+    /** Optional per-track heights from timeline viewport SSOT. */
+    trackHeights?: number[];
     /** Current vertical scroll offset (from timeline). */
     scrollTop: number;
     /** Width of the overlay container. */
@@ -47,6 +49,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
     visible,
     trackCount,
     trackHeight,
+    trackHeights,
     scrollTop,
     width,
     bpm,
@@ -96,6 +99,16 @@ export const AutomationOverlay = memo(function AutomationOverlay({
         return result;
     }, [lanes, trackCount, trackIds, tracksById]);
 
+    const trackOffsets = useMemo(() => {
+        const offsets: number[] = new Array(trackCount + 1);
+        offsets[0] = 0;
+        for (let i = 0; i < trackCount; i += 1) {
+            const h = Math.max(0, Math.round(trackHeights?.[i] ?? trackHeight));
+            offsets[i + 1] = offsets[i] + h;
+        }
+        return offsets;
+    }, [trackCount, trackHeight, trackHeights]);
+
     if (!visible || trackLanes.length === 0) return null;
 
     return (
@@ -114,7 +127,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
             {trackLanes.map(({ trackIndex, lanes: tLanes }) => {
                 // Position the automation sub-rows starting BELOW the track row
                 const trackBottom =
-                    RULER_HEIGHT + (trackIndex + 1) * trackHeight - scrollTop;
+                    RULER_HEIGHT + (trackOffsets[trackIndex + 1] ?? 0) - scrollTop;
 
                 return tLanes.map((lane, laneIdx) => {
                     const laneTop = trackBottom + laneIdx * LANE_HEIGHT;

@@ -421,6 +421,7 @@ export const DawShell = () => {
         timelineClipsForView,
         selectedClipIds: selectedClipIdsForView,
         trackCountRaw,
+        hiddenTrackIndices,
         createMidiClip,
         applyProjectDeltas,
         setSelectedClipIds,

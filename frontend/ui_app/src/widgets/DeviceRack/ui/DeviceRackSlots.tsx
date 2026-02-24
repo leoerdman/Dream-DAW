@@ -70,7 +70,7 @@ export function DeviceSlot({
                     .catch((err) => console.error('[DeviceRack] moveEffectSlot failed:', err));
             }}
             className="dream-device-drop-indicator"
-            style={{ display: 'flex', flexShrink: 0, height: 'calc(var(--daw-device-rack-min-height) - var(--space-2-5) * 2 - 8px)', transition: 'border 0.1s ease', position: 'relative' }}
+            style={{ display: 'flex', flexShrink: 0, height: 'var(--rack-row-height, 100%)', transition: 'border 0.1s ease', position: 'relative' }}
         >
             <DeviceNode
                 device={device}

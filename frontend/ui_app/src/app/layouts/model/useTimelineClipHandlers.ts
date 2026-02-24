@@ -17,6 +17,7 @@ type Args = {
     timelineClipsForView: TimelineClip[];
     selectedClipIds: string[];
     trackCountRaw: number;
+    hiddenTrackIndices: Set<number>;
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
     setSelectedClipIds: React.Dispatch<React.SetStateAction<string[]>>;
@@ -38,6 +39,7 @@ export function useTimelineClipHandlers({
     timelineClipsForView,
     selectedClipIds,
     trackCountRaw,
+    hiddenTrackIndices,
     createMidiClip,
     applyProjectDeltas,
     setSelectedClipIds,
@@ -91,10 +93,35 @@ export function useTimelineClipHandlers({
         const selectedSet = new Set(selectedClipIds);
         const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
 
+        const snapToVisibleTrack = (targetTrack: number, preferredDirection: -1 | 0 | 1): number => {
+            const clamped = Math.max(0, Math.min(trackCountRaw - 1, targetTrack));
+            if (!hiddenTrackIndices.has(clamped)) return clamped;
+
+            if (preferredDirection >= 0) {
+                for (let i = clamped + 1; i < trackCountRaw; i += 1) {
+                    if (!hiddenTrackIndices.has(i)) return i;
+                }
+            }
+            if (preferredDirection <= 0) {
+                for (let i = clamped - 1; i >= 0; i -= 1) {
+                    if (!hiddenTrackIndices.has(i)) return i;
+                }
+            }
+
+            for (let radius = 1; radius < trackCountRaw; radius += 1) {
+                const up = clamped - radius;
+                const down = clamped + radius;
+                if (up >= 0 && !hiddenTrackIndices.has(up)) return up;
+                if (down < trackCountRaw && !hiddenTrackIndices.has(down)) return down;
+            }
+            return clamped;
+        };
+
         const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
             const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sampleRate);
+            const safeTrack = snapToVisibleTrack(targetTrack, 0);
             try {
-                return await engineApi.moveClipWithDeltas(id, targetTrack, positionFrames);
+                return await engineApi.moveClipWithDeltas(id, safeTrack, positionFrames);
             } catch (err) {
                 if (isClipNotFoundError(err)) {
                     pruneGhostClip(id);
@@ -123,7 +150,10 @@ export function useTimelineClipHandlers({
             });
             for (const clip of selectedClips) {
                 const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                const targetTrack = Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack));
+                const targetTrack = snapToVisibleTrack(
+                    Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack)),
+                    deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0),
+                );
                 const response = await moveOne(clip.id, targetBeat, targetTrack);
                 collectedDeltas.push(...response.deltas);
             }
@@ -145,7 +175,17 @@ export function useTimelineClipHandlers({
                 console.error('[DawShell] moveClip failed:', err);
                 useStatusStore.getState().setError(`Clip move failed: ${err instanceof Error ? err.message : String(err)}`);
             });
-    }, [applyProjectDeltas, projectBpm, projectSampleRate, pruneGhostClip, selectedClipIds, timelineClipsForView, trackCountRaw, transportBpm]);
+    }, [
+        applyProjectDeltas,
+        hiddenTrackIndices,
+        projectBpm,
+        projectSampleRate,
+        pruneGhostClip,
+        selectedClipIds,
+        timelineClipsForView,
+        trackCountRaw,
+        transportBpm,
+    ]);
 
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
         const bpm = projectBpm || transportBpm || 120;

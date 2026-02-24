@@ -25,6 +25,12 @@ export interface TimelineClipData {
     isOffline?: boolean;
     muted?: boolean;
     trackMuted?: boolean;
+    /** Whether this clip uses warp/time-stretch mode. */
+    isWarped?: boolean;
+    /** Source file duration in samples (used for warp rate computation). */
+    warpSourceDurationFrames?: number;
+    /** Pitch shift in semitones (used for source-domain waveform mapping). */
+    pitchShiftSemitones?: number;
     midiNotes?: Array<{
         pitch: number;
         startBeat: number;
@@ -637,9 +643,18 @@ export class CanvasClipRenderer {
         const samplesPerBeat = sampleRate * 60 / this._bpm;
         const samplesPerPixel = samplesPerBeat / ppb;
 
-        const sourceWindowSamples = clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0
-            ? (clip.warpSourceDurationFrames as number)
-            : clip.durationSamples;
+        // BUG-G01 FIX: For non-warped clips, if pitch is shifted,
+        // durationSamples is in timeline-domain but the source file was read
+        // at a different rate. Scale by pitchShift to get source-domain window.
+        let sourceWindowSamples: number;
+        if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0) {
+            sourceWindowSamples = clip.warpSourceDurationFrames as number;
+        } else {
+            const pitchSemitones = clip.pitchShiftSemitones ?? 0;
+            const pitchMultiplier = Math.pow(2, pitchSemitones / 12);
+            // Source samples consumed = timeline_samples * pitch_multiplier
+            sourceWindowSamples = Math.round(clip.durationSamples * pitchMultiplier);
+        }
 
         const drawData = this._waveformCache.getDrawData(
             clip.id,
@@ -696,9 +711,11 @@ export class CanvasClipRenderer {
             }
 
             ctx.closePath();
-            ctx.globalAlpha = 0.6;
+            // BUG-G06 FIX: Respect track-mute dimming in path-based rendering.
+            // Previously hardcoded to 0.6, overriding the track-mute alpha (0.25).
+            ctx.globalAlpha = muted ? 0.15 : 0.6;
             ctx.fill();
-            ctx.globalAlpha = 1.0;
+            ctx.globalAlpha = muted ? 0.25 : 1.0;
         }
 
         ctx.strokeStyle = muted

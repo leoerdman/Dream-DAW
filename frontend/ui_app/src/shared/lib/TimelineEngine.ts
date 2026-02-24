@@ -153,6 +153,14 @@ export class TimelineEngine {
             this.onViewportFlush?.(snap);
         });
 
+        // SSOT: Wire scroll-Y changes to the sync callback.
+        // This replaces the old onScrollTop call in _onWheel, which only
+        // covered the non-modifier branch. Now ALL paths that change scrollY
+        // (wheel, zoom clamp, scrollTo, resize, trackHeight) are synced.
+        this._viewport.setScrollYChangeCallback((scrollY) => {
+            this.onScrollTop?.(scrollY);
+        });
+
         // Pre-bind event handlers
         this._boundWheel = this._onWheel.bind(this);
         this._boundMouseDown = this._onMouseDown.bind(this);
@@ -505,11 +513,28 @@ export class TimelineEngine {
                 // - when trimming from the left, advance source offset by trimmed frames
                 const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
                 nextClip.durationSamples = previewFrames;
+
+                // BUG-H01 FIX: For warped clips during trim preview, the waveform
+                // renderer uses warpSourceDurationFrames as the source peak window.
+                // Overriding durationSamples alone causes the waveform to scale
+                // incorrectly. Preserve the warp source window and let the renderer
+                // handle the mapping.
+                if (clip.isWarped && clip.warpSourceDurationFrames && clip.warpSourceDurationFrames > 0) {
+                    nextClip.warpSourceDurationFrames = clip.warpSourceDurationFrames;
+                }
+
                 if (preview.edge === 'left') {
                     const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
                     const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
                     nextClip.sourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + trimmedFrames);
                 }
+            } else {
+                // BUG-H03 FIX: In stretch preview, update durationSamples
+                // proportionally so the waveform visually stretches during the drag.
+                // Previously, durationSamples was left untouched, causing the waveform
+                // to remain static until the commit mutator fired.
+                const ratio = preview.durationBeats / (clip.durationBeats || 1);
+                nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
             }
 
             return nextClip;
@@ -617,7 +642,8 @@ export class TimelineEngine {
         } else {
             // Standard scroll
             this._viewport.scrollBy(e.deltaX, e.deltaY);
-            this.onScrollTop?.(this._viewport.scrollY);
+            // NOTE: onScrollTop is now fired by ViewportMatrix._clampScroll()
+            // via setScrollYChangeCallback — no need to call it here.
         }
 
         this._prefetchVisibleWaveforms();

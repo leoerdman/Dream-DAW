@@ -65,7 +65,7 @@ export const ScanStatus = memo(function ScanStatus({ scanLoading, scanError }: {
     return (
         <div style={{ padding: 'var(--space-2) var(--space-2-5)', color: 'var(--color-status-error)', fontSize: 'var(--font-size-xs)' }}>
             <span>⚠ Scan error</span>
-            <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
+            <span style={{ opacity: 0.7, fontFamily: 'var(--font-role-data)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
         </div>
     );
 });

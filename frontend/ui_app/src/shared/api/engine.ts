@@ -88,13 +88,13 @@ export const setTrackSendLevelWithDeltas = (trackIndex: number, send: 'A' | 'B',
     invoke<DeltaMutationResponse>('set_track_send_level_with_deltas', { trackIndex, send, value });
 export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
     invoke<void>('preview_sampler_note_on_cmd', {
-        trackIndex,
+        trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: Math.max(0, Math.min(127, Math.round(pitch))),
         velocity: Math.max(1, Math.min(127, Math.round(velocity))),
     });
 export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
     invoke<void>('preview_sampler_note_off_cmd', {
-        trackIndex,
+        trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: Math.max(0, Math.min(127, Math.round(pitch))),
     });
 export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
@@ -307,6 +307,8 @@ export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number 
         limit: options?.limit,
         sinceSeq: options?.sinceSeq,
     });
+export const getProjectSnapshotDelta = () =>
+    invoke<DeltaMutationResponse>('get_project_snapshot_delta');
 export const getPdcDebugSnapshot = () =>
     invoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
 export const getRtDebugSnapshot = () =>

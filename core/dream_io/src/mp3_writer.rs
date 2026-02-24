@@ -131,8 +131,9 @@ impl Mp3Writer {
 
         let path_buf = path.as_ref().to_path_buf();
         if let Some(parent) = path_buf.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| Mp3WriterError::WriteError(format!("Failed to create parent dir: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                Mp3WriterError::WriteError(format!("Failed to create parent dir: {e}"))
+            })?;
         }
         let file = File::create(&path_buf)
             .map_err(|e| Mp3WriterError::WriteError(format!("Failed to create MP3 file: {e}")))?;

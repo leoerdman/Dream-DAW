@@ -71,7 +71,11 @@ impl BiquadState {
         self.y2 = self.y1;
         // BUG-C03 FIX: Flush denormals in K-weighting biquad feedback states.
         // 4 biquads × 2 channels = 8 potential denormal stalls during silence.
-        self.y1 = if y.abs() > crate::processors::DENORMAL_THRESHOLD_F64 || y == 0.0 { y } else { 0.0 };
+        self.y1 = if y.abs() > crate::processors::DENORMAL_THRESHOLD_F64 || y == 0.0 {
+            y
+        } else {
+            0.0
+        };
         self.y1
     }
 

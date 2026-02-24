@@ -1,287 +1,114 @@
-import type { AppSettings, AudioDevices, PluginSandboxSnapshot } from '@/shared/api/engine';
-import { Select, SettingRow, Toggle } from './settingsPanelParts';
-import { actionBtnSmStyle, chipStyle, dividerStyle, inputStyle, titleStyle, valueStyle } from './settingsPanelStyles';
-import * as engine from '@/shared/api/engine';
-
-interface GeneralTabProps {
-    settings: AppSettings;
-    updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-}
-
-export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
-    return (
-        <div>
-            <h2 style={titleStyle}>General</h2>
-            <SettingRow label="Language">
-                <Select
-                    value={settings.language}
-                    options={['English', 'Русский', '日本語', '中文', 'Deutsch', 'Français', 'Español']}
-                    onChange={(v) => updateSetting('language', v)}
-                />
-            </SettingRow>
-            <SettingRow label="On Startup">
-                <Select
-                    value={settings.startupBehavior === 'new' ? 'Create New Project' : 'Open Last Project'}
-                    options={['Create New Project', 'Open Last Project']}
-                    onChange={(v) => updateSetting('startupBehavior', v.includes('New') ? 'new' : 'last')}
-                />
-            </SettingRow>
-        </div>
-    );
-}
+import { useState } from 'react';
+import type { AppSettings } from '@/shared/api/engine';
+import { SettingRow, SettingsSection } from './settingsPanelParts';
+import { chipStyle, titleStyle } from './settingsPanelStyles';
+import {
+    THEME_PRESETS,
+    THEME_PRESET_LABELS,
+    applyThemePreset,
+    findThemePreset,
+    resolveThemePresetLabel,
+} from './settingsPanelThemeStudio';
+import { AppearanceAdvancedControls } from './settingsPanelAppearanceAdvanced';
+import { ThemeControlsSection } from './ThemeControlsSection';
 
 interface AppearanceTabProps {
     settings: AppSettings;
     updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+    updateAllSettings: (newSettings: AppSettings) => void;
 }
 
-export function AppearanceTab({ settings, updateSetting }: AppearanceTabProps) {
+export function AppearanceTab({ settings, updateSetting, updateAllSettings }: AppearanceTabProps) {
     const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [draftShade, setDraftShade] = useState(settings.darkThemeShade);
+    const [draftTintPercent, setDraftTintPercent] = useState(settings.darkThemeTintPercent);
+    const [draftForestCanopyPercent, setDraftForestCanopyPercent] = useState(settings.forestThemeCanopyPercent);
+    const [draftForestFogPercent, setDraftForestFogPercent] = useState(settings.forestThemeFogPercent);
+    const [draftLightTexturePercent, setDraftLightTexturePercent] = useState(settings.lightThemeTexturePercent);
+
+    const applyPreset = (preset: (typeof THEME_PRESETS)[number]) => {
+        const next = applyThemePreset(settings, preset);
+        updateAllSettings(next);
+        setDraftShade(next.darkThemeShade);
+        setDraftTintPercent(next.darkThemeTintPercent);
+        setDraftForestCanopyPercent(next.forestThemeCanopyPercent);
+        setDraftForestFogPercent(next.forestThemeFogPercent);
+        setDraftLightTexturePercent(next.lightThemeTexturePercent);
+    };
+    const resetDarkTuning = () => {
+        const next = {
+            ...settings,
+            darkThemeShade: 0,
+            darkThemeTintPercent: 0,
+        };
+        updateAllSettings(next);
+        setDraftShade(next.darkThemeShade);
+        setDraftTintPercent(next.darkThemeTintPercent);
+    };
+    const selectedThemeOption = resolveThemePresetLabel(settings);
 
     return (
         <div>
             <h2 style={titleStyle}>Appearance</h2>
-            <SettingRow label="Theme">
-                <div style={{ display: 'flex', gap: 8 }}>
-                    {([
-                        { key: 'dark', label: 'Dark' },
-                        { key: 'forest', label: 'Forest' },
-                        { key: 'light', label: 'Light' },
-                    ] as const).map((themeOption) => (
-                        <button
-                            key={themeOption.key}
-                            onClick={() => updateSetting('theme', themeOption.key)}
-                            style={{
-                                ...chipStyle,
-                                background: settings.theme === themeOption.key ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                color: settings.theme === themeOption.key ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            }}
-                        >
-                            {themeOption.label}
-                        </button>
-                    ))}
-                </div>
-            </SettingRow>
-            {settings.theme === 'dark' && (
-                <>
-                    <SettingRow label="Dark Shade (0-255, 0 = no tint)">
-                        <input
-                            type="range"
-                            min={0}
-                            max={255}
-                            step={1}
-                            value={settings.darkThemeShade}
-                            onChange={(e) => updateSetting('darkThemeShade', clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
-                            style={{ width: 180 }}
-                        />
-                        <input
-                            type="number"
-                            min={0}
-                            max={255}
-                            step={1}
-                            value={settings.darkThemeShade}
-                            onChange={(e) => updateSetting('darkThemeShade', clamp(parseInt(e.target.value, 10) || 0, 0, 255))}
-                            style={inputStyle}
-                        />
-                    </SettingRow>
-                    <SettingRow label="Dark Tint Strength (%)">
-                        <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={settings.darkThemeTintPercent}
-                            onChange={(e) => updateSetting('darkThemeTintPercent', clamp(parseInt(e.target.value, 10) || 0, 0, 100))}
-                            style={{ width: 180 }}
-                        />
-                        <span style={valueStyle}>{settings.darkThemeTintPercent}%</span>
-                    </SettingRow>
-                </>
-            )}
-            <SettingRow label="Waveform Style">
-                <div style={{ display: 'flex', gap: 8 }}>
-                    {(['colored', 'classic'] as const).map((styleKey) => (
-                        <button
-                            key={styleKey}
-                            onClick={() => updateSetting('waveformStyle', styleKey)}
-                            style={{
-                                ...chipStyle,
-                                background: settings.waveformStyle === styleKey ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                color: settings.waveformStyle === styleKey ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            }}
-                        >
-                            {styleKey === 'colored' ? 'Colored' : 'Classic Black'}
-                        </button>
-                    ))}
-                </div>
-            </SettingRow>
-        </div>
-    );
-}
-
-interface AudioTabProps {
-    settings: AppSettings;
-    updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-    refreshAudioDevices: (opts?: { force?: boolean; silent?: boolean }) => Promise<void>;
-    audioDevices: AudioDevices;
-    outputOptions: string[];
-    inputOptions: string[];
-    devicesLoading: boolean;
-    restartingEngine: boolean;
-    setRestartingEngine: (value: boolean) => void;
-    latencyMs: number;
-    sandboxSnapshot: PluginSandboxSnapshot | null;
-    setSandboxSnapshot: (snapshot: PluginSandboxSnapshot | null) => void;
-    sandboxLoading: boolean;
-    setSandboxLoading: (value: boolean) => void;
-}
-
-export function AudioTab({
-    settings,
-    updateSetting,
-    refreshAudioDevices,
-    audioDevices,
-    outputOptions,
-    inputOptions,
-    devicesLoading,
-    restartingEngine,
-    setRestartingEngine,
-    latencyMs,
-    sandboxSnapshot,
-    setSandboxSnapshot,
-    sandboxLoading,
-    setSandboxLoading,
-}: AudioTabProps) {
-    return (
-        <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <h2 style={{ ...titleStyle, margin: 0 }}>Audio</h2>
-                <button
-                    onClick={() => void refreshAudioDevices({ force: true })}
-                    style={{ ...chipStyle, background: 'var(--color-bg-elevated)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-semibold)' as unknown as number }}
-                >
-                    Refresh Devices
-                </button>
-            </div>
-            <SettingRow label="Driver Type">
-                <Select value={settings.driverType} options={['CoreAudio']} onChange={(v) => updateSetting('driverType', v)} />
-            </SettingRow>
-            <SettingRow label="Output Device">
-                <Select
-                    value={settings.outputDevice}
-                    options={outputOptions}
-                    onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
-                    onChange={async (v) => {
-                        setRestartingEngine(true);
-                        try {
-                            const resolvedDevice = await engine.restartAudioEngine(v);
-                            updateSetting('outputDevice', resolvedDevice);
-                        } catch (err) {
-                            console.error('[SettingsPanel] restartAudioEngine failed:', err);
-                        } finally {
-                            setRestartingEngine(false);
-                            void refreshAudioDevices({ force: true });
-                        }
+            <SettingsSection title="Theme Studio" description="Theme family, style tuning and visual mode controls.">
+                <ThemeControlsSection
+                    selectedThemeOption={selectedThemeOption}
+                    themePresetLabels={THEME_PRESET_LABELS}
+                    selectThemePreset={(label) => {
+                        const preset = findThemePreset(label);
+                        if (preset) applyPreset(preset);
                     }}
                 />
-                {devicesLoading && audioDevices.outputs.length === 0 && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
-                {restartingEngine && <span style={{ ...valueStyle, marginLeft: 6 }}>Restarting Engine...</span>}
-            </SettingRow>
-            <SettingRow label="Pinned Fallback">
-                <Select
-                    value={settings.fallbackOutputDevice || 'Default Output'}
-                    options={outputOptions}
-                    onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
-                    onChange={(v) => updateSetting('fallbackOutputDevice', v)}
-                />
-                <button
-                    onClick={() => updateSetting('fallbackOutputDevice', settings.outputDevice || 'Default Output')}
-                    style={actionBtnSmStyle}
-                    title="Pin current output as fallback"
-                >
-                    📌 Pin Current
-                </button>
-            </SettingRow>
-            <SettingRow label="Input Device">
-                <Select
-                    value={settings.inputDevice}
-                    options={inputOptions}
-                    onMouseDown={() => void refreshAudioDevices({ force: true, silent: true })}
-                    onChange={(v) => updateSetting('inputDevice', v)}
-                />
-                {devicesLoading && audioDevices.inputs.length === 0 && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
-            </SettingRow>
-            <SettingRow label="Sample Rate">
-                <Select value={`${settings.sampleRate} Hz`} options={['44100 Hz', '48000 Hz', '88200 Hz', '96000 Hz']} onChange={(v) => updateSetting('sampleRate', parseInt(v, 10))} />
-            </SettingRow>
-            <SettingRow label="Buffer Size">
-                <Select value={`${settings.bufferSize} samples`} options={['64 samples', '128 samples', '256 samples', '512 samples', '1024 samples', '2048 samples']} onChange={(v) => updateSetting('bufferSize', parseInt(v, 10))} />
-            </SettingRow>
-
-            <div style={dividerStyle} />
-            <SettingRow label="Input Latency"><span style={valueStyle}>{latencyMs.toFixed(1)} ms</span></SettingRow>
-            <SettingRow label="Output Latency"><span style={valueStyle}>{latencyMs.toFixed(1)} ms</span></SettingRow>
-            <SettingRow label="Overall Latency"><span style={valueStyle}>{(latencyMs * 2).toFixed(1)} ms</span></SettingRow>
-            <SettingRow label="Driver Error Compensation">
-                <input
-                    type="number"
-                    value={settings.driverErrorCompensation}
-                    onChange={(e) => updateSetting('driverErrorCompensation', parseFloat(e.target.value) || 0)}
-                    style={inputStyle}
-                    step={0.1}
-                />
-                <span style={{ ...valueStyle, marginLeft: 4 }}>ms</span>
-            </SettingRow>
-
-            <div style={dividerStyle} />
-            <SettingRow label="Test Tone">
-                <Toggle value={settings.testToneEnabled} onChange={(v) => updateSetting('testToneEnabled', v)} />
-            </SettingRow>
-            {settings.testToneEnabled && (
-                <>
-                    <SettingRow label="Tone Volume">
-                        <input type="range" min={-60} max={0} value={settings.testToneVolume} onChange={(e) => updateSetting('testToneVolume', parseInt(e.target.value, 10))} style={{ width: 120 }} />
-                        <span style={valueStyle}>{settings.testToneVolume} dB</span>
-                    </SettingRow>
-                    <SettingRow label="Frequency">
-                        <input type="number" value={settings.testToneFrequency} onChange={(e) => updateSetting('testToneFrequency', parseInt(e.target.value, 10) || 440)} style={inputStyle} />
-                        <span style={{ ...valueStyle, marginLeft: 4 }}>Hz</span>
-                    </SettingRow>
-                </>
-            )}
-
-            <div style={dividerStyle} />
-            <SettingRow label="CPU Usage Simulator"><Toggle value={settings.cpuUsageSimulator} onChange={(v) => updateSetting('cpuUsageSimulator', v)} /></SettingRow>
-            <SettingRow label="High Quality SR/Pitch Conversion"><Toggle value={settings.srPitchConversion} onChange={(v) => updateSetting('srPitchConversion', v)} /></SettingRow>
-
-            <div style={dividerStyle} />
-            <SettingRow label="Plugin Sandbox (Out-of-Process)">
-                <Toggle
-                    value={sandboxSnapshot?.enabled ?? false}
-                    onChange={async (v) => {
-                        setSandboxLoading(true);
-                        try {
-                            const snap = await engine.setPluginSandboxEnabled(v);
-                            setSandboxSnapshot(snap);
-                        } catch (err) {
-                            console.error('[SettingsPanel] setPluginSandboxEnabled failed:', err);
-                        } finally {
-                            setSandboxLoading(false);
-                        }
-                    }}
-                />
-                {sandboxLoading && <span style={{ ...valueStyle, marginLeft: 6 }}>⏳</span>}
-            </SettingRow>
-            <SettingRow label="Sandbox Instances"><span style={valueStyle}>{sandboxSnapshot?.instances.length ?? 0}</span></SettingRow>
-            {!!sandboxSnapshot?.instances.length && (
-                <div style={{ marginTop: 8, border: 'var(--space-px) solid var(--color-divider)', borderRadius: 'var(--radius-lg)', padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
-                    {sandboxSnapshot.instances.map((inst) => (
-                        <div key={inst.plugin_instance_id} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.plugin_name}</span>
-                            <span>{inst.status}</span>
+                <SettingRow label="Advanced">
+                    <button
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        style={{
+                            ...chipStyle,
+                            background: 'var(--color-bg-elevated)',
+                            color: 'var(--color-text-secondary)',
+                        }}
+                    >
+                        {showAdvanced ? 'Hide Advanced Appearance' : 'Show Advanced Appearance'}
+                    </button>
+                </SettingRow>
+            </SettingsSection>
+            {showAdvanced && (
+                <SettingsSection title="Advanced Appearance" description="Fine-tune overlays, texture and waveform rendering style.">
+                    <AppearanceAdvancedControls
+                        settings={settings}
+                        draftShade={draftShade}
+                        setDraftShade={setDraftShade}
+                        draftTintPercent={draftTintPercent}
+                        setDraftTintPercent={setDraftTintPercent}
+                        draftForestCanopyPercent={draftForestCanopyPercent}
+                        setDraftForestCanopyPercent={setDraftForestCanopyPercent}
+                        draftForestFogPercent={draftForestFogPercent}
+                        setDraftForestFogPercent={setDraftForestFogPercent}
+                        draftLightTexturePercent={draftLightTexturePercent}
+                        setDraftLightTexturePercent={setDraftLightTexturePercent}
+                        clamp={clamp}
+                        updateSetting={updateSetting}
+                        resetDarkTuning={resetDarkTuning}
+                    />
+                    <SettingRow label="Waveform Style">
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {(['colored', 'classic'] as const).map((styleKey) => (
+                                <button
+                                    key={styleKey}
+                                    onClick={() => updateSetting('waveformStyle', styleKey)}
+                                    style={{
+                                        ...chipStyle,
+                                        background: settings.waveformStyle === styleKey ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                        color: settings.waveformStyle === styleKey ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                                    }}
+                                >
+                                    {styleKey === 'colored' ? 'Colored' : 'Classic Black'}
+                                </button>
+                            ))}
                         </div>
-                    ))}
-                </div>
+                    </SettingRow>
+                </SettingsSection>
             )}
         </div>
     );

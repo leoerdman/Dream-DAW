@@ -73,7 +73,7 @@ export function TrackRowMixer({
                             borderRadius: 'var(--radius-xs)',
                             fontSize: 'var(--font-size-micro)',
                             fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                            fontFamily: 'var(--font-mono)',
+                            fontFamily: 'var(--font-role-data)',
                             cursor: 'pointer',
                             padding: 0,
                             transition: `background var(--transition-micro)`,

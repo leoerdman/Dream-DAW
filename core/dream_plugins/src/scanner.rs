@@ -19,7 +19,9 @@ use crate::descriptor::PluginDescriptor;
 use crate::format::{PluginCategory, PluginFormat};
 
 #[cfg(target_os = "macos")]
-fn read_au_bundle_metadata(path: &Path) -> Option<(Option<String>, Option<String>, Option<String>)> {
+fn read_au_bundle_metadata(
+    path: &Path,
+) -> Option<(Option<String>, Option<String>, Option<String>)> {
     use plist::Value;
 
     let info_plist = path.join("Contents").join("Info.plist");
@@ -191,13 +193,7 @@ impl PluginScanner {
         // Vendor extraction: best-effort from parent folder or name
         let vendor = Self::guess_vendor(path, &name);
 
-        let mut desc = PluginDescriptor::new(
-            name,
-            vendor,
-            format,
-            category,
-            path.to_path_buf(),
-        );
+        let mut desc = PluginDescriptor::new(name, vendor, format, category, path.to_path_buf());
 
         #[cfg(target_os = "macos")]
         if format == PluginFormat::AudioUnit

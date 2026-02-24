@@ -29,7 +29,8 @@ export function DeviceSlot({
     return (
         <div
             onDragOver={(e) => {
-                const draggedId = e.dataTransfer.getData('application/x-dream-device-id');
+                const draggedId = e.dataTransfer.getData('application/x-dream-device-id')
+                    || e.dataTransfer.getData('text/plain');
                 if (!draggedId || !canReorderThisDevice || !effectIdSet.has(draggedId)) {
                     return;
                 }
@@ -49,7 +50,8 @@ export function DeviceSlot({
                 e.preventDefault();
                 (e.currentTarget as HTMLElement).style.borderLeft = '';
                 (e.currentTarget as HTMLElement).style.borderRight = '';
-                const draggedId = e.dataTransfer.getData('application/x-dream-device-id');
+                const draggedId = e.dataTransfer.getData('application/x-dream-device-id')
+                    || e.dataTransfer.getData('text/plain');
                 if (!draggedId || !selectedTrack) return;
                 if (!canReorderThisDevice || !effectIdSet.has(draggedId)) return;
 

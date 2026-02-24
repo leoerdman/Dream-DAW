@@ -1,4 +1,5 @@
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
+import { safeStorage } from '@/shared/lib/safeStorage';
 
 export type ExportFormat = 'wav' | 'mp3';
 export type SampleRate = number;
@@ -78,7 +79,7 @@ export function beatsToBar(beats: number): number {
 
 export function loadExportPrefs(): ExportPrefs {
     try {
-        const raw = localStorage.getItem(EXPORT_PREFS_KEY);
+        const raw = safeStorage.getItem(EXPORT_PREFS_KEY);
         if (!raw) {
             return { format: 'wav', sampleRate: 48000, bitDepth: 24, range: 'full', normalize: false, tailMs: 0 };
         }
@@ -101,9 +102,5 @@ export function loadExportPrefs(): ExportPrefs {
 }
 
 export function saveExportPrefs(prefs: ExportPrefs): void {
-    try {
-        localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify(prefs));
-    } catch {
-        // noop
-    }
+    safeStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify(prefs));
 }

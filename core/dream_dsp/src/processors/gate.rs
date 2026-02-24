@@ -25,8 +25,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 #[derive(PartialEq, Clone, Copy)]
 enum GateState {
@@ -50,8 +50,11 @@ pub struct GateProcessor {
     // State
     state: GateState,
     envelope: f32,
-    hold_counter: f32,
-    hold_samples: f32,
+    // BUG-088 FIX: Changed from f32 to u32 for exact integer comparison.
+    // f32 loses precision at 16,777,216 — exceeds hold time for any real
+    // parameter setting but using u32 is the correct engineering choice.
+    hold_counter: u32,
+    hold_samples: u32,
     attack_coeff: f32,
     release_coeff: f32,
     // SC HPF
@@ -81,8 +84,8 @@ impl GateProcessor {
             duck_mode: false,
             state: GateState::Closed,
             envelope: 0.0,
-            hold_counter: 0.0,
-            hold_samples: 0.0,
+            hold_counter: 0,
+            hold_samples: 0,
             attack_coeff: 0.0,
             release_coeff: 0.0,
             sc_state_l: 0.0,
@@ -107,7 +110,7 @@ impl GateProcessor {
                 0.0
             };
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
-            self.hold_samples = self.hold_ms * 0.001 * sr;
+            self.hold_samples = (self.hold_ms * 0.001 * sr) as u32;
             // BUG-FIX: The previous formula exp(-2πfc/fs) is a low-pass coefficient,
             // not a high-pass one. The filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])
             // requires α = 1/(1 + 2πfc/fs) for correct HP cut-off frequency.
@@ -134,11 +137,7 @@ impl GateProcessor {
 
     #[inline]
     fn linear_to_db(x: f32) -> f32 {
-        if x < 1e-10 {
-            -96.0
-        } else {
-            20.0 * x.log10()
-        }
+        if x < 1e-10 { -96.0 } else { 20.0 * x.log10() }
     }
 }
 
@@ -179,8 +178,7 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Attack => {
-                    self.envelope =
-                        self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * 1.0;
+                    self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff);
                     if self.envelope >= 0.999 {
                         self.envelope = 1.0;
                         self.state = GateState::Open;
@@ -190,12 +188,12 @@ impl DspProcessor for GateProcessor {
                     self.envelope = 1.0;
                     if level_db < thresh_close {
                         self.state = GateState::Hold;
-                        self.hold_counter = 0.0;
+                        self.hold_counter = 0;
                     }
                 }
                 GateState::Hold => {
                     self.envelope = 1.0;
-                    self.hold_counter += 1.0;
+                    self.hold_counter += 1;
                     if level_db > thresh_open {
                         self.state = GateState::Open;
                     } else if self.hold_counter >= self.hold_samples {
@@ -203,8 +201,8 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Release => {
-                    self.envelope =
-                        self.release_coeff * self.envelope + (1.0 - self.release_coeff) * 0.0;
+                    // BUG-043 FIX: Simplified — (1.0 - release_coeff) * 0.0 is always 0.
+                    self.envelope *= self.release_coeff;
                     if level_db > thresh_open {
                         self.state = GateState::Attack;
                     } else if self.envelope <= 0.001 {
@@ -219,6 +217,10 @@ impl DspProcessor for GateProcessor {
             crate::processors::flush_denormal!(self.sc_state_r);
             // BUG-C12 FIX: Flush denormals in envelope state.
             crate::processors::flush_denormal!(self.envelope);
+            // BUG-027 FIX: Flush sc_prev states too — they participate in
+            // the HP filter difference equation and can go denormal.
+            crate::processors::flush_denormal!(self.sc_prev_l);
+            crate::processors::flush_denormal!(self.sc_prev_r);
 
             // Apply gain (range to 1.0)
             let mut gain = range + (1.0 - range) * self.envelope;
@@ -282,8 +284,7 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Attack => {
-                    self.envelope =
-                        self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * 1.0;
+                    self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff);
                     if self.envelope >= 0.999 {
                         self.envelope = 1.0;
                         self.state = GateState::Open;
@@ -293,12 +294,12 @@ impl DspProcessor for GateProcessor {
                     self.envelope = 1.0;
                     if level_db < thresh_close {
                         self.state = GateState::Hold;
-                        self.hold_counter = 0.0;
+                        self.hold_counter = 0;
                     }
                 }
                 GateState::Hold => {
                     self.envelope = 1.0;
-                    self.hold_counter += 1.0;
+                    self.hold_counter += 1;
                     if level_db > thresh_open {
                         self.state = GateState::Open;
                     } else if self.hold_counter >= self.hold_samples {
@@ -306,8 +307,8 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Release => {
-                    self.envelope =
-                        self.release_coeff * self.envelope + (1.0 - self.release_coeff) * 0.0;
+                    // BUG-043 FIX: Simplified — (1.0 - release_coeff) * 0.0 is always 0.
+                    self.envelope *= self.release_coeff;
                     if level_db > thresh_open {
                         self.state = GateState::Attack;
                     } else if self.envelope <= 0.001 {
@@ -319,6 +320,11 @@ impl DspProcessor for GateProcessor {
 
             crate::processors::flush_denormal!(self.sc_state_l);
             crate::processors::flush_denormal!(self.sc_state_r);
+            // BUG-019 FIX: Flush envelope denormal in sidechain path too.
+            crate::processors::flush_denormal!(self.envelope);
+            // BUG-027 FIX: Flush sc_prev states in sidechain path too.
+            crate::processors::flush_denormal!(self.sc_prev_l);
+            crate::processors::flush_denormal!(self.sc_prev_r);
 
             let mut gain = range + (1.0 - range) * self.envelope;
             if self.duck_mode {
@@ -368,7 +374,7 @@ impl DspProcessor for GateProcessor {
     fn reset(&mut self) {
         self.state = GateState::Closed;
         self.envelope = 0.0;
-        self.hold_counter = 0.0;
+        self.hold_counter = 0;
         self.sc_state_l = 0.0;
         self.sc_state_r = 0.0;
         self.sc_prev_l = 0.0;

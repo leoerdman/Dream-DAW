@@ -2,13 +2,13 @@ import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
-import { getScopedEditorElement, isModKey } from './utils';
+import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils';
 
 export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
     const { e, ctx, clipboardRef } = env;
     const { selectedClipId, selectedClipIds, selectedTrackId, trackIds, tracksById, timelineClips, marqueeSelection, onClipSelectionChanged, inPianoRoll, inDeviceRack, selectedDeviceId, selectedTrackIndex, playheadFrames } = ctx;
 
-    if (isModKey(e) && e.code === 'KeyJ') {
+    if (matchesShortcutAction(e, 'glue_clips')) {
         if (inPianoRoll || inDeviceRack) return true;
         e.preventDefault();
         e.stopPropagation();

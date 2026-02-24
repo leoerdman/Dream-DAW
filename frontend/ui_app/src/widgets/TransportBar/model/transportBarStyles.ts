@@ -2,7 +2,7 @@ import type React from 'react';
 import { TRANSPORT_UI } from '../ui/TransportUiTokens';
 
 export const valueChipStyle: React.CSSProperties = {
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     fontSize: 'var(--font-size-xs)',
     fontWeight: 600,
     color: 'var(--color-text-primary)',

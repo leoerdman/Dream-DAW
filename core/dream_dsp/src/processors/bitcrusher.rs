@@ -25,9 +25,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::DEFAULT_SAMPLE_RATE;
 use crate::processors::sanitize_sample_rate;
 use crate::processors::smoothing::SmoothedValue;
-use crate::processors::DEFAULT_SAMPLE_RATE;
 
 pub struct BitcrusherProcessor {
     bit_depth: f32,

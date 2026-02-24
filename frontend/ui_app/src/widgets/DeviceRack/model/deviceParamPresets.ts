@@ -95,6 +95,7 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'Diffusion', value: 75, min: 0, max: 100, suffix: '%', step: 1 },       // 11
         { name: 'Density', value: 80, min: 0, max: 100, suffix: '%', step: 1 },         // 12
         { name: 'Chorus', value: 20, min: 0, max: 100, suffix: '%', step: 1 },          // 13
+        { name: 'Voicing', value: 1, min: 0, max: 2, suffix: '', step: 1 },             // 14 (0=Room,1=Hall,2=Plate)
     ],
     chorus: [
         { name: 'Rate', value: 1.0, min: 0.05, max: 10, suffix: 'Hz', step: 0.01 },     // 0  BUG-P16 FIX: min 0.1→0.05

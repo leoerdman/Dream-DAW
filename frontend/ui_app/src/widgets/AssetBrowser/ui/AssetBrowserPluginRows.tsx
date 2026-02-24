@@ -21,7 +21,7 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
                 fontWeight: 'var(--font-weight-bold)' as unknown as number,
                 textTransform: 'uppercase', letterSpacing: '0.04em',
             }}>{title}</span>
-            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>{count}</span>
+            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)' }}>{count}</span>
         </div>
     );
 });

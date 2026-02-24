@@ -118,6 +118,9 @@ export const DeviceNode = ({
                 }
                 e.dataTransfer.setData('application/x-dream-device-id', device.id);
                 e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
+                // WebKit/macOS can ignore custom mime types in some drag contexts.
+                // Keep a plain-text fallback so drop handlers can always resolve source id.
+                e.dataTransfer.setData('text/plain', device.id);
                 e.dataTransfer.effectAllowed = 'move';
                 const slot = (e.currentTarget as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
                 if (slot) slot.style.opacity = '0.4';

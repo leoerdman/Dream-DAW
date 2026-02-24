@@ -13,15 +13,24 @@ const throttledVolumeSends = new Map<number, ThrottledFn<(volume: number) => voi
 const throttledPanSends = new Map<number, ThrottledFn<(pan: number) => void>>();
 const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
+// BUG-008 FIX: Throttled send level functions to prevent IPC flooding during fader drag.
+const throttledSendLevelSends = new Map<string, ThrottledFn<(value: number) => void>>();
 let pendingMasterVolume: number | null = null;
 
 const throttledMasterVolumeSend = throttle((volume: number) => {
     void engine.setMasterVolume(volume);
 }, 16);
 
+// BUG-013 FIX: Cancel internal throttle timers before clearing maps.
+// Without this, stale timeouts fire after the map is cleared, sending
+// IPC calls for tracks that may no longer exist.
 function clearTrackControlCaches(): void {
+    for (const fn of throttledVolumeSends.values()) fn.cancel();
+    for (const fn of throttledPanSends.values()) fn.cancel();
+    for (const fn of throttledSendLevelSends.values()) fn.cancel();
     throttledVolumeSends.clear();
     throttledPanSends.clear();
+    throttledSendLevelSends.clear();
     pendingVolumeValues.clear();
     pendingPanValues.clear();
 }
@@ -113,6 +122,9 @@ export function createTrackProjectActions(
             }
         },
 
+        // BUG-008 FIX: Throttle send level IPC calls (same 16ms as volume/pan).
+        // Previously made a raw `await` on every invocation, flooding the backend
+        // with 60+ IPC calls/second during fader drag.
         setTrackSendLevel: async (trackIndex: number, send: 'A' | 'B', value: number) => {
             try {
                 const clamped = Math.max(0, Math.min(1, value));
@@ -124,8 +136,20 @@ export function createTrackProjectActions(
                     if (send === 'B' && track.send_b === clamped) return s;
                     return patchTrackByIndex(s, trackIndex, send === 'A' ? { send_a: clamped } : { send_b: clamped });
                 });
-                const response = await engine.setTrackSendLevelWithDeltas(trackIndex, send, clamped);
-                await get().applyProjectDeltas(response.deltas, `setTrackSendLevel-${send}`);
+                const throttleKey = `${trackIndex}-${send}`;
+                let fn = throttledSendLevelSends.get(throttleKey);
+                if (!fn) {
+                    fn = throttle(async (v: number) => {
+                        try {
+                            const response = await engine.setTrackSendLevelWithDeltas(trackIndex, send, v);
+                            await get().applyProjectDeltas(response.deltas, `setTrackSendLevel-${send}`);
+                        } catch (e) {
+                            set({ lastError: String(e) });
+                        }
+                    }, 16) as ThrottledFn<(value: number) => void>;
+                    throttledSendLevelSends.set(throttleKey, fn);
+                }
+                fn(clamped);
             } catch (e) {
                 set({ lastError: String(e) });
             }

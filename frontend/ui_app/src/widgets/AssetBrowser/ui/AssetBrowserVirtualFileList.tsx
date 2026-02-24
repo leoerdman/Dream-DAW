@@ -56,7 +56,7 @@ export const AssetSearchInput = memo(function AssetSearchInput({
                 color: 'var(--color-text-primary)',
                 borderRadius: 'var(--radius-xs)',
                 fontSize: 'var(--font-size-sm)',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-role-data)',
                 outline: 'none',
             }}
         />

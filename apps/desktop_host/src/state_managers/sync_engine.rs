@@ -331,12 +331,40 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
     }
 
     fn has_any_midi_fx(track: &Track, plugin_ids: &[&str]) -> bool {
-        track.effects.iter().any(|fx| {
-            let plugin_id = fx.plugin_id();
-            plugin_ids
-                .iter()
-                .any(|candidate| plugin_id.eq_ignore_ascii_case(candidate))
+        track.effects.iter().any(|node| {
+            node.collect_plugin_slots().iter().any(|slot| {
+                plugin_ids
+                    .iter()
+                    .any(|candidate| slot.plugin_id.eq_ignore_ascii_case(candidate))
+            })
         })
+    }
+
+    fn first_midi_fx_param_value(
+        track: &Track,
+        plugin_ids: &[&str],
+        param_index: usize,
+    ) -> Option<f32> {
+        for node in &track.effects {
+            for slot in node.collect_plugin_slots() {
+                if !plugin_ids
+                    .iter()
+                    .any(|candidate| slot.plugin_id.eq_ignore_ascii_case(candidate))
+                {
+                    continue;
+                }
+                let value = slot
+                    .params
+                    .as_ref()
+                    .and_then(|params| params.get(param_index).copied());
+                if let Some(v) = value
+                    && v.is_finite()
+                {
+                    return Some(v);
+                }
+            }
+        }
+        None
     }
 
     let tracks: Vec<MidiTrackRuntime> = project
@@ -344,8 +372,10 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
         .iter()
         .map(|track| {
             let has_pitch = has_any_midi_fx(track, &["internal://midi-fx/pitch"]);
-            let has_scale =
-                has_any_midi_fx(track, &["internal://midi-fx/scale", "internal://midi-fx/chord"]);
+            let has_scale = has_any_midi_fx(
+                track,
+                &["internal://midi-fx/scale", "internal://midi-fx/chord"],
+            );
             let has_velocity = has_any_midi_fx(
                 track,
                 &[
@@ -355,8 +385,31 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                     "internal://midi-fx/expression-control",
                 ],
             );
-            let has_random =
-                has_any_midi_fx(track, &["internal://midi-fx/random", "internal://midi-fx/arpeggiator"]);
+            let has_random = has_any_midi_fx(
+                track,
+                &[
+                    "internal://midi-fx/random",
+                    "internal://midi-fx/arpeggiator",
+                ],
+            );
+
+            let pitch_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/pitch"], 0).unwrap_or(0.0);
+            let scale_root_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/scale"], 0).unwrap_or(0.0);
+            let scale_mask_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/scale"], 1)
+                    .unwrap_or(4095.0);
+            let velocity_gain_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/velocity"], 0)
+                    .unwrap_or(1.0);
+            let velocity_offset_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/velocity"], 1)
+                    .unwrap_or(0.0);
+            let random_semitones_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/random"], 0).unwrap_or(0.0);
+            let random_chance_default =
+                first_midi_fx_param_value(track, &["internal://midi-fx/random"], 1).unwrap_or(1.0);
 
             let fx = MidiFxRuntimeConfig {
                 pitch_enabled: has_pitch,
@@ -367,7 +420,7 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                         "midifx.pitch.semitones",
                         "midiPitch.semitones",
                     ],
-                    0.0,
+                    pitch_default,
                 )
                 .round()
                 .clamp(-48.0, 48.0) as i8,
@@ -375,14 +428,14 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                 scale_root: first_lane_value(
                     track,
                     &["midi.scale.root", "midifx.scale.root", "midiScale.root"],
-                    0.0,
+                    scale_root_default,
                 )
-                    .round()
-                    .rem_euclid(12.0) as u8,
+                .round()
+                .rem_euclid(12.0) as u8,
                 scale_mask: first_lane_value(
                     track,
                     &["midi.scale.mask", "midifx.scale.mask", "midiScale.mask"],
-                    4095.0,
+                    scale_mask_default,
                 )
                 .round()
                 .clamp(1.0, 4095.0) as u16,
@@ -394,7 +447,7 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                         "midifx.velocity.gain",
                         "midiVelocity.gain",
                     ],
-                    1.0,
+                    velocity_gain_default,
                 )
                 .clamp(0.0, 4.0),
                 velocity_offset: first_lane_value(
@@ -404,7 +457,7 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                         "midifx.velocity.offset",
                         "midiVelocity.offset",
                     ],
-                    0.0,
+                    velocity_offset_default,
                 )
                 .round()
                 .clamp(-127.0, 127.0) as i8,
@@ -416,14 +469,18 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
                         "midifx.random.semitones",
                         "midiRandom.semitones",
                     ],
-                    0.0,
+                    random_semitones_default,
                 )
                 .round()
                 .clamp(-24.0, 24.0) as i8,
                 random_chance: first_lane_value(
                     track,
-                    &["midi.random.chance", "midifx.random.chance", "midiRandom.chance"],
-                    1.0,
+                    &[
+                        "midi.random.chance",
+                        "midifx.random.chance",
+                        "midiRandom.chance",
+                    ],
+                    random_chance_default,
                 )
                 .clamp(0.0, 1.0),
             };

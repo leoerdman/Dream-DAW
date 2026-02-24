@@ -188,7 +188,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             {typeof audioDurationSec === 'number' && (
                 <span style={{
                     minWidth: 26, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)',
-                    fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0,
+                    fontFamily: 'var(--font-role-data)', textAlign: 'right', flexShrink: 0,
                 }}>
                     {`${Math.round(audioDurationSec)}s`}
                 </span>

@@ -68,6 +68,11 @@
    --z-local-raised: 5;
    /* slightly elevated local elements */
    --z-ui-overlay: 10;
+   /* timeline scoped layering */
+   --z-timeline-bg: 0;
+   --z-timeline-canvas: 1;
+   --z-timeline-overlays: 2;
+   --z-timeline-ui: 3;
    --z-header: 20;
    /* panel headers, sticky rows */
    --z-sticky: 30;
@@ -95,8 +100,18 @@
    /* ─────────────────────────────────────────────────────────────
      TYPOGRAPHY (from DreamTheme.swift fonts)
      ───────────────────────────────────────────────────────────── */
-   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+   --font-ui-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+   --font-display-family: 'Space Grotesk', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+   --font-mono-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+   /* Legacy aliases kept for backward compatibility in existing UI code */
+   --font-ui: var(--font-ui-family);
+   --font-display: var(--font-display-family);
+   --font-family: var(--font-ui);
+   --font-mono: var(--font-mono-family);
+   /* Semantic roles for consistent typography across app surfaces */
+   --font-role-body: var(--font-ui);
+   --font-role-title: var(--font-display);
+   --font-role-data: var(--font-mono);
 
    /* Matching Swift: fontMicro=8, fontSmall=9, fontBody=10, fontHeading=11, fontMono=11, fontMonoLarge=14 */
    --font-size-micro: 8px;
@@ -123,6 +138,18 @@
    --letter-spacing-tight: -0.025em;
    --letter-spacing-normal: 0;
    --letter-spacing-wide: 0.05em;
+   --leading-snug: 1.35;
+
+   /* Legacy compatibility aliases (single-source migration bridge) */
+   --text-primary: var(--color-text-primary);
+   --bg-app: var(--color-bg-app);
+   --color-border: var(--color-border-default);
+   --color-error: var(--color-status-error);
+   --color-success: var(--color-status-success);
+   --color-warning: var(--color-status-warning);
+   --color-input-bg: var(--color-bg-input);
+   --color-bg-primary: var(--color-bg-base);
+   --color-bg-muted: color-mix(in srgb, var(--color-bg-secondary) 82%, var(--color-bg-base));
 
    /* ─────────────────────────────────────────────────────────────
      RADII (from DreamTheme: radiusSmall=2, radiusCard=4)
@@ -186,6 +213,9 @@
    --opacity-dim: 0.6;
    --opacity-medium: 0.8;
    --opacity-hover: 0.9;
+   /* Single source of truth for modal/renders/settings backdrop strength. */
+   --overlay-modal-strength: 0.52;
+   --overlay-modal-blur: 4px;
 
    --border-width-1: 1px;
    --border-width-2: 2px;
@@ -287,6 +317,48 @@
    /* Runtime dark-theme tint controls (driven by settings). */
    --theme-dark-tint-rgb: 0 0 0;
    --theme-dark-tint-strength: 0%;
+
+   /* Runtime theme atmosphere overlays (SVG-based). */
+   --theme-overlay-primary-image: none;
+   --theme-overlay-primary-size: cover;
+   --theme-overlay-primary-position: center;
+   --theme-overlay-primary-repeat: no-repeat;
+   --theme-overlay-primary-opacity: 0;
+   --theme-overlay-primary-blend: normal;
+
+   --theme-overlay-secondary-image: none;
+   --theme-overlay-secondary-size: cover;
+   --theme-overlay-secondary-position: center;
+   --theme-overlay-secondary-repeat: no-repeat;
+   --theme-overlay-secondary-opacity: 0;
+   --theme-overlay-secondary-blend: normal;
+   --theme-overlay-primary-animation-duration: 0s;
+   --theme-overlay-secondary-animation-duration: 0s;
+   --theme-overlay-primary-shift-x: 0px;
+   --theme-overlay-primary-shift-y: 0px;
+   --theme-overlay-secondary-shift-x: 0px;
+   --theme-overlay-secondary-shift-y: 0px;
+   --theme-ornament-strip-image: none;
+   --theme-ornament-strip-opacity: 0;
+   --theme-ornament-strip-blend: normal;
+   --theme-ornament-corner-image: none;
+   --theme-ornament-corner-opacity: 0;
+   --theme-ornament-corner-blend: normal;
+   --theme-ornament-timeline-image: none;
+   --theme-ornament-timeline-opacity: 0;
+   --theme-ornament-timeline-blend: normal;
+   --theme-ornament-timeline-size: auto;
+   --theme-ornament-timeline-animation-duration: 0s;
+   --theme-ornament-master-strength: 1;
+   --theme-ornament-panels-strength: 1;
+   --theme-ornament-timeline-strength: 1;
+   --theme-overlay-strength: 1;
+   --theme-motion-play-state: running;
+   --theme-motion-strength: 1;
+
+   --theme-forest-canopy-strength: 1;
+   --theme-forest-fog-strength: 1;
+   --theme-light-texture-strength: 1;
 
 
 /* AUTO-GENERATED TOKENIZED RAW COLORS — DO NOT EDIT MANUALLY */
@@ -919,12 +991,43 @@
    --color-overlay-light: rgba(0, 0, 0, 0.2);
    --color-overlay-medium: rgba(0, 0, 0, 0.4);
    --color-overlay-dark: rgba(0, 0, 0, 0.6);
-   --color-overlay-modal: rgba(0, 0, 0, 0.7);
+   --color-overlay-modal: rgb(0 0 0 / var(--overlay-modal-strength));
 
    /* ── Gradients ── */
    --gradient-primary: linear-gradient(135deg, #4a9eff 0%, #5cadff 100%);
    --gradient-meter: linear-gradient(to top, #66cc33 0%, #ffcc1a 70%, #ff3333 100%);
    --theme-app-bg: linear-gradient(180deg, color-mix(in srgb, #171717 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength)) 0%, color-mix(in srgb, #111111 calc(100% - var(--theme-dark-tint-strength)), rgb(var(--theme-dark-tint-rgb)) var(--theme-dark-tint-strength)) 100%);
+
+   --theme-overlay-primary-image: none;
+   --theme-overlay-primary-size: 320px 320px;
+   --theme-overlay-primary-position: center;
+   --theme-overlay-primary-repeat: repeat;
+   --theme-overlay-primary-opacity: 0.32;
+   --theme-overlay-primary-blend: screen;
+
+   --theme-overlay-secondary-image: radial-gradient(circle at 50% -12%, rgba(123, 156, 255, 0.12) 0%, rgba(123, 156, 255, 0) 48%);
+   --theme-overlay-secondary-size: cover;
+   --theme-overlay-secondary-position: center;
+   --theme-overlay-secondary-repeat: no-repeat;
+   --theme-overlay-secondary-opacity: 0.55;
+   --theme-overlay-secondary-blend: normal;
+   --theme-overlay-primary-animation-duration: 72s;
+   --theme-overlay-secondary-animation-duration: 54s;
+   --theme-overlay-primary-shift-x: 9px;
+   --theme-overlay-primary-shift-y: 6px;
+   --theme-overlay-secondary-shift-x: -12px;
+   --theme-overlay-secondary-shift-y: 8px;
+   --theme-ornament-strip-image: none;
+   --theme-ornament-strip-opacity: 0.52;
+   --theme-ornament-strip-blend: screen;
+   --theme-ornament-corner-image: none;
+   --theme-ornament-corner-opacity: 0;
+   --theme-ornament-corner-blend: normal;
+   --theme-ornament-timeline-image: none;
+   --theme-ornament-timeline-opacity: 0.34;
+   --theme-ornament-timeline-blend: screen;
+   --theme-ornament-timeline-size: 480px 240px;
+   --theme-ornament-timeline-animation-duration: 16s;
 }
 
 
@@ -1081,7 +1184,7 @@
    --color-overlay-light: rgba(0, 0, 0, 0.1);
    --color-overlay-medium: rgba(0, 0, 0, 0.25);
    --color-overlay-dark: rgba(0, 0, 0, 0.4);
-   --color-overlay-modal: rgba(0, 0, 0, 0.5);
+   --color-overlay-modal: rgb(0 0 0 / var(--overlay-modal-strength));
 
    /* ── Gradients (light) ── */
    --gradient-primary: linear-gradient(135deg, #2f80df 0%, #2a74cc 100%);
@@ -1094,6 +1197,37 @@
    --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
    --plugin-title-color: #1a2a44;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
+
+   --theme-overlay-primary-image: none;
+   --theme-overlay-primary-size: 320px 320px;
+   --theme-overlay-primary-position: center;
+   --theme-overlay-primary-repeat: repeat;
+   --theme-overlay-primary-opacity: calc(0.28 * var(--theme-light-texture-strength));
+   --theme-overlay-primary-blend: multiply;
+
+   --theme-overlay-secondary-image: radial-gradient(circle at 80% -20%, rgba(124, 138, 154, 0.18) 0%, rgba(124, 138, 154, 0) 46%);
+   --theme-overlay-secondary-size: cover;
+   --theme-overlay-secondary-position: center;
+   --theme-overlay-secondary-repeat: no-repeat;
+   --theme-overlay-secondary-opacity: 0.42;
+   --theme-overlay-secondary-blend: normal;
+   --theme-overlay-primary-animation-duration: 96s;
+   --theme-overlay-secondary-animation-duration: 84s;
+   --theme-overlay-primary-shift-x: 6px;
+   --theme-overlay-primary-shift-y: 4px;
+   --theme-overlay-secondary-shift-x: -7px;
+   --theme-overlay-secondary-shift-y: 5px;
+   --theme-ornament-strip-image: none;
+   --theme-ornament-strip-opacity: 0.46;
+   --theme-ornament-strip-blend: multiply;
+   --theme-ornament-corner-image: none;
+   --theme-ornament-corner-opacity: 0;
+   --theme-ornament-corner-blend: normal;
+   --theme-ornament-timeline-image: none;
+   --theme-ornament-timeline-opacity: 0.30;
+   --theme-ornament-timeline-blend: multiply;
+   --theme-ornament-timeline-size: 320px 320px;
+   --theme-ornament-timeline-animation-duration: 20s;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1236,7 +1370,7 @@
    --color-overlay-light: rgba(0, 0, 0, 0.25);
    --color-overlay-medium: rgba(0, 0, 0, 0.45);
    --color-overlay-dark: rgba(0, 0, 0, 0.62);
-   --color-overlay-modal: rgba(0, 0, 0, 0.72);
+   --color-overlay-modal: rgb(0 0 0 / var(--overlay-modal-strength));
 
    --gradient-primary: linear-gradient(135deg, #5fe08d 0%, #7cf2a8 100%);
    --gradient-meter: linear-gradient(to top, #72f56e 0%, #ffd47b 70%, #f27676 100%);
@@ -1251,4 +1385,35 @@
    --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 90%, #1d2b22) 0%, color-mix(in srgb, var(--surface-1) 94%, #121c16) 100%);
    --plugin-title-color: #d7ede0;
    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ec3ac);
+
+   --theme-overlay-primary-image: url('/themes/forest-canopy.svg');
+   --theme-overlay-primary-size: cover;
+   --theme-overlay-primary-position: center;
+   --theme-overlay-primary-repeat: no-repeat;
+   --theme-overlay-primary-opacity: calc(0.78 * var(--theme-forest-canopy-strength));
+   --theme-overlay-primary-blend: normal;
+
+   --theme-overlay-secondary-image: url('/themes/forest-fog.svg');
+   --theme-overlay-secondary-size: cover;
+   --theme-overlay-secondary-position: center;
+   --theme-overlay-secondary-repeat: no-repeat;
+   --theme-overlay-secondary-opacity: calc(0.88 * var(--theme-forest-fog-strength));
+   --theme-overlay-secondary-blend: screen;
+   --theme-overlay-primary-animation-duration: 60s;
+   --theme-overlay-secondary-animation-duration: 40s;
+   --theme-overlay-primary-shift-x: 14px;
+   --theme-overlay-primary-shift-y: 10px;
+   --theme-overlay-secondary-shift-x: -18px;
+   --theme-overlay-secondary-shift-y: 14px;
+   --theme-ornament-strip-image: url('/themes/forest-leaf-strip.svg');
+   --theme-ornament-strip-opacity: 0.72;
+   --theme-ornament-strip-blend: screen;
+   --theme-ornament-corner-image: url('/themes/forest-vine-corner.svg');
+   --theme-ornament-corner-opacity: 0.78;
+   --theme-ornament-corner-blend: screen;
+   --theme-ornament-timeline-image: url('/themes/forest-fireflies.svg'), url('/themes/forest-ferns.svg');
+   --theme-ornament-timeline-opacity: 0.56;
+   --theme-ornament-timeline-blend: screen;
+   --theme-ornament-timeline-size: 640px 360px, 520px 300px;
+   --theme-ornament-timeline-animation-duration: 12s;
 }

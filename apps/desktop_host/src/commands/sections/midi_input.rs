@@ -25,6 +25,14 @@ fn get_midi_inputs(
     Ok(out)
 }
 
+fn track_accepts_midi_live_input(track: &dream_models::project::Track) -> bool {
+    use dream_models::project::TrackType;
+    if track.track_type == TrackType::Master {
+        return false;
+    }
+    track.track_type == TrackType::Midi || track.instrument.is_some()
+}
+
 /// Connect to a MIDI input port and stream NoteOn/NoteOff into the engine queue.
 #[tauri::command]
 fn connect_midi_input(
@@ -69,14 +77,30 @@ fn connect_midi_input(
                     }),
                 );
 
-                // Route live MIDI to first armed track (fallback track 0).
+                // Route live MIDI to the best instrument-capable track:
+                // 1) armed MIDI/instrument track
+                // 2) any MIDI/instrument track
+                // 3) armed non-master track
+                // 4) fallback track 0
                 let target_track = {
                     let project_state: tauri::State<'_, ProjectState> = app_for_cb.state();
                     match project_state.project.lock() {
                         Ok(project) => project
                             .tracks
                             .iter()
-                            .position(|t| t.is_armed)
+                            .position(|t| t.is_armed && track_accepts_midi_live_input(t))
+                            .or_else(|| {
+                                project
+                                    .tracks
+                                    .iter()
+                                    .position(track_accepts_midi_live_input)
+                            })
+                            .or_else(|| {
+                                project
+                                    .tracks
+                                    .iter()
+                                    .position(|t| t.is_armed && t.track_type != dream_models::project::TrackType::Master)
+                            })
                             .unwrap_or(0),
                         Err(_) => 0,
                     }

@@ -15,6 +15,8 @@
 
 pub mod driver;
 pub mod offline_bounce;
+mod offline_bounce_types;
 pub mod recording;
 pub mod render_callback;
 pub mod sampler;
+mod sampler_osc;

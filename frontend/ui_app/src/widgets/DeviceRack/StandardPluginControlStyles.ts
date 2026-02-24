@@ -18,7 +18,7 @@ export const sliderTextStyle: CSSProperties = {
 
 export const sliderValueStyle: CSSProperties = {
     color: 'var(--color-text-primary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
 };
 
 export const sliderInputStyle: CSSProperties = {
@@ -67,7 +67,7 @@ export const knobDialStyle = (isDragging: boolean): CSSProperties => ({
 export const knobValueStyle = (compact: boolean): CSSProperties => ({
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     color: 'var(--color-text-primary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     cursor: 'text',
     userSelect: 'none',
     background: 'transparent',
@@ -82,7 +82,7 @@ export const knobValueInputStyle = (compact: boolean): CSSProperties => ({
     borderRadius: 'var(--radius-xs)',
     background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-primary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     textAlign: 'center',
     padding: '0 var(--space-1)',
@@ -95,7 +95,7 @@ export const knobDragValueBadgeStyle: CSSProperties = {
     top: -16,
     transform: 'translateX(-50%)',
     fontSize: 'var(--font-size-2xs)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     color: 'var(--badge-color)',
     background: 'var(--badge-bg)',
     border: 'var(--badge-border)',

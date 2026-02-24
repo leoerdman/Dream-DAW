@@ -83,7 +83,7 @@ export function SampleClipWaveformPanel({
                                             left: 3,
                                             fontSize: 'var(--font-size-2xs)',
                                             color: 'var(--color-text-secondary)',
-                                            fontFamily: 'var(--font-mono)',
+                                            fontFamily: 'var(--font-role-data)',
                                         }}>
                                             {Math.floor(beat / beatsPerBar) + 1}
                                         </span>

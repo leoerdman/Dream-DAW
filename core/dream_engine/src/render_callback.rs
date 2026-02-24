@@ -456,8 +456,8 @@ impl RenderContext {
 
                     if is_warped {
                         // Recompute playback_rate with SR-normalized values.
-                        let warp_rate = (clip_source_len_timeline / clip_timeline_len)
-                            .clamp(0.125, 8.0);
+                        let warp_rate =
+                            (clip_source_len_timeline / clip_timeline_len).clamp(0.125, 8.0);
                         let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         let clip_local_timeline_start =
@@ -513,16 +513,21 @@ impl RenderContext {
                     let source_to_timeline_ratio =
                         window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
-                    // BUG-A01 FIX: Same SR normalization as pool path.
+                    // BUG-A01/PARITY FIX: Same SR normalization as pool path.
+                    // When warp_source_duration_frames is unset, derive source length
+                    // from streaming window total_frames() instead of clip_timeline_len.
+                    // Using timeline len here underestimates/overestimates warp ratio
+                    // for imported clips and makes streaming playback diverge from pool.
                     let clip_source_len_timeline_s = if clip_source_len_raw > 1.0 {
                         clip_source_len_raw / source_to_timeline_ratio.max(0.001)
                     } else {
-                        clip_timeline_len
+                        let src_frames = window.total_frames().max(1) as f64;
+                        src_frames / source_to_timeline_ratio.max(0.001)
                     };
 
                     if is_warped {
-                        let warp_rate = (clip_source_len_timeline_s / clip_timeline_len)
-                            .clamp(0.125, 8.0);
+                        let warp_rate =
+                            (clip_source_len_timeline_s / clip_timeline_len).clamp(0.125, 8.0);
                         let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
@@ -693,13 +698,23 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        let frame_count = output.len() / self.channels.max(1);
+        let requested_frame_count = output.len() / self.channels.max(1);
+        // Guard all fixed RT buffers against oversized backend callbacks.
+        // If the backend ever requests more frames than our preallocated pools,
+        // we render a safe prefix and keep the remainder as silence.
+        let process_frame_count = requested_frame_count
+            .min(self.master_bus.left().len())
+            .min(MAX_BUFFER_FRAMES);
+
+        // Always start from silence to avoid stale data when a short/invalid
+        // callback writes fewer frames than the host output span.
+        output.fill(0.0);
 
         // Phase 1: Fill track slots with Audio Clips.
-        self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
+        self.read_audio_clips_into_tracks_simple(process_frame_count, clips_per_track, clip_pool);
 
         // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
-        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
+        let track_decay = peak_decay_for_block(self.sample_rate, process_frame_count);
         for track_idx in 0..self.track_slots.len() {
             let slot = &mut self.track_slots[track_idx];
             if !slot.active {
@@ -707,21 +722,21 @@ impl RenderContext {
             }
             if !slot.device_chain.is_empty() {
                 slot.device_chain.process_stereo(
-                    &mut slot.buf_left[..frame_count],
-                    &mut slot.buf_right[..frame_count],
+                    &mut slot.buf_left[..process_frame_count],
+                    &mut slot.buf_right[..process_frame_count],
                     self.sample_rate as f32,
                 );
             }
             slot.strip.process_stereo(
-                &mut slot.buf_left[..frame_count],
-                &mut slot.buf_right[..frame_count],
+                &mut slot.buf_left[..process_frame_count],
+                &mut slot.buf_right[..process_frame_count],
             );
 
             if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
-                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
-                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
-                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
-                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
+                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..process_frame_count]));
+                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..process_frame_count]));
+                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..process_frame_count]));
+                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..process_frame_count]));
 
                 meter_l.store_rms(rms_l);
                 meter_r.store_rms(rms_r);
@@ -742,14 +757,14 @@ impl RenderContext {
                 continue;
             }
             master_bus.add_stereo(
-                &slot.buf_left[..frame_count],
-                &slot.buf_right[..frame_count],
+                &slot.buf_left[..process_frame_count],
+                &slot.buf_right[..process_frame_count],
             );
         }
 
         // ── 6. Write master output ──────────────────────────────────
-        let master_l = &self.master_bus.left()[..frame_count];
-        let master_r = &self.master_bus.right()[..frame_count];
+        let master_l = &self.master_bus.left()[..process_frame_count];
+        let master_r = &self.master_bus.right()[..process_frame_count];
 
         // Master metering
         let m_rms_l = linear_to_db(compute_rms(master_l));
@@ -757,7 +772,7 @@ impl RenderContext {
         let m_peak_l = linear_to_db(compute_peak(master_l));
         let m_peak_r = linear_to_db(compute_peak(master_r));
 
-        let master_decay = peak_decay_for_block(self.sample_rate, frame_count);
+        let master_decay = peak_decay_for_block(self.sample_rate, process_frame_count);
         self.meter_bank.master_left().store_rms(m_rms_l);
         self.meter_bank.master_right().store_rms(m_rms_r);
         self.meter_bank
@@ -769,9 +784,9 @@ impl RenderContext {
 
         // AUD-043 FIX: Precompute safe frame count to avoid per-frame branch.
         let safe_frames = if self.channels >= 2 {
-            (output.len() / self.channels).min(frame_count)
+            (output.len() / self.channels).min(process_frame_count)
         } else {
-            frame_count
+            process_frame_count
         };
         // AUD-078 FIX: Stereo-specialized interleave (most common case).
         if self.channels == 2 {

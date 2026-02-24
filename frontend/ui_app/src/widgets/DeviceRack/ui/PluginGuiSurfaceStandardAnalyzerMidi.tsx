@@ -85,20 +85,20 @@ export function renderStandardAnalyzerMidiSurface(
                 {device.effectType === 'analyzer' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: 'var(--space-1) var(--space-2)', height: 80, background: 'var(--token-color-rgba-8-10-14-0d7)', borderRadius: 'var(--radius-md)' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK L</div>
+                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-role-data)', letterSpacing: '0.05em' }}>PEAK L</div>
                             <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
                                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuL) / 60) * 100))}%`, background: safeVuL > -3 ? 'var(--color-error)' : safeVuL > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
                             </div>
-                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>
                                 {safeVuL > -100 ? safeVuL.toFixed(1) : '-∞'}
                             </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK R</div>
+                            <div style={{ fontSize: 'var(--font-size-micro)', color: 'var(--token-color-hex-7a9ec4)', fontFamily: 'var(--font-role-data)', letterSpacing: '0.05em' }}>PEAK R</div>
                             <div style={{ flex: 1, background: 'var(--token-color-hex-0d1117)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
                                 <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -safeVuR) / 60) * 100))}%`, background: safeVuR > -3 ? 'var(--color-error)' : safeVuR > -12 ? 'var(--color-warning)' : 'var(--color-success)', borderRadius: 2, transition: 'height 60ms linear' }} />
                             </div>
-                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--token-color-hex-95bdff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>
                                 {safeVuR > -100 ? safeVuR.toFixed(1) : '-∞'}
                             </div>
                         </div>
@@ -106,7 +106,7 @@ export function renderStandardAnalyzerMidiSurface(
                 )}
                 {device.effectType === 'midiPitch' && (
                     <div style={{ display: 'grid', placeItems: 'center', height: 46 }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-95bdff)' }}>
+                        <div style={{ fontFamily: 'var(--font-role-data)', fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-95bdff)' }}>
                             {semitones >= 0 ? '+' : ''}{semitones.toFixed(0)} st
                         </div>
                     </div>
@@ -146,7 +146,7 @@ export function renderStandardAnalyzerMidiSurface(
                         <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                             <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                         </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-mono)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-role-data)' }}>
                             {`Chance ${(chance * 100).toFixed(0)}% | Range ±${Math.abs(semitones).toFixed(0)} st`}
                         </div>
                     </div>
@@ -160,7 +160,7 @@ export function renderStandardAnalyzerMidiSurface(
                                 </div>
                             ))}
                         </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-role-data)' }}>
                             {`Oct ${Math.max(1, Math.round(chordOctaves))} | Inv ${Math.max(0, Math.round(chordInversion))}`}
                         </div>
                     </div>
@@ -170,7 +170,7 @@ export function renderStandardAnalyzerMidiSurface(
                         <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                             <div style={{ width: `${Math.max(0, Math.min(100, lengthMs / 20)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                         </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-role-data)' }}>
                             {`Len ${formatSurfaceParam(lengthParam)} | Gate ${formatSurfaceParam(gateParam)}`}
                         </div>
                     </div>
@@ -180,7 +180,7 @@ export function renderStandardAnalyzerMidiSurface(
                         <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1e2430)', overflow: 'hidden' }}>
                             <div style={{ width: `${Math.max(0, Math.min(100, (ccValue / 127) * 100)).toFixed(1)}%`, height: '100%', background: 'var(--token-color-hex-8ecb7c)' }} />
                         </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-mono)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-c5d7ea)', fontFamily: 'var(--font-role-data)' }}>
                             {`CC ${Math.max(0, Math.min(127, Math.round(ccNumber)))} | Val ${Math.max(0, Math.min(127, Math.round(ccValue)))}`}
                         </div>
                     </div>
@@ -190,7 +190,7 @@ export function renderStandardAnalyzerMidiSurface(
                         <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                             <div style={{ width: `${Math.max(0, Math.min(100, gatePct / 2)).toFixed(1)}%`, height: '100%', background: 'var(--color-accent-primary)' }} />
                         </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-mono)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-cfa4e6)', fontFamily: 'var(--font-role-data)' }}>
                             {`Rate x${safeParamValue(device, 'rate', 1).toFixed(2)} | Pattern ${Math.max(0, Math.round(arpPattern))} | Oct ${Math.max(1, Math.round(arpOctaves))}`}
                         </div>
                     </div>

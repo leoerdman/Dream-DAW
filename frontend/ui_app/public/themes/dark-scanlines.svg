@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240" viewBox="0 0 480 240">
+  <rect width="480" height="240" fill="transparent"/>
+  <g stroke="#9ab4ef" stroke-opacity="0.12" stroke-width="1">
+    <path d="M0 18 H480"/>
+    <path d="M0 42 H480"/>
+    <path d="M0 66 H480"/>
+    <path d="M0 90 H480"/>
+    <path d="M0 114 H480"/>
+    <path d="M0 138 H480"/>
+    <path d="M0 162 H480"/>
+    <path d="M0 186 H480"/>
+    <path d="M0 210 H480"/>
+  </g>
+</svg>

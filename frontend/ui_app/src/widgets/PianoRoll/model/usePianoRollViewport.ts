@@ -8,11 +8,16 @@ import {
     type MidiNote,
 } from './pianoRollConfig';
 
-const scrollTopByTrack = new Map<number, number>();
+const scrollByClipKey = new Map<string, { top: number; left: number }>();
+
+function toClipViewportKey(trackIndex: number | undefined, clipStartBeat: number, clipLengthBeats: number | undefined): string {
+    return `${trackIndex ?? -1}:${clipStartBeat}:${clipLengthBeats ?? 'na'}`;
+}
 
 
 interface UsePianoRollViewportArgs {
     trackIndex?: number;
+    clipStartBeat: number;
     notes: MidiNote[];
     clipLengthBeats?: number;
     noteHeight: number;
@@ -29,6 +34,7 @@ interface UsePianoRollViewportArgs {
 
 export function usePianoRollViewport({
     trackIndex,
+    clipStartBeat,
     notes,
     clipLengthBeats,
     noteHeight,
@@ -42,9 +48,7 @@ export function usePianoRollViewport({
     visiblePitches,
     pitchToY,
 }: UsePianoRollViewportArgs) {
-    useEffect(() => {
-        if (trackIndex != null) scrollTopByTrack.delete(trackIndex);
-    }, [clipLengthBeats, trackIndex]);
+    const clipViewportKey = toClipViewportKey(trackIndex, clipStartBeat, clipLengthBeats);
 
     useEffect(() => {
         const element = gridViewportRef.current;
@@ -59,16 +63,16 @@ export function usePianoRollViewport({
 
     // Bug #2 fix: Only reset zoom when switching to a genuinely different clip,
     // not when the current clip is trimmed/extended.
-    const clipKeyRef = useRef(`${trackIndex ?? -1}`);
+    const clipKeyRef = useRef(clipViewportKey);
     useEffect(() => {
-        const key = `${trackIndex ?? -1}`;
+        const key = clipViewportKey;
         const prev = clipKeyRef.current;
         clipKeyRef.current = key;
         if (prev !== key) {
             // Different track/clip → reset zoom to auto-fit
             Promise.resolve().then(() => setZoomOverrideH(null));
         }
-    }, [trackIndex, setZoomOverrideH]);
+    }, [clipViewportKey, setZoomOverrideH]);
 
     useEffect(() => {
         const grid = scrollRef.current;
@@ -76,14 +80,14 @@ export function usePianoRollViewport({
         if (!grid || !keyboard) return;
         const onScroll = () => {
             keyboard.scrollTop = grid.scrollTop;
-            if (trackIndex != null) scrollTopByTrack.set(trackIndex, grid.scrollTop);
+            scrollByClipKey.set(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
         };
         grid.addEventListener('scroll', onScroll);
         return () => {
             grid.removeEventListener('scroll', onScroll);
-            if (trackIndex != null) scrollTopByTrack.set(trackIndex, grid.scrollTop);
+            scrollByClipKey.set(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
         };
-    }, [keyboardScrollRef, scrollRef, trackIndex]);
+    }, [clipViewportKey, keyboardScrollRef, scrollRef]);
 
     // Bug #20 fix: Accumulate Alt+scroll deltas instead of dropping during RAF.
     const pendingNoteHeightDeltaRef = useRef(0);
@@ -133,10 +137,11 @@ export function usePianoRollViewport({
         const nh = noteHeightRef.current;
         const currentNotes = notesSnapshotRef.current;
         requestAnimationFrame(() => {
-            const saved = trackIndex != null ? scrollTopByTrack.get(trackIndex) : undefined;
-            if (saved != null) {
-                grid.scrollTop = saved;
-                if (keyboard) keyboard.scrollTop = saved;
+            const saved = scrollByClipKey.get(clipViewportKey);
+            if (saved) {
+                grid.scrollTop = saved.top;
+                grid.scrollLeft = saved.left;
+                if (keyboard) keyboard.scrollTop = saved.top;
             } else {
                 let focusPitch: number;
                 if (currentNotes.length > 0) {
@@ -154,8 +159,23 @@ export function usePianoRollViewport({
                 const centered = Math.max(0, targetY - grid.clientHeight * 0.5 + nh * 0.5);
                 grid.scrollTop = centered;
                 if (keyboard) keyboard.scrollTop = centered;
+
+                if (currentNotes.length > 0) {
+                    let minBeat = Infinity;
+                    let maxBeat = -Infinity;
+                    for (const note of currentNotes) {
+                        minBeat = Math.min(minBeat, note.startBeat);
+                        maxBeat = Math.max(maxBeat, note.startBeat + note.durationBeats);
+                    }
+                    if (Number.isFinite(minBeat) && Number.isFinite(maxBeat)) {
+                        const noteSpan = Math.max(0.25, maxBeat - minBeat);
+                        const padBeats = Math.max(0.125, noteSpan * 0.2);
+                        const centerBeat = (minBeat + maxBeat) * 0.5;
+                        const targetLeft = Math.max(0, (centerBeat - padBeats) * pixelsPerBeatRef.current - grid.clientWidth * 0.5);
+                        grid.scrollLeft = targetLeft;
+                    }
+                }
             }
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clipLengthBeats, keyboardScrollRef, pitchToY, scrollRef, trackIndex, visiblePitches]);
+    }, [clipLengthBeats, clipStartBeat, clipViewportKey, keyboardScrollRef, pitchToY, scrollRef, trackIndex, visiblePitches, pixelsPerBeatRef]);
 }

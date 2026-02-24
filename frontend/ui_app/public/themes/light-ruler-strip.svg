@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="64" viewBox="0 0 960 64" preserveAspectRatio="none">
+  <rect width="960" height="64" fill="transparent"/>
+  <g stroke="#6d7783" stroke-opacity="0.36" fill="none" stroke-linecap="square">
+    <path d="M0 38 H960" stroke-width="1.5"/>
+    <path d="M24 38 V20" stroke-width="1.2"/>
+    <path d="M72 38 V26" stroke-width="1"/>
+    <path d="M120 38 V20" stroke-width="1.2"/>
+    <path d="M168 38 V26" stroke-width="1"/>
+    <path d="M216 38 V20" stroke-width="1.2"/>
+    <path d="M264 38 V26" stroke-width="1"/>
+    <path d="M312 38 V20" stroke-width="1.2"/>
+    <path d="M360 38 V26" stroke-width="1"/>
+    <path d="M408 38 V20" stroke-width="1.2"/>
+    <path d="M456 38 V26" stroke-width="1"/>
+    <path d="M504 38 V20" stroke-width="1.2"/>
+    <path d="M552 38 V26" stroke-width="1"/>
+    <path d="M600 38 V20" stroke-width="1.2"/>
+    <path d="M648 38 V26" stroke-width="1"/>
+    <path d="M696 38 V20" stroke-width="1.2"/>
+    <path d="M744 38 V26" stroke-width="1"/>
+    <path d="M792 38 V20" stroke-width="1.2"/>
+    <path d="M840 38 V26" stroke-width="1"/>
+    <path d="M888 38 V20" stroke-width="1.2"/>
+    <path d="M936 38 V26" stroke-width="1"/>
+  </g>
+</svg>

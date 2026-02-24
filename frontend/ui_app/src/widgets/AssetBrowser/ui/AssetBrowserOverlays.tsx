@@ -139,7 +139,7 @@ const columnMenuItemStyle: React.CSSProperties = {
 const columnMenuCheckStyle: React.CSSProperties = {
     width: 12,
     textAlign: 'center',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     color: 'var(--color-accent-primary)',
 };
 

@@ -74,7 +74,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                             border: isActive ? 'none' : 'var(--space-px) solid var(--color-control-border)',
                             borderRadius: 'var(--radius-sm)',
                             fontSize: 'var(--font-size-2xs)',
-                            fontFamily: 'var(--font-family)',
+                            fontFamily: 'var(--font-role-body)',
                             fontWeight: isActive ? 600 : 400,
                             cursor: 'pointer',
                             transition: 'all var(--transition-fast)',
@@ -102,7 +102,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                         border: gridDivision === preset.division ? 'none' : 'var(--space-px) solid var(--color-control-border)',
                         borderRadius: 'var(--radius-sm)',
                         fontSize: 'var(--font-size-2xs)',
-                        fontFamily: 'var(--font-mono)',
+                        fontFamily: 'var(--font-role-data)',
                         cursor: 'pointer',
                         fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     }}
@@ -141,7 +141,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             )}
 
             <div style={dividerStyle} />
-            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)' as unknown as number, fontFamily: 'var(--font-mono)', letterSpacing: '0.var(--token-size-px-3)' }}>{clipDurationLabel}</div>
+            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)' as unknown as number, fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-normal)' }}>{clipDurationLabel}</div>
 
             <div style={dividerStyle} />
             <button onClick={duplicateSelection} style={actionBtnStyle}>Duplicate</button>
@@ -186,9 +186,9 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Step</span>
             <button onClick={() => setStepInputOctave(Math.max(0, stepInputOctave - 1))} style={{ ...actionBtnStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}><ChevronDown size={12} /></button>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', minWidth: 30, textAlign: 'center' }}>C{stepInputOctave}</span>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-role-data)', minWidth: 30, textAlign: 'center' }}>C{stepInputOctave}</span>
             <button onClick={() => setStepInputOctave(Math.min(9, stepInputOctave + 1))} style={{ ...actionBtnStyle, padding: 'var(--space-0-5) var(--space-1-5)' }}><ChevronUp size={12} /></button>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>@{stepInputCursorBeat.toFixed(2)}</span>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>@{stepInputCursorBeat.toFixed(2)}</span>
 
             <div style={dividerStyle} />
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Lane</span>
@@ -239,7 +239,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                 <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />
                 <span style={{ marginTop: 1 }}>{aiVariationBusy ? 'Generating…' : 'AI Variation'}</span>
             </button>
-            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', opacity: 0.5, fontFamily: 'var(--font-mono)' }}>⌘Scroll H · Alt V</span>
+            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', opacity: 0.5, fontFamily: 'var(--font-role-data)' }}>⌘Scroll H · Alt V</span>
             {(zoomOverrideH || noteHeight !== DEFAULT_NOTE_HEIGHT) && (
                 <button
                     onClick={() => { setZoomOverrideH(null); setNoteHeight(DEFAULT_NOTE_HEIGHT); }}
@@ -248,7 +248,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                     <RotateCw size={11} /><span style={{ marginTop: 1 }}>Fit</span>
                 </button>
             )}
-            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>
                 {selectedCount > 0 ? `${selectedCount} selected` : `${noteCount} notes`}
             </span>
         </>

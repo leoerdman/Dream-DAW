@@ -65,14 +65,11 @@ impl PathResolverCache {
             let path = entry.path();
             if path.is_dir() {
                 self.scan_recursive(&path, depth + 1, max_depth);
-            } else if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                    let key = name.to_ascii_lowercase();
-                    self.filename_to_paths
-                        .entry(key)
-                        .or_insert_with(Vec::new)
-                        .push(path);
-                }
+            } else if path.is_file()
+                && let Some(name) = path.file_name().and_then(|s| s.to_str())
+            {
+                let key = name.to_ascii_lowercase();
+                self.filename_to_paths.entry(key).or_default().push(path);
             }
         }
     }
@@ -80,7 +77,9 @@ impl PathResolverCache {
     /// Look up a filename in cached directory listings.
     pub fn find_by_filename(&self, filename: &str) -> Option<&PathBuf> {
         let key = filename.to_ascii_lowercase();
-        self.filename_to_paths.get(&key).and_then(|paths| paths.first())
+        self.filename_to_paths
+            .get(&key)
+            .and_then(|paths| paths.first())
     }
 
     /// Look up a filename with preference for paths containing a hint fragment.
@@ -91,11 +90,23 @@ impl PathResolverCache {
             // Prefer path that contains the hint fragment
             paths
                 .iter()
-                .find(|p| p.to_string_lossy().to_ascii_lowercase().contains(&hint_lower))
+                .find(|p| {
+                    p.to_string_lossy()
+                        .to_ascii_lowercase()
+                        .contains(&hint_lower)
+                })
                 .or_else(|| paths.first())
         })
     }
 }
+
+impl Default for PathResolverCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+type SamplerZoneEntry = (String, Option<u8>, Option<u8>, Option<u8>);
 
 // ── Ableton FileRef Parsing ───────────────────────────────────────────
 
@@ -191,48 +202,6 @@ pub fn resolve_als_file_path_cached(
     relative_path: Option<&str>,
     cache: Option<&PathResolverCache>,
 ) -> Option<String> {
-    fn percent_decode(raw: &str) -> String {
-        let mut out = String::with_capacity(raw.len());
-        let bytes = raw.as_bytes();
-        let mut i = 0usize;
-        while i < bytes.len() {
-            if bytes[i] == b'%' && i + 2 < bytes.len() {
-                let h1 = bytes[i + 1] as char;
-                let h2 = bytes[i + 2] as char;
-                if h1.is_ascii_hexdigit() && h2.is_ascii_hexdigit() {
-                    let hex = &raw[i + 1..i + 3];
-                    if let Ok(v) = u8::from_str_radix(hex, 16) {
-                        out.push(v as char);
-                        i += 3;
-                        continue;
-                    }
-                }
-            }
-            out.push(bytes[i] as char);
-            i += 1;
-        }
-        out
-    }
-
-    fn normalize_file_uri(raw: &str) -> Option<String> {
-        let trimmed = raw.trim();
-        if !trimmed.to_ascii_lowercase().starts_with("file://") {
-            return None;
-        }
-        let no_scheme = &trimmed[7..];
-        let no_host = no_scheme
-            .strip_prefix("localhost/")
-            .or_else(|| no_scheme.strip_prefix("LOCALHOST/"))
-            .unwrap_or(no_scheme);
-        let decoded = percent_decode(no_host);
-        let unix_style = decoded.replace('\\', "/");
-        Some(if unix_style.starts_with('/') {
-            unix_style
-        } else {
-            format!("/{unix_style}")
-        })
-    }
-
     fn normalized_candidates(raw: &str) -> Vec<String> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -248,7 +217,7 @@ pub fn resolve_als_file_path_cached(
 
         push_unique(trimmed.to_string());
         push_unique(trimmed.replace('\\', "/"));
-        push_unique(percent_decode(trimmed));
+        push_unique(percent_decode_lossy(trimmed));
         if let Some(uri_path) = normalize_file_uri(trimmed) {
             push_unique(uri_path);
         }
@@ -277,10 +246,9 @@ pub fn resolve_als_file_path_cached(
     // ── Tier 1: Absolute path ──
     if let Some(abs) = absolute_path
         && !abs.trim().is_empty()
+        && let Some(found) = try_existing_variants(abs)
     {
-        if let Some(found) = try_existing_variants(abs) {
-            return Some(found);
-        }
+        return Some(found);
     }
 
     // ── Tier 2: Relative path joined with ALS parent ──
@@ -337,6 +305,15 @@ pub fn resolve_als_file_path_cached(
     if let Some(abs) = absolute_path
         && !abs.trim().is_empty()
     {
+        let candidates = normalized_candidates(abs);
+        if let Some(normalized) = candidates
+            .iter()
+            .find(|c| !c.to_ascii_lowercase().starts_with("file://"))
+            .cloned()
+            .or_else(|| candidates.first().cloned())
+        {
+            return Some(normalized);
+        }
         return Some(abs.trim().to_string());
     }
     if let Some(rel) = relative_path
@@ -387,10 +364,10 @@ fn search_near_project_recursive(als_path: &Path, file_name: &str) -> Option<Str
     // Also search parent directory (common for multi-project setups)
     if let Some(grandparent) = root.parent() {
         let shared_samples = grandparent.join("Samples");
-        if shared_samples.exists() {
-            if let Some(found) = search_directory_recursive(&shared_samples, file_name, 0, 3) {
-                return Some(found);
-            }
+        if shared_samples.exists()
+            && let Some(found) = search_directory_recursive(&shared_samples, file_name, 0, 3)
+        {
+            return Some(found);
         }
     }
 
@@ -413,15 +390,16 @@ fn search_directory_recursive(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() {
-            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                if name.eq_ignore_ascii_case(target_filename) {
-                    return Some(path.to_string_lossy().to_string());
-                }
+            if let Some(name) = path.file_name().and_then(|s| s.to_str())
+                && name.eq_ignore_ascii_case(target_filename)
+            {
+                return Some(path.to_string_lossy().to_string());
             }
-        } else if path.is_dir() {
-            if let Some(found) = search_directory_recursive(&path, target_filename, depth + 1, max_depth) {
-                return Some(found);
-            }
+        } else if path.is_dir()
+            && let Some(found) =
+                search_directory_recursive(&path, target_filename, depth + 1, max_depth)
+        {
+            return Some(found);
         }
     }
     None
@@ -490,20 +468,18 @@ pub fn extract_audio_clip_source_path_cached(
         && let Some(file_ref) = sample_ref
             .children()
             .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+        && let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache)
     {
-        if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
-            return resolved;
-        }
+        return resolved;
     }
 
     // Strategy 2: <FileRef> directly under the clip
     if let Some(file_ref) = clip_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+        && let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache)
     {
-        if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
-            return resolved;
-        }
+        return resolved;
     }
 
     // Strategy 3: <Name Value="..."/> fallback
@@ -534,7 +510,10 @@ fn resolve_file_ref_enterprise(
         let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
         let joined = parent.join(rel.trim());
         if joined.exists() {
-            log::debug!("[ALS Resolver] Found via relative path: {}", joined.display());
+            log::debug!(
+                "[ALS Resolver] Found via relative path: {}",
+                joined.display()
+            );
             return Some(joined.to_string_lossy().to_string());
         }
     }
@@ -547,11 +526,10 @@ fn resolve_file_ref_enterprise(
         let file_name = parsed
             .file_name
             .as_deref()
-            .or(parsed.abs_path.as_deref().and_then(|p| {
-                Path::new(p)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-            }))
+            .or(parsed
+                .abs_path
+                .as_deref()
+                .and_then(|p| Path::new(p).file_name().and_then(|s| s.to_str())))
             .unwrap_or_default();
         if !file_name.is_empty() {
             let joined = parent.join(rel_elements).join(file_name);
@@ -591,15 +569,18 @@ fn resolve_file_ref_enterprise(
     let file_name = parsed
         .file_name
         .as_deref()
-        .or(parsed.abs_path.as_deref().and_then(|p| {
-            Path::new(p).file_name().and_then(|s| s.to_str())
-        }))
-        .or(parsed.relative_path.as_deref().and_then(|p| {
-            Path::new(p).file_name().and_then(|s| s.to_str())
-        }))
-        .or(parsed.search_hint_path.as_deref().and_then(|p| {
-            Path::new(p).file_name().and_then(|s| s.to_str())
-        }));
+        .or(parsed
+            .abs_path
+            .as_deref()
+            .and_then(|p| Path::new(p).file_name().and_then(|s| s.to_str())))
+        .or(parsed
+            .relative_path
+            .as_deref()
+            .and_then(|p| Path::new(p).file_name().and_then(|s| s.to_str())))
+        .or(parsed
+            .search_hint_path
+            .as_deref()
+            .and_then(|p| Path::new(p).file_name().and_then(|s| s.to_str())));
 
     if let Some(fname) = file_name
         && !fname.is_empty()
@@ -664,25 +645,21 @@ pub fn extract_simpler_sample_path_cached(
         if let Some(sample_ref) = sample_part
             .descendants()
             .find(|n| n.is_element() && n.has_tag_name("SampleRef"))
-        {
-            if let Some(file_ref) = sample_ref
+            && let Some(file_ref) = sample_ref
                 .children()
                 .find(|n| n.is_element() && n.has_tag_name("FileRef"))
-            {
-                if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
-                    return Some(resolved);
-                }
-            }
+            && let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache)
+        {
+            return Some(resolved);
         }
 
         // Direct FileRef under SamplePart
         if let Some(file_ref) = sample_part
             .descendants()
             .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+            && let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache)
         {
-            if let Some(resolved) = resolve_file_ref_enterprise(file_ref, als_path, cache) {
-                return Some(resolved);
-            }
+            return Some(resolved);
         }
     }
 
@@ -709,8 +686,8 @@ pub fn extract_sampler_all_zones(
     device: roxmltree::Node<'_, '_>,
     als_path: &Path,
     cache: Option<&PathResolverCache>,
-) -> Vec<(String, Option<u8>, Option<u8>, Option<u8>)> {
-    let mut zones = Vec::new();
+) -> Vec<SamplerZoneEntry> {
+    let mut zones: Vec<SamplerZoneEntry> = Vec::new();
 
     for sample_part in device
         .descendants()
@@ -740,14 +717,68 @@ pub fn extract_sampler_all_zones(
                     .find(|n| n.is_element() && n.has_tag_name("FileRef"))
             });
 
-        if let Some(fr) = file_ref {
-            if let Some(resolved) = resolve_file_ref_enterprise(fr, als_path, cache) {
-                zones.push((resolved, root_note, key_low, key_high));
-            }
+        if let Some(fr) = file_ref
+            && let Some(resolved) = resolve_file_ref_enterprise(fr, als_path, cache)
+        {
+            zones.push((resolved, root_note, key_low, key_high));
         }
     }
 
     zones
+}
+
+fn percent_decode_lossy(raw: &str) -> String {
+    let mut out = Vec::<u8>::with_capacity(raw.len());
+    let bytes = raw.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let h1 = bytes[i + 1] as char;
+            let h2 = bytes[i + 2] as char;
+            if h1.is_ascii_hexdigit() && h2.is_ascii_hexdigit() {
+                let hex = &raw[i + 1..i + 3];
+                if let Ok(v) = u8::from_str_radix(hex, 16) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn normalize_file_uri(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if !trimmed.to_ascii_lowercase().starts_with("file://") {
+        return None;
+    }
+    let no_scheme = &trimmed[7..];
+    let decoded = percent_decode_lossy(no_scheme);
+    let normalized = decoded.replace('\\', "/");
+
+    if let Some(rest) = normalized.strip_prefix('/') {
+        // file:///Users/... or file:///C:/... ; strip leading slash for drive paths.
+        let bytes = rest.as_bytes();
+        if bytes.len() >= 2 && bytes[1] == b':' && (bytes[0] as char).is_ascii_alphabetic() {
+            return Some(rest.to_string());
+        }
+        // file://localhost/...
+        if rest.to_ascii_lowercase().starts_with("localhost/") {
+            let local = &rest["localhost/".len()..];
+            return Some(format!("/{local}"));
+        }
+        return Some(normalized);
+    }
+
+    // file://localhost/path or file://C:/path.
+    if normalized.to_ascii_lowercase().starts_with("localhost/") {
+        let local = &normalized["localhost/".len()..];
+        return Some(format!("/{local}"));
+    }
+    Some(normalized)
 }
 
 // ── Fade Frame Parsing ─────────────────────────────────────────────────
@@ -866,8 +897,37 @@ mod tests {
         let uri = format!("file://localhost{encoded}");
         let als_path = base.join("Project.als");
 
-        let resolved = resolve_als_file_path(&als_path, Some(&uri), None).expect("resolved uri path");
+        let resolved =
+            resolve_als_file_path(&als_path, Some(&uri), None).expect("resolved uri path");
 
         assert_eq!(Path::new(&resolved), expected.as_path());
+    }
+
+    #[test]
+    fn resolve_supports_utf8_percent_encoded_paths() {
+        let base = std::env::temp_dir().join(format!("dream_als_utf8_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).expect("create base dir");
+        let expected = base.join("Кик.wav");
+        std::fs::write(&expected, b"RIFF").expect("write sample");
+        let encoded = expected
+            .to_string_lossy()
+            .replace("К", "%D0%9A")
+            .replace("и", "%D0%B8");
+        let uri = format!("file://localhost{encoded}");
+        let als_path = base.join("Project.als");
+
+        let resolved =
+            resolve_als_file_path(&als_path, Some(&uri), None).expect("resolved utf8 uri path");
+
+        assert_eq!(Path::new(&resolved), expected.as_path());
+    }
+
+    #[test]
+    fn resolve_supports_windows_file_uri_drive_prefix() {
+        let als_path = Path::new("/tmp/Project.als");
+        let uri = "file:///C:/Users/User/Samples/Kick%2001.wav";
+        let resolved =
+            resolve_als_file_path(als_path, Some(uri), None).expect("resolved windows uri");
+        assert_eq!(resolved, "C:/Users/User/Samples/Kick 01.wav");
     }
 }

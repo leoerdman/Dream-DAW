@@ -20,6 +20,12 @@
 //   6: Mod Rate   (0–3 Hz, default 0.3) — internal modulation
 //   7: Mod Depth  (0–100%, default 15%)
 //   8: Freeze     (0 or 1, default 0) — infinite sustain
+//   9: Lo Cut     (20–12000 Hz, default 20)
+//  10: Hi Cut     (1200–20000 Hz, default 16000)
+//  11: Diffusion  (0–100%, default 75)
+//  12: Density    (0–100%, default 80)
+//  13: Chorus     (0–100%, default 20)
+//  14: Voicing    (0=Room, 1=Hall, 2=Plate, default 1)
 //
 // Real-Time Safety: Pre-allocated. O(N) per buffer.
 //
@@ -164,6 +170,7 @@ pub struct ReverbProcessor {
     density: f32,
     input_low_cut_hz: f32,
     input_high_cut_hz: f32,
+    voicing: u8,
     freeze: bool,
     predelay_ms: f32,
     // Modulation LFO
@@ -241,6 +248,7 @@ impl ReverbProcessor {
             density: 0.8,
             input_low_cut_hz: 20.0,
             input_high_cut_hz: 20000.0,
+            voicing: 1,
             freeze: false,
             predelay_ms: 10.0,
             lfo_phase: 0.0,
@@ -359,6 +367,25 @@ impl ReverbProcessor {
     }
 
     #[inline]
+    fn read_delay_frac(buf: &[f32], write_pos: usize, delay_samples: f32) -> f32 {
+        let len = buf.len();
+        if len == 0 {
+            return 0.0;
+        }
+        let len_f = len as f32;
+        let delay = delay_samples.clamp(0.0, (len - 1) as f32);
+        let mut read_pos = (write_pos as f32 - delay).rem_euclid(len_f);
+        if read_pos >= len_f {
+            read_pos = 0.0;
+        }
+        let base = read_pos.floor();
+        let i0 = base as usize;
+        let i1 = (i0 + 1) % len;
+        let frac = read_pos - base;
+        buf[i0] * (1.0 - frac) + buf[i1] * frac
+    }
+
+    #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
         let sr = sanitize_sample_rate(sample_rate);
         if (sr - self.sample_rate).abs() > 0.5 {
@@ -393,10 +420,17 @@ impl DspProcessor for ReverbProcessor {
         let sr = self.sample_rate;
 
         // Early reflection tap times (seconds), spread across L/R for stereo depth.
-        let er_tap_1 = ((0.0068 * sr) as usize).min(MAX_PREDELAY_SAMPLES - 1);
-        let er_tap_2 = ((0.0139 * sr) as usize).min(MAX_PREDELAY_SAMPLES - 1);
-        let er_tap_3 = ((0.0247 * sr) as usize).min(MAX_PREDELAY_SAMPLES - 1);
-        let er_tap_4 = ((0.0371 * sr) as usize).min(MAX_PREDELAY_SAMPLES - 1);
+        let er_tap_1 = (0.0068 * sr).clamp(0.0, (MAX_PREDELAY_SAMPLES - 1) as f32);
+        let er_tap_2 = (0.0139 * sr).clamp(0.0, (MAX_PREDELAY_SAMPLES - 1) as f32);
+        let er_tap_3 = (0.0247 * sr).clamp(0.0, (MAX_PREDELAY_SAMPLES - 1) as f32);
+        let er_tap_4 = (0.0371 * sr).clamp(0.0, (MAX_PREDELAY_SAMPLES - 1) as f32);
+
+        let (voicing_er_mul, voicing_tail_hf, voicing_mod_mul, voicing_density_mul) =
+            match self.voicing {
+                0 => (0.95f32, 0.85f32, 0.70f32, 0.85f32), // Room: tighter/less lush
+                2 => (0.70f32, 1.20f32, 1.15f32, 1.05f32), // Plate: brighter/sheen
+                _ => (1.00f32, 1.00f32, 1.00f32, 1.00f32), // Hall: balanced
+            };
 
         // BUG-FIX: Normalise the summed output of 8 parallel combs.
         // Without this, the wet signal is ~8× hotter than the dry signal,
@@ -408,7 +442,8 @@ impl DspProcessor for ReverbProcessor {
         self.predelay_sm_ms.set_target(self.predelay_ms);
         self.low_damp_sm.set_target(self.low_damp.clamp(0.0, 1.0));
         self.mod_depth_sm.set_target(self.mod_depth.clamp(0.0, 1.0));
-        self.chorus_amount_sm.set_target(self.chorus_amount.clamp(0.0, 1.0));
+        self.chorus_amount_sm
+            .set_target(self.chorus_amount.clamp(0.0, 1.0));
         self.diffusion_sm.set_target(self.diffusion.clamp(0.0, 1.0));
         self.density_sm.set_target(self.density.clamp(0.0, 1.0));
         self.input_low_cut_sm
@@ -433,34 +468,21 @@ impl DspProcessor for ReverbProcessor {
 
             // Pre-delay
             let predelay_ms = self.predelay_sm_ms.next_value();
-            self.predelay_samples = ((predelay_ms * 0.001 * self.sample_rate) as usize)
-                .min(MAX_PREDELAY_SAMPLES - 1);
+            let predelay_samples_f = (predelay_ms * 0.001 * self.sample_rate)
+                .clamp(0.0, (MAX_PREDELAY_SAMPLES - 1) as f32);
+            self.predelay_samples = predelay_samples_f as usize;
             let pd_pos = self.predelay_pos;
-            let pd_read =
-                (pd_pos + MAX_PREDELAY_SAMPLES - self.predelay_samples) % MAX_PREDELAY_SAMPLES;
-            let pd_l = self.predelay_buf_l[pd_read];
-            let pd_r = self.predelay_buf_r[pd_read];
+            let pd_l = Self::read_delay_frac(&self.predelay_buf_l, pd_pos, predelay_samples_f);
+            let pd_r = Self::read_delay_frac(&self.predelay_buf_r, pd_pos, predelay_samples_f);
 
             // Early reflections (before reverb tail) for room definition.
             // Includes light crossfeed to prevent flat/mono center image.
-            let er_l = self.predelay_buf_l
-                [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_1) % MAX_PREDELAY_SAMPLES]
-                * 0.55
-                + self.predelay_buf_l
-                    [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_3) % MAX_PREDELAY_SAMPLES]
-                    * 0.28
-                + self.predelay_buf_r
-                    [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_4) % MAX_PREDELAY_SAMPLES]
-                    * 0.17;
-            let er_r = self.predelay_buf_r
-                [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_2) % MAX_PREDELAY_SAMPLES]
-                * 0.55
-                + self.predelay_buf_r
-                    [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_4) % MAX_PREDELAY_SAMPLES]
-                    * 0.28
-                + self.predelay_buf_l
-                    [(pd_pos + MAX_PREDELAY_SAMPLES - er_tap_3) % MAX_PREDELAY_SAMPLES]
-                    * 0.17;
+            let er_l = Self::read_delay_frac(&self.predelay_buf_l, pd_pos, er_tap_1) * 0.55
+                + Self::read_delay_frac(&self.predelay_buf_l, pd_pos, er_tap_3) * 0.28
+                + Self::read_delay_frac(&self.predelay_buf_r, pd_pos, er_tap_4) * 0.17;
+            let er_r = Self::read_delay_frac(&self.predelay_buf_r, pd_pos, er_tap_2) * 0.55
+                + Self::read_delay_frac(&self.predelay_buf_r, pd_pos, er_tap_4) * 0.28
+                + Self::read_delay_frac(&self.predelay_buf_l, pd_pos, er_tap_3) * 0.17;
 
             self.predelay_buf_l[pd_pos] = dry_l;
             self.predelay_buf_r[pd_pos] = dry_r;
@@ -487,7 +509,7 @@ impl DspProcessor for ReverbProcessor {
 
             // SSOT: Fast sine approximation from mod.rs.
             let fast_sin = crate::processors::fast_sin_phase(self.lfo_phase as f32);
-            let lfo = fast_sin * mod_depth * (0.008 + chorus_amt * 0.02);
+            let lfo = fast_sin * mod_depth * voicing_mod_mul * (0.008 + chorus_amt * 0.02);
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
 
@@ -510,7 +532,7 @@ impl DspProcessor for ReverbProcessor {
             // Normalise summed comb output + density gain staging.
             out_l *= COMB_NORM;
             out_r *= COMB_NORM;
-            let density_gain = 0.82 + density * 0.36;
+            let density_gain = (0.82 + density * 0.36) * voicing_density_mul;
             out_l *= density_gain;
             out_r *= density_gain;
 
@@ -544,11 +566,11 @@ impl DspProcessor for ReverbProcessor {
             self.tail_lp_r += tail_lp_coeff * (out_r - self.tail_lp_r);
             crate::processors::flush_denormal!(self.tail_lp_l);
             crate::processors::flush_denormal!(self.tail_lp_r);
-            out_l = self.tail_lp_l;
-            out_r = self.tail_lp_r;
+            out_l = self.tail_lp_l * voicing_tail_hf;
+            out_r = self.tail_lp_r * voicing_tail_hf;
 
             // Width + mix
-            let er_wet = 0.12 + self.room_size * 0.10;
+            let er_wet = (0.12 + self.room_size * 0.10) * voicing_er_mul;
             let wet_l = out_l + er_l * er_wet;
             let wet_r = out_r + er_r * er_wet;
             left[i] = dry_l * dry + wet_l * wet1 + wet_r * wet2;
@@ -604,6 +626,9 @@ impl DspProcessor for ReverbProcessor {
             }
             13 => {
                 self.chorus_amount = (value / 100.0).clamp(0.0, 1.0);
+            }
+            14 => {
+                self.voicing = (value as u8).min(2);
             }
             _ => {}
         }
@@ -699,6 +724,9 @@ mod tests {
         r[0] = 1.0;
         proc.process_stereo(&mut l, &mut r, 44100.0);
         let tail_energy: f32 = l[1024..].iter().map(|s| s * s).sum();
-        assert!(tail_energy > 1.0e-6, "Small-room tail should be audible: {tail_energy}");
+        assert!(
+            tail_energy > 1.0e-6,
+            "Small-room tail should be audible: {tail_energy}"
+        );
     }
 }

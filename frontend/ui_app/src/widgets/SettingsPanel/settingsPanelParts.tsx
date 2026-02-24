@@ -1,18 +1,24 @@
 import type { ReactNode } from 'react';
-import { actionBtnSmStyle, selectStyle } from './settingsPanelStyles';
+import {
+    actionBtnSmStyle,
+    sectionDescriptionStyle,
+    sectionStyle,
+    sectionTitleStyle,
+    selectStyle,
+} from './settingsPanelStyles';
 
 export const SettingRow = ({ label, children }: { label: string; children: ReactNode }) => (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: 'var(--space-px) solid var(--color-divider-light)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
         <label style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>{label}</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{children}</div>
     </div>
 );
 
 export const FolderRow = ({ label, path, onBrowse }: { label: string; path: string; onBrowse?: () => void }) => (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-2-5) 0', borderBottom: 'var(--space-px) solid var(--color-divider-light)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-2-5) 0' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-medium)' as unknown as number, color: 'var(--color-text-primary)' }}>{label}</div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 2, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{path}</div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 2, fontFamily: 'var(--font-role-data)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{path}</div>
         </div>
         <button onClick={onBrowse} style={actionBtnSmStyle}>Browse…</button>
     </div>
@@ -25,7 +31,7 @@ export const Select = ({
     onMouseDown,
 }: {
     value: string;
-    options: string[];
+    options: readonly string[];
     onChange: (v: string) => void;
     onMouseDown?: () => void;
 }) => (
@@ -50,4 +56,20 @@ export const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: bool
             }}
         />
     </button>
+);
+
+export const SettingsSection = ({
+    title,
+    description,
+    children,
+}: {
+    title: string;
+    description?: string;
+    children: ReactNode;
+}) => (
+    <section style={sectionStyle}>
+        <div style={sectionTitleStyle}>{title}</div>
+        {description ? <div style={sectionDescriptionStyle}>{description}</div> : null}
+        {children}
+    </section>
 );

@@ -14,6 +14,7 @@ import {
     patchSandboxInstancesById,
     PROJECT_HISTORY_SYNC_EVERY_TICKS,
 } from '@/shared/stores/engine/storeHelpers';
+import { enqueuePendingStoreUpdate, payloadToUint8Array } from '@/shared/stores/engine/actionsTelemetryQueue';
 import { createPluginEditorActions } from '@/shared/stores/engine/actionsTelemetryEditors';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
 interface SandboxSlotUpdateEvent {
@@ -34,28 +35,10 @@ let telemetryMetersBinaryUnlisten: UnlistenFn | null = null;
 let bpmPendingUntil = 0;
 let meterFrameCounter = 0;
 let latestMeters: MeteringSnapshot | null = null;
-let pendingUpdate: Partial<EngineStore> = {};
-let rafPending = false;
-
-function flushPendingStoreUpdate(set: StoreApi<EngineStore>['setState']): void {
-    rafPending = false;
-    const update = pendingUpdate;
-    pendingUpdate = {};
-    if (Object.keys(update).length > 0) set(update);
-}
-
-function enqueuePendingStoreUpdate(
-    set: StoreApi<EngineStore>['setState'],
-    partial: Partial<EngineStore>,
-): void {
-    pendingUpdate = { ...pendingUpdate, ...partial };
-    if (rafPending) return;
-    rafPending = true;
-    requestAnimationFrame(() => flushPendingStoreUpdate(set));
-}
 
 export function markBpmPending(ms: number): void {
-    bpmPendingUntil = Date.now() + ms;
+    // BUG-021 FIX: Use performance.now() — monotonic clock immune to NTP/DST.
+    bpmPendingUntil = performance.now() + ms;
 }
 
 export function readLatestMeters(fallback: MeteringSnapshot): MeteringSnapshot {
@@ -78,17 +61,27 @@ export function createTelemetryActions(
 
             void (async () => {
                 try {
-                    telemetryUnlisten = await listen<{ transport: TransportState }>(
+                    telemetryUnlisten = await listen<{
+                        transport: TransportState;
+                        performance: {
+                            cpu_usage: number;
+                            ram_used_mb: number;
+                            ram_total_mb: number;
+                            process_memory_mb: number;
+                            dsp_load: number;
+                        };
+                    }>(
                         'telemetry_tick',
                         (event) => {
                             tickCounter++;
+                            const telemetryUpdate: Partial<EngineStore> = {};
                             if (tickCounter % PROJECT_HISTORY_SYNC_EVERY_TICKS === 0) {
                                 void get().syncProjectHistory();
                             }
 
                             const nextTransport = event.payload.transport;
                             const prev = get().transport;
-                            const bpmProtected = Date.now() < bpmPendingUntil;
+                            const bpmProtected = performance.now() < bpmPendingUntil;
                             const effectiveTransport = bpmProtected
                                 ? { ...nextTransport, bpm: prev.bpm }
                                 : nextTransport;
@@ -101,32 +94,38 @@ export function createTelemetryActions(
                                 || prev.loop_end !== effectiveTransport.loop_end;
 
                             if (transportChanged) {
-                                pendingUpdate = {
-                                    ...pendingUpdate,
-                                    transport: effectiveTransport,
-                                    connected: true,
-                                    lastError: null,
-                                };
+                                // BUG-014 FIX: Assign properties directly instead of
+                                // spread accumulation. Eliminates 2-3 intermediate objects
+                                // per telemetry tick (30Hz = 60-90 garbage objects/sec).
+                                telemetryUpdate.transport = effectiveTransport;
+                                telemetryUpdate.connected = true;
+                                telemetryUpdate.lastError = null;
                             }
 
-                            if (!get().connected && !pendingUpdate.connected) {
-                                pendingUpdate = {
-                                    ...pendingUpdate,
-                                    connected: true,
-                                    lastError: null,
-                                };
+                            // Performance metrics (sent every tick — DSP load refreshes at 30fps,
+                            // CPU/RAM updates ~1/s but cached values are always included)
+                            const perf = event.payload.performance;
+                            telemetryUpdate.performance = {
+                                cpuUsage: perf.cpu_usage,
+                                ramUsedMb: perf.ram_used_mb,
+                                ramTotalMb: perf.ram_total_mb,
+                                processMemoryMb: perf.process_memory_mb,
+                                dspLoad: perf.dsp_load,
+                            };
+
+                            if (!get().connected && !telemetryUpdate.connected) {
+                                telemetryUpdate.connected = true;
+                                telemetryUpdate.lastError = null;
                             }
-                            enqueuePendingStoreUpdate(set, {});
+                            enqueuePendingStoreUpdate(set, telemetryUpdate);
                         },
                     );
-                    telemetryMetersBinaryUnlisten = await listen<number[] | Uint8Array>(
+                    telemetryMetersBinaryUnlisten = await listen<number[] | Uint8Array | ArrayBuffer>(
                         'telemetry_meters_binary',
                         (event) => {
                             meterFrameCounter++;
                             if (meterFrameCounter % METER_STATE_UPDATE_EVERY_TICKS !== 0) return;
-                            const packet = event.payload instanceof Uint8Array
-                                ? event.payload
-                                : new Uint8Array(event.payload ?? []);
+                            const packet = payloadToUint8Array(event.payload);
                             const decodedMeters = decodeMetersBinaryPacket(packet);
                             latestMeters = decodedMeters;
                             enqueuePendingStoreUpdate(set, {

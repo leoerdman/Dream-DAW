@@ -148,7 +148,10 @@ mod tests {
                 out_energy += y * y;
             }
         }
-        assert!(out_energy < 200.0, "LP should attenuate HF, got {out_energy}");
+        assert!(
+            out_energy < 200.0,
+            "LP should attenuate HF, got {out_energy}"
+        );
     }
 
     #[test]

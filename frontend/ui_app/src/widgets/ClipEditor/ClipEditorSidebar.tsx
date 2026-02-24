@@ -38,7 +38,7 @@ const metaLabelStyle: CSSProperties = {
 
 const metaValueStyle: CSSProperties = {
     color: 'var(--color-text-primary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
 };
 
 export const ClipEditorSidebar = ({ children }: { children: ReactNode }) => {

@@ -23,7 +23,7 @@ export const keyMenuItemStyle = (active: boolean): React.CSSProperties => ({
     textAlign: 'left',
     padding: 'var(--space-1) var(--space-1-5)',
     fontSize: 'var(--font-size-xs)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     fontWeight: active ? 700 : 500,
     cursor: 'pointer',
 });

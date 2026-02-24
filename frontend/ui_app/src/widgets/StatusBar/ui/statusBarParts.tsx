@@ -5,7 +5,7 @@ export const StatusLabel = ({ children }: { children: ReactNode }) => (
 );
 
 export const StatusValue = ({ children }: { children: ReactNode }) => (
-    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-role-data)', fontWeight: 500 }}>
         {children}
     </span>
 );

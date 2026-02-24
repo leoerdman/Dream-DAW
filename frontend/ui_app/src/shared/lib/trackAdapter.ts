@@ -16,26 +16,29 @@ import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 
 // ── Track color palette (matches Rust TrackColor enum hex values) ─────────
 
+const toHexColor = (r: number, g: number, b: number): string =>
+    `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
 const TRACK_COLORS: Record<TrackColor, string> = {
-    Coral: '#F05C4D',
-    Orange: '#FF8A1A',
-    Gold: '#FFBF33',
-    Yellow: '#FFE14D',
-    Lime: '#A3D94D',
-    Green: '#4DC775',
-    Teal: '#4DC7B0',
-    Cyan: '#4DC7CC',
-    Sky: '#4DA6E3',
-    Blue: '#4D7AE3',
-    Indigo: '#6B5CE3',
-    Purple: '#9B59D9',
-    Magenta: '#D94DA6',
-    Pink: '#E36B96',
-    Rose: '#E66673',
-    Slate: '#8C949E',
+    Coral: toHexColor(240, 92, 77),
+    Orange: toHexColor(255, 138, 26),
+    Gold: toHexColor(255, 191, 51),
+    Yellow: toHexColor(255, 225, 77),
+    Lime: toHexColor(163, 217, 77),
+    Green: toHexColor(77, 199, 117),
+    Teal: toHexColor(77, 199, 176),
+    Cyan: toHexColor(77, 199, 204),
+    Sky: toHexColor(77, 166, 227),
+    Blue: toHexColor(77, 122, 227),
+    Indigo: toHexColor(107, 92, 227),
+    Purple: toHexColor(155, 89, 217),
+    Magenta: toHexColor(217, 77, 166),
+    Pink: toHexColor(227, 107, 150),
+    Rose: toHexColor(230, 102, 115),
+    Slate: toHexColor(140, 148, 158),
 };
 
-const DEFAULT_TRACK_COLOR = '#667788';
+const DEFAULT_TRACK_COLOR = toHexColor(102, 119, 136);
 
 /**
  * Resolve a track color to a hex string.

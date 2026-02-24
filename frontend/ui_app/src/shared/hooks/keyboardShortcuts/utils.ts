@@ -1,6 +1,9 @@
 import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { KeyboardShortcutsConfig, KeyboardShortcutRuntimeContext } from './types';
+import type { ShortcutActionId } from '@/shared/lib/shortcutBindings';
+import { DEFAULT_SHORTCUT_BINDINGS, isShortcutMatch } from '@/shared/lib/shortcutBindings';
+import { useShortcutStore } from '@/shared/stores/useShortcutStore';
 
 const isMac = (() => {
     if (typeof navigator === 'undefined') return false;
@@ -107,4 +110,9 @@ export function resolveSplitFrame(playheadFrames: number, editCursorBeat: number
         ? (editCursorBeat as number)
         : frameToBeat(playheadFrames, bpm, sampleRate);
     return Math.max(0, beatToFrame(splitBeat, bpm, sampleRate));
+}
+
+export function matchesShortcutAction(e: KeyboardEvent, actionId: ShortcutActionId): boolean {
+    const binding = useShortcutStore.getState().getBinding(actionId) || DEFAULT_SHORTCUT_BINDINGS[actionId];
+    return isShortcutMatch(e, binding);
 }

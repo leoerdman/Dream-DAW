@@ -64,6 +64,9 @@ pub struct ChorusProcessor {
     depth_sm: SmoothedValue,
     mix_sm: SmoothedValue,
     feedback_sm: SmoothedValue,
+    spread_sm: SmoothedValue,
+    hp_freq_sm: SmoothedValue,
+    hp_freq_last: f32,
 }
 
 impl ChorusProcessor {
@@ -93,6 +96,9 @@ impl ChorusProcessor {
             depth_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
             feedback_sm: SmoothedValue::new(sample_rate, 8.0, 0.0),
+            spread_sm: SmoothedValue::new(sample_rate, 10.0, 0.8),
+            hp_freq_sm: SmoothedValue::new(sample_rate, 12.0, 80.0),
+            hp_freq_last: 80.0,
         };
         proc.update_hp();
         proc
@@ -114,6 +120,8 @@ impl ChorusProcessor {
             self.depth_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
             self.feedback_sm.set_sample_rate(sr);
+            self.spread_sm.set_sample_rate(sr);
+            self.hp_freq_sm.set_sample_rate(sr);
         }
     }
 
@@ -138,6 +146,8 @@ impl DspProcessor for ChorusProcessor {
         self.depth_sm.set_target(self.depth);
         self.mix_sm.set_target(self.mix);
         self.feedback_sm.set_target(self.feedback);
+        self.spread_sm.set_target(self.spread);
+        self.hp_freq_sm.set_target(self.hp_freq);
 
         for i in 0..len {
             let dry_l = left[i];
@@ -146,6 +156,14 @@ impl DspProcessor for ChorusProcessor {
             let depth = self.depth_sm.next_value();
             let mix = self.mix_sm.next_value();
             let feedback = self.feedback_sm.next_value();
+            let spread = self.spread_sm.next_value();
+            let hp_freq = self.hp_freq_sm.next_value().clamp(20.0, 500.0);
+            // Avoid per-sample coefficient recompute unless parameter changed enough.
+            if (hp_freq - self.hp_freq_last).abs() > 0.5 {
+                self.hp_freq = hp_freq;
+                self.update_hp();
+                self.hp_freq_last = hp_freq;
+            }
             let mut wet_l = 0.0f32;
             let mut wet_r = 0.0f32;
 
@@ -155,7 +173,7 @@ impl DspProcessor for ChorusProcessor {
 
                 // Per-voice LFO with offset — SSOT fast sine approximation from mod.rs
                 let phase_l = (self.lfo_phase + VOICE_PHASE_OFFSETS[v]) as f32;
-                let phase_r = phase_l + 0.25 * self.spread;
+                let phase_r = phase_l + 0.25 * spread;
 
                 let lfo_l = crate::processors::fast_sin_phase(phase_l);
                 let lfo_r = crate::processors::fast_sin_phase(phase_r);
@@ -179,7 +197,7 @@ impl DspProcessor for ChorusProcessor {
 
                 // Pan voices for stereo spread
                 let pan = if nv > 1 {
-                    (v as f32 / (nv - 1).max(1) as f32 - 0.5) * 2.0 * self.spread
+                    (v as f32 / (nv - 1).max(1) as f32 - 0.5) * 2.0 * spread
                 } else {
                     0.0
                 };
@@ -248,6 +266,9 @@ impl DspProcessor for ChorusProcessor {
         self.depth_sm.set_instant(self.depth);
         self.mix_sm.set_instant(self.mix);
         self.feedback_sm.set_instant(self.feedback);
+        self.spread_sm.set_instant(self.spread);
+        self.hp_freq_sm.set_instant(self.hp_freq);
+        self.hp_freq_last = self.hp_freq;
     }
 }
 

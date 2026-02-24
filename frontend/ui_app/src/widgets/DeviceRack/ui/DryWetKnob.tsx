@@ -33,8 +33,16 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     accent,
 }: DryWetKnobProps) {
     const param = resolveMixParam(device);
-    if (!param) return null;
-    const resolvedParam: DeviceSlot['params'][number] = param;
+    const hasParam = !!param;
+    const resolvedParam: DeviceSlot['params'][number] = param ?? {
+        name: 'mix',
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        suffix: '',
+        defaultValue: 0.5,
+    };
 
     const accentColor = accent ?? 'var(--color-accent-primary)';
 
@@ -82,23 +90,24 @@ export const DryWetKnob = React.memo(function DryWetKnob({
 
     // Wheel support
     const handleWheel = useCallback((e: WheelEvent) => {
-        if (!param) return;
         e.preventDefault();
         e.stopPropagation();
         if (!wheelGestureActive.current) {
             wheelGestureActive.current = true;
-            onGestureStart?.(param.name);
+            onGestureStart?.(resolvedParam.name);
         }
         if (wheelGestureTimer.current) clearTimeout(wheelGestureTimer.current);
         wheelGestureTimer.current = setTimeout(() => {
             wheelGestureActive.current = false;
-            onGestureEnd?.(param.name);
+            onGestureEnd?.(resolvedParam.name);
         }, 300);
-        const step = param.step && param.step > 0 ? param.step : (param.max - param.min) / 160;
+        const step = resolvedParam.step && resolvedParam.step > 0
+            ? resolvedParam.step
+            : (resolvedParam.max - resolvedParam.min) / 160;
         const mul = e.shiftKey ? 4 : e.altKey ? 0.2 : 1;
         const delta = (e.deltaY < 0 ? 1 : -1) * step * mul;
-        onChange(param.name, quantize(safeValue + delta));
-    }, [onChange, onGestureEnd, onGestureStart, param, safeValue, quantize]);
+        onChange(resolvedParam.name, quantize(safeValue + delta));
+    }, [onChange, onGestureEnd, onGestureStart, resolvedParam.max, resolvedParam.min, resolvedParam.name, resolvedParam.step, safeValue, quantize]);
 
     useEffect(() => {
         const node = dialRef.current;
@@ -116,19 +125,19 @@ export const DryWetKnob = React.memo(function DryWetKnob({
 
     // Double-click to reset to 50% (or default)
     const onDoubleClick = useCallback((e: React.MouseEvent) => {
-        if (!param) return;
         e.preventDefault();
-        const def = Number.isFinite(param.defaultValue)
-            ? param.defaultValue as number
-            : (param.min + param.max) * 0.5;
-        onChange(param.name, quantize(def));
-    }, [onChange, param, quantize]);
+        const def = Number.isFinite(resolvedParam.defaultValue)
+            ? resolvedParam.defaultValue as number
+            : (resolvedParam.min + resolvedParam.max) * 0.5;
+        onChange(resolvedParam.name, quantize(def));
+    }, [onChange, resolvedParam.defaultValue, resolvedParam.max, resolvedParam.min, resolvedParam.name, quantize]);
 
     // Display value
     const displayPct = Math.round(pct * 100);
     // Ensure unique filter id per knob instance (device + param), otherwise
     // SVG filter references can collide across multiple plugin slots.
     const filterId = `drywet-glow-${device.id.replace(/[^a-zA-Z0-9]/g, '_')}-${resolvedParam.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (!hasParam) return null;
     return (
         <div
             style={{
@@ -229,7 +238,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
             {/* Value */}
             <span style={{
                 fontSize: 'var(--font-size-2xs)',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-role-data)',
                 color: 'var(--color-text-primary)',
                 lineHeight: 1,
             }}>

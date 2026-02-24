@@ -111,6 +111,51 @@ fn normalize_runtime_external_plugin_slots(
     plugin_host_state: &PluginHostState,
 ) {
     let mut updated = 0usize;
+    let mut normalize_slot = |slot: &mut dream_models::project::PluginSlot| {
+        let plugin_id = slot.plugin_id.trim();
+        if plugin_id.is_empty()
+            || plugin_id.starts_with("internal://")
+            || plugin_id.starts_with("missing://")
+        {
+            return;
+        }
+
+        let Ok(desc) = plugin_host_state.resolve_descriptor(plugin_id) else {
+            return;
+        };
+        let resolved_id = desc.path.to_string_lossy().to_string();
+        let mut changed = false;
+
+        if normalize_lookup_key(plugin_id) != normalize_lookup_key(&resolved_id) {
+            slot.plugin_id = resolved_id;
+            changed = true;
+        }
+        if slot.name.trim().is_empty() || slot.name != desc.name {
+            slot.name = desc.name.clone();
+            changed = true;
+        }
+        let resolved_format = desc.format.to_string().to_lowercase();
+        if slot.external_format.as_deref() != Some(resolved_format.as_str()) {
+            slot.external_format = Some(resolved_format);
+            changed = true;
+        }
+        if slot.external_uid.is_none() && desc.unique_id.is_some() {
+            slot.external_uid = desc.unique_id.clone();
+            changed = true;
+        }
+        if slot.external_plugin_version.is_none() && desc.version.is_some() {
+            slot.external_plugin_version = desc.version.clone();
+            changed = true;
+        }
+        if slot.external_audio_inputs != Some(desc.audio_inputs) {
+            slot.external_audio_inputs = Some(desc.audio_inputs);
+            changed = true;
+        }
+        if changed {
+            updated = updated.saturating_add(1);
+        }
+    };
+
     for track in &mut project.tracks {
         let mut slots = Vec::new();
         if let Some(instr) = track.instrument.as_mut() {
@@ -121,48 +166,19 @@ fn normalize_runtime_external_plugin_slots(
         }
 
         for slot in slots {
-            let plugin_id = slot.plugin_id.trim();
-            if plugin_id.is_empty()
-                || plugin_id.starts_with("internal://")
-                || plugin_id.starts_with("missing://")
-            {
-                continue;
-            }
-
-            let Ok(desc) = plugin_host_state.resolve_descriptor(plugin_id) else {
-                continue;
-            };
-            let resolved_id = desc.path.to_string_lossy().to_string();
-            let mut changed = false;
-
-            if normalize_lookup_key(plugin_id) != normalize_lookup_key(&resolved_id) {
-                slot.plugin_id = resolved_id;
-                changed = true;
-            }
-            if slot.name.trim().is_empty() || slot.name != desc.name {
-                slot.name = desc.name.clone();
-                changed = true;
-            }
-            let resolved_format = desc.format.to_string().to_lowercase();
-            if slot.external_format.as_deref() != Some(resolved_format.as_str()) {
-                slot.external_format = Some(resolved_format);
-                changed = true;
-            }
-            if slot.external_uid.is_none() && desc.unique_id.is_some() {
-                slot.external_uid = desc.unique_id.clone();
-                changed = true;
-            }
-            if slot.external_plugin_version.is_none() && desc.version.is_some() {
-                slot.external_plugin_version = desc.version.clone();
-                changed = true;
-            }
-            if slot.external_audio_inputs != Some(desc.audio_inputs) {
-                slot.external_audio_inputs = Some(desc.audio_inputs);
-                changed = true;
-            }
-            if changed {
-                updated = updated.saturating_add(1);
-            }
+            normalize_slot(slot);
+        }
+    }
+    {
+        let mut slots = Vec::new();
+        if let Some(instr) = project.master_track.instrument.as_mut() {
+            slots.extend(instr.collect_plugin_slots_mut());
+        }
+        for fx in &mut project.master_track.effects {
+            slots.extend(fx.collect_plugin_slots_mut());
+        }
+        for slot in slots {
+            normalize_slot(slot);
         }
     }
 
@@ -213,6 +229,22 @@ fn count_missing_plugin_slots(project: &dream_models::project::Project) -> usize
                     .count(),
             );
         }
+    }
+    if let Some(inst) = &project.master_track.instrument {
+        count = count.saturating_add(
+            inst.collect_plugin_slots()
+                .iter()
+                .filter(|slot| slot.plugin_id.starts_with("missing://"))
+                .count(),
+        );
+    }
+    for fx in &project.master_track.effects {
+        count = count.saturating_add(
+            fx.collect_plugin_slots()
+                .iter()
+                .filter(|slot| slot.plugin_id.starts_with("missing://"))
+                .count(),
+        );
     }
     count
 }
@@ -274,6 +306,55 @@ fn auto_resolve_missing_external_plugin_slots(
     project: &mut dream_models::project::Project,
 ) -> MissingPluginAutoResolveStats {
     use dream_plugins::PluginScanner;
+
+    fn resolve_best_compact_fuzzy(
+        compact: &str,
+        by_name_compact: &std::collections::HashMap<String, dream_plugins::descriptor::PluginDescriptor>,
+        by_stem_compact: &std::collections::HashMap<String, dream_plugins::descriptor::PluginDescriptor>,
+    ) -> Option<dream_plugins::descriptor::PluginDescriptor> {
+        if compact.len() < 5 {
+            return None;
+        }
+
+        let mut best: Option<(usize, usize, String, String, dream_plugins::descriptor::PluginDescriptor)> =
+            None;
+        for (key, desc) in by_name_compact.iter().chain(by_stem_compact.iter()) {
+            let relation_score = if key == compact {
+                1_000usize
+            } else if key.starts_with(compact) || compact.starts_with(key) {
+                850usize
+            } else if key.contains(compact) || compact.contains(key) {
+                700usize
+            } else {
+                continue;
+            };
+
+            let distance_penalty = key.len().abs_diff(compact.len());
+            let score = relation_score.saturating_sub(distance_penalty.min(128));
+            let path_key = desc.path.to_string_lossy().to_ascii_lowercase();
+            let tie_key = key.clone();
+            let candidate = (score, distance_penalty, tie_key, path_key, desc.clone());
+            let should_replace = match &best {
+                None => true,
+                Some(current) => {
+                    candidate.0 > current.0
+                        || (candidate.0 == current.0 && candidate.1 < current.1)
+                        || (candidate.0 == current.0
+                            && candidate.1 == current.1
+                            && candidate.2 < current.2)
+                        || (candidate.0 == current.0
+                            && candidate.1 == current.1
+                            && candidate.2 == current.2
+                            && candidate.3 < current.3)
+                }
+            };
+            if should_replace {
+                best = Some(candidate);
+            }
+        }
+
+        best.map(|(_, _, _, _, desc)| desc)
+    }
 
     fn resolve_internal_from_missing_meta(
         slot: &dream_models::project::PluginSlot,
@@ -442,15 +523,15 @@ fn auto_resolve_missing_external_plugin_slots(
                                 resolved = Some(desc.clone());
                                 break;
                             }
-                            if resolved.is_none() && compact.len() >= 5 {
-                                if let Some(desc) = by_name_compact
-                                    .iter()
-                                    .find(|(k, _)| k.contains(&compact) || compact.contains(*k))
-                                    .map(|(_, v)| v.clone())
-                                {
-                                    resolved = Some(desc);
-                                    break;
-                                }
+                            if resolved.is_none()
+                                && let Some(desc) = resolve_best_compact_fuzzy(
+                                    &compact,
+                                    &by_name_compact,
+                                    &by_stem_compact,
+                                )
+                            {
+                                resolved = Some(desc);
+                                break;
                             }
                         }
                         if resolved.is_some() {
@@ -475,11 +556,11 @@ fn auto_resolve_missing_external_plugin_slots(
                         resolved = Some(desc.clone());
                         break;
                     }
-                    if compact.len() >= 5
-                        && let Some(desc) = by_name_compact
-                            .iter()
-                            .find(|(k, _)| k.contains(&compact) || compact.contains(*k))
-                            .map(|(_, v)| v.clone())
+                    if let Some(desc) = resolve_best_compact_fuzzy(
+                        &compact,
+                        &by_name_compact,
+                        &by_stem_compact,
+                    )
                     {
                         resolved = Some(desc);
                         break;
@@ -502,9 +583,143 @@ fn auto_resolve_missing_external_plugin_slots(
             if slot.external_audio_inputs.is_none() {
                 slot.external_audio_inputs = Some(desc.audio_inputs);
             }
-            if desc.format != dream_plugins::format::PluginFormat::VST3 {
-                slot.supports_sidechain_input = Some(desc.audio_inputs > 2);
+            slot.supports_sidechain_input = Some(desc.audio_inputs > 2);
+            slot.is_bypassed = false;
+            replaced_external += 1;
+        }
+    }
+    {
+        let mut slots = Vec::new();
+        if let Some(instr) = project.master_track.instrument.as_mut() {
+            slots.extend(instr.collect_plugin_slots_mut());
+        }
+        for fx in &mut project.master_track.effects {
+            slots.extend(fx.collect_plugin_slots_mut());
+        }
+
+        for slot in slots {
+            if !slot.plugin_id.starts_with("missing://") {
+                continue;
             }
+
+            let meta = parse_missing_query(&slot.plugin_id);
+            if let Some((internal_id, internal_name)) = resolve_internal_from_missing_meta(slot, &meta) {
+                slot.plugin_id = internal_id.to_string();
+                slot.name = internal_name.to_string();
+                slot.external_uid = None;
+                slot.external_format = None;
+                slot.external_audio_inputs = None;
+                slot.external_plugin_version = None;
+                slot.supports_sidechain_input = Some(false);
+                slot.is_bypassed = false;
+                replaced_internal += 1;
+                continue;
+            }
+
+            let mut resolved = None;
+            if resolved.is_none() && let Some(uid) = slot.external_uid.as_ref() {
+                resolved = by_uid.get(&normalize_lookup_key(uid)).cloned();
+            }
+            if resolved.is_none() {
+                for key in ["vst3path", "vst2path", "aupath"] {
+                    if let Some(path) = meta.get(key) {
+                        let normalized = normalize_lookup_key(path);
+                        if let Some(desc) = by_path.get(&normalized) {
+                            resolved = Some(desc.clone());
+                            break;
+                        }
+                        if let Some(stem) = std::path::Path::new(path)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(normalize_lookup_key)
+                            && let Some(desc) = by_stem.get(&stem)
+                        {
+                            resolved = Some(desc.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            if resolved.is_none() {
+                for key in ["vst3", "vst2", "au", "auname", "user", "name"] {
+                    if let Some(name) = meta.get(key) {
+                        for candidate in collect_name_variants(name) {
+                            let normalized = normalize_lookup_key(&candidate);
+                            if let Some(desc) =
+                                by_name.get(&normalized).or_else(|| by_stem.get(&normalized))
+                            {
+                                resolved = Some(desc.clone());
+                                break;
+                            }
+                            let compact = normalize_lookup_key_compact(&candidate);
+                            if let Some(desc) = by_name_compact
+                                .get(&compact)
+                                .or_else(|| by_stem_compact.get(&compact))
+                            {
+                                resolved = Some(desc.clone());
+                                break;
+                            }
+                            if resolved.is_none()
+                                && let Some(desc) = resolve_best_compact_fuzzy(
+                                    &compact,
+                                    &by_name_compact,
+                                    &by_stem_compact,
+                                )
+                            {
+                                resolved = Some(desc);
+                                break;
+                            }
+                        }
+                        if resolved.is_some() {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if resolved.is_none() {
+                for candidate in collect_name_variants(&slot.name) {
+                    let normalized = normalize_lookup_key(&candidate);
+                    if let Some(desc) = by_name.get(&normalized).or_else(|| by_stem.get(&normalized)) {
+                        resolved = Some(desc.clone());
+                        break;
+                    }
+                    let compact = normalize_lookup_key_compact(&candidate);
+                    if let Some(desc) = by_name_compact
+                        .get(&compact)
+                        .or_else(|| by_stem_compact.get(&compact))
+                    {
+                        resolved = Some(desc.clone());
+                        break;
+                    }
+                    if let Some(desc) = resolve_best_compact_fuzzy(
+                        &compact,
+                        &by_name_compact,
+                        &by_stem_compact,
+                    )
+                    {
+                        resolved = Some(desc);
+                        break;
+                    }
+                }
+            }
+
+            let Some(desc) = resolved else {
+                continue;
+            };
+            slot.plugin_id = desc.path.to_string_lossy().to_string();
+            slot.name = desc.name.clone();
+            slot.external_format = Some(desc.format.to_string().to_lowercase());
+            if slot.external_uid.is_none() {
+                slot.external_uid = desc.unique_id.clone();
+            }
+            if slot.external_plugin_version.is_none() {
+                slot.external_plugin_version = desc.version.clone();
+            }
+            if slot.external_audio_inputs.is_none() {
+                slot.external_audio_inputs = Some(desc.audio_inputs);
+            }
+            slot.supports_sidechain_input = Some(desc.audio_inputs > 2);
             slot.is_bypassed = false;
             replaced_external += 1;
         }

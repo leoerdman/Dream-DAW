@@ -201,7 +201,7 @@ export const VerticalMixerStrip = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 54 }}>
                 <span style={{
                     fontSize: 'var(--font-size-micro)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-role-data)',
                     color: 'var(--color-text-secondary)',
                     textAlign: 'right',
                 }}>
@@ -266,7 +266,7 @@ export const VerticalMixerStrip = ({
                 </div>
                 <span style={{
                     fontSize: 'var(--font-size-micro)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-role-data)',
                     color: 'var(--color-text-secondary)',
                     textAlign: 'right',
                 }}>

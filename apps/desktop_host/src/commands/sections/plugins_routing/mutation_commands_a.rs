@@ -50,9 +50,7 @@ fn add_plugin_to_track_impl(
             effective_plugin_name = desc.name.clone();
             external_plugin_format = Some(desc.format);
             external_audio_inputs = Some(desc.audio_inputs);
-            if desc.format != PluginFormat::VST3 {
-                external_supports_sidechain_input = Some(desc.audio_inputs > 2);
-            }
+            external_supports_sidechain_input = Some(desc.audio_inputs > 2);
         }
     }
 

@@ -28,8 +28,21 @@ export function mergeProjectHistory(
         return { history: current, cursor: currentCursor };
     }
     const firstSeq = delta[0].seq;
-    const shouldReplace = current.length === 0 || firstSeq <= currentCursor;
-    const merged = shouldReplace ? delta : [...current, ...delta];
+    let merged: ProjectHistoryEvent[];
+    if (current.length === 0) {
+        merged = delta;
+    } else if (firstSeq <= currentCursor) {
+        // BUG-009 FIX: Splice at the correct position instead of full replacement.
+        // Find the index where delta should start replacing, preserving history before it.
+        const spliceIdx = current.findIndex((e) => e.seq >= firstSeq);
+        if (spliceIdx >= 0) {
+            merged = [...current.slice(0, spliceIdx), ...delta];
+        } else {
+            merged = [...current, ...delta];
+        }
+    } else {
+        merged = [...current, ...delta];
+    }
     const history = merged.length > PROJECT_HISTORY_WINDOW
         ? merged.slice(-PROJECT_HISTORY_WINDOW)
         : merged;

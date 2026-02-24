@@ -102,6 +102,7 @@ pub(crate) fn invoke_handler()
         get_meters,
         get_meters_binary,
         get_project_history,
+        get_project_snapshot_delta,
         get_audio_chain_audit,
         get_pdc_debug_snapshot,
         get_rt_debug_snapshot,

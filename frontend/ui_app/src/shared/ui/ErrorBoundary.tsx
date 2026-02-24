@@ -169,7 +169,7 @@ const moduleNameStyle: React.CSSProperties = {
 
 const errorMsgStyle: React.CSSProperties = {
     fontSize: 'var(--font-size-xs)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     color: 'var(--color-text-tertiary)',
     maxWidth: 280,
     textAlign: 'center',

@@ -178,7 +178,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--color-bg-panel)' }}>
             <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 var(--space-2-5)', borderBottom: 'var(--space-px) solid var(--color-divider)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clip.name}</span>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{clipDurationBeats.toFixed(2)} beats</span>
+                <span style={{ fontFamily: 'var(--font-role-data)' }}>{clipDurationBeats.toFixed(2)} beats</span>
             </div>
 
             <ClipEditorShell sidebar={<SampleClipEditorSidebar

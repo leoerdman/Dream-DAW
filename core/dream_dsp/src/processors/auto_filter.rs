@@ -26,8 +26,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::zdf::{ZdfMode, ZdfSvf};
 
 pub struct AutoFilterProcessor {
@@ -62,6 +62,9 @@ pub struct AutoFilterProcessor {
     resonance_sm: SmoothedValue,
     mix_sm: SmoothedValue,
     drive_sm: SmoothedValue,
+    lfo_depth_sm: SmoothedValue,
+    env_amount_sm: SmoothedValue,
+    lfo_rate_sm: SmoothedValue,
 }
 
 impl AutoFilterProcessor {
@@ -98,6 +101,9 @@ impl AutoFilterProcessor {
             resonance_sm: SmoothedValue::new(sample_rate, 8.0, 0.25),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
             drive_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            lfo_depth_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            env_amount_sm: SmoothedValue::new(sample_rate, 10.0, 0.3),
+            lfo_rate_sm: SmoothedValue::new(sample_rate, 10.0, 1.0),
         }
     }
 
@@ -116,6 +122,9 @@ impl AutoFilterProcessor {
             self.resonance_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
             self.drive_sm.set_sample_rate(sr);
+            self.lfo_depth_sm.set_sample_rate(sr);
+            self.env_amount_sm.set_sample_rate(sr);
+            self.lfo_rate_sm.set_sample_rate(sr);
         }
     }
 
@@ -193,12 +202,15 @@ impl DspProcessor for AutoFilterProcessor {
 
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
-        let lfo_inc = self.lfo_rate as f64 / sr as f64;
         let lfo_stereo_phase_offset = 0.20f32;
         let zdf_mode = Self::zdf_mode(self.filter_type);
         self.resonance_sm.set_target(self.resonance.clamp(0.0, 1.0));
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
         self.drive_sm.set_target(self.drive_lin.max(0.0));
+        self.lfo_depth_sm.set_target(self.lfo_depth.clamp(0.0, 1.0));
+        self.env_amount_sm
+            .set_target(self.env_amount.clamp(-1.0, 1.0));
+        self.lfo_rate_sm.set_target(self.lfo_rate.clamp(0.01, 20.0));
 
         let max_range = (20000.0_f32 / 20.0).log2(); // ≈ 9.97
 
@@ -208,14 +220,17 @@ impl DspProcessor for AutoFilterProcessor {
             let zdf_res = (self.resonance_sm.next_value() * 0.98).clamp(0.0, 0.98);
             let mix = self.mix_sm.next_value();
             let drive = self.drive_sm.next_value();
+            let lfo_depth = self.lfo_depth_sm.next_value();
+            let env_amount = self.env_amount_sm.next_value();
+            let lfo_rate = self.lfo_rate_sm.next_value();
 
             // Envelope follower
             // BUG-C04 FIX: Attack path now uses smoothed attack coefficient instead
             // of instant jump. Prevents cutoff slam on single loud clicks/pops.
             let peak = dry_l.abs().max(dry_r.abs());
             if peak > self.env_follower {
-                self.env_follower =
-                    self.env_attack_coeff * self.env_follower + (1.0 - self.env_attack_coeff) * peak;
+                self.env_follower = self.env_attack_coeff * self.env_follower
+                    + (1.0 - self.env_attack_coeff) * peak;
             } else {
                 self.env_follower =
                     self.env_coeff * self.env_follower + (1.0 - self.env_coeff) * peak;
@@ -230,7 +245,7 @@ impl DspProcessor for AutoFilterProcessor {
             } else {
                 self.lfo_value((phase + lfo_stereo_phase_offset).fract())
             };
-            self.lfo_phase += lfo_inc;
+            self.lfo_phase += lfo_rate as f64 / sr as f64;
             self.lfo_phase = self.lfo_phase.fract();
 
             // Smooth cutoff target per sample to avoid zipper artifacts during automation.
@@ -239,10 +254,10 @@ impl DspProcessor for AutoFilterProcessor {
 
             // Modulated cutoff (log scale).
             let base_log_cutoff = (self.cutoff_smooth_hz / 20.0).max(1.0).log2();
-            let mod_offset_l = lfo_l * self.lfo_depth * max_range * 0.5
-                + self.env_follower * self.env_amount * max_range;
-            let mod_offset_r = lfo_r * self.lfo_depth * max_range * 0.5
-                + self.env_follower * self.env_amount * max_range;
+            let mod_offset_l =
+                lfo_l * lfo_depth * max_range * 0.5 + self.env_follower * env_amount * max_range;
+            let mod_offset_r =
+                lfo_r * lfo_depth * max_range * 0.5 + self.env_follower * env_amount * max_range;
             let nyq_safe_max = (sr * 0.45).max(40.0);
             let mod_cutoff_l = (20.0
                 * 2.0_f32.powf((base_log_cutoff + mod_offset_l).clamp(0.0, max_range)))
@@ -311,9 +326,16 @@ impl DspProcessor for AutoFilterProcessor {
         self.sh_rng_state = 0xDEAD_BEEF;
         // BUG-H19 FIX: Reset cutoff smoother to prevent old-value artifact on re-start.
         self.cutoff_smooth_hz = self.cutoff_target_hz;
-        self.resonance_sm.set_instant(self.resonance.clamp(0.0, 1.0));
+        self.resonance_sm
+            .set_instant(self.resonance.clamp(0.0, 1.0));
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
         self.drive_sm.set_instant(self.drive_lin.max(0.0));
+        self.lfo_depth_sm
+            .set_instant(self.lfo_depth.clamp(0.0, 1.0));
+        self.env_amount_sm
+            .set_instant(self.env_amount.clamp(-1.0, 1.0));
+        self.lfo_rate_sm
+            .set_instant(self.lfo_rate.clamp(0.01, 20.0));
     }
 }
 
@@ -382,6 +404,9 @@ mod tests {
                 d * d
             })
             .sum();
-        assert!(diff_energy > 1.0e-6, "Stereo LFO should decorrelate channels");
+        assert!(
+            diff_energy > 1.0e-6,
+            "Stereo LFO should decorrelate channels"
+        );
     }
 }

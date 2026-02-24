@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
+pub use crate::offline_bounce_types::{BounceConfig, BounceError};
 
 use log::info;
 
@@ -91,82 +92,6 @@ struct RenderRoutingCtx<'a> {
     /// Loop region for MIDI scheduling (if loop enabled).
     loop_region: Option<ClipLoopRegion>,
 }
-
-// ── Bounce Configuration ────────────────────────────────────────────────
-
-/// Configuration for an offline bounce operation.
-#[derive(Debug, Clone)]
-pub struct BounceConfig {
-    /// Output file path (e.g., "/Users/user/Desktop/my_mix.wav").
-    pub output_path: String,
-
-    /// Sample rate for the output file (Hz).
-    pub sample_rate: u32,
-
-    /// Bit depth: 16, 24, or 32 (float). Ignored for MP3.
-    pub bit_depth: u16,
-
-    /// Start frame of the bounce region (0 = project start).
-    /// NOTE: frames are in the **project** sample-rate domain.
-    pub start_frame: i64,
-
-    /// End frame of the bounce region (total project length).
-    /// NOTE: frames are in the **project** sample-rate domain.
-    pub end_frame: i64,
-
-    /// Whether to normalize the output to 0 dBFS.
-    pub normalize: bool,
-
-    /// Whether to apply a tail (extra silence at end for reverb tails).
-    /// Value in frames.
-    pub tail_frames: i64,
-
-    /// Output format: "wav" or "mp3". Defaults to "wav" if unset.
-    pub format: String,
-
-    /// The project's internal sample rate (Hz).
-    /// Clip positions and durations are stored in this domain.
-    pub project_sample_rate: f64,
-
-    /// Project tempo in BPM. Used for VST3 transport context.
-    pub bpm: f64,
-}
-
-impl BounceConfig {
-    /// Total frames to render (including tail).
-    /// BUG-FIX: Use saturating arithmetic to prevent i64 overflow when
-    /// end_frame is very large and tail_frames is added.
-    pub fn total_frames(&self) -> i64 {
-        (self.end_frame - self.start_frame).saturating_add(self.tail_frames)
-    }
-}
-
-// ── Bounce Error ───────────────────────────────────────────────────────
-
-/// Errors during the bounce process.
-#[derive(Debug)]
-pub enum BounceError {
-    /// Invalid configuration (e.g., end < start).
-    InvalidConfig(String),
-
-    /// WAV write failure.
-    WriteError(String),
-
-    /// Render failure.
-    RenderError(String),
-}
-
-impl std::fmt::Display for BounceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidConfig(e) => write!(f, "Invalid bounce config: {e}"),
-            Self::WriteError(e) => write!(f, "WAV write error: {e}"),
-            Self::RenderError(e) => write!(f, "Render error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for BounceError {}
 
 // ── Offline Bouncer ─────────────────────────────────────────────────────
 
@@ -245,12 +170,16 @@ impl OfflineBouncer {
                 .map(|slots| {
                     slots
                         .iter()
-                        .filter(|slot| slot.internal_slot_index.is_none() && slot.instance_id.is_some())
+                        .filter(|slot| {
+                            slot.internal_slot_index.is_none() && slot.instance_id.is_some()
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
-            let runtime_slot_ids: std::collections::HashSet<Uuid> =
-                runtime_external_slots.iter().filter_map(|slot| slot.slot_id).collect();
+            let runtime_slot_ids: std::collections::HashSet<Uuid> = runtime_external_slots
+                .iter()
+                .filter_map(|slot| slot.slot_id)
+                .collect();
 
             let mut has_exact_match = false;
             for slot_id in declared_slot_ids {
@@ -294,14 +223,17 @@ impl OfflineBouncer {
                 .map(|slots| {
                     slots
                         .iter()
-                        .filter(|slot| slot.internal_slot_index.is_none() && slot.instance_id.is_some())
+                        .filter(|slot| {
+                            slot.internal_slot_index.is_none() && slot.instance_id.is_some()
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
-            let master_runtime_slot_ids: std::collections::HashSet<Uuid> = master_runtime_external_slots
-                .iter()
-                .filter_map(|slot| slot.slot_id)
-                .collect();
+            let master_runtime_slot_ids: std::collections::HashSet<Uuid> =
+                master_runtime_external_slots
+                    .iter()
+                    .filter_map(|slot| slot.slot_id)
+                    .collect();
             let mut master_has_exact_match = false;
             for slot_id in master_declared_slot_ids {
                 if !master_runtime_slot_ids.contains(&slot_id) {
@@ -816,7 +748,6 @@ impl OfflineBouncer {
                         .cmp(&b.sample_offset)
                         .then_with(|| a.data[0].cmp(&b.data[0]))
                 });
-
             }
 
             // Audio leaves must have spawned audio. Groups might accumulate audio.

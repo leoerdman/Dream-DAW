@@ -59,9 +59,13 @@ pub struct CompressorProcessor {
     // Cached coefficients
     attack_coeff: f32,
     release_coeff: f32,
+    /// Slower release coefficient used for program-dependent release blending.
+    release_slow_coeff: f32,
     sample_rate: f32,
     threshold_sm_db: SmoothedValue,
     mix_sm: SmoothedValue,
+    ratio_sm: SmoothedValue,
+    knee_sm_db: SmoothedValue,
     /// Cached RMS coefficient — only recalculated on SR change.
     rms_coeff: f32,
     // Fixed internal lookahead (pre-allocated; zero RT allocs).
@@ -97,9 +101,12 @@ impl CompressorProcessor {
             sc_hp_coeff: 0.0,
             attack_coeff: 0.0,
             release_coeff: 0.0,
+            release_slow_coeff: 0.0,
             sample_rate,
             threshold_sm_db: SmoothedValue::new(sample_rate, 10.0, -18.0),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            ratio_sm: SmoothedValue::new(sample_rate, 10.0, 4.0),
+            knee_sm_db: SmoothedValue::new(sample_rate, 10.0, 6.0),
             rms_coeff: 0.0,
             lookahead_ms: DEFAULT_LOOKAHEAD_MS,
             lookahead_samples: 0,
@@ -133,8 +140,16 @@ impl CompressorProcessor {
             } else {
                 0.0 // Instant release
             };
-            self.lookahead_samples = ((self.lookahead_ms * 0.001 * sr) as usize)
-                .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+            // Program-dependent release companion:
+            // under heavy GR, release gets slower to reduce pumping/chatter.
+            let slow_release_sec = (release_sec * 2.5).min(5.0);
+            self.release_slow_coeff = if slow_release_sec > 0.0 {
+                (-2.2 / (slow_release_sec * sr)).exp()
+            } else {
+                0.0
+            };
+            self.lookahead_samples =
+                ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
         }
     }
 
@@ -179,10 +194,12 @@ impl CompressorProcessor {
             self.update_rms_coeff();
             self.threshold_sm_db.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
+            self.ratio_sm.set_sample_rate(sr);
+            self.knee_sm_db.set_sample_rate(sr);
             // BUG-C09 FIX: Recalculate lookahead_samples on SR change.
             // Without this, the lookahead in ms drifts across sample rates.
-            self.lookahead_samples = ((self.lookahead_ms * 0.001 * sr) as usize)
-                .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+            self.lookahead_samples =
+                ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
             // BUG-H05 FIX: Reset la_filled so the lookahead buffer refills
             // correctly at the new sample rate. Without this, la_filled
             // retains the old value and may exceed the new lookahead_samples,
@@ -211,9 +228,7 @@ impl CompressorProcessor {
 
     /// Soft-knee gain computation.
     #[inline]
-    fn compute_gain_reduction(&self, input_db: f32, threshold: f32) -> f32 {
-        let ratio = self.ratio;
-        let knee = self.knee_db;
+    fn compute_gain_reduction(input_db: f32, threshold: f32, ratio: f32, knee: f32) -> f32 {
         if knee <= 1.0e-6 {
             // Hard-knee fallback prevents division-by-zero when knee = 0.
             if input_db <= threshold {
@@ -246,9 +261,12 @@ impl DspProcessor for CompressorProcessor {
         let len = left.len().min(right.len());
         let attack = self.attack_coeff;
         let release = self.release_coeff;
+        let release_slow = self.release_slow_coeff;
         let makeup = self.compute_auto_makeup();
         self.threshold_sm_db.set_target(self.threshold_db);
         self.mix_sm.set_target(self.mix);
+        self.ratio_sm.set_target(self.ratio);
+        self.knee_sm_db.set_target(self.knee_db);
         // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
         let rms_coeff = self.rms_coeff;
 
@@ -259,6 +277,8 @@ impl DspProcessor for CompressorProcessor {
             self.la_buf_r[self.la_pos] = dry_r;
             let threshold_db = self.threshold_sm_db.next_value();
             let mix = self.mix_sm.next_value();
+            let ratio = self.ratio_sm.next_value().clamp(1.0, 20.0);
+            let knee = self.knee_sm_db.next_value().clamp(0.0, 24.0);
             let dry_mix = 1.0 - mix;
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
@@ -290,11 +310,16 @@ impl DspProcessor for CompressorProcessor {
 
             let input_db = Self::linear_to_db(detection);
 
-            // Envelope
+            // Envelope with program-dependent release:
+            // deeper GR => slower release (musical, less pumping).
+            let gr_probe_db =
+                -Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            let rel_blend = (gr_probe_db / 24.0).clamp(0.0, 1.0);
+            let release_dyn = release + (release_slow - release) * rel_blend;
             let coeff = if input_db > self.envelope_db {
                 attack
             } else {
-                release
+                release_dyn
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
             // SSOT: Flush denormals in envelope/RMS state.
@@ -304,9 +329,12 @@ impl DspProcessor for CompressorProcessor {
             // path too. Previously only the sidechain path flushed these.
             crate::processors::flush_denormal!(self.sc_hp_state_l);
             crate::processors::flush_denormal!(self.sc_hp_state_r);
+            // BUG-027b FIX: Flush sc_hp_prev too — same pattern as gate.rs BUG-027.
+            crate::processors::flush_denormal!(self.sc_hp_prev_l);
+            crate::processors::flush_denormal!(self.sc_hp_prev_r);
 
             // Gain computation (with soft knee)
-            let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
+            let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
             let gain = Self::db_to_linear(gain_db) * makeup;
 
             let read_pos =
@@ -342,9 +370,12 @@ impl DspProcessor for CompressorProcessor {
         let len = left.len().min(right.len());
         let attack = self.attack_coeff;
         let release = self.release_coeff;
+        let release_slow = self.release_slow_coeff;
         let makeup = self.compute_auto_makeup();
         self.threshold_sm_db.set_target(self.threshold_db);
         self.mix_sm.set_target(self.mix);
+        self.ratio_sm.set_target(self.ratio);
+        self.knee_sm_db.set_target(self.knee_db);
         // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
         let rms_coeff = self.rms_coeff;
 
@@ -355,6 +386,8 @@ impl DspProcessor for CompressorProcessor {
             self.la_buf_r[self.la_pos] = dry_r;
             let threshold_db = self.threshold_sm_db.next_value();
             let mix = self.mix_sm.next_value();
+            let ratio = self.ratio_sm.next_value().clamp(1.0, 20.0);
+            let knee = self.knee_sm_db.next_value().clamp(0.0, 24.0);
             let dry_mix = 1.0 - mix;
 
             let sc_src_l = sidechain_left
@@ -391,10 +424,14 @@ impl DspProcessor for CompressorProcessor {
             };
 
             let input_db = Self::linear_to_db(detection);
+            let gr_probe_db =
+                -Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
+            let rel_blend = (gr_probe_db / 24.0).clamp(0.0, 1.0);
+            let release_dyn = release + (release_slow - release) * rel_blend;
             let coeff = if input_db > self.envelope_db {
                 attack
             } else {
-                release
+                release_dyn
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
             // SSOT: Flush denormals in envelope/RMS/SC-HPF state.
@@ -402,8 +439,11 @@ impl DspProcessor for CompressorProcessor {
             crate::processors::flush_denormal!(self.rms_state);
             crate::processors::flush_denormal!(self.sc_hp_state_l);
             crate::processors::flush_denormal!(self.sc_hp_state_r);
+            // BUG-027b FIX: Flush sc_hp_prev too — same pattern as gate.rs BUG-027.
+            crate::processors::flush_denormal!(self.sc_hp_prev_l);
+            crate::processors::flush_denormal!(self.sc_hp_prev_r);
 
-            let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
+            let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
             let gain = Self::db_to_linear(gain_db) * makeup;
 
             let read_pos =
@@ -472,6 +512,8 @@ impl DspProcessor for CompressorProcessor {
         self.la_buf_r.fill(0.0);
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.mix_sm.set_instant(self.mix);
+        self.ratio_sm.set_instant(self.ratio);
+        self.knee_sm_db.set_instant(self.knee_db);
     }
 
     fn latency_samples(&self) -> usize {
@@ -522,5 +564,28 @@ mod tests {
         let mut l = vec![0.3f32; 1024];
         let mut r = vec![0.3f32; 1024];
         proc.process_stereo(&mut l, &mut r, 44100.0);
+    }
+
+    #[test]
+    fn compressor_program_dependent_release_is_stable() {
+        let mut proc = CompressorProcessor::new(48000.0);
+        proc.set_param(0, -24.0);
+        proc.set_param(1, 12.0);
+        proc.set_param(2, 2.0);
+        proc.set_param(3, 120.0);
+        proc.set_param(8, 0.0); // manual makeup
+        proc.set_param(5, 0.0);
+
+        let mut l = vec![0.0f32; 8192];
+        let mut r = vec![0.0f32; 8192];
+        // Loud block then silence to exercise release trajectory.
+        for i in 0..4096 {
+            l[i] = 0.95;
+            r[i] = 0.95;
+        }
+        proc.process_stereo(&mut l, &mut r, 48000.0);
+        for s in l.iter().chain(r.iter()) {
+            assert!(s.is_finite(), "non-finite sample: {s}");
+        }
     }
 }

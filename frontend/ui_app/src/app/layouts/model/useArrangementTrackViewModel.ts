@@ -4,6 +4,7 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 
 type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 
@@ -69,11 +70,9 @@ export function useArrangementTrackViewModel({
     }, [selectedTrackId, bottomPanelModeByTrack, setBottomPanelMode]);
 
     useEffect(() => {
-        window.__dreamSelectedTrackId = selectedTrackId;
+        dreamGlobals.setSelectedTrackId(selectedTrackId);
         return () => {
-            if (window.__dreamSelectedTrackId === selectedTrackId) {
-                delete window.__dreamSelectedTrackId;
-            }
+            dreamGlobals.clearSelectedTrackId(selectedTrackId);
         };
     }, [selectedTrackId]);
 

@@ -104,7 +104,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                 <div style={{ position: 'sticky', top: 0, left: 0, width: canvasWidth, height: RULER_HEIGHT, zIndex: 'var(--z-sticky)' as unknown as number, background: 'var(--color-bg-tertiary)', borderBottom: 'var(--space-px) solid var(--color-divider)', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 0, left: 0, width: clipBeats * pixelsPerBeat, height: 3, background: color, opacity: 0.65 }} />
                     {rulerBeatLabels.map((label, idx) => (
-                        <span key={`ruler-${idx}`} style={{ position: 'absolute', left: label.x + 5, top: 6, fontSize: 'var(--font-size-2xs)', color: label.isBarStart ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: label.isBarStart ? 700 : 500, fontFamily: 'var(--font-mono)', pointerEvents: 'none', userSelect: 'none' }}>{label.text}</span>
+                        <span key={`ruler-${idx}`} style={{ position: 'absolute', left: label.x + 5, top: 6, fontSize: 'var(--font-size-2xs)', color: label.isBarStart ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: label.isBarStart ? 700 : 500, fontFamily: 'var(--font-role-data)', pointerEvents: 'none', userSelect: 'none' }}>{label.text}</span>
                     ))}
                     {gridLines.map((gl, idx) => (
                         <div key={`tick-${idx}`} style={{ position: 'absolute', left: gl.x, bottom: 0, width: 1, height: gl.isBar ? 10 : 5, background: gl.isBar ? 'var(--color-grid-line-major)' : 'var(--color-grid-line)' }} />

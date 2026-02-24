@@ -1,5 +1,10 @@
 use super::*;
 use dream_models::project::{DeviceNode, PluginSlot, Project, Track, TrackType};
+use uuid::Uuid;
+
+fn unique_temp_audio_path(prefix: &str, ext: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("{prefix}_{}.{}", Uuid::new_v4().simple(), ext))
+}
 
 fn make_test_project() -> Project {
     use dream_models::time::AbsoluteTime;
@@ -143,7 +148,7 @@ fn bounce_rejects_invalid_bit_depth() {
 
 #[test]
 fn bounce_silence_produces_wav() {
-    let out_path = std::env::temp_dir().join("dream_bounce_test.wav");
+    let out_path = unique_temp_audio_path("dream_bounce_test", "wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
         sample_rate: 44100,
@@ -179,7 +184,7 @@ fn bounce_silence_produces_wav() {
 
 #[test]
 fn bounce_with_normalization() {
-    let out_path = std::env::temp_dir().join("dream_bounce_norm_test.wav");
+    let out_path = unique_temp_audio_path("dream_bounce_norm_test", "wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
         sample_rate: 44100,
@@ -205,7 +210,7 @@ fn bounce_with_normalization() {
 
 #[test]
 fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing() {
-    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_binding.wav");
+    let out_path = unique_temp_audio_path("dream_bounce_missing_vst_binding", "wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
         sample_rate: 44100,
@@ -230,14 +235,17 @@ fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing(
         result.is_ok(),
         "expected best-effort bounce success for missing VST runtime binding, got {result:?}"
     );
-    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
+    assert!(
+        std::fs::metadata(&out_path).is_ok(),
+        "expected output file to be written"
+    );
 
     let _ = std::fs::remove_file(&out_path);
 }
 
 #[test]
 fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track() {
-    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_track_fx_binding.wav");
+    let out_path = unique_temp_audio_path("dream_bounce_missing_vst_track_fx_binding", "wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
         sample_rate: 44100,
@@ -260,14 +268,17 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track
         result.is_ok(),
         "expected best-effort bounce success for missing track FX runtime binding, got {result:?}"
     );
-    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
+    assert!(
+        std::fs::metadata(&out_path).is_ok(),
+        "expected output file to be written"
+    );
 
     let _ = std::fs::remove_file(&out_path);
 }
 
 #[test]
 fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_master() {
-    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_master_fx_binding.wav");
+    let out_path = unique_temp_audio_path("dream_bounce_missing_vst_master_fx_binding", "wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
         sample_rate: 44100,
@@ -290,7 +301,10 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_maste
         result.is_ok(),
         "expected best-effort bounce success for missing master FX runtime binding, got {result:?}"
     );
-    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
+    assert!(
+        std::fs::metadata(&out_path).is_ok(),
+        "expected output file to be written"
+    );
 
     let _ = std::fs::remove_file(&out_path);
 }

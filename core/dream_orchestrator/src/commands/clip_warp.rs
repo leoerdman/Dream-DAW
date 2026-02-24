@@ -122,14 +122,14 @@ impl Command for SetClipWarpCommand {
                         }
                     }
                 } else {
-                    let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones.clamp(-48.0, 48.0) / 12.0);
+                    let pitch_multiplier =
+                        2.0_f64.powf(clip.pitch_shift_semitones.clamp(-48.0, 48.0) / 12.0);
                     let source_len_timeline = source_to_timeline_frames(
                         clip.warp_source_duration_frames,
                         source_sr,
                         timeline_sr,
                     );
-                    let new_frames = (source_len_timeline / pitch_multiplier)
-                        .round() as i64;
+                    let new_frames = (source_len_timeline / pitch_multiplier).round() as i64;
                     clip.duration = AbsoluteTime::new(new_frames.max(1));
                     // BUG-C03 FIX: Preserve warp markers when disabling warp.
                     // Previously markers were cleared, destroying user-placed markers.

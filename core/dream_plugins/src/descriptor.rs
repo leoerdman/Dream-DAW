@@ -63,9 +63,40 @@ pub struct PluginDescriptor {
 }
 
 impl PluginDescriptor {
+    fn stable_id_from_path(path: &std::path::Path) -> Uuid {
+        // Deterministic, dependency-free 128-bit ID derived from normalized path.
+        // We avoid UUID v5 API so this remains compatible with the current
+        // workspace `uuid` feature set.
+        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+        const SALT_A: u64 = 0x9e3779b97f4a7c15;
+        const SALT_B: u64 = 0xbf58476d1ce4e5b9;
+
+        fn fnv1a64(mut state: u64, bytes: &[u8]) -> u64 {
+            for b in bytes {
+                state ^= u64::from(*b);
+                state = state.wrapping_mul(FNV_PRIME);
+            }
+            state
+        }
+
+        let normalized = path.to_string_lossy().to_ascii_lowercase();
+        let bytes = normalized.as_bytes();
+        let h1 = fnv1a64(FNV_OFFSET ^ SALT_A, bytes);
+        let h2 = fnv1a64(FNV_OFFSET ^ SALT_B, bytes);
+
+        let mut id_bytes = [0u8; 16];
+        id_bytes[..8].copy_from_slice(&h1.to_be_bytes());
+        id_bytes[8..].copy_from_slice(&h2.to_be_bytes());
+        Uuid::from_bytes(id_bytes)
+    }
+
     #[cfg(target_os = "macos")]
     fn is_runtime_supported(format: PluginFormat) -> bool {
-        matches!(format, PluginFormat::VST2 | PluginFormat::VST3 | PluginFormat::AudioUnit)
+        matches!(
+            format,
+            PluginFormat::VST2 | PluginFormat::VST3 | PluginFormat::AudioUnit
+        )
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -81,8 +112,10 @@ impl PluginDescriptor {
         category: PluginCategory,
         path: PathBuf,
     ) -> Self {
+        // Stable descriptor identity across scans/sessions keyed by path.
+        let stable_id = Self::stable_id_from_path(&path);
         Self {
-            id: Uuid::new_v4(),
+            id: stable_id,
             name: name.into(),
             vendor: vendor.into(),
             format,

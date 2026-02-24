@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import type { ProjectDelta } from '@/shared/api/engine';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 
 type MidiEnvelopePoint = { beat: number; value: number };
 type MidiEnvelope = { paramId: string; points: MidiEnvelopePoint[] };
@@ -76,13 +77,14 @@ export function usePendingMidiFlush({
     ]);
 
     useEffect(() => {
-        window.__dreamFlushPendingEdits = async () => {
+        const flushPendingEdits = async () => {
             await flushTrackControlFinals();
             await flushPendingMidiEdits();
         };
+        dreamGlobals.setFlushPendingEdits(flushPendingEdits);
 
         return () => {
-            delete window.__dreamFlushPendingEdits;
+            dreamGlobals.clearFlushPendingEdits(flushPendingEdits);
         };
     }, [flushTrackControlFinals, flushPendingMidiEdits]);
 }

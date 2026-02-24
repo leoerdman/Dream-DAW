@@ -3,7 +3,7 @@ import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { renderStandardDistNoiseSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardDistNoise';
 import { renderStandardAnalyzerMidiSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardAnalyzerMidi';
 import { renderStandardUtilityCompressorSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardUtilityCompressor';
-import { renderStandardTimeSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardTime';
+import { renderTimeToneSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardTimeTone';
 import { renderStandardDynamicsModSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardDynamicsMod';
 import type { SurfaceHandlers } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
@@ -11,7 +11,7 @@ export function renderStandardPluginGuiSurface(device: DeviceSlot, handlers: Sur
     const utilityCompressorSurface = renderStandardUtilityCompressorSurface(device, handlers);
     if (utilityCompressorSurface) return utilityCompressorSurface;
 
-    const timeSurface = renderStandardTimeSurface(device, handlers);
+    const timeSurface = renderTimeToneSurface(device, handlers);
     if (timeSurface) return timeSurface;
 
     const dynamicsModSurface = renderStandardDynamicsModSurface(device, handlers);

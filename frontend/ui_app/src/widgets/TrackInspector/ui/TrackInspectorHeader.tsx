@@ -21,7 +21,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: 'var(--color-text-secondary)',
-                    letterSpacing: '0.var(--token-size-px-5)',
+                    letterSpacing: 'var(--letter-spacing-wide)',
                     textTransform: 'uppercase',
                 }}
             >
@@ -33,7 +33,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                         marginLeft: 6,
                         fontSize: 'var(--font-size-micro)',
                         fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                        fontFamily: 'var(--font-mono)',
+                        fontFamily: 'var(--font-role-data)',
                         color: 'var(--color-accent-primary)',
                         background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',
                         border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 36%, transparent)',

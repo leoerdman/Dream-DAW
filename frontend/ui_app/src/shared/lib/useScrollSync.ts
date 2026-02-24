@@ -40,7 +40,7 @@ class ScrollSyncManager {
      * but not itself.
      */
     setScrollY(value: number, source: ScrollSource): void {
-        if (Math.abs(value - this._scrollY) < 0.5) return; // dead-zone
+        if (Math.abs(value - this._scrollY) < 0.01) return;
         this._scrollY = value;
         for (const sub of this._subscribers) {
             if (sub.source !== source) {
@@ -80,6 +80,8 @@ class ScrollSyncManager {
     subscribe(source: ScrollSource, listener: ScrollListener): () => void {
         const sub: Subscription = { source, listener };
         this._subscribers.push(sub);
+        // New subscribers must immediately align with current SSOT position.
+        listener(this._scrollY);
         return () => {
             const idx = this._subscribers.indexOf(sub);
             if (idx >= 0) this._subscribers.splice(idx, 1);

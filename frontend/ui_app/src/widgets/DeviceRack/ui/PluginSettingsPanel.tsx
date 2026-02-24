@@ -245,7 +245,7 @@ export const PluginSettingsPanel = ({
                 }}>
                     {/* BUG-47 FIX: Show actual total count when filter matches nothing */}
                     <span>{baseParams.length > 0 ? `No parameters match filter (${baseParams.length} total)` : 'No exported params'}</span>
-                    <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-role-data)' }}>
                         {baseParams.length} params
                     </span>
                 </div>

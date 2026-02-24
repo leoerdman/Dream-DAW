@@ -19,6 +19,7 @@ pub struct AudioClipState {
     pub is_warped: bool,
     pub warp_mode: Option<i32>,
     pub warp_base_bpm: f64,
+    pub warp_source_duration_frames: i64,
 }
 
 impl Query for ResolveAudioClipStateQuery {
@@ -46,6 +47,7 @@ impl Query for ResolveAudioClipStateQuery {
             is_warped: clip.is_warped,
             warp_mode: clip.warp_mode,
             warp_base_bpm: clip.warp_base_bpm,
+            warp_source_duration_frames: clip.warp_source_duration_frames,
         })
     }
 }

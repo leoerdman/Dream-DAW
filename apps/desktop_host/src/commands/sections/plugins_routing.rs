@@ -300,11 +300,7 @@ fn replace_missing_plugin_slot_impl(
         replacement_plugin_id: replacement_plugin_id.clone(),
         replacement_plugin_name: replacement_name,
         external_audio_inputs: Some(descriptor.audio_inputs),
-        supports_sidechain_input: if descriptor.format != PluginFormat::VST3 {
-            Some(descriptor.audio_inputs > 2)
-        } else {
-            None
-        },
+        supports_sidechain_input: Some(descriptor.audio_inputs > 2),
         external_format: Some(descriptor.format.to_string().to_lowercase()),
         external_uid: descriptor.unique_id.clone(),
         external_plugin_version: descriptor.version.clone(),
@@ -399,8 +395,9 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
-    let track_uuid = Uuid::parse_str(&payload.track_id)
-        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let track_id_raw = payload.track_id.clone();
+    let track_id = Uuid::parse_str(&track_id_raw)
+        .map_err(|_| format!("Invalid track_id: {}", track_id_raw))?;
     let cmd_result = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
@@ -409,25 +406,15 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
         &app,
     )?;
 
-    // Replace is represented as remove+add to keep reducer semantics simple and
-    // avoid full project snapshot refreshes for a single-slot mutation.
-    let deltas = vec![
-        dream_models::delta::ProjectDelta::PluginRemoved {
-            track_id: track_uuid,
-            slot_id: cmd_result.slot_id,
-        },
-        dream_models::delta::ProjectDelta::PluginAdded {
-            track_id: track_uuid,
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::PluginAdded {
+            track_id,
             slot_id: cmd_result.slot_id,
             slot_index: cmd_result.slot_index,
             is_instrument: cmd_result.is_instrument,
             plugin_name: cmd_result.plugin_name,
             plugin_uid: cmd_result.plugin_uid,
-        },
-    ];
-
-    Ok(DeltaMutationResponse {
-        deltas,
+        }],
     })
 }
 

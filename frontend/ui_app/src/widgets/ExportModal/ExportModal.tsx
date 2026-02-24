@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { ModalOverlay } from '@/shared/ui/ModalOverlay';
 import { ExportModalPanel } from './ExportModalPanel';
 import {
     DIALOG_FILTERS,
@@ -211,19 +212,7 @@ export const ExportModal = ({
     if (!isOpen) return null;
 
     return (
-        <>
-            <div
-                onClick={isSubmitting ? undefined : onClose}
-                style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 'var(--z-modal)' as unknown as number,
-                    background: 'var(--color-overlay-modal)',
-                    backdropFilter: 'blur(var(--space-1))',
-                    WebkitBackdropFilter: 'blur(var(--space-1))',
-                }}
-            />
-
+        <ModalOverlay open={isOpen} onBackdropClick={isSubmitting ? undefined : onClose}>
             <ExportModalPanel
                 isSubmitting={isSubmitting}
                 onClose={onClose}
@@ -245,6 +234,6 @@ export const ExportModal = ({
                 bounceError={bounceError}
                 onBounce={handleBounce}
             />
-        </>
+        </ModalOverlay>
     );
 };

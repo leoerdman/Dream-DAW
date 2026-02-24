@@ -223,7 +223,7 @@ export function PluginGuiSurfaceEqCanvas({
                     </>
                 )}
                 {enabledBands.length === 0 && (
-                    <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="color-mix(in srgb, var(--color-text-primary) 34%, transparent)" fontSize="10" fontFamily="var(--font-sans)">
+                    <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="color-mix(in srgb, var(--color-text-primary) 34%, transparent)" fontSize="10" fontFamily="var(--font-role-body)">
                         Double-click to add EQ point
                     </text>
                 )}
@@ -248,7 +248,7 @@ export function PluginGuiSurfaceEqCanvas({
                 {[-24, -18, -12, -6, 0, 6, 12, 18, 24].map((db) => (
                     <div key={`dblabel-${db}`} style={{
                         position: 'absolute', left: `${((MARGIN_L + 2) / VB_W) * 100}%`, top: `${((gainToY(db) - 5) / VB_H) * 100}%`,
-                        fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-sans)',
+                        fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-role-body)',
                         color: db === 0 ? 'color-mix(in srgb, var(--color-text-primary) 86%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 62%, transparent)',
                         whiteSpace: 'nowrap', lineHeight: 1,
                     }}>
@@ -260,7 +260,7 @@ export function PluginGuiSurfaceEqCanvas({
                 {FREQ_LABELS.map((fl) => (
                     <div key={`flabel-${fl.freq}`} style={{
                         position: 'absolute', left: `${(freqToX(fl.freq) / VB_W) * 100}%`, bottom: 2, transform: 'translateX(-50%)',
-                        fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-sans)', color: 'color-mix(in srgb, var(--color-text-primary) 66%, transparent)', whiteSpace: 'nowrap', lineHeight: 1,
+                        fontSize: 'var(--font-size-micro)', fontFamily: 'var(--font-role-body)', color: 'color-mix(in srgb, var(--color-text-primary) 66%, transparent)', whiteSpace: 'nowrap', lineHeight: 1,
                     }}>
                         {fl.label}
                     </div>

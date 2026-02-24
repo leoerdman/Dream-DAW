@@ -45,5 +45,5 @@ const hintStyle: CSSProperties = {
     marginTop: 8,
     fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-tertiary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
 };

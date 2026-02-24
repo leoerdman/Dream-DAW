@@ -229,8 +229,12 @@ pub fn ensure_external_plugins_prepared_for_offline_render(
 
     clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
+    let buffer_size = plugin_host_state
+        .current_audio_config()
+        .map(|(_, bs)| bs.max(1))
+        .unwrap_or(512);
     plugin_host_state
-        .reactivate_all(project_sample_rate.max(1.0), 512)
+        .reactivate_all(project_sample_rate.max(1.0), buffer_size)
         .map_err(|e| format!("{op_name} aborted: failed to reactivate plugin runtime: {e}"))?;
 
     Ok(())

@@ -82,8 +82,7 @@ fn import_audio_clips(
             sample_rate,
             pointee_map,
             &mut source_duration_cache,
-        )
-        else {
+        ) else {
             continue;
         };
         track.clips.push(clip);

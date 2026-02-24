@@ -8,6 +8,20 @@ fn resolve_audio_clip_state(
     )
 }
 
+fn resolve_audio_clip_timeline_bounds(
+    project_state: &tauri::State<'_, ProjectState>,
+    clip_id: Uuid,
+) -> Result<(i64, i64), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let clip = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == clip_id)
+        .ok_or_else(|| format!("Audio clip not found: {clip_id}"))?;
+    Ok((clip.position.sample_frame, clip.duration.sample_frame))
+}
+
 /// Update a clip's source offset (slip editing).
 #[tauri::command]
 async fn set_clip_source_offset_cmd(
@@ -142,12 +156,28 @@ async fn set_clip_pitch_with_deltas_cmd(
     let clip_uuid =
         Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let pitch = payload.pitch_shift_semitones;
-    set_clip_pitch_cmd(payload, project_state, clip_pool_state, app).await?;
-    Ok(DeltaMutationResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::ClipPitchChanged {
+    let (before_pos, before_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
+    set_clip_pitch_cmd(
+        payload,
+        project_state.clone(),
+        clip_pool_state,
+        app,
+    )
+    .await?;
+    let (after_pos, after_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
+    let mut deltas = vec![dream_models::delta::ProjectDelta::ClipPitchChanged {
+        clip_id: clip_uuid,
+        pitch_shift_semitones: pitch,
+    }];
+    if before_pos != after_pos || before_dur != after_dur {
+        deltas.push(dream_models::delta::ProjectDelta::ClipResized {
             clip_id: clip_uuid,
-            pitch_shift_semitones: pitch,
-        }],
+            new_position: after_pos,
+            new_duration: after_dur,
+        });
+    }
+    Ok(DeltaMutationResponse {
+        deltas,
     })
 }
 
@@ -189,6 +219,7 @@ async fn set_clip_warp_with_deltas_cmd(
 ) -> Result<DeltaMutationResponse, String> {
     let clip_uuid =
         Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let (before_pos, before_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
     let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
     set_clip_warp_cmd(
@@ -200,17 +231,27 @@ async fn set_clip_warp_with_deltas_cmd(
     .await?;
 
     let after_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
+    let (after_pos, after_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
 
     let mut deltas = Vec::new();
+    if before_pos != after_pos || before_dur != after_dur {
+        deltas.push(dream_models::delta::ProjectDelta::ClipResized {
+            clip_id: clip_uuid,
+            new_position: after_pos,
+            new_duration: after_dur,
+        });
+    }
     if before_state.is_warped != after_state.is_warped
         || before_state.warp_mode != after_state.warp_mode
         || (before_state.warp_base_bpm - after_state.warp_base_bpm).abs() > f64::EPSILON
+        || before_state.warp_source_duration_frames != after_state.warp_source_duration_frames
     {
         deltas.push(dream_models::delta::ProjectDelta::ClipWarpChanged {
             clip_id: clip_uuid,
             is_warped: after_state.is_warped,
             warp_mode: after_state.warp_mode,
             warp_base_bpm: after_state.warp_base_bpm,
+            warp_source_duration_frames: after_state.warp_source_duration_frames,
         });
     }
     Ok(DeltaMutationResponse { deltas })

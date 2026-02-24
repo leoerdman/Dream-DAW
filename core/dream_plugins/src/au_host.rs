@@ -129,8 +129,10 @@ mod macos {
             in_component: AudioComponent,
             in_desc: *const AudioComponentDescription,
         ) -> AudioComponent;
-        fn AudioComponentCopyName(in_component: AudioComponent, out_name: *mut *const c_void)
-            -> OSStatus;
+        fn AudioComponentCopyName(
+            in_component: AudioComponent,
+            out_name: *mut *const c_void,
+        ) -> OSStatus;
         fn AudioComponentInstanceNew(
             in_component: AudioComponent,
             out_instance: *mut AudioUnit,
@@ -172,7 +174,9 @@ mod macos {
         if status == NO_ERR {
             Ok(())
         } else {
-            Err(PluginError::InitFailed(format!("{ctx} failed with OSStatus {status}")))
+            Err(PluginError::InitFailed(format!(
+                "{ctx} failed with OSStatus {status}"
+            )))
         }
     }
 
@@ -449,8 +453,7 @@ mod macos {
                     continue;
                 }
                 // SAFETY: mData points to AU-provided writable buffer of at least mDataByteSize bytes.
-                let out =
-                    unsafe { std::slice::from_raw_parts_mut(buf.m_data as *mut f32, frames) };
+                let out = unsafe { std::slice::from_raw_parts_mut(buf.m_data as *mut f32, frames) };
                 if ch == 0 {
                     if input_l.len() == frames {
                         out.copy_from_slice(input_l);
@@ -490,7 +493,11 @@ mod macos {
             &self.descriptor
         }
 
-        fn activate(&mut self, sample_rate: f64, max_buffer_size: usize) -> Result<(), PluginError> {
+        fn activate(
+            &mut self,
+            sample_rate: f64,
+            max_buffer_size: usize,
+        ) -> Result<(), PluginError> {
             self.sample_rate = sample_rate;
             self.max_buffer_size = max_buffer_size.max(1);
             let format = Self::stream_format(sample_rate);
@@ -544,7 +551,10 @@ mod macos {
             )?;
 
             // SAFETY: initialize configured unit once per activation cycle.
-            osstatus_ok(unsafe { AudioUnitInitialize(self.unit) }, "AudioUnitInitialize")?;
+            osstatus_ok(
+                unsafe { AudioUnitInitialize(self.unit) },
+                "AudioUnitInitialize",
+            )?;
             self.is_active = true;
             Ok(())
         }
@@ -552,7 +562,10 @@ mod macos {
         fn deactivate(&mut self) -> Result<(), PluginError> {
             if self.is_active {
                 // SAFETY: valid initialized unit.
-                osstatus_ok(unsafe { AudioUnitUninitialize(self.unit) }, "AudioUnitUninitialize")?;
+                osstatus_ok(
+                    unsafe { AudioUnitUninitialize(self.unit) },
+                    "AudioUnitUninitialize",
+                )?;
                 self.is_active = false;
             }
             Ok(())
@@ -572,8 +585,14 @@ mod macos {
                 return Ok(());
             }
             let frames = num_frames.min(self.max_buffer_size);
-            self.input_l = inputs.first().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
-            self.input_r = inputs.get(1).map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+            self.input_l = inputs
+                .first()
+                .map(|c| c.as_ptr())
+                .unwrap_or(std::ptr::null());
+            self.input_r = inputs
+                .get(1)
+                .map(|c| c.as_ptr())
+                .unwrap_or(std::ptr::null());
             self.input_frames = frames;
 
             let mut out_l_ptr = outputs

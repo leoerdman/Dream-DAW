@@ -53,6 +53,7 @@ export interface EngineStore {
     masterVolume: number;
     pluginSandbox: PluginSandboxSnapshot | null;
     openEditorsByTrack: Record<string, Set<string>>;
+    performance: { cpuUsage: number; ramUsedMb: number; ramTotalMb: number; processMemoryMb: number; dspLoad: number };
     togglePlay: () => Promise<void>;
     play: () => Promise<void>;
     stop: () => Promise<void>;
@@ -137,6 +138,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     clips: { byId: {}, allIds: [] },
     projectSampleRate: 44100,
     projectBpm: 120,
+    performance: { cpuUsage: 0, ramUsedMb: 0, ramTotalMb: 0, processMemoryMb: 0, dspLoad: 0 },
     keySigEnabled: false,
     keySigTonic: 'C',
     keySigMode: 'Major',
@@ -154,6 +156,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
         if (!Array.isArray(deltas) || deltas.length === 0) return;
+        let unhandledDeltaKinds: string[] = [];
 
         const snapshotMeta = extractSnapshotProjectMeta(deltas, get().transport);
 
@@ -218,7 +221,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
             }
 
-            const { nextState } = applyProjectDeltasToState(s, deltas, reason);
+            const { nextState, unhandledDeltaKinds: nextUnhandledDeltaKinds = [] } = applyProjectDeltasToState(s, deltas, reason);
+            if (nextUnhandledDeltaKinds.length > 0) {
+                unhandledDeltaKinds = nextUnhandledDeltaKinds;
+            }
             if (!nextState) {
                 if (
                     nextProjectBpm !== s.projectBpm
@@ -250,6 +256,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 keySigMode: nextKeySigMode,
             };
         });
+
+        if (unhandledDeltaKinds.length > 0) {
+            console.error('[engine-store] unhandled project deltas', {
+                reason,
+                unhandledDeltaKinds,
+            });
+        }
 
         if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {
             const timeline = useTimelineStore.getState();

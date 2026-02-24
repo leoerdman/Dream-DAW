@@ -55,8 +55,8 @@ interface DawShellContentProps {
 
 export function DawShellContent(props: DawShellContentProps) {
     return (
-        <div className="absolute inset-0 z-10 flex flex-col">
-            <header className="shrink-0 w-full flex items-center justify-center z-50" style={{ height: 'var(--daw-transport-height)' }}>
+        <div className="absolute inset-0 z-10 flex flex-col theme-ornament-shell">
+            <header className="shrink-0 w-full flex items-center justify-center z-50 theme-ornament-header" style={{ height: 'var(--daw-transport-height)' }}>
                 <ErrorBoundary module="Transport">
                     <TransportBar
                         onSettingsClick={props.openSettings}
@@ -120,6 +120,7 @@ export function DawShellContent(props: DawShellContentProps) {
                 panelMode={props.bottomPanelMode}
                 onPanelModeChange={props.setBottomPanelModeForActiveTrack}
                 panelInfo={props.panelInfo}
+                mainViewMode={props.mainViewMode}
             />
         </div>
     );

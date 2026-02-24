@@ -1,31 +1,14 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Project Mutators (Enterprise-Grade Timeline Editing)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Pure functions that transform a `Project` in response to user actions.
-//
-// DESIGN PRINCIPLES:
-//   1. All mutations are deterministic — same input always gives same output.
-//   2. No thread-safety concerns — caller handles locking (Tauri command layer).
-//   3. Every mutation returns a `Result` for robust error propagation.
-//   4. UUID-based addressing — clips are found by ID, not index (safe across
-//      concurrent UI updates).
-//   5. Split preserves source_offset semantics — left half keeps the original
-//      offset, right half adjusts offset to point at the split position.
-//
-// These functions are designed to be called from the IPC layer:
-//   lock project → call mutator → mark dirty → rebuild snapshot → unlock.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
+// Project mutators: deterministic timeline operations on `Project`.
 use uuid::Uuid;
-
 use crate::midi::MidiClip;
 use crate::project::{AudioClip, Project};
 use crate::time::AbsoluteTime;
-
+mod mutators_helpers;
+pub use mutators_helpers::{
+    find_and_remove_clip, find_clip_location, find_midi_clip_location, handle_midi_overlaps, handle_overlaps,
+};
+pub use mutators_helpers::upsert_static_automation_lane;
 // ── Error Types ───────────────────────────────────────────────────────────
-
 /// Errors from timeline mutation operations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MutatorError {
@@ -165,6 +148,12 @@ pub fn resize_clip(
 
     // Find and remove the clip
     let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+    let original_duration = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
+    let original_source_offset = clip.source_offset.sample_frame.max(0);
+    let original_source_total = clip
+        .warp_source_duration_frames
+        .max(clip.duration.sample_frame)
+        .max(MIN_CLIP_FRAMES);
 
     // Left-edge move semantics:
     // - trim (allow_stretch=false): advance source_offset, waveform stays static
@@ -207,13 +196,36 @@ pub fn resize_clip(
     // Trim behavior (allow_stretch=false): keep playback rate stable and clamp
     // timeline duration to available source material.
     if !allow_stretch {
-        let source_total_frames = clip
-            .warp_source_duration_frames
-            .max(clip.duration.sample_frame)
+        // Prevent trim-left drags from pushing source offset beyond source tail.
+        let max_source_offset = original_source_total.saturating_sub(MIN_CLIP_FRAMES).max(0);
+        clip.source_offset =
+            AbsoluteTime::new(clip.source_offset.sample_frame.clamp(0, max_source_offset));
+
+        if clip.is_warped && original_source_total > 0 {
+            // In trim mode, preserve the current source/timeline mapping ratio for
+            // warped clips so non-shift resize behaves like crop, not re-stretch.
+            let source_available_before =
+                (original_source_total - original_source_offset).max(MIN_CLIP_FRAMES);
+            let source_per_timeline =
+                source_available_before as f64 / original_duration.max(1) as f64;
+
+            let source_available_after = (original_source_total
+                - clip.source_offset.sample_frame.max(0))
             .max(MIN_CLIP_FRAMES);
-        let available_frames =
-            (source_total_frames - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
-        next_duration = next_duration.min(available_frames);
+            let max_duration_by_source =
+                (source_available_after as f64 / source_per_timeline.max(1e-9)).floor() as i64;
+            next_duration = next_duration.min(max_duration_by_source.max(MIN_CLIP_FRAMES));
+
+            let consumed_source =
+                (next_duration.max(MIN_CLIP_FRAMES) as f64 * source_per_timeline).round() as i64;
+            clip.warp_source_duration_frames =
+                clip.source_offset.sample_frame.max(0) + consumed_source.max(MIN_CLIP_FRAMES);
+        } else {
+            let source_total_frames = original_source_total;
+            let available_frames =
+                (source_total_frames - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
+            next_duration = next_duration.min(available_frames);
+        }
     }
     clip.duration = AbsoluteTime::new(next_duration.max(MIN_CLIP_FRAMES));
 
@@ -679,217 +691,6 @@ pub fn resize_midi_clip(
     target.midi_clips.insert(insert_pos, clip);
     Ok(())
 }
-// ── Automation Lane Upsert ────────────────────────────────────────────────
-
-/// Upserts a static (single-point) automation lane on a track.
-///
-/// If a lane with the given `param_id` already exists, its points are replaced
-/// with the supplied `value`. Otherwise a new lane is created.
-pub fn upsert_static_automation_lane(
-    track: &mut crate::project::Track,
-    param_id: &str,
-    value: f64,
-) {
-    if let Some(existing) = track
-        .automation_lanes
-        .iter_mut()
-        .find(|lane| lane.param_id.eq_ignore_ascii_case(param_id))
-    {
-        existing.points = vec![crate::project::AutomationPoint {
-            beat: 0.0,
-            value,
-            curve_type: "linear".to_string(),
-            tension: None,
-            bezier_cp1x: None,
-            bezier_cp1y: None,
-            bezier_cp2x: None,
-            bezier_cp2y: None,
-        }];
-        existing.param_id = param_id.to_string();
-        return;
-    }
-
-    track.automation_lanes.push(crate::project::AutomationLane {
-        param_id: param_id.to_string(),
-        points: vec![crate::project::AutomationPoint {
-            beat: 0.0,
-            value,
-            curve_type: "linear".to_string(),
-            tension: None,
-            bezier_cp1x: None,
-            bezier_cp1y: None,
-            bezier_cp2x: None,
-            bezier_cp2y: None,
-        }],
-    });
-}
-
-// ── Internal Helpers ──────────────────────────────────────────────────────
-
-fn find_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {
-    for (track_idx, track) in project.tracks.iter().enumerate() {
-        for (clip_idx, clip) in track.clips.iter().enumerate() {
-            if clip.id == clip_id {
-                return Ok((track_idx, clip_idx));
-            }
-        }
-    }
-    Err(MutatorError::ClipNotFound(clip_id))
-}
-
-/// Finds a MIDI clip's location (track_idx, clip_idx) by UUID.
-fn find_midi_clip_location(
-    project: &Project,
-    clip_id: Uuid,
-) -> Result<(usize, usize), MutatorError> {
-    for (track_idx, track) in project.tracks.iter().enumerate() {
-        if let Some(clip_idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
-            return Ok((track_idx, clip_idx));
-        }
-    }
-    Err(MutatorError::ClipNotFound(clip_id))
-}
-
-/// Finds and removes a clip from its track, returning (source_track_idx, clip).
-fn find_and_remove_clip(
-    project: &mut Project,
-    clip_id: Uuid,
-) -> Result<(usize, AudioClip), MutatorError> {
-    for (track_idx, track) in project.tracks.iter_mut().enumerate() {
-        if let Some(clip_idx) = track.clips.iter().position(|c| c.id == clip_id) {
-            let clip = track.clips.remove(clip_idx);
-            return Ok((track_idx, clip));
-        }
-    }
-    Err(MutatorError::ClipNotFound(clip_id))
-}
-
-/// Trims or removes audio clips in the track that overlap with the given target clip.
-pub fn handle_overlaps(track: &mut crate::project::Track, target: &AudioClip) {
-    let target_start = target.position.sample_frame;
-    let target_end = target.end_position().sample_frame;
-
-    let mut i = 0;
-    while i < track.clips.len() {
-        // Skip the target clip itself if it's already in the track
-        if track.clips[i].id == target.id {
-            i += 1;
-            continue;
-        }
-
-        let clip_start = track.clips[i].position.sample_frame;
-        let clip_end = track.clips[i].end_position().sample_frame;
-
-        // Optimization: track.clips is sorted by position. If current clip starts
-        // after the target ends, no subsequent clips can overlap.
-        if clip_start >= target_end {
-            break;
-        }
-
-        // Check for overlap
-        if clip_end > target_start {
-            // Case 1: Clip is completely covered by target
-            if clip_start >= target_start && clip_end <= target_end {
-                track.clips.remove(i);
-                continue; // Don't increment i
-            }
-            // Case 2: Target is in the middle of the clip (split underlying)
-            else if clip_start < target_start && clip_end > target_end {
-                let mut right_half = track.clips[i].clone();
-
-                // Trim left half (ends at target_start)
-                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
-
-                // Configure right half (starts at target_end)
-                let right_start_frame = target_end;
-                let right_duration = clip_end - target_end;
-                let source_delta = target_end - clip_start;
-
-                right_half.id = Uuid::new_v4();
-                right_half.position = AbsoluteTime::new(right_start_frame);
-                right_half.duration = AbsoluteTime::new(right_duration);
-                right_half.source_offset =
-                    AbsoluteTime::new(right_half.source_offset.sample_frame + source_delta);
-
-                track.clips.insert(i + 1, right_half);
-                i += 2;
-                continue;
-            }
-            // Case 3: Overlap at the start of the clip
-            else if clip_start >= target_start && clip_start < target_end {
-                let delta = target_end - clip_start;
-                track.clips[i].position = AbsoluteTime::new(target_end);
-                track.clips[i].duration = AbsoluteTime::new(clip_end - target_end);
-                track.clips[i].source_offset =
-                    AbsoluteTime::new(track.clips[i].source_offset.sample_frame + delta);
-            }
-            // Case 4: Overlap at the end of the clip
-            else if clip_end > target_start && clip_end <= target_end {
-                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
-            }
-
-            // Remove clip if it became too short
-            if track.clips[i].duration.sample_frame < MIN_CLIP_FRAMES {
-                track.clips.remove(i);
-                continue;
-            }
-        }
-        i += 1;
-    }
-}
-
-/// Trims or removes MIDI clips in the track that overlap with the given target clip.
-pub fn handle_midi_overlaps(track: &mut crate::project::Track, target: &crate::midi::MidiClip) {
-    let target_start = target.position.sample_frame;
-    let target_end = target.end_position().sample_frame;
-
-    let mut i = 0;
-    while i < track.midi_clips.len() {
-        if track.midi_clips[i].id == target.id {
-            i += 1;
-            continue;
-        }
-
-        let clip_start = track.midi_clips[i].position.sample_frame;
-        let clip_end = track.midi_clips[i].end_position().sample_frame;
-
-        // Optimization: sorted clip list
-        if clip_start >= target_end {
-            break;
-        }
-
-        if clip_end > target_start {
-            if clip_start >= target_start && clip_end <= target_end {
-                track.midi_clips.remove(i);
-                continue;
-            } else if clip_start < target_start && clip_end > target_end {
-                let mut right_half = track.midi_clips[i].clone();
-                track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
-
-                let right_duration = clip_end - target_end;
-                right_half.id = Uuid::new_v4();
-                right_half.position = AbsoluteTime::new(target_end);
-                right_half.duration = AbsoluteTime::new(right_duration);
-
-                track.midi_clips.insert(i + 1, right_half);
-                i += 2;
-                continue;
-            } else if clip_start >= target_start && clip_start < target_end {
-                track.midi_clips[i].position = AbsoluteTime::new(target_end);
-                track.midi_clips[i].duration = AbsoluteTime::new(clip_end - target_end);
-            } else if clip_end > target_start && clip_end <= target_end {
-                track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
-            }
-
-            if track.midi_clips[i].duration.sample_frame < MIN_CLIP_FRAMES {
-                track.midi_clips.remove(i);
-                continue;
-            }
-        }
-        i += 1;
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1220,6 +1021,29 @@ mod tests {
     }
 
     #[test]
+    fn resize_clip_left_trim_clamps_source_offset_to_source_tail() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(44100 * 10),
+            AbsoluteTime::new(22050),
+            false,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.source_offset.sample_frame, 44100 - 128);
+        assert_eq!(clip_a.duration.sample_frame, 128);
+    }
+
+    #[test]
     fn resize_clip_left_with_stretch_keeps_source_offset_and_enables_warp() {
         let mut project = make_test_project();
         let clip_a_id = project.tracks[0].clips[0].id;
@@ -1246,6 +1070,68 @@ mod tests {
         assert!(clip_a.warp_mode.is_some());
         assert!(clip_a.warp_base_bpm > 0.0);
         assert_eq!(clip_a.warp_source_duration_frames, original_warp_source);
+    }
+
+    #[test]
+    fn resize_clip_right_trim_on_warped_keeps_rate_by_shrinking_warp_window() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = true;
+            clip.warp_source_duration_frames = 44100;
+            clip.source_offset = AbsoluteTime::new(0);
+            clip.duration = AbsoluteTime::new(44100);
+        }
+
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(22050),
+            false,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.source_offset.sample_frame, 0);
+        assert_eq!(clip_a.warp_source_duration_frames, 22050);
+    }
+
+    #[test]
+    fn resize_clip_left_trim_on_warped_advances_offset_and_keeps_rate() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+        {
+            let clip = &mut project.tracks[0].clips[0];
+            clip.is_warped = true;
+            clip.warp_source_duration_frames = 44100;
+            clip.source_offset = AbsoluteTime::new(0);
+            clip.duration = AbsoluteTime::new(44100);
+        }
+
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(22050),
+            AbsoluteTime::new(22050),
+            false,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.source_offset.sample_frame, 22050);
+        assert_eq!(clip_a.warp_source_duration_frames, 44100);
     }
 
     #[test]

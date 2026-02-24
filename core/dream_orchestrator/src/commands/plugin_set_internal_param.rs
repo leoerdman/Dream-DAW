@@ -194,7 +194,10 @@ impl Command for SetInternalPluginParamCommand {
                     cfg.sample_path = token.to_string();
                     sampler_waveform = Some(code);
                 }
-                "synth.osc2.waveform" | "synth.osc2.wave" | "sampler.osc2wave" | "sampler.osc2_wave" => {
+                "synth.osc2.waveform"
+                | "synth.osc2.wave"
+                | "sampler.osc2wave"
+                | "sampler.osc2_wave" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let (_, code) = waveform_token_and_code(self.value);
                     cfg.osc2_waveform = code;
@@ -244,7 +247,8 @@ impl Command for SetInternalPluginParamCommand {
                     cfg.filter_resonance = res as f64;
                     sampler_filter_resonance = Some(res);
                 }
-                "synth.filter.type" | "synth.filtertype" | "sampler.filttype" | "sampler.filtertype" => {
+                "synth.filter.type" | "synth.filtertype" | "sampler.filttype"
+                | "sampler.filtertype" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
                     let ft = self.value.round().clamp(0.0, 3.0) as u8;
                     cfg.filter_type = ft;

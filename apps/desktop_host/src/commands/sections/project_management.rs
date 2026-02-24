@@ -316,6 +316,8 @@ fn open_project(
     }
     normalize_runtime_external_plugin_slots(&mut loaded, &plugin_host_state);
     refresh_offline_flags(&mut loaded);
+    let missing_slots_after_auto_resolve = count_missing_plugin_slots(&loaded);
+    let unresolved_missing_after_open = collect_missing_slot_labels(&loaded, 20);
 
     let _ = plugin_host_state.unload_all_instances();
     // Do not eagerly activate external plugins while opening a project.
@@ -440,6 +442,24 @@ fn open_project(
         let _ = app.emit("als_import_summary", &summary);
     } else {
         log::info!("Project opened: '{}' ({} tracks)", loaded.name, loaded.track_count());
+    }
+
+    if als_auto_resolve_stats.replaced_internal > 0
+        || als_auto_resolve_stats.replaced_external > 0
+        || missing_slots_after_auto_resolve > 0
+    {
+        let _ = app.emit(
+            "missing_plugins_summary",
+            serde_json::json!({
+                "projectName": loaded.name,
+                "source": if importing_als { "als_import" } else { "project_open" },
+                "missingBefore": missing_slots_before_auto_resolve,
+                "missingAfter": missing_slots_after_auto_resolve,
+                "autoResolvedInternal": als_auto_resolve_stats.replaced_internal,
+                "autoResolvedExternal": als_auto_resolve_stats.replaced_external,
+                "unresolvedMissingLabels": unresolved_missing_after_open,
+            }),
+        );
     }
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {

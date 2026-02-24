@@ -31,7 +31,7 @@ export const ControlButton = ({ label, onClick, dimmed }: { label: string; onCli
             border: TRANSPORT_UI.controlBorder,
             borderRadius: TRANSPORT_UI.controlRadius,
             background: TRANSPORT_UI.controlBg,
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-role-data)',
             fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             color: 'var(--color-text-primary)',

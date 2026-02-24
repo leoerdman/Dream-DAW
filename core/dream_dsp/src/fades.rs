@@ -26,6 +26,11 @@ use std::f32::consts::PI;
 /// Default fade length in samples at 44.1kHz = exactly 2ms.
 const DEFAULT_FADE_LENGTH: usize = 88;
 
+/// AUD-201 FIX: Maximum fade length across all supported sample rates.
+/// At 192kHz the fade length is 384 samples. Pre-allocating at this size
+/// guarantees `rebuild_in_place` never triggers a heap allocation on the RT thread.
+const MAX_FADE_LENGTH: usize = 384;
+
 // ── Curve Generation ───────────────────────────────────────────────────
 
 /// Generates a half-Hann window curve for fade-in (0.0 → 1.0).
@@ -128,25 +133,44 @@ pub struct FadeCache {
 
 impl FadeCache {
     /// Creates a new `FadeCache` for the given sample rate.
+    ///
+    /// AUD-201 FIX: Pre-allocates at `MAX_FADE_LENGTH` (384 samples = 192kHz)
+    /// so that `rebuild_in_place` never allocates on the RT thread, even when
+    /// switching to a higher sample rate.
     pub fn new(sample_rate: f64) -> Self {
         let length = fade_length_for_sample_rate(sample_rate);
+        // Pre-allocate at max capacity, then fill only the active portion.
+        let mut fade_in = vec![0.0f32; MAX_FADE_LENGTH];
+        let mut fade_out = vec![0.0f32; MAX_FADE_LENGTH];
+        generate_hann_fade_in_into(&mut fade_in[..length]);
+        generate_hann_fade_out_into(&mut fade_out[..length]);
+        // Truncate len (not capacity) to the active region.
+        fade_in.truncate(length);
+        fade_out.truncate(length);
         Self {
-            fade_in: generate_hann_fade_in(length),
-            fade_out: generate_hann_fade_out(length),
+            fade_in,
+            fade_out,
             fade_length: length,
         }
     }
 
-    /// AUD-099: Rebuilds fade curves in-place for a new sample rate.
+    /// AUD-099 + AUD-201 FIX: Rebuilds fade curves in-place for a new sample rate.
     ///
-    /// **RT-SAFE**: Reuses the existing Vec allocations. No heap operations
-    /// as long as the new fade length ≤ the current capacity (which is
-    /// guaranteed for standard rates since initial allocation is at engine
-    /// start with the device sample rate — the largest rate in the system).
+    /// **RT-SAFE**: Reuses the existing Vec allocations. The constructor
+    /// pre-allocates at `MAX_FADE_LENGTH` (384 = 192kHz), so `resize()`
+    /// never allocates for any supported sample rate.
     pub fn rebuild_in_place(&mut self, sample_rate: f64) {
         let length = fade_length_for_sample_rate(sample_rate);
+        // AUD-201: Assert that the new length fits within pre-allocated capacity.
+        // If this fires, MAX_FADE_LENGTH needs to be increased.
+        debug_assert!(
+            length <= self.fade_in.capacity(),
+            "AUD-201: fade length {length} exceeds pre-allocated capacity {}. \
+             Increase MAX_FADE_LENGTH.",
+            self.fade_in.capacity()
+        );
         self.fade_length = length;
-        // Resize with zero-fill (Vec::resize never shrinks capacity)
+        // Resize within existing capacity (Vec::resize never shrinks capacity)
         self.fade_in.resize(length, 0.0);
         self.fade_out.resize(length, 0.0);
         // Overwrite with fresh curve data
@@ -155,12 +179,10 @@ impl FadeCache {
     }
 
     /// Creates a `FadeCache` with the default 44.1kHz fade length (88 samples).
+    ///
+    /// AUD-201 FIX: Pre-allocates at `MAX_FADE_LENGTH` like `new()`.
     pub fn default_44100() -> Self {
-        Self {
-            fade_in: generate_hann_fade_in(DEFAULT_FADE_LENGTH),
-            fade_out: generate_hann_fade_out(DEFAULT_FADE_LENGTH),
-            fade_length: DEFAULT_FADE_LENGTH,
-        }
+        Self::new(44100.0)
     }
 }
 

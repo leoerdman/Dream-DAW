@@ -182,6 +182,7 @@ export function applyProjectDeltasToState(
                     ...snapshotTrackState,
                 },
                 snapshotMeta,
+                unhandledDeltaKinds: [],
             };
         }
     }
@@ -198,6 +199,7 @@ export function applyProjectDeltasToState(
         tracksById: state.tracksById,
         changed: false,
     };
+    const unhandledDeltaKinds: string[] = [];
 
     for (const delta of deltas) {
         const handledByClip = applyClipDelta(working, delta, { bpm, sampleRate, reason });
@@ -215,12 +217,13 @@ export function applyProjectDeltasToState(
             continue;
         }
         // Delta kind intentionally ignored by local reducer. Keep state stable
-        // and avoid forcing heavyweight full-project refreshes.
-        console.warn(`[Delta] Unhandled delta ignored (${reason}): ${delta.kind}`);
+        // but report unhandled kinds so caller can recover via snapshot delta.
+        unhandledDeltaKinds.push(delta.kind);
+        console.warn(`[Delta] Unhandled delta (${reason}): ${delta.kind}`);
     }
 
     if (!working.changed) {
-        return { nextState: null, snapshotMeta: null };
+        return { nextState: null, snapshotMeta: null, unhandledDeltaKinds };
     }
     const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips);
     const nextTrackState = buildTrackStatePatch(
@@ -236,5 +239,6 @@ export function applyProjectDeltasToState(
             ...nextTrackState,
         },
         snapshotMeta: null,
+        unhandledDeltaKinds,
     };
 }

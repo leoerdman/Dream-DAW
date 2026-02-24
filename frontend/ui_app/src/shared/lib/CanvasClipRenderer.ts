@@ -58,12 +58,15 @@ const HEADER_HEIGHT = 20;
 const CLIP_RADIUS = 4;
 const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
-const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
-const PRIMARY_SELECTION_BORDER_COLOR = 'rgba(255, 204, 96, 0.98)';
-const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
-const DROP_TARGET_BORDER = 'rgba(255, 255, 255, 0.6)';
+const rgba = (r: number, g: number, b: number, a: number): string => `rgba(${r}, ${g}, ${b}, ${a})`;
+const hex = (r: number, g: number, b: number): string =>
+    `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+const SELECTION_GLOW_COLOR = rgba(255, 255, 255, 0.9);
+const DROP_TARGET_COLOR = rgba(255, 255, 255, 0.2);
+const DROP_TARGET_BORDER = rgba(255, 255, 255, 0.6);
 const GHOST_CLIP_ALPHA = 0.45;
-const OFFLINE_STRIPE_COLOR = 'rgba(255, 80, 80, 0.3)';
+const OFFLINE_STRIPE_COLOR = rgba(255, 80, 80, 0.3);
+const CLIP_LABEL_FONT = '10px Inter, -apple-system, sans-serif';
 
 interface TimelineTheme {
     bg: string;
@@ -79,6 +82,17 @@ interface TimelineTheme {
     loopBorder: string;
     rulerText: string;
     trackDivider: string;
+}
+
+function applyAlphaMultiplier(color: string, multiplier: number): string {
+    const m = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+    if (!m) return color;
+    const r = Number(m[1]);
+    const g = Number(m[2]);
+    const b = Number(m[3]);
+    const baseA = m[4] != null ? Number(m[4]) : 1;
+    const a = Math.max(0, Math.min(1, baseA * multiplier));
+    return rgba(r, g, b, a);
 }
 
 export class CanvasClipRenderer {
@@ -101,25 +115,56 @@ export class CanvasClipRenderer {
         this._waveformCache = waveformCache;
     }
 
+    private _truncateTextToWidth(
+        ctx: CanvasRenderingContext2D,
+        text: string,
+        maxWidth: number,
+    ): string {
+        if (!text || maxWidth <= 0) return '';
+        if (ctx.measureText(text).width <= maxWidth) return text;
+
+        const ellipsis = '...';
+        const ellipsisW = ctx.measureText(ellipsis).width;
+        if (ellipsisW >= maxWidth) return '';
+
+        let lo = 0;
+        let hi = text.length;
+        while (lo < hi) {
+            const mid = Math.ceil((lo + hi) / 2);
+            const candidate = `${text.slice(0, mid)}${ellipsis}`;
+            if (ctx.measureText(candidate).width <= maxWidth) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return lo > 0 ? `${text.slice(0, lo)}${ellipsis}` : '';
+    }
+
     private _syncTheme(): void {
         const now = performance.now();
         if (this._theme && now - this._lastThemeSync < 1000) return; // Sync once per second max
 
         const s = getComputedStyle(document.documentElement);
+        const gridIntensityRaw = Number.parseFloat(s.getPropertyValue('--timeline-grid-intensity') || '100');
+        const gridIntensity = Number.isFinite(gridIntensityRaw) ? Math.max(20, Math.min(250, gridIntensityRaw)) : 100;
+        const gridAlphaMultiplier = gridIntensity / 100;
+        const rawGridLine = s.getPropertyValue('--color-timeline-grid-line').trim() || rgba(255, 255, 255, 0.06);
+        const rawGridBar = s.getPropertyValue('--color-timeline-grid-bar').trim() || rgba(74, 158, 255, 0.18);
         this._theme = {
-            bg: s.getPropertyValue('--color-timeline-bg').trim() || '#0d0d1a',
-            rulerBg: s.getPropertyValue('--color-timeline-ruler-bg').trim() || '#12121e',
-            gridLine: s.getPropertyValue('--color-timeline-grid-line').trim() || 'rgba(255, 255, 255, 0.06)',
-            gridBar: s.getPropertyValue('--color-timeline-grid-bar').trim() || 'rgba(74, 158, 255, 0.18)',
-            trackDefault: s.getPropertyValue('--color-timeline-track-default').trim() || '#191919',
-            trackSelected: s.getPropertyValue('--color-timeline-track-selected').trim() || '#262626',
-            playhead: s.getPropertyValue('--color-timeline-playhead').trim() || '#ff3b30',
-            playheadGlow: s.getPropertyValue('--color-timeline-playhead-glow').trim() || 'rgba(255, 59, 48, 0.4)',
-            editCursor: s.getPropertyValue('--color-timeline-edit-cursor').trim() || 'rgba(255, 255, 255, 0.75)',
-            loopFill: s.getPropertyValue('--color-timeline-loop-fill').trim() || 'rgba(74, 158, 255, 0.08)',
-            loopBorder: s.getPropertyValue('--color-timeline-loop-border').trim() || 'rgba(74, 158, 255, 0.5)',
-            rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || 'rgba(255, 255, 255, 0.5)',
-            trackDivider: s.getPropertyValue('--color-border-subtle').trim() || 'rgba(255, 255, 255, 0.08)',
+            bg: s.getPropertyValue('--color-timeline-bg').trim() || hex(13, 13, 26),
+            rulerBg: s.getPropertyValue('--color-timeline-ruler-bg').trim() || hex(18, 18, 30),
+            gridLine: applyAlphaMultiplier(rawGridLine, gridAlphaMultiplier),
+            gridBar: applyAlphaMultiplier(rawGridBar, gridAlphaMultiplier),
+            trackDefault: s.getPropertyValue('--color-timeline-track-default').trim() || hex(25, 25, 25),
+            trackSelected: s.getPropertyValue('--color-timeline-track-selected').trim() || hex(38, 38, 38),
+            playhead: s.getPropertyValue('--color-timeline-playhead').trim() || hex(255, 59, 48),
+            playheadGlow: s.getPropertyValue('--color-timeline-playhead-glow').trim() || rgba(255, 59, 48, 0.4),
+            editCursor: s.getPropertyValue('--color-timeline-edit-cursor').trim() || rgba(255, 255, 255, 0.75),
+            loopFill: s.getPropertyValue('--color-timeline-loop-fill').trim() || rgba(74, 158, 255, 0.08),
+            loopBorder: s.getPropertyValue('--color-timeline-loop-border').trim() || rgba(74, 158, 255, 0.5),
+            rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || rgba(255, 255, 255, 0.5),
+            trackDivider: s.getPropertyValue('--color-border-subtle').trim() || rgba(255, 255, 255, 0.08),
         };
         this._lastThemeSync = now;
     }
@@ -512,7 +557,7 @@ export class CanvasClipRenderer {
         }
 
         if (clip.muted) {
-            ctx.fillStyle = 'rgba(116, 122, 132, 0.42)';
+            ctx.fillStyle = rgba(116, 122, 132, 0.42);
             ctx.fillRect(x, y + 1, w, h);
         }
 
@@ -561,38 +606,26 @@ export class CanvasClipRenderer {
         if (maxTextW > 4 && headerH > 8) {
             const contrastColor = getContrastColor(clip.color);
             const isMutedVisual = clip.muted || isTrackMuted;
-
-            // Smooth label degradation with zoom-out:
-            // no hard width threshold, size/alpha taper continuously.
-            const widthT = Math.max(0, Math.min(1, (maxTextW - 8) / 84));
-            const heightT = Math.max(0, Math.min(1, (headerH - 9) / 11));
-            const textScale = Math.min(widthT, heightT);
-            const fontSize = 6.4 + (11 - 6.4) * textScale;
-            const alphaT = Math.max(0, Math.min(1, (maxTextW - 4) / 18));
-            if (alphaT > 0.02) {
-                ctx.font = `${fontSize.toFixed(2)}px Inter, -apple-system, sans-serif`;
+            ctx.font = CLIP_LABEL_FONT;
+            const label = this._truncateTextToWidth(ctx, clip.name, maxTextW);
+            if (label) {
                 ctx.fillStyle = isMutedVisual
-                    ? 'rgb(210, 215, 223)'
-                    : (contrastColor === 'black' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
-                ctx.globalAlpha *= (isMutedVisual ? 0.95 : 0.9) * alphaT;
+                    ? rgba(210, 215, 223, 1)
+                    : (contrastColor === 'black' ? rgba(0, 0, 0, 1) : rgba(255, 255, 255, 1));
+                ctx.globalAlpha *= isMutedVisual ? 0.95 : 0.9;
                 ctx.textBaseline = 'middle';
                 ctx.textAlign = 'left';
                 const textX = x + textPad;
                 const textY = y + 1 + headerH / 2;
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(textX, y + 1, maxTextW, headerH);
-                ctx.clip();
-                ctx.fillText(clip.name, textX, textY);
-                ctx.restore();
+                ctx.fillText(label, textX, textY);
             }
         }
 
         // ── P3: Reuse cached highlight gradient (avoids createLinearGradient per clip) ──
         if (!this._highlightGrad || this._highlightGradCtx !== ctx) {
             this._highlightGrad = ctx.createLinearGradient(0, 0, 0, 3);
-            this._highlightGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
-            this._highlightGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+            this._highlightGrad.addColorStop(0, rgba(255, 255, 255, 0.25));
+            this._highlightGrad.addColorStop(1, rgba(255, 255, 255, 0));
             this._highlightGradCtx = ctx;
         }
         ctx.save();
@@ -608,19 +641,10 @@ export class CanvasClipRenderer {
             if (isTrackMuted) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
             ctx.lineWidth = SELECTION_BORDER_WIDTH;
-            ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+            ctx.shadowColor = rgba(255, 255, 255, 0.5);
             ctx.shadowBlur = 6;
             this._roundRect(ctx, x, y + 1, w, h, r);
             ctx.stroke();
-
-            if (clip.primarySelected) {
-                ctx.strokeStyle = PRIMARY_SELECTION_BORDER_COLOR;
-                ctx.lineWidth = 1.5;
-                ctx.shadowColor = 'rgba(255, 204, 96, 0.45)';
-                ctx.shadowBlur = 4;
-                this._roundRect(ctx, x + 1, y + 2, Math.max(0, w - 2), Math.max(0, h - 2), Math.max(0, r - 0.5));
-                ctx.stroke();
-            }
             ctx.restore();
         }
 
@@ -643,8 +667,8 @@ export class CanvasClipRenderer {
 
             ctx.save();
             if (isTrackMuted) ctx.globalAlpha = 0.25;
-            ctx.fillStyle = clip.selected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(238, 245, 255, 0.9)';
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillStyle = clip.selected ? rgba(255, 255, 255, 0.98) : rgba(238, 245, 255, 0.9);
+            ctx.strokeStyle = rgba(0, 0, 0, 0.65);
             ctx.lineWidth = 1;
 
             ctx.beginPath();
@@ -666,9 +690,9 @@ export class CanvasClipRenderer {
                 const pY = bodyBottom - (bodyH * curveIn);
                 ctx.beginPath();
                 ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
+                ctx.fillStyle = rgba(255, 196, 96, 0.98);
                 ctx.fill();
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.strokeStyle = rgba(0, 0, 0, 0.75);
                 ctx.stroke();
             }
 
@@ -677,9 +701,9 @@ export class CanvasClipRenderer {
                 const pY = bodyY + bodyH * curveOut;
                 ctx.beginPath();
                 ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
+                ctx.fillStyle = rgba(255, 196, 96, 0.98);
                 ctx.fill();
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.strokeStyle = rgba(0, 0, 0, 0.75);
                 ctx.stroke();
             }
             ctx.restore();
@@ -737,12 +761,12 @@ export class CanvasClipRenderer {
         const contrastColor = getContrastColor(clip.color);
         if (muted) {
             ctx.fillStyle = clip.selected
-                ? 'rgba(186, 192, 202, 0.72)'
-                : 'rgba(162, 168, 178, 0.62)';
+                ? rgba(186, 192, 202, 0.72)
+                : rgba(162, 168, 178, 0.62);
         } else {
             ctx.fillStyle = contrastColor === 'black'
-                ? (clip.selected ? 'rgba(0, 0, 0, 0.76)' : 'rgba(0, 0, 0, 0.62)')
-                : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
+                ? (clip.selected ? rgba(0, 0, 0, 0.76) : rgba(0, 0, 0, 0.62))
+                : (clip.selected ? rgba(255, 255, 255, 0.9) : rgba(255, 255, 255, 0.72));
         }
 
         const pixelsPerPeak = clipW / peakCount;
@@ -781,8 +805,8 @@ export class CanvasClipRenderer {
         }
 
         ctx.strokeStyle = muted
-            ? 'rgba(132, 138, 148, 0.36)'
-            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)');
+            ? rgba(132, 138, 148, 0.36)
+            : (contrastColor === 'black' ? rgba(0, 0, 0, 0.2) : rgba(255, 255, 255, 0.15));
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(clipX, centerY);
@@ -817,8 +841,8 @@ export class CanvasClipRenderer {
 
         const contrastColor = getContrastColor(clip.color);
         ctx.fillStyle = muted
-            ? 'rgba(156, 163, 173, 0.62)'
-            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)');
+            ? rgba(156, 163, 173, 0.62)
+            : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));
 
         for (const note of clip.midiNotes) {
             const clampedPitch = Math.max(minPitch, Math.min(maxPitch, note.pitch));
@@ -888,9 +912,9 @@ export class CanvasClipRenderer {
         ctx.save();
         ctx.setLineDash([]);
         ctx.globalCompositeOperation = 'screen';
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
+        ctx.shadowColor = rgba(255, 255, 255, 0.7);
         ctx.shadowBlur = 3;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
+        ctx.strokeStyle = rgba(255, 255, 255, Number(blink.toFixed(3)));
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(cursorX, Math.max(vp.rulerHeight, yStart));
@@ -960,7 +984,7 @@ export class CanvasClipRenderer {
         const y1 = vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY;
         const y2 = vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY;
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fillStyle = rgba(255, 255, 255, 0.06);
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
         const sx1 = Math.round(x1) + 0.5;
@@ -969,7 +993,7 @@ export class CanvasClipRenderer {
         const sy2 = Math.round(y2) + 0.5;
         ctx.save();
         ctx.setLineDash([]);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+        ctx.strokeStyle = rgba(255, 255, 255, 0.78);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(sx1, sy1);
@@ -997,15 +1021,15 @@ export class CanvasClipRenderer {
         ctx.save();
         ctx.globalAlpha = GHOST_CLIP_ALPHA;
         ctx.fillStyle = ghost.type === 'audio'
-            ? 'rgba(100, 200, 255, 0.6)'
-            : 'rgba(100, 255, 150, 0.6)';
+            ? rgba(100, 200, 255, 0.6)
+            : rgba(100, 255, 150, 0.6);
         this._roundRect(ctx, x, y + 1, w, h, r);
         ctx.fill();
 
         if (w > 30) {
-            const ghostColor = ghost.type === 'audio' ? '#64c8ff' : '#64ff96';
+            const ghostColor = ghost.type === 'audio' ? hex(100, 200, 255) : hex(100, 255, 150);
             const contrastColor = getContrastColor(ghostColor);
-            ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)';
+            ctx.fillStyle = contrastColor === 'black' ? rgba(0, 0, 0, 0.7) : rgba(255, 255, 255, 0.7);
             ctx.font = '11px Inter, -apple-system, sans-serif';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
@@ -1087,13 +1111,13 @@ export class CanvasClipRenderer {
         ctx.save();
         const gradient = ctx.createLinearGradient(x, y, x + w, y);
         if (direction === 'in') {
-            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.58)');
-            gradient.addColorStop(0.55, 'rgba(0, 0, 0, 0.22)');
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+            gradient.addColorStop(0, rgba(0, 0, 0, 0.58));
+            gradient.addColorStop(0.55, rgba(0, 0, 0, 0.22));
+            gradient.addColorStop(1, rgba(0, 0, 0, 0));
         } else {
-            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.0)');
-            gradient.addColorStop(0.45, 'rgba(0, 0, 0, 0.22)');
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.58)');
+            gradient.addColorStop(0, rgba(0, 0, 0, 0));
+            gradient.addColorStop(0.45, rgba(0, 0, 0, 0.22));
+            gradient.addColorStop(1, rgba(0, 0, 0, 0.58));
         }
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
@@ -1104,8 +1128,8 @@ export class CanvasClipRenderer {
         const endY = direction === 'in' ? y : y + h;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
         const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
-        ctx.strokeStyle = 'rgba(255, 193, 92, 0.96)';
-        ctx.shadowColor = 'rgba(255, 190, 85, 0.32)';
+        ctx.strokeStyle = rgba(255, 193, 92, 0.96);
+        ctx.shadowColor = rgba(255, 190, 85, 0.32);
         ctx.shadowBlur = 3;
         ctx.lineWidth = 1.5;
         ctx.beginPath();

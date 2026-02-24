@@ -48,6 +48,7 @@ export interface DeltaApplyResult {
         'timelineClips' | 'clipsById' | 'clips' | 'projectTracks' | 'tracksById' | 'tracks'
     > | null;
     snapshotMeta?: SnapshotProjectMeta | null;
+    unhandledDeltaKinds?: string[];
 }
 
 export interface DeltaWorkingState {

@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
-import throttle from 'lodash.throttle';
+import { useCallback, useMemo, useRef, useState, memo } from 'react';
 import {
     useAutomationStore,
     type AutomationLane as LaneData,
     type AutomationBreakpoint,
 } from '@/shared/stores/useAutomationStore';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
-import * as engineApi from '@/shared/api/engine';
 import { AutomationLaneSvg } from './AutomationLaneSvg';
-
+import { useAutomationLaneSync } from './AutomationLaneSync';
+import { useAutomationLaneItemHandlers } from './AutomationLaneItems';
 
 interface AutomationLaneProps {
     /** Lane data from the automation store. */
@@ -43,51 +41,15 @@ export const AutomationLane = memo(function AutomationLane({
     const removeBreakpoint = useAutomationStore((s) => s.removeBreakpoint);
     const selectBreakpoint = useAutomationStore((s) => s.selectBreakpoint);
     const selectedBreakpoints = useAutomationStore((s) => s.selectedBreakpoints);
+    const moveAutomationItem = useAutomationStore((s) => s.moveAutomationItem);
+    const stretchAutomationItem = useAutomationStore((s) => s.stretchAutomationItem);
 
     const svgRef = useRef<SVGSVGElement>(null);
     const [hoveredBp, setHoveredBp] = useState<string | null>(null);
     const [draggingBp, setDraggingBp] = useState<string | null>(null);
     const [curveDragBp, setCurveDragBp] = useState<string | null>(null);
 
-    const pushPointsThrottled = useMemo(
-        () =>
-            throttle((points: engineApi.AutomationPoint[]) => {
-                engineApi
-                    .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
-                    .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:throttle'))
-                    .catch((err) => console.error('[AutomationLane] setAutomationPoints failed:', err));
-            }, 16),
-        [lane.trackId, lane.paramKey],
-    );
-
-    useEffect(() => {
-        return () => {
-            pushPointsThrottled.cancel();
-        };
-    }, [pushPointsThrottled]);
-
-    const buildEnginePoints = useCallback((): engineApi.AutomationPoint[] => {
-        const latest = useAutomationStore.getState().lanes[lane.id];
-        return (latest?.breakpoints ?? lane.breakpoints).map((bp) => ({
-            beat: bp.beat,
-            value: bp.value,
-            curveType: bp.curve === 'step' ? 'step' : bp.curve === 'bezier' ? 'bezier' : 'linear',
-            tension: bp.curve === 'bezier' ? (bp.tension ?? 0.5) : undefined,
-        }));
-    }, [lane.id, lane.breakpoints]);
-
-    const flushPointsToEngine = useCallback(() => {
-        const points = buildEnginePoints();
-        pushPointsThrottled(points);
-    }, [buildEnginePoints, pushPointsThrottled]);
-
-    const pushPointsImmediate = useCallback(() => {
-        const points = buildEnginePoints();
-        engineApi
-            .setAutomationPointsWithDeltas(lane.trackId, lane.paramKey, points)
-            .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'automation:flush'))
-            .catch((err) => console.error('[AutomationLane] setAutomationPoints final push failed:', err));
-    }, [buildEnginePoints, lane.trackId, lane.paramKey]);
+    const { flushPointsToEngine, pushPointsImmediate, pushPointsThrottled } = useAutomationLaneSync(lane);
 
 
     const beatToX = useCallback(
@@ -244,6 +206,37 @@ export const AutomationLane = memo(function AutomationLane({
         ],
     );
 
+    const automationItems = useMemo(() => {
+        const groups = new Map<string, AutomationBreakpoint[]>();
+        for (const bp of lane.breakpoints) {
+            if (!bp.itemId) continue;
+            const bucket = groups.get(bp.itemId) ?? [];
+            bucket.push(bp);
+            groups.set(bp.itemId, bucket);
+        }
+        return Array.from(groups.entries())
+            .map(([itemId, points]) => {
+                const sorted = [...points].sort((a, b) => a.beat - b.beat);
+                const startBeat = sorted[0]?.beat ?? 0;
+                const endBeat = sorted[sorted.length - 1]?.beat ?? startBeat;
+                return { itemId, startBeat, endBeat };
+            })
+            .filter((item) => item.endBeat - item.startBeat > 0.0001);
+    }, [lane.breakpoints]);
+
+    const { handleItemDragStart, handleItemResizeStart } = useAutomationLaneItemHandlers({
+        svgRef,
+        automationItems,
+        laneId: lane.id,
+        pixelsPerBeat,
+        scrollOffsetBeats,
+        moveAutomationItem,
+        stretchAutomationItem,
+        flushPointsToEngine,
+        pushPointsImmediate,
+        pushPointsThrottled,
+    });
+
     if (!lane.visible) return null;
 
     const bps = lane.breakpoints;
@@ -280,6 +273,9 @@ export const AutomationLane = memo(function AutomationLane({
                 flushPointsToEngine();
             }}
             onHoverChange={setHoveredBp}
+            automationItems={automationItems}
+            onItemDragStart={handleItemDragStart}
+            onItemResizeStart={handleItemResizeStart}
         />
     );
 });

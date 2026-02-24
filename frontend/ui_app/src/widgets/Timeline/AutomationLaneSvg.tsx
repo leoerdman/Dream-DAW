@@ -24,6 +24,9 @@ interface AutomationLaneSvgProps {
     onBpDblClick: (e: MouseEvent, bpId: string) => void;
     onBpCurveToggle: (bpId: string) => void;
     onHoverChange: (bpId: string | null) => void;
+    automationItems: Array<{ itemId: string; startBeat: number; endBeat: number }>;
+    onItemDragStart: (e: MouseEvent, itemId: string) => void;
+    onItemResizeStart: (e: MouseEvent, itemId: string) => void;
 }
 
 export function AutomationLaneSvg({
@@ -49,6 +52,9 @@ export function AutomationLaneSvg({
     onBpDblClick,
     onBpCurveToggle,
     onHoverChange,
+    automationItems,
+    onItemDragStart,
+    onItemResizeStart,
 }: AutomationLaneSvgProps) {
     return (
         <svg
@@ -58,6 +64,40 @@ export function AutomationLaneSvg({
             onClick={onSvgClick}
             style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair', pointerEvents: 'all' }}
         >
+            {automationItems.map((item) => {
+                const x = beatToX(item.startBeat);
+                const w = Math.max(8, beatToX(item.endBeat) - x);
+                return (
+                    <g key={`item-${item.itemId}`}>
+                        <rect
+                            x={x}
+                            y={1}
+                            width={w}
+                            height={Math.max(8, height - 2)}
+                            rx={4}
+                            fill={lane.color}
+                            opacity={0.08}
+                            stroke={lane.color}
+                            strokeOpacity={0.35}
+                            strokeWidth={1}
+                            style={{ cursor: 'grab' }}
+                            onMouseDown={(e) => onItemDragStart(e, item.itemId)}
+                        />
+                        <rect
+                            x={x + w - 5}
+                            y={2}
+                            width={4}
+                            height={Math.max(8, height - 4)}
+                            rx={2}
+                            fill={lane.color}
+                            opacity={0.75}
+                            style={{ cursor: 'ew-resize' }}
+                            onMouseDown={(e) => onItemResizeStart(e, item.itemId)}
+                        />
+                    </g>
+                );
+            })}
+
             {fillPath && <path d={fillPath} fill={lane.color} opacity={fillOpacity} />}
 
             {linePath && (

@@ -1,75 +1,44 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Automation Store (Zustand)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Manages automation lane data for all tracks. Each track can have
-// multiple automation parameters (volume, pan, send levels, plugin params).
-// Breakpoints are stored as {beat, value, curveType} tuples.
-//
-// This is a UI-only store — automation playback is handled by the engine.
-// Changes are serialized into the project file on save.
-//
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { create } from 'zustand';
+import {
+    createAutomationItemMutation,
+    deleteNearestAutomationItemMutation,
+    lanesForTrack,
+    moveAutomationItemMutation,
+    stretchAutomationItemMutation,
+} from './useAutomationStoreItems';
 
-// ── Types ────────────────────────────────────────────────────────────────
-
-/** Curve type between two breakpoints. */
 export type CurveType = 'linear' | 'bezier' | 'step';
 
-/** A single automation breakpoint on the timeline. */
 export interface AutomationBreakpoint {
-    /** Unique ID for React keys and selection. */
     id: string;
-    /** Position in beats (horizontal). */
     beat: number;
-    /** Normalized value 0..1 (vertical). */
     value: number;
-    /** Curve type TO THE NEXT breakpoint. */
     curve: CurveType;
-    /** Bézier tension TO THE NEXT breakpoint (0..1). */
     tension?: number;
+    itemId?: string;
 }
 
-/** An automation lane for a single parameter on a single track. */
 export interface AutomationLane {
-    /** Unique lane ID. */
     id: string;
-    /** Track this lane belongs to. */
     trackId: string;
-    /** Human-readable parameter name (e.g. "Volume", "Pan"). */
     paramName: string;
-    /** Parameter key for engine mapping. */
     paramKey: string;
-    /** Color for the lane line and fill. */
     color: string;
-    /** Whether this lane is visible in the timeline. */
     visible: boolean;
-    /** Ordered breakpoints (sorted by beat). */
     breakpoints: AutomationBreakpoint[];
 }
 
-// ── Store ────────────────────────────────────────────────────────────────
-
 interface AutomationState {
-    /** All automation lanes, keyed by lane ID. */
     lanes: Record<string, AutomationLane>;
-
-    /** Global toggle — shows/hides ALL automation lanes at once. */
     globalVisible: boolean;
-
-    /** Which tracks have automation expanded in UI. */
     expandedTracks: Set<string>;
-
-    /** Currently selected breakpoint IDs. */
     selectedBreakpoints: Set<string>;
-
-    // ── Actions ──
     toggleGlobalVisible: () => void;
     addLane: (trackId: string, paramName: string, paramKey: string, color?: string) => string;
     removeLane: (laneId: string) => void;
     toggleTrackAutomation: (trackId: string) => void;
+    setTrackAutomationVisible: (trackId: string, visible: boolean) => void;
+    hideAllAutomation: () => void;
     setLaneVisibility: (laneId: string, visible: boolean) => void;
 
     addBreakpoint: (laneId: string, beat: number, value: number, curve?: CurveType) => void;
@@ -79,6 +48,10 @@ interface AutomationState {
     removeBreakpoint: (laneId: string, bpId: string) => void;
     selectBreakpoint: (bpId: string, additive?: boolean) => void;
     clearSelection: () => void;
+    createAutomationItem: (laneId: string, startBeat: number, lengthBeats: number) => string | null;
+    deleteNearestAutomationItem: (laneId: string, anchorBeat: number) => boolean;
+    moveAutomationItem: (laneId: string, itemId: string, newStartBeat: number) => boolean;
+    stretchAutomationItem: (laneId: string, itemId: string, newLengthBeats: number) => boolean;
 
     getLanesForTrack: (trackId: string) => AutomationLane[];
 }
@@ -119,10 +92,55 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
     toggleTrackAutomation: (trackId) => {
         set((s) => {
-            const next = new Set(s.expandedTracks);
-            if (next.has(trackId)) next.delete(trackId);
-            else next.add(trackId);
-            return { expandedTracks: next };
+            const trackLanes = Object.values(s.lanes).filter((lane) => lane.trackId === trackId);
+            const hasVisibleLane = trackLanes.some((lane) => lane.visible);
+            const makeVisible = !hasVisibleLane;
+            const nextLanes = { ...s.lanes };
+            for (const lane of trackLanes) {
+                nextLanes[lane.id] = { ...lane, visible: makeVisible };
+            }
+            const nextExpanded = new Set(s.expandedTracks);
+            if (makeVisible) nextExpanded.add(trackId);
+            else nextExpanded.delete(trackId);
+            return {
+                lanes: nextLanes,
+                expandedTracks: nextExpanded,
+                globalVisible: makeVisible ? true : s.globalVisible,
+            };
+        });
+    },
+
+    setTrackAutomationVisible: (trackId, visible) => {
+        set((s) => {
+            const trackLanes = Object.values(s.lanes).filter((lane) => lane.trackId === trackId);
+            if (trackLanes.length === 0) return s;
+            const nextLanes = { ...s.lanes };
+            for (const lane of trackLanes) {
+                nextLanes[lane.id] = { ...lane, visible };
+            }
+            const nextExpanded = new Set(s.expandedTracks);
+            if (visible) nextExpanded.add(trackId);
+            else nextExpanded.delete(trackId);
+            return {
+                lanes: nextLanes,
+                expandedTracks: nextExpanded,
+                globalVisible: visible ? true : s.globalVisible,
+            };
+        });
+    },
+
+    hideAllAutomation: () => {
+        set((s) => {
+            const nextLanes: Record<string, AutomationLane> = {};
+            for (const lane of Object.values(s.lanes)) {
+                nextLanes[lane.id] = { ...lane, visible: false };
+            }
+            return {
+                lanes: nextLanes,
+                expandedTracks: new Set<string>(),
+                globalVisible: false,
+                selectedBreakpoints: new Set<string>(),
+            };
         });
     },
 
@@ -210,7 +228,60 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
     clearSelection: () => set({ selectedBreakpoints: new Set() }),
 
-    getLanesForTrack: (trackId) => {
-        return Object.values(get().lanes).filter((l) => l.trackId === trackId);
+    createAutomationItem: (laneId, startBeat, lengthBeats) => {
+        const lane = get().lanes[laneId];
+        if (!lane) return null;
+        const mutation = createAutomationItemMutation(lane, startBeat, lengthBeats);
+        set((s) => ({
+            lanes: {
+                ...s.lanes,
+                [laneId]: { ...s.lanes[laneId], breakpoints: mutation.breakpoints },
+            },
+        }));
+        return mutation.itemId;
     },
+
+    deleteNearestAutomationItem: (laneId, anchorBeat) => {
+        const lane = get().lanes[laneId];
+        if (!lane) return false;
+        const mutation = deleteNearestAutomationItemMutation(lane, anchorBeat);
+        if (!mutation.changed) return false;
+        set((s) => ({
+            lanes: {
+                ...s.lanes,
+                [laneId]: { ...s.lanes[laneId], breakpoints: mutation.breakpoints },
+            },
+        }));
+        return true;
+    },
+
+    moveAutomationItem: (laneId, itemId, newStartBeat) => {
+        const lane = get().lanes[laneId];
+        if (!lane) return false;
+        const mutation = moveAutomationItemMutation(lane, itemId, newStartBeat);
+        if (!mutation.changed) return false;
+        set((s) => ({
+            lanes: {
+                ...s.lanes,
+                [laneId]: { ...s.lanes[laneId], breakpoints: mutation.breakpoints },
+            },
+        }));
+        return true;
+    },
+
+    stretchAutomationItem: (laneId, itemId, newLengthBeats) => {
+        const lane = get().lanes[laneId];
+        if (!lane) return false;
+        const mutation = stretchAutomationItemMutation(lane, itemId, newLengthBeats);
+        if (!mutation.changed) return false;
+        set((s) => ({
+            lanes: {
+                ...s.lanes,
+                [laneId]: { ...s.lanes[laneId], breakpoints: mutation.breakpoints },
+            },
+        }));
+        return true;
+    },
+
+    getLanesForTrack: (trackId) => lanesForTrack<AutomationLane>(get(), trackId),
 }));

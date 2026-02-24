@@ -89,7 +89,7 @@ export function PluginGuiSurfaceEqControls({
                     fontSize: 'var(--font-size-micro)',
                     color: 'color-mix(in srgb, var(--color-text-primary) 78%, transparent)',
                     textAlign: 'center',
-                    fontFamily: 'var(--font-sans)',
+                    fontFamily: 'var(--font-role-body)',
                     marginTop: 2,
                 }}
             >

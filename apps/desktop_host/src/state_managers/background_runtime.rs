@@ -27,9 +27,25 @@ struct TransportTelemetryPayload {
     telemetry_timestamp_ms: u128,
 }
 
+#[derive(Clone, Serialize, Default)]
+struct SystemPerformancePayload {
+    /// Overall CPU usage percentage (0–100).
+    cpu_usage: f32,
+    /// Used RAM in megabytes.
+    ram_used_mb: u64,
+    /// Total system RAM in megabytes.
+    ram_total_mb: u64,
+    /// Process (Dream DAW) memory in megabytes.
+    process_memory_mb: u64,
+    /// Audio thread DSP load percentage (0–100). This is THE critical
+    /// metric for DAW users — shows how close the session is to dropout.
+    dsp_load: f32,
+}
+
 #[derive(Clone, Serialize)]
 struct TelemetryTickPayload {
     transport: TransportTelemetryPayload,
+    performance: SystemPerformancePayload,
 }
 
 fn build_meters_binary_packet(handle: &AudioEngineHandle) -> Vec<u8> {
@@ -50,6 +66,11 @@ pub(crate) fn spawn_background_runtime_threads(
         .name("telemetry-push".into())
         .spawn(move || {
             let mut telemetry_tick_count: u64 = 0;
+
+            // System performance monitoring — refreshed every ~1s (every 30 ticks)
+            let mut sys = sysinfo::System::new();
+            let mut cached_perf = SystemPerformancePayload::default();
+
             loop {
                 {
                     let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
@@ -62,6 +83,24 @@ pub(crate) fn spawn_background_runtime_threads(
                 telemetry_tick_count += 1;
                 if telemetry_tick_count.is_multiple_of(150) {
                     log::debug!("[Telemetry] heartbeat tick={}", telemetry_tick_count);
+                }
+
+                // Refresh expensive system metrics every ~1s (30 ticks × 33ms ≈ 1s)
+                if telemetry_tick_count.is_multiple_of(30) {
+                    sys.refresh_cpu_usage();
+                    sys.refresh_memory();
+
+                    cached_perf.cpu_usage = sys.global_cpu_usage();
+                    cached_perf.ram_used_mb = sys.used_memory() / (1024 * 1024);
+                    cached_perf.ram_total_mb = sys.total_memory() / (1024 * 1024);
+
+                    // Process memory via sysinfo
+                    let pid = sysinfo::Pid::from_u32(std::process::id());
+                    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                    cached_perf.process_memory_mb = sys
+                        .process(pid)
+                        .map(|p| p.memory() / (1024 * 1024))
+                        .unwrap_or(0);
                 }
 
                 let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
@@ -93,7 +132,13 @@ pub(crate) fn spawn_background_runtime_threads(
                     }
                 };
 
-                let payload = TelemetryTickPayload { transport };
+                // DSP load is read every tick (changes at 30fps audio callback rate)
+                cached_perf.dsp_load = handle.rt_debug_stats.dsp_load_percent();
+
+                let payload = TelemetryTickPayload {
+                    transport,
+                    performance: cached_perf.clone(),
+                };
 
                 let _ = telemetry_app.emit("telemetry_tick", payload);
                 let _ = telemetry_app.emit(
@@ -113,15 +158,14 @@ pub(crate) fn spawn_background_runtime_threads(
                 // This prevents stale master/track VST chains in the audio thread.
                 if telemetry_tick_count.is_multiple_of(15) {
                     let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
-                    let plugin_host_state: tauri::State<'_, PluginHostState> = telemetry_app.state();
+                    let plugin_host_state: tauri::State<'_, PluginHostState> =
+                        telemetry_app.state();
                     let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
                     plugin_host_state.publish_registry();
                     if let Ok(project) = pstate.project.lock() {
                         let slot_instance_map = plugin_host_state.slot_instance_snapshot();
-                        clip_pool_state.rebuild_external_fx_snapshot(
-                            &project,
-                            slot_instance_map.as_ref(),
-                        );
+                        clip_pool_state
+                            .rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
                     }
                 }
             }

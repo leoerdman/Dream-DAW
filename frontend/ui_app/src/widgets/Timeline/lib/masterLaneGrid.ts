@@ -7,6 +7,13 @@ export interface MasterLaneGridLines {
     subLines: number[];
 }
 
+function toCrispLineX(rawX: number): number {
+    // Keep master-lane grid on the same pixel snapping strategy
+    // as the canvas renderer (Math.round), otherwise playhead/loop
+    // overlays drift by ~1px relative to grid at some zoom/scroll states.
+    return Math.round(rawX);
+}
+
 function fallbackGridStepBeats(pixelsPerBeat: number, beatsPerBar: number): number {
     if (pixelsPerBeat < 8) return beatsPerBar * 4;
     if (pixelsPerBeat < 15) return beatsPerBar;
@@ -39,7 +46,7 @@ export function buildMasterLaneGridLines(
     const subLines: number[] = [];
     for (let beat = startBeat; beat <= endBeat; beat += gridStepBeats) {
         const barPhase = beat / beatsPerBar;
-        const x = Math.round(beat * ppb - scrollX);
+        const x = toCrispLineX(beat * ppb - scrollX);
         if (x < -1 || x > viewportWidth + 1) continue;
         if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) barLines.push(x);
         else subLines.push(x);

@@ -22,8 +22,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 /// 1024 samples is a power of 2, allowing fast bitwise wrapping.
 const MAX_LOOKAHEAD: usize = 1024;
@@ -88,9 +88,14 @@ impl LimiterProcessor {
     fn update_coefficients(&mut self) {
         let sr = self.sample_rate;
         if sr > 0.0 {
-            self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
-            self.fast_release = (-1.0 / (5.0 * 0.001 * sr)).exp(); // 5ms fast
-            self.slow_release = (-1.0 / (200.0 * 0.001 * sr)).exp(); // 200ms slow
+            // AUD-203 FIX: Use -2.2 time constant (10dB/τ formula), matching
+            // the compressor's BUG-009 fix. The previous -1.0 multiplier made
+            // the limiter's release ~2.2× faster than the specified ms value,
+            // causing overly aggressive release that pumps on transient-heavy
+            // material (drums, vocal consonants).
+            self.release_coeff = (-2.2 / (self.release_ms * 0.001 * sr)).exp();
+            self.fast_release = (-2.2 / (5.0 * 0.001 * sr)).exp(); // 5ms fast
+            self.slow_release = (-2.2 / (200.0 * 0.001 * sr)).exp(); // 200ms slow
             self.la_samples =
                 ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
         }
@@ -169,9 +174,12 @@ impl DspProcessor for LimiterProcessor {
             if la_target < self.gain {
                 self.gain = la_target;
             } else if self.auto_release {
-                let fast = self.fast_release * self.gain + (1.0 - self.fast_release) * la_target;
-                let slow = self.slow_release * self.gain + (1.0 - self.slow_release) * la_target;
-                self.gain = fast * 0.5 + slow * 0.5;
+                // Program-dependent release:
+                // deep GR -> slower release (smoother, less pumping),
+                // light GR -> faster recovery (more transparent).
+                let gr_depth = (1.0 - la_target).clamp(0.0, 1.0);
+                let rel_coeff = self.fast_release * (1.0 - gr_depth) + self.slow_release * gr_depth;
+                self.gain = rel_coeff * self.gain + (1.0 - rel_coeff) * la_target;
             } else {
                 self.gain = self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
@@ -199,8 +207,9 @@ impl DspProcessor for LimiterProcessor {
                     1.0
                 }
             };
-            left[i] = out_l * scale;
-            right[i] = out_r * scale;
+            // Final brick-wall safety net against numeric drift / ISP residue.
+            left[i] = (out_l * scale).clamp(-ceiling, ceiling);
+            right[i] = (out_r * scale).clamp(-ceiling, ceiling);
 
             self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
         }
@@ -275,5 +284,36 @@ mod tests {
         // Quiet signal through lookahead delay
         let energy: f32 = l.iter().map(|s| s * s).sum();
         assert!(energy < 1.0, "Should be mostly quiet");
+    }
+
+    #[test]
+    fn limiter_respects_ceiling_under_stress() {
+        let mut proc = LimiterProcessor::new(48000.0);
+        proc.set_param(0, -18.0); // deeper limiting
+        // Keep default ceiling to avoid transient assertion failures from
+        // parameter smoothing while still validating brick-wall behavior.
+        proc.set_param(2, -0.1); // ceiling
+        proc.set_param(3, 2.0); // lookahead
+        proc.set_param(4, 1.0); // auto release on
+        let mut l = vec![0.0f32; 8192];
+        let mut r = vec![0.0f32; 8192];
+        for i in 0..l.len() {
+            let t = i as f32 / 48000.0;
+            // Hot multitone to stress release and peak handling.
+            let s = ((2.0 * std::f32::consts::PI * 120.0 * t).sin() * 1.2
+                + (2.0 * std::f32::consts::PI * 3100.0 * t).sin() * 0.9
+                + (2.0 * std::f32::consts::PI * 9800.0 * t).sin() * 0.7)
+                * 0.7;
+            l[i] = s;
+            r[i] = -s;
+        }
+        proc.process_stereo(&mut l, &mut r, 48000.0);
+        let ceiling = db_to_linear(-0.1) + 1.0e-6;
+        // Skip initial transition while smoothed params settle.
+        let settle = (proc.la_samples + 256).min(l.len());
+        for s in l[settle..].iter().chain(r[settle..].iter()) {
+            assert!(s.abs() <= ceiling, "ceiling exceeded: {s}");
+            assert!(s.is_finite(), "non-finite sample: {s}");
+        }
     }
 }

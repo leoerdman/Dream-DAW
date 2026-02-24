@@ -3,6 +3,7 @@ import { useAgentActionStore, getToolLabel } from '@/shared/stores/useAgentActio
 import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
+import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
 import {
     type MidiNoteLike,
     getOptionalStringField,
@@ -896,8 +897,9 @@ async function executeToolInner(
         }
         case 'get_metering': {
             try {
-                const meters = await engineApi.getMeters();
-                const trackMeters = meters.tracks.map((t: [import('@/shared/api/engine').MeterReading, import('@/shared/api/engine').MeterReading], i: number) => ({
+                const metersPacket = await engineApi.getMetersBinary();
+                const meters = decodeMetersBinaryPacket(metersPacket);
+                const trackMeters = meters.tracks.map((t, i: number) => ({
                     index: i,
                     name: tracks[i]?.name ?? `Track ${i}`,
                     leftRMS: t[0].rms.toFixed(3),

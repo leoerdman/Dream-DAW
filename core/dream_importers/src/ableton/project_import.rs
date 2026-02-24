@@ -48,7 +48,6 @@ use crate::ableton::xml_helpers::{
     parse_track_send_manual_values,
 };
 
-
 fn parse_project_markers(
     live_set: roxmltree::Node<'_, '_>,
 ) -> Vec<dream_models::project::ProjectMarker> {

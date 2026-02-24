@@ -114,6 +114,7 @@ pub enum ProjectDelta {
         is_warped: bool,
         warp_mode: Option<i32>,
         warp_base_bpm: f64,
+        warp_source_duration_frames: i64,
     },
 
     /// Pitch shift for an audio clip changed.

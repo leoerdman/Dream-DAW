@@ -27,6 +27,18 @@ fn get_project_history(
     project_state.history_snapshot(limit, since_seq)
 }
 
+/// Legacy compatibility endpoint.
+///
+/// Full snapshot fallback is disabled in strict delta mode.
+/// We return an explicit error (instead of empty deltas) to avoid
+/// silent state desynchronization when old clients call this command.
+#[tauri::command]
+fn get_project_snapshot_delta(
+    _project_state: tauri::State<'_, ProjectState>,
+) -> Result<DeltaMutationResponse, String> {
+    Err("get_project_snapshot_delta is disabled in strict delta mode".to_string())
+}
+
 /// Deep audit of end-to-end audio chain topology:
 /// source -> instrument/effects -> track routing -> group -> master.
 #[tauri::command]

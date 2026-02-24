@@ -175,7 +175,7 @@ export const BlockingJobPopup = () => {
                         <div style={{
                             fontSize: 'var(--font-size-sm)',
                             color: 'var(--color-text-secondary)',
-                            fontFamily: 'var(--font-mono)',
+                            fontFamily: 'var(--font-role-data)',
                         }}>
                             {Math.round(progress)}%
                         </div>

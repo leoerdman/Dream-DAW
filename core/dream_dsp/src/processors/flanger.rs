@@ -169,7 +169,8 @@ impl DspProcessor for FlangerProcessor {
         let base = self.base_delay_ms * 0.001 * sr;
         let dc = self.damp_coeff;
         self.depth_sm.set_target(self.depth.clamp(0.0, 1.0));
-        self.feedback_sm.set_target(self.feedback.clamp(-0.95, 0.95));
+        self.feedback_sm
+            .set_target(self.feedback.clamp(-0.95, 0.95));
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
 
         for i in 0..len {
@@ -277,7 +278,8 @@ impl DspProcessor for FlangerProcessor {
         self.prev_phase_r = 0.0;
         self.sh_rng = 0xDEAD_BEEF_CAFE_1234;
         self.depth_sm.set_instant(self.depth.clamp(0.0, 1.0));
-        self.feedback_sm.set_instant(self.feedback.clamp(-0.95, 0.95));
+        self.feedback_sm
+            .set_instant(self.feedback.clamp(-0.95, 0.95));
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
     }
 }

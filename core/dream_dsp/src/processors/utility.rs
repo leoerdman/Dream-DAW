@@ -19,8 +19,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear as db_to_linear_fast, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{
+    DEFAULT_SAMPLE_RATE, db_to_linear as db_to_linear_fast, sanitize_sample_rate,
+};
 
 /// Utility processor — gain, pan, width, mono.
 pub struct UtilityProcessor {

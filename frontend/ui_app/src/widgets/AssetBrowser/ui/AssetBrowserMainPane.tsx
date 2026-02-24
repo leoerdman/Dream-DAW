@@ -180,7 +180,7 @@ const pluginStatsRowStyle: React.CSSProperties = {
     background: 'var(--color-bg-header)',
     fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-tertiary)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
 };
 
 const pathStatStyle: React.CSSProperties = {
@@ -216,7 +216,7 @@ const letterAnchorButtonStyle: React.CSSProperties = {
     border: 'var(--space-px) solid var(--color-divider)',
     fontSize: 'var(--font-size-2xs)',
     fontWeight: 'var(--font-weight-bold)' as unknown as number,
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     cursor: 'pointer',
     padding: 0,
     flexShrink: 0,

@@ -14,9 +14,11 @@ interface ModalOverlayProps {
     zIndex?: string;
     /** Whether to render. Controls mount/unmount. */
     open: boolean;
+    /** Optional blur amount for backdrop. Defaults to token-driven value. */
+    blur?: string;
 }
 
-const overlayStyle = (zIndex: string): CSSProperties => ({
+const overlayStyle = (zIndex: string, blur: string): CSSProperties => ({
     position: 'fixed',
     inset: 0,
     display: 'flex',
@@ -24,6 +26,8 @@ const overlayStyle = (zIndex: string): CSSProperties => ({
     justifyContent: 'center',
     background: 'var(--color-overlay-modal)',
     zIndex: zIndex as unknown as number,
+    backdropFilter: `blur(${blur})`,
+    WebkitBackdropFilter: `blur(${blur})`,
 });
 
 const panelStyle: CSSProperties = {
@@ -35,6 +39,7 @@ export const ModalOverlay = memo(function ModalOverlay({
     onBackdropClick,
     zIndex = 'var(--z-modal)',
     open,
+    blur = 'var(--overlay-modal-blur)',
 }: ModalOverlayProps) {
     const handleBackdropClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -49,7 +54,7 @@ export const ModalOverlay = memo(function ModalOverlay({
 
     return (
         <div
-            style={overlayStyle(zIndex)}
+            style={overlayStyle(zIndex, blur)}
             onClick={handleBackdropClick}
             role="dialog"
             aria-modal

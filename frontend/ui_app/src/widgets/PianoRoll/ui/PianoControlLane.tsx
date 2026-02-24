@@ -98,7 +98,7 @@ export const PianoControlLane = memo(function PianoControlLane({
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     textTransform: 'uppercase',
                     letterSpacing: 'var(--letter-spacing-wide)',
-                    fontFamily: 'var(--font-family)',
+                    fontFamily: 'var(--font-role-body)',
                 }}
             >
                 {laneLabel}

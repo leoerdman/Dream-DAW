@@ -2,19 +2,22 @@ import { useRef, useEffect, useMemo, useState } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
-import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
-import { isTrackActive } from '@/shared/utils/routing';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
 import { AutomationOverlay } from './AutomationOverlay';
+import { TimelineMasterLane } from './TimelineMasterLane';
 import { useTimelineDnD } from './model/useTimelineDnD';
 import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from './model/useTimelineCommandBindings';
+import { useTimelineClipSync } from './model/useTimelineClipSync';
+import { useTimelineRegionEdit } from './model/useTimelineRegionEdit';
+import { useTimelineViewportSync } from './model/useTimelineViewportSync';
 interface TimelineProps {
     bpm?: number;
     timeSignature?: [number, number];
@@ -51,6 +54,7 @@ interface TimelineProps {
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     onMarqueeSelectionStart?: () => void;
     onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
+    marqueeSelection?: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
     followPlayhead?: boolean;
     automationVisible?: boolean;
     fitHorizontalToken?: number;
@@ -59,7 +63,7 @@ const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
-const MASTER_OVERLAY_X_ALIGNMENT_PX = -1;
+function toDomLineX(rawX: number): number { return Math.round(rawX); }
 export const Timeline = (props: TimelineProps) => {
     const {
         bpm = 120,
@@ -92,9 +96,15 @@ export const Timeline = (props: TimelineProps) => {
         onTrackSelect,
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
+        marqueeSelection = null,
         onClipResize,
         fitHorizontalToken = 0,
     } = props;
+    const normalizedTrackHeight = clampTrackHeightPx(trackHeight);
+    const normalizedTrackHeights = useMemo(
+        () => trackHeights?.map((h) => clampTrackHeightPx(h)),
+        [trackHeights],
+    );
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
@@ -119,10 +129,10 @@ export const Timeline = (props: TimelineProps) => {
         sampleRate: resolveSampleRate(engineSampleRate),
         totalBeats,
         trackCount,
-        trackHeight,
-        trackHeights,
+        trackHeight: normalizedTrackHeight,
+        trackHeights: normalizedTrackHeights,
         rulerHeight: RULER_HEIGHT,
-        bottomPaddingPx: trackHeight * TRAILING_EMPTY_TRACK_SLOTS,
+        bottomPaddingPx: normalizedTrackHeight * TRAILING_EMPTY_TRACK_SLOTS,
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
         snapEnabled,
@@ -140,17 +150,14 @@ export const Timeline = (props: TimelineProps) => {
     );
     const masterGridViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
     const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
-    // Master-lane overlay is DOM/SVG while timeline body is canvas.
-    // Apply a fixed alignment bias so loop/playhead remain pixel-perfect
-    // with the canvas-rendered lines at all zoom levels.
-    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
-    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
-    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX + MASTER_OVERLAY_X_ALIGNMENT_PX;
-    const playheadLineX = Math.round(playheadX) - 0.5;
-    const loopStartLineX = Math.round(loopStartX) - 0.5;
-    const loopEndLineX = Math.round(loopEndX) - 0.5;
-    const loopLeftX = Math.min(loopStartX, loopEndX);
-    const loopRightX = Math.max(loopStartX, loopEndX);
+    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX;
+    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX;
+    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX;
+    const playheadLineX = toDomLineX(playheadX);
+    const loopStartLineX = toDomLineX(loopStartX);
+    const loopEndLineX = toDomLineX(loopEndX);
+    const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
+    const loopRightX = Math.max(loopStartLineX, loopEndLineX);
     const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < masterGridViewportWidth;
     const playheadVisible = playheadX >= -10 && playheadX <= masterGridViewportWidth + 10;
     const masterLaneGridLines = useMemo(
@@ -171,6 +178,7 @@ export const Timeline = (props: TimelineProps) => {
     );
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
+    const masterLaneRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
     const callbacksRef = useRef({
@@ -202,6 +210,21 @@ export const Timeline = (props: TimelineProps) => {
         engineRef,
         commandBusRef,
         callbacksRef,
+    });
+    useTimelineViewportSync({
+        engineRef,
+        viewportState,
+        setTimelineLayout,
+        restoreSeq,
+        restorePixelsPerBeat,
+        restoreScrollLeft,
+        restoreScrollTop,
+        clearViewportRestore,
+        selectedTrackIndex,
+        selectedTrackIndices,
+        loopStart,
+        loopEnd,
+        loopEnabled,
     });
     const pendingLoopRef = useRef<{ start: number; end: number; enabled: boolean } | null>(null);
     const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => { });
@@ -298,47 +321,11 @@ export const Timeline = (props: TimelineProps) => {
         observer.observe(node);
         return () => observer.disconnect();
     }, []);
-    const tracksEntity = useEngineStore((s) => s.tracks);
-    const trackActiveStates = useMemo(() => {
-        const orderedTracks = tracksEntity.allIds
-            .map((id) => tracksEntity.byId[id])
-            .filter((track): track is NonNullable<typeof track> => Boolean(track));
-        return orderedTracks.map((_t, i, arr) => isTrackActive(i, arr));
-    }, [tracksEntity]);
-    useEffect(() => {
-        const engine = engineRef.current;
-        if (!engine) return;
-        const clipData: TimelineClipData[] = clips.map(c => ({
-            fadeIn: (c.durationSamples && c.durationSamples > 0)
-                ? Math.max(0, Math.min(1, (c.fadeIn ?? 0) / c.durationSamples))
-                : 0,
-            fadeOut: (c.durationSamples && c.durationSamples > 0)
-                ? Math.max(0, Math.min(1, (c.fadeOut ?? 0) / c.durationSamples))
-                : 0,
-            id: c.id,
-            name: c.name,
-            trackIndex: c.trackIndex,
-            startBeat: c.startBeat,
-            durationBeats: c.durationBeats,
-            type: c.type,
-            color: c.color,
-            selected: false,
-            filePath: c.filePath,
-            durationSamples: c.durationSamples,
-            sourceOffset: c.sourceOffset,
-            fadeInCurve: c.fadeInCurve,
-            fadeOutCurve: c.fadeOutCurve,
-            isOffline: c.isOffline,
-            muted: c.muted,
-            trackMuted: !trackActiveStates[c.trackIndex],
-            isWarped: c.isWarped,
-            warpSourceDurationFrames: c.warpSourceDurationFrames,
-            pitchShiftSemitones: c.pitchShiftSemitones,
-            midiNotes: c.midiNotes,
-        }));
-        engine.setClips(clipData);
-        engine.setClipSelection(selectedClipIdsRef.current);
-    }, [clips, engineRef, trackActiveStates]);
+    useTimelineClipSync({
+        engineRef,
+        clips,
+        selectedClipIdsRef,
+    });
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -398,38 +385,6 @@ export const Timeline = (props: TimelineProps) => {
         engine.setEditCursor(editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd ?? editCursorTrackIndex);
     }, [editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd, engineRef]);
     useEffect(() => {
-        setTimelineLayout({
-            pixelsPerBeat: viewportState.ppb,
-            scrollLeft: viewportState.scrollX,
-            scrollTop: viewportState.scrollY,
-        });
-    }, [viewportState, setTimelineLayout]);
-    useEffect(() => {
-        if (restorePixelsPerBeat == null || restoreScrollLeft == null) return;
-        const engine = engineRef.current;
-        if (!engine) return;
-        engine.viewport.setZoom(restorePixelsPerBeat);
-        engine.viewport.scrollTo(restoreScrollLeft, restoreScrollTop ?? engine.viewport.scrollY);
-        clearViewportRestore();
-    }, [restoreSeq, restorePixelsPerBeat, restoreScrollLeft, restoreScrollTop, engineRef, clearViewportRestore]);
-    useEffect(() => {
-        const engine = engineRef.current;
-        if (!engine) return;
-        const list = (selectedTrackIndices && selectedTrackIndices.length > 0)
-            ? selectedTrackIndices
-            : (selectedTrackIndex >= 0 ? [selectedTrackIndex] : []);
-        engine.setSelectedTracks(selectedTrackIndex, list);
-    }, [selectedTrackIndex, selectedTrackIndices, engineRef]);
-    useEffect(() => {
-        const engine = engineRef.current;
-        if (!engine) return;
-        engine.setLoop({
-            start: loopStart,
-            end: loopEnd,
-            enabled: loopEnabled,
-        });
-    }, [loopStart, loopEnd, loopEnabled, engineRef]);
-    useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.onLoopChange = (loop) => {
@@ -449,12 +404,21 @@ export const Timeline = (props: TimelineProps) => {
         dragCursorX,
         dragCursorY,
     });
+    const regionEdit = useTimelineRegionEdit({
+        marqueeSelection,
+        effectivePixelsPerBeat,
+        viewportScrollX: viewportState.scrollX,
+        trackHeight: normalizedTrackHeight,
+        beatsPerBar,
+        masterLaneRef,
+    });
     return (
         <div
             ref={rootRef}
             data-testid="timeline-view"
             data-track-count={trackCount}
             data-track-ids-count={trackIds.length}
+            className="timeline-layer-root"
             style={{
                 width: '100%',
                 height: '100%',
@@ -470,6 +434,7 @@ export const Timeline = (props: TimelineProps) => {
         >
             <div
                 ref={arrangementRef}
+                className="timeline-layer-canvas"
                 style={{
                     position: 'relative',
                     flex: 1,
@@ -477,6 +442,15 @@ export const Timeline = (props: TimelineProps) => {
                     overflow: 'visible',
                 }}
             >
+                <div
+                    className="timeline-layer-bg"
+                    aria-hidden
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        pointerEvents: 'none',
+                    }}
+                />
                 <canvas
                     ref={canvasRef}
                     style={{
@@ -486,132 +460,45 @@ export const Timeline = (props: TimelineProps) => {
                         width: '100%',
                         height: '100%',
                         display: 'block',
+                        zIndex: 'var(--z-timeline-canvas)' as unknown as number,
                     }}
                 />
                 {props.automationVisible && (
-                    <AutomationOverlay
-                        visible
-                        trackCount={trackCount}
-                        trackHeight={trackHeight}
-                        trackHeights={trackHeights}
-                        scrollTop={timelineScrollTop}
-                        width={arrangementWidth}
-                        bpm={bpm}
-                    />
+                    <div
+                        className="timeline-layer-overlays"
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            pointerEvents: 'none',
+                        }}
+                    >
+                        <AutomationOverlay
+                            visible
+                            trackCount={trackCount}
+                            trackHeight={normalizedTrackHeight}
+                            trackHeights={normalizedTrackHeights}
+                            scrollTop={timelineScrollTop}
+                            width={arrangementWidth}
+                            bpm={bpm}
+                        />
+                    </div>
                 )}
             </div>
-            <div
-                data-testid="timeline-master-lane"
-                style={{
-                    height: trackHeight,
-                    flexShrink: 0,
-                    borderTop: 'none',
-                    boxShadow: 'inset 0 var(--space-px) 0 var(--color-border-subtle)',
-                    ...masterLaneGridStyle,
-                    pointerEvents: 'none',
-                    position: 'relative',
-                    zIndex: 'var(--z-local)' as unknown as number,
-                }}
-            >
-                <svg
-                    width="100%"
-                    height="100%"
-                    viewBox={`0 0 ${masterGridViewportWidth} ${Math.max(1, trackHeight)}`}
-                    preserveAspectRatio="none"
-                    style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-                >
-                    <g>
-                        {masterLaneGridLines.subLines.map((x) => (
-                            <line
-                                key={`master-sub-${x}`}
-                                x1={x}
-                                y1={0}
-                                x2={x}
-                                y2={trackHeight}
-                                stroke="var(--color-timeline-grid-line)"
-                                strokeWidth={1}
-                                opacity={0.42}
-                            />
-                        ))}
-                    </g>
-                    <g>
-                        {masterLaneGridLines.barLines.map((x) => (
-                            <line
-                                key={`master-bar-${x}`}
-                                x1={x}
-                                y1={0}
-                                x2={x}
-                                y2={trackHeight}
-                                stroke="var(--color-timeline-grid-bar)"
-                                strokeWidth={1}
-                                opacity={0.95}
-                            />
-                        ))}
-                    </g>
-                </svg>
-                {loopVisible && (
-                    <>
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: Math.max(0, loopLeftX),
-                                width: Math.max(0, Math.min(masterGridViewportWidth, loopRightX) - Math.max(0, loopLeftX)),
-                                background: 'var(--color-timeline-loop-fill)',
-                            }}
-                        />
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: loopStartLineX,
-                                width: 1,
-                                background: 'var(--color-timeline-loop-border)',
-                                opacity: 0.9,
-                            }}
-                        />
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: loopEndLineX,
-                                width: 1,
-                                background: 'var(--color-timeline-loop-border)',
-                                opacity: 0.9,
-                            }}
-                        />
-                    </>
-                )}
-                {playheadVisible && (
-                    <>
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: playheadLineX - 1,
-                                width: 3,
-                                background: 'var(--color-timeline-playhead-glow)',
-                                pointerEvents: 'none',
-                            }}
-                        />
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: playheadLineX,
-                                width: 1,
-                                background: 'var(--color-timeline-playhead)',
-                                pointerEvents: 'none',
-                            }}
-                        />
-                    </>
-                )}
-            </div>
+            <TimelineMasterLane
+                masterLaneRef={masterLaneRef}
+                trackHeight={normalizedTrackHeight}
+                masterLaneGridStyle={masterLaneGridStyle}
+                masterGridViewportWidth={masterGridViewportWidth}
+                masterLaneGridLines={masterLaneGridLines}
+                loopVisible={loopVisible}
+                loopLeftX={loopLeftX}
+                loopRightX={loopRightX}
+                loopStartLineX={loopStartLineX}
+                loopEndLineX={loopEndLineX}
+                playheadVisible={playheadVisible}
+                playheadLineX={playheadLineX}
+                regionEdit={regionEdit}
+            />
         </div>
     );
 };

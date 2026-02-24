@@ -445,16 +445,37 @@ export class TimelineEngine {
 
             if (!preview.allowStretch) {
                 const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
-                nextClip.durationSamples = previewFrames;
+                const clipSourceOffset = Math.max(0, clip.sourceOffset ?? 0);
+                if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0 && (clip.durationSamples ?? 0) > 0) {
+                    // Keep preview in trim/crop mode for warped clips:
+                    // preserve source/timeline ratio instead of stretching the whole file view.
+                    const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? 1);
+                    const sourceAvailableBefore = Math.max(1, sourceTotal - clipSourceOffset);
+                    const sourcePerTimeline = sourceAvailableBefore / Math.max(1, clip.durationSamples ?? 1);
 
-                if (clip.isWarped && clip.warpSourceDurationFrames && clip.warpSourceDurationFrames > 0) {
-                    nextClip.warpSourceDurationFrames = clip.warpSourceDurationFrames;
-                }
+                    let nextSourceOffset = clipSourceOffset;
+                    if (preview.edge === 'left') {
+                        const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
+                        const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                        nextSourceOffset = Math.max(0, Math.round(clipSourceOffset + trimmedFrames * sourcePerTimeline));
+                    }
+                    nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceTotal - 1));
 
-                if (preview.edge === 'left') {
-                    const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
-                    const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
-                    nextClip.sourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + trimmedFrames);
+                    const sourceAvailableAfter = Math.max(1, sourceTotal - nextSourceOffset);
+                    const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
+                    const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, maxPreviewFrames));
+                    const consumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
+
+                    nextClip.durationSamples = clampedPreviewFrames;
+                    nextClip.sourceOffset = nextSourceOffset;
+                    nextClip.warpSourceDurationFrames = nextSourceOffset + consumedSource;
+                } else {
+                    nextClip.durationSamples = previewFrames;
+                    if (preview.edge === 'left') {
+                        const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
+                        const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                        nextClip.sourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
+                    }
                 }
             } else {
                 const ratio = preview.durationBeats / (clip.durationBeats || 1);

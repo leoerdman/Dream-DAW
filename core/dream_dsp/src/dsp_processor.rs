@@ -85,11 +85,7 @@ struct SmoothedProcessor {
 }
 
 impl SmoothedProcessor {
-    fn new(
-        effect_type: BuiltinEffectType,
-        inner: Box<dyn DspProcessor>,
-        sample_rate: f32,
-    ) -> Self {
+    fn new(effect_type: BuiltinEffectType, inner: Box<dyn DspProcessor>, sample_rate: f32) -> Self {
         Self {
             inner,
             effect_type,
@@ -145,7 +141,10 @@ impl SmoothedProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite() && sample_rate > 1000.0 && (sample_rate - self.sample_rate).abs() > 0.5 {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
             self.sample_rate = sample_rate;
         }
     }
@@ -155,7 +154,8 @@ impl SmoothedProcessor {
         if block_len == 0 {
             return;
         }
-        let coeff = (-(block_len as f32) / (PARAM_SMOOTH_TIME_SEC * self.sample_rate.max(1.0))).exp();
+        let coeff =
+            (-(block_len as f32) / (PARAM_SMOOTH_TIME_SEC * self.sample_rate.max(1.0))).exp();
         let blend = 1.0 - coeff;
 
         for i in 0..MAX_SMOOTHED_PARAMS {

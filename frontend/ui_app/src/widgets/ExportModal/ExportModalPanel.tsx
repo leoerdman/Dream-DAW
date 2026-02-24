@@ -60,10 +60,24 @@ export function ExportModalPanel({
     onBounce,
 }: ExportModalPanelProps) {
     return (
-        <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 'var(--z-modal-content)' as unknown as number, width: 440, background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ zIndex: 'var(--z-modal-content)' as unknown as number, width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-lg)', cursor: 'pointer', padding: 'var(--space-0-5) var(--space-1-5)' }}>✕</button>
+                <button
+                    onClick={isSubmitting ? undefined : onClose}
+                    disabled={isSubmitting}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 'var(--font-size-lg)',
+                        cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                        opacity: isSubmitting ? 0.5 : 1,
+                        padding: 'var(--space-0-5) var(--space-1-5)',
+                    }}
+                >
+                    ✕
+                </button>
             </div>
 
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
@@ -89,7 +103,7 @@ export function ExportModalPanel({
             </SettingRow>
 
             {rangeInfo.durationBeats > 0 && (
-                <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ padding: 'var(--space-2) var(--space-3)', background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-role-data)' }}>
                     <span>Bar {rangeInfo.startBar}–{rangeInfo.endBar}</span>
                     <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{rangeInfo.durationFormatted}</span>
                 </div>
@@ -110,7 +124,7 @@ export function ExportModalPanel({
                         onChange={(e) => setTailMs(Number(e.target.value))}
                         style={{ width: 120, accentColor: 'var(--color-accent-primary)' }}
                     />
-                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', minWidth: 40 }}>
+                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-role-data)', minWidth: 40 }}>
                         {tailMs}ms
                     </span>
                 </div>

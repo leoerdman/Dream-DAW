@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+  <rect width="320" height="320" fill="transparent"/>
+  <g stroke="#9fb9ff" stroke-opacity="0.08" stroke-width="1">
+    <path d="M0 0 H320"/>
+    <path d="M0 80 H320"/>
+    <path d="M0 160 H320"/>
+    <path d="M0 240 H320"/>
+    <path d="M0 0 V320"/>
+    <path d="M80 0 V320"/>
+    <path d="M160 0 V320"/>
+    <path d="M240 0 V320"/>
+  </g>
+  <g stroke="#8ca7ee" stroke-opacity="0.12" stroke-width="1.5" fill="none">
+    <circle cx="160" cy="160" r="118"/>
+    <circle cx="160" cy="160" r="72"/>
+  </g>
+</svg>

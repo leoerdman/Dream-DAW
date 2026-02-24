@@ -54,8 +54,7 @@ impl Command for ResizeClipCommand {
             new_position,
             new_duration,
             self.allow_stretch,
-        )
-        {
+        ) {
             // Fall back to MIDI clip resize
             if mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)
                 .is_err()

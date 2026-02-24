@@ -108,7 +108,7 @@ export function DebugPanel({
             <div
                 style={{
                     padding: 'var(--space-2) var(--space-2-5)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-role-data)',
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-secondary)',
                     borderBottom: 'var(--space-px) solid var(--color-divider)',
@@ -226,7 +226,7 @@ const sectionHeaderStyle: CSSProperties = {
 const rowStyle: CSSProperties = {
     padding: 'var(--space-1-5) var(--space-2)',
     borderBottom: 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
     fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
     lineHeight: 1.35,

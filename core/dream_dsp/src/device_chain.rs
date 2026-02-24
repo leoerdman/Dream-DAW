@@ -153,15 +153,31 @@ impl DeviceChain {
         }
     }
 
-    /// BUG-023 FIX: Updates the cached sample rate and resets all processors.
+    /// BUG-023 + AUD-202 FIX: Updates the cached sample rate, propagates it to
+    /// all processors, and resets their state.
+    ///
     /// Must be called when the project sample rate changes (e.g. opening a
     /// project with a different SR). Without this, newly added devices are
     /// initialized with the wrong sample rate, and existing processors use
     /// stale filter coefficients.
+    ///
+    /// AUD-202 FIX: After reset, each processor's `process_stereo` is called
+    /// with a 1-sample buffer to trigger their internal `sync_sample_rate()`
+    /// check, forcing immediate coefficient recalculation. Without this,
+    /// SmoothedValue instances inside processors retain stale SR until the
+    /// first real audio buffer, causing a brief timing mismatch.
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         if sample_rate > 0.0 && sample_rate.is_finite() {
             self.sample_rate = sample_rate;
             self.reset_all();
+            // AUD-202: Force each processor to sync its internal sample rate
+            // by running a 1-sample process pass. This triggers sync_sample_rate()
+            // inside each processor, updating SmoothedValue coefficients immediately.
+            let mut dummy_l = [0.0f32; 1];
+            let mut dummy_r = [0.0f32; 1];
+            for slot in &mut self.slots {
+                slot.processor.process_stereo(&mut dummy_l, &mut dummy_r, sample_rate);
+            }
         }
     }
 }

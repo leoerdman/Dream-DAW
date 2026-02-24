@@ -8,7 +8,7 @@
     border-radius: 0;
     background: transparent;
     overflow: hidden;
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -47,7 +47,7 @@
     cursor: pointer;
     padding: var(--space-0-5) var(--token-size-px-7);
     transition: all 0.12s ease;
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
 }
 
 .essence__preset-btn:hover {
@@ -71,7 +71,7 @@
     font-weight: 700;
     cursor: pointer;
     padding: var(--space-0-5) var(--space-1-5);
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
     transition: all 0.12s ease;
 }
 
@@ -207,7 +207,7 @@
     padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
 }
 
 .essence__wave-btn:hover {
@@ -246,7 +246,7 @@
     padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
 }
 
 .essence__filt-btn:hover {
@@ -289,7 +289,7 @@
     padding: var(--space-0-5) 0;
     text-align: center;
     transition: all 0.1s ease;
-    font-family: var(--font-mono);
+    font-family: var(--font-role-data);
 }
 
 .essence__lfo-btn:hover {

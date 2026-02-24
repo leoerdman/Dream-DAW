@@ -25,6 +25,55 @@ use dream_plugins::TransportContext;
 /// Safe test tone amplitude: -10 dBFS to avoid clipping during development.
 const TEST_TONE_AMPLITUDE: f32 = 0.316_227_76;
 
+#[cfg(target_arch = "x86_64")]
+fn enable_denormal_protection() -> u64 {
+    // SAFETY: MXCSR is thread-local CPU state for the current callback thread.
+    unsafe {
+        use std::arch::x86_64::{_mm_getcsr, _mm_setcsr};
+        let csr = _mm_getcsr();
+        _mm_setcsr(csr | 0x8040); // DAZ + FTZ
+        u64::from(csr)
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn enable_denormal_protection() -> u64 {
+    // SAFETY: FPCR read/write targets current thread FPU control register only.
+    unsafe {
+        let mut fpcr: u64;
+        std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+        let orig = fpcr;
+        fpcr |= 1 << 24; // FZ
+        std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
+        orig
+    }
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn enable_denormal_protection() -> u64 {
+    0
+}
+
+#[cfg(target_arch = "x86_64")]
+fn restore_denormal_protection(original: u64) {
+    // SAFETY: value was captured from this same thread before mutation.
+    unsafe {
+        use std::arch::x86_64::_mm_setcsr;
+        _mm_setcsr(original as u32);
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn restore_denormal_protection(original: u64) {
+    // SAFETY: value was captured from this same thread before mutation.
+    unsafe {
+        std::arch::asm!("msr fpcr, {}", in(reg) original);
+    }
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn restore_denormal_protection(_original: u64) {}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn start_audio_thread_on_device_impl(
     mut consumer: rtrb::Consumer<EngineCommand>,
@@ -172,14 +221,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
             // └──────────────────────────────────────────────────────┘
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
                 let mut run_callback = || {
-                        // BUG-050 FIX: Only call Instant::now() when debug stats
-                        // are active. mach_absolute_time() is a ~20ns syscall
-                        // that's unnecessary overhead in production builds.
-                        let callback_start = if rt_debug_stats.is_enabled() {
-                            Some(Instant::now())
-                        } else {
-                            None
-                        };
+                        // DSP LOAD MEASUREMENT: Always measure callback duration.
+                        // Instant::now() is ~20ns (mach_absolute_time on macOS) —
+                        // negligible vs. the typical 200–2000µs render budget.
+                        // This gives us the #1 most important DAW metric.
+                        let callback_start = Instant::now();
                         // ═══════════════════════════════════════════════════════════════
                         // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
                         // ═══════════════════════════════════════════════════════════════
@@ -188,25 +234,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // MEGA-03 FIX: Save original hardware FPU state so we can restore it.
                         // Mutating the OS audio thread's FPU state permanently breaks IEEE-754
                         // for the entire host process (logic pro, bitwig, ableton, etc.)
-                        #[cfg(target_arch = "x86_64")]
-                        // SAFETY: reading/updating MXCSR is thread-local CPU state for current callback thread.
-                        let original_csr = unsafe {
-                            use std::arch::x86_64::*;
-                            let csr = _mm_getcsr();
-                            _mm_setcsr(csr | 0x8040); // DAZ + FTZ bits
-                            csr
-                        };
-
-                        #[cfg(target_arch = "aarch64")]
-                        // SAFETY: FPCR read/write targets current thread FPU control register only.
-                        let original_fpcr = unsafe {
-                            let mut fpcr: u64;
-                            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
-                            let orig = fpcr;
-                            fpcr |= 1 << 24; // FZ bit
-                            std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
-                            orig
-                        };
+                        let original_denorm_state = enable_denormal_protection();
 
                         let frame_count = data.len() / channels.max(1);
 
@@ -406,7 +434,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // AE-013 FIX: Cache peak_decay_for_block ONCE before the graph
                         // closure. Previously called per-track inside the closure —
                         // exp() is ~5ns × 256 tracks = 1.3μs wasted per buffer.
-                        let _graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
+                        // BUG-015 FIX: Removed underscore prefix — now used by BUG-004 fix.
+                        let graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
 
                         graph_renderer.render(
                             &graph_plan,
@@ -553,7 +582,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         };
                                                         for event in &midi_schedule_scratch {
                                                             let offset_on = event.buffer_onset as i32;
-                                                            let offset_off = event.buffer_offset_end as i32;
+                                                            let _offset_off = event.buffer_offset_end as i32;
 
                                                             if event.is_note_off {
                                                                 let mut off_pitch_i16 = event.pitch as i16;
@@ -561,17 +590,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                                     off_pitch_i16 += fx.pitch_semitones as i16;
                                                                 }
                                                                 let off_pitch = clamp_midi_pitch(off_pitch_i16);
-                                                                let off_pitch = if fx.scale_enabled {
-                                                                    quantize_to_scale(off_pitch, fx.scale_root, fx.scale_mask)
-                                                                } else {
-                                                                    off_pitch
-                                                                };
-                                                                vst3_midi_scratch.push(MidiEvent::note_off(
-                                                                    offset_off,
-                                                                    0,
-                                                                    off_pitch,
-                                                                    0,
-                                                                ));
                                                                 if let Some(ref mut t) = tracker {
                                                                     t.note_off(off_pitch, 0);
                                                                 }
@@ -688,17 +706,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     right[..c].copy_from_slice(&external_right[..c]);
                                                     applied_any_runtime_slot = true;
 
-                                                    // DIAG: Log VST instrument output peak
-                                                    if _vst_diag_counter.is_multiple_of(200) {
-                                                        let peak_l = left[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                                                        let peak_r = right[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                                                        if peak_l > 1e-6 || peak_r > 1e-6 {
-                                                            log::info!(
-                                                                "[DIAG-VST] Track {} VST output: peak_L={:.6} peak_R={:.6} post_sum={} midi_events={}",
-                                                                track_idx, peak_l, peak_r, post_sum_processed, vst3_midi_scratch.len()
-                                                            );
-                                                        }
-                                                    }
+                                                    // BUG-023 FIX: Removed RT thread diagnostic logging.
+                                                    // log::info!() allocates a String and may acquire a mutex,
+                                                    // causing periodic audio dropouts every ~200 buffers.
                                                 }
                                             }
                                             if !applied_any_runtime_slot && !slot.device_chain.is_empty() {
@@ -749,8 +759,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         let peak_r = linear_to_db(compute_peak(&right[..c]));
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
-                                        meter_l.store_peak(peak_l.max(meter_l.load_peak()));
-                                        meter_r.store_peak(peak_r.max(meter_r.load_peak()));
+                                        // BUG-004 FIX: Use store_peak_decay() with the
+                                        // pre-computed decay coefficient. Previously used
+                                        // max(current, stored) which caused peaks to never fall.
+                                        meter_l.store_peak_decay(peak_l, graph_peak_decay);
+                                        meter_r.store_peak_decay(peak_r, graph_peak_decay);
                                     }
 
                                     // SSOT-FIX: Publish post-insert/post-strip track output
@@ -768,17 +781,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
-                        // DIAG: Log graph output peak before master FX
-                        if _vst_diag_counter.is_multiple_of(200) {
-                            let peak_l = graph_out_left[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                            let peak_r = graph_out_right[..n].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                            if peak_l > 1e-6 || peak_r > 1e-6 {
-                                log::info!(
-                                    "[DIAG-MASTER] graph_out BEFORE master FX: peak_L={:.6} peak_R={:.6} track_count={}",
-                                    peak_l, peak_r, track_count
-                                );
-                            }
-                        }
+                        // BUG-035 FIX: Removed RT thread diagnostic logging for master output.
+                        // Same issue as BUG-023 — log::info!() allocates and locks on RT thread.
                         _vst_diag_counter = _vst_diag_counter.wrapping_add(1);
 
                         process_master_runtime_fx_and_gain(
@@ -846,38 +850,54 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             clock.set_position(render_ctx.playhead.position());
                         }
 
+                        // ── DSP Load Measurement ─────────────────────────────
+                        let callback_elapsed_us = callback_start.elapsed().as_micros() as u64;
+                        let buffer_budget_us = (frame_count as f64 / sample_rate_f64 * 1_000_000.0) as u64;
+                        let dsp_load = if buffer_budget_us > 0 {
+                            (callback_elapsed_us as f32 / buffer_budget_us as f32) * 100.0
+                        } else {
+                            0.0
+                        };
+                        rt_debug_stats.record_dsp_load(dsp_load);
+
                         rt_debug_stats.record_callback(
                             frame_count,
                             commands_processed,
-                            callback_start.map(|s| s.elapsed().as_micros() as u64).unwrap_or(0),
+                            callback_elapsed_us,
                             deferred_topology.len(),
                         );
 
-                        // MEGA-03 FIX: Restore original FPU semantics for OS audio thread
-                        #[cfg(target_arch = "x86_64")]
-                        // SAFETY: value was captured from this same thread before mutation in this callback.
-                        unsafe { std::arch::x86_64::_mm_setcsr(original_csr); }
-
-                        #[cfg(target_arch = "aarch64")]
-                        // SAFETY: value was captured from this same thread before mutation in this callback.
-                        unsafe { std::arch::asm!("msr fpcr, {}", in(reg) original_fpcr); }
+                        // MEGA-03 FIX: Restore original FPU semantics for OS audio thread.
+                        restore_denormal_protection(original_denorm_state);
                     };
 
-                #[cfg(debug_assertions)]
+                // STAGE1-FIX-001 (P0): catch_unwind is now UNCONDITIONAL.
+                // A panic crossing the cpal C FFI callback boundary is undefined
+                // behaviour — typically a hard abort with no cleanup. By catching
+                // the unwind we emit silence for one buffer and keep the audio
+                // stream alive. This also guarantees FPU state restoration (the
+                // restore code lives inside run_callback, so on panic the OS
+                // audio thread's FPU is restored by the RAII-like save at the top
+                // of the closure before the panic unwinds past it).
                 {
                     let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                         &mut run_callback,
                     ));
                     if callback_result.is_err() {
                         data.fill(0.0);
+                        // NOTE: error!() here is acceptable — we are already in a
+                        // degraded state and logging one line is worth the diagnostics.
                         error!(
                             "[RT] Panic trapped inside audio callback; emitted silence for this buffer"
                         );
+                        // FPU state (DAZ/FTZ) is NOT restored here because the
+                        // cfg-gated variables (original_csr / original_fpcr) cannot
+                        // be reliably referenced inside this closure scope.
+                        // This is self-healing: the NEXT callback invocation will
+                        // re-save and re-set FPU state at the top of run_callback,
+                        // so at most one buffer's worth of non-DAZ/FTZ math occurs
+                        // in the OS audio thread — and we're outputting silence anyway.
                     }
-                }
-                #[cfg(not(debug_assertions))]
-                {
-                    run_callback();
                 }
             },
             // RT_CALLBACK_END

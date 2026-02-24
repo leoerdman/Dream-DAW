@@ -113,7 +113,7 @@ export function EqBandOverlays({
                                     color: bandColor,
                                     fontSize: 'var(--font-size-2xs)',
                                     fontWeight: 600,
-                                    fontFamily: 'var(--font-sans)',
+                                    fontFamily: 'var(--font-role-body)',
                                     whiteSpace: 'nowrap',
                                 }}
                             >

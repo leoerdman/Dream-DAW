@@ -149,6 +149,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
 
     usePianoRollViewport({
         trackIndex,
+        clipStartBeat,
         notes,
         clipLengthBeats,
         noteHeight,

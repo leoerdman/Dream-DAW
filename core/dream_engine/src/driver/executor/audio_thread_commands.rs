@@ -250,13 +250,19 @@ pub(super) fn drain_commands(
                     ctx.sampler_engines[idx].set_waveform2(Waveform::from_u8(waveform));
                 }
             }
-            EngineCommand::SetSamplerOsc1Volume { track_index, volume } => {
+            EngineCommand::SetSamplerOsc1Volume {
+                track_index,
+                volume,
+            } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].set_osc1_volume(volume);
                 }
             }
-            EngineCommand::SetSamplerOsc2Volume { track_index, volume } => {
+            EngineCommand::SetSamplerOsc2Volume {
+                track_index,
+                volume,
+            } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].set_osc2_volume(volume);
@@ -328,13 +334,19 @@ pub(super) fn drain_commands(
                     ctx.sampler_engines[idx].set_pulse_width(width);
                 }
             }
-            EngineCommand::SetSamplerOsc1Enabled { track_index, enabled } => {
+            EngineCommand::SetSamplerOsc1Enabled {
+                track_index,
+                enabled,
+            } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].set_osc1_enabled(enabled);
                 }
             }
-            EngineCommand::SetSamplerOsc2Enabled { track_index, enabled } => {
+            EngineCommand::SetSamplerOsc2Enabled {
+                track_index,
+                enabled,
+            } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].set_osc2_enabled(enabled);

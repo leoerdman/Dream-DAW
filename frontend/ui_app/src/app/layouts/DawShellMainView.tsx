@@ -51,7 +51,7 @@ export function DawShellMainView({
     return (
         <main ref={mainSplitRef} className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
             <aside
-                className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
+                className="shrink-0 h-full z-40 flex flex-col overflow-hidden theme-ornament-browser"
                 style={{
                     width: browserWidth,
                     background: 'var(--color-bg-panel)',
@@ -76,7 +76,7 @@ export function DawShellMainView({
                     </div>
 
                     <aside
-                        className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
+                        className="shrink-0 h-full z-40 flex flex-col overflow-hidden theme-ornament-inspector"
                         style={{
                             width: 'var(--daw-inspector-width)',
                             background: 'var(--color-bg-panel)',

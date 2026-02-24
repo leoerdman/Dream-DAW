@@ -17,16 +17,12 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         gridViewportRef,
         keyboardScrollRef,
         editorRootRef,
-        isDragInProgressRef,
         tool,
         setTool,
         selectedNotes,
-        setSelectedNotes,
         selectionRect,
-        containerWidth,
         noteHeight,
         setNoteHeight,
-        isEditorFocused,
         setIsEditorFocused,
         highlightScale,
         setHighlightScale,
@@ -35,7 +31,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         scaleName,
         setScaleName,
         clipTranspose,
-        setClipTranspose,
         quantizeAmount,
         setQuantizeAmount,
         foldToUsedNotes,
@@ -51,7 +46,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setActiveLane,
         ratchetCount,
         setRatchetCount,
-        laneValuesByNote,
         hoveredNoteEdge,
         setHoveredNoteEdge,
         zoomOverrideH,
@@ -63,7 +57,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         canvasWidth,
         canvasHeight,
         visiblePitches,
-        pitchRowIndex,
         scaleSet,
         gridLines,
         rulerBeatLabels,
@@ -72,7 +65,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         beatsPerBar,
         clipDurationLabel,
         pitchToY,
-        yToPitch,
         handleGridClick,
         handleGridDoubleClick,
         handleGridMouseDown,
@@ -87,33 +79,20 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         applyLegato,
         applyRatchet,
         selectSamePitch,
-        copySelection,
-        pasteClipboard,
         readLaneValue,
         auditionNote,
         notes,
         ghostNotes,
         color,
-        timeSignature,
         onNotesChange,
         onGenerateVariation,
         aiVariationBusy,
         trackIndex,
         clipStartBeat,
-        snapBeat,
-        pianoPencilMode,
-        snapEnabled,
         gridDivision,
         gridTriplet,
         setGridDivision,
     } = usePianoRollLogic(props);
-
-    void [
-        isDragInProgressRef, setSelectedNotes, containerWidth, isEditorFocused, clipTranspose,
-        setClipTranspose, laneValuesByNote, totalBeats, pitchRowIndex, currentGridInterval,
-        beatsPerBar, yToPitch, copySelection, pasteClipboard, timeSignature, trackIndex,
-        clipStartBeat, snapBeat, pianoPencilMode, snapEnabled,
-    ];
 
     const [scrollX, setScrollX] = useState(0);
     const [scrollY, setScrollY] = useState(0);
@@ -145,6 +124,12 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         handleGridScroll();
         return () => el.removeEventListener('scroll', handleGridScroll);
     }, [handleGridScroll, scrollRef]);
+
+    useEffect(() => {
+        requestAnimationFrame(() => {
+            editorRootRef.current?.focus({ preventScroll: true });
+        });
+    }, [editorRootRef, trackIndex, clipStartBeat, clipBeats]);
 
     // Convert full-pitch scaleSet to pitch-class Set<0-11> for GPU shader
     const scalePitchClasses = scaleSet
@@ -183,7 +168,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
             onFocus={() => setIsEditorFocused(true)}
             onBlur={() => setIsEditorFocused(false)}
             onMouseDown={() => editorRootRef.current?.focus()}
-            style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--color-bg-base)', fontFamily: 'var(--font-family)', fontSize: 'var(--font-size-xs)' }}
+            style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--color-bg-base)', fontFamily: 'var(--font-role-body)', fontSize: 'var(--font-size-xs)' }}
         >
             <PianoRollToolbar
                 editorRootRef={editorRootRef}

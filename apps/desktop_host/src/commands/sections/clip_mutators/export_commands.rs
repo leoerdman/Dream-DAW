@@ -308,7 +308,11 @@ async fn export_mix_cmd(
 
     // Ensure plugins are reactivated for the current export processing format.
     // This avoids silent passthrough when a plugin stayed in a stale inactive state.
-    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), 512) {
+    let buffer_size = plugin_host_state
+        .current_audio_config()
+        .map(|(_, bs)| bs.max(1))
+        .unwrap_or(512);
+    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), buffer_size) {
         log::warn!(
             "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
             e

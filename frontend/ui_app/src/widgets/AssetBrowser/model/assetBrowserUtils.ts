@@ -1,4 +1,5 @@
 import type { PeakPair } from '@/shared/api/engine';
+import { safeStorage } from '@/shared/lib/safeStorage';
 
 export type CollectionId = 'collection-red' | 'collection-yellow' | 'collection-green';
 export type BrowserItemType = 'audio' | 'instrument' | 'audioEffect' | 'midiEffect' | 'plugin' | 'folder' | 'project' | 'preset' | 'other';
@@ -30,7 +31,7 @@ const COLLECTION_LABELS_STORAGE_KEY = 'dream-daw-browser-collection-labels';
 
 export function loadCollections(): Record<CollectionId, Set<string>> {
     try {
-        const raw = localStorage.getItem(COLLECTION_STORAGE_KEY);
+        const raw = safeStorage.getItem(COLLECTION_STORAGE_KEY);
         if (!raw) return { 'collection-red': new Set(), 'collection-yellow': new Set(), 'collection-green': new Set() };
         const parsed = JSON.parse(raw) as Record<string, string[]>;
         return {
@@ -48,12 +49,12 @@ export function saveCollections(collections: Record<CollectionId, Set<string>>):
     for (const id of COLLECTION_IDS) {
         serializable[id] = Array.from(collections[id]);
     }
-    localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(serializable));
+    safeStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(serializable));
 }
 
 export function loadCollectionLabels(): Record<string, string> {
     try {
-        const raw = localStorage.getItem(COLLECTION_LABELS_STORAGE_KEY);
+        const raw = safeStorage.getItem(COLLECTION_LABELS_STORAGE_KEY);
         if (!raw) return {
             'collection-red': 'Collection',
             'collection-yellow': 'Collection',
@@ -70,7 +71,7 @@ export function loadCollectionLabels(): Record<string, string> {
 }
 
 export function saveCollectionLabels(labels: Record<string, string>): void {
-    localStorage.setItem(COLLECTION_LABELS_STORAGE_KEY, JSON.stringify(labels));
+    safeStorage.setItem(COLLECTION_LABELS_STORAGE_KEY, JSON.stringify(labels));
 }
 
 export function detectPluginSource(raw: string): PluginSource {

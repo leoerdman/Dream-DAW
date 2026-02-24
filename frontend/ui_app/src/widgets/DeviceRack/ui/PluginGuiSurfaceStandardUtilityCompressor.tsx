@@ -77,7 +77,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 </div>
                             </div>
                             <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
-                                {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{formatSurfaceParam(readSurfaceParam(device, ['gain', 'output', 'level'], 0, 'dB'))}</span>
+                                {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-role-data)' }}>{formatSurfaceParam(readSurfaceParam(device, ['gain', 'output', 'level'], 0, 'dB'))}</span>
                             </div>
                             <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
                                 {mono ? 'Mono Enabled' : 'Stereo'}
@@ -105,7 +105,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d9e3f2)' }}>{utilityTitle}</div>
                             {isTuner && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-a9d2ff)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
+                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: 'var(--token-color-hex-a9d2ff)', fontFamily: 'var(--font-role-data)', textAlign: 'center' }}>A</div>
                                     <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--token-color-hex-1f2a36)', position: 'relative' }}>
                                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--token-color-hex-7ab6ff)' }} />
                                     </div>
@@ -120,7 +120,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                             {(isAutoShift || isShifter) && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mode</div>
-                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-mono)' }}>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-role-data)' }}>
                                         Utility profile
                                     </div>
                                     <svg viewBox="0 0 220 28" preserveAspectRatio="none" style={{ width: '100%', height: 20 }}>

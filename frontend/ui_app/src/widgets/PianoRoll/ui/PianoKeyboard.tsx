@@ -104,7 +104,7 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                                             fontSize: Math.min(9, noteHeight - 2),
                                             color: 'var(--color-text-secondary)',
                                             fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                                            fontFamily: 'var(--font-mono)',
+                                            fontFamily: 'var(--font-role-data)',
                                             letterSpacing: '-0.02em',
                                         }}
                                     >

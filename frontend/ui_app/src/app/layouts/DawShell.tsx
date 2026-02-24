@@ -39,10 +39,15 @@ import { useArrangementUiHandlers } from './model/useArrangementUiHandlers';
 import { useDawShellMidiPersistence } from './model/useDawShellMidiPersistence';
 import { useDawShellTimelineProps } from './model/useDawShellTimelineProps';
 import { useDawShellUiPreferences } from './model/useDawShellUiPreferences';
+import { readAssistantOpenPref, writeAssistantOpenPref } from './model/assistantUiPrefs';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
+import { cancelIdle, scheduleIdle } from './model/idleWarmup';
+import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
 type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 type MainViewMode = 'arrangement' | 'session';
+
 export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
@@ -60,9 +65,7 @@ export const DawShell = () => {
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
     const [exportOpen, setExportOpen] = useState(false);
-    const [assistantOpen, setAssistantOpen] = useState(() => {
-        try { return localStorage.getItem('dream-daw:assistant-open') === '1'; } catch { return false; }
-    });
+    const [assistantOpen, setAssistantOpen] = useState(readAssistantOpenPref);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
     const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
     const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
@@ -70,7 +73,7 @@ export const DawShell = () => {
         active: false,
         trackIndex: 0,
     });
-    const [followPlayhead, setFollowPlayhead] = useState(true); // BUG-26 FIX: default true (match Ableton/Logic)
+    const [followPlayhead, setFollowPlayhead] = useState(true);
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(
         () => Math.max(BROWSER_WIDTH_MIN_PX, Math.min(BROWSER_WIDTH_MAX_PX, BROWSER_WIDTH_DEFAULT_PX)),
@@ -122,24 +125,11 @@ export const DawShell = () => {
         gridSnapEnabled,
         setFollowPlayhead,
     });
-    const activePanelTrackKey = selectedTrackId && selectedTrackId.length > 0
-        ? selectedTrackId
-        : 'master';
-    const setBottomPanelModeForActiveTrack = useCallback(
-        (next: BottomPanelMode | ((prev: BottomPanelMode) => BottomPanelMode)) => {
-            setBottomPanelMode((prev) => {
-                const resolved = typeof next === 'function'
-                    ? (next as (prev: BottomPanelMode) => BottomPanelMode)(prev)
-                    : next;
-                setBottomPanelModeByTrack((byTrack) => ({
-                    ...byTrack,
-                    [activePanelTrackKey]: resolved,
-                }));
-                return resolved;
-            });
-        },
-        [activePanelTrackKey],
-    );
+    const setBottomPanelModeForActiveTrack = useBottomPanelModeByTrack({
+        selectedTrackId,
+        setBottomPanelMode,
+        setBottomPanelModeByTrack,
+    });
     const { filePath: projectFilePath } = useProjectManager();
     useNativeMenu();
     useKeyboardShortcuts({
@@ -165,19 +155,17 @@ export const DawShell = () => {
     const handleOpenExport = useCallback(() => setExportOpen(true), []);
     const handleAssistantToggle = useCallback(() => setAssistantOpen((v) => {
         const next = !v;
-        try { localStorage.setItem('dream-daw:assistant-open', next ? '1' : '0'); } catch { /* quota */ }
+        writeAssistantOpenPref(next);
         return next;
     }), []);
     useSelectedTrackConsistency({ selectedTrackIds, selectedTrackId, setSelectedTrackId });
     useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
-        window.__dreamOpenExportModal = onOpenExport;
+        dreamGlobals.setOpenExportModal(onOpenExport);
         return () => {
             window.removeEventListener('dream:open-export', onOpenExport as EventListener);
-            if (window.__dreamOpenExportModal === onOpenExport) {
-                delete window.__dreamOpenExportModal;
-            }
+            dreamGlobals.clearOpenExportModal(onOpenExport);
         };
     }, []);
     useAudioFailoverRecovery({ recoveringAudioRef, lastAudioRecoverAtRef });
@@ -190,6 +178,19 @@ export const DawShell = () => {
     useAlsImportSummaryStatus();
     useInitialLayoutSync();
     useProjectAutoRecovery();
+    useEffect(() => {
+        if (!settingsLoaded) return;
+        const idleHandle = scheduleIdle(() => {
+            void import('@/widgets/TrackInspector/TrackInspector');
+            void import('@/widgets/DeviceRack/DeviceRack');
+            void import('@/widgets/PianoRoll/PianoRoll');
+            void import('@/widgets/SettingsPanel/SettingsPanel');
+            void import('@/widgets/MixerPanel/MixerPanel');
+            void import('@/widgets/MissingAssetsPanel/MissingAssetsPanel');
+            void import('@/widgets/BlockingJobPopup/BlockingJobPopup');
+        });
+        return () => cancelIdle(idleHandle);
+    }, [settingsLoaded]);
     const transportBpm = useEngineStore(s => s.transport.bpm);
     const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
@@ -329,7 +330,10 @@ export const DawShell = () => {
         const prev = prevMissingTotalRef.current;
         prevMissingTotalRef.current = missingMediaSummary.total;
         if (missingMediaSummary.total > 0 && prev === 0) {
-            queueMicrotask(() => setMissingAssetsOpen(true));
+            // BUG-049 FIX: Direct setState instead of queueMicrotask.
+            // React 18 batches setState anyway; queueMicrotask adds an
+            // unnecessary async gap that can flash stale UI state.
+            setMissingAssetsOpen(true);
         }
     }, [missingMediaSummary.total]);
     const selectedMidiTotalBars = useMemo(() => {
@@ -420,6 +424,20 @@ export const DawShell = () => {
         serializeMidiNotesToFrames,
         applyProjectDeltas,
     });
+    // BUG-011 FIX: Extracted from inline arrow in timelineProps to prevent
+    // re-creating the function on every render (causes downstream re-renders).
+    const handleClipFadeCurves = useCallback(
+        (clipId: string, fadeInCurve: number, fadeOutCurve: number) => {
+            setClipFadeCurves((prev) => ({
+                ...prev,
+                [clipId]: {
+                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                },
+            }));
+        },
+        [setClipFadeCurves],
+    );
     const timelineProps = useDawShellTimelineProps({
         bpm: projectBpm || transportBpm || DEFAULT_BPM,
         clips: timelineClipsForView,
@@ -442,21 +460,14 @@ export const DawShell = () => {
         onEditCursorChange: handleEditCursorChange,
         onMarqueeSelectionStart: handleMarqueeSelectionStart,
         onMarqueeSelectionChange: setMarqueeSelection,
+        marqueeSelection,
         onClipSelect: handleClipSelect,
         selectedClipIds: selectedClipIdsForView,
         onClipSelectionChange: handleTimelineClipSelectionChange,
         onClipMove: handleClipMove,
         onClipResize: handleClipResize,
         onClipFades: handleClipFades,
-        onClipFadeCurves: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => {
-            setClipFadeCurves((prev) => ({
-                ...prev,
-                [clipId]: {
-                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
-                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
-                },
-            }));
-        },
+        onClipFadeCurves: handleClipFadeCurves,
         onDropBrowserItem: handleBrowserDrop,
         onDoubleClickTrack: handleDoubleClickTrack,
         onOpenMidiClip: handleOpenMidiClip,
@@ -531,7 +542,7 @@ export const DawShell = () => {
                 onCloseMissingAssets={() => setMissingAssetsOpen(false)}
                 exportOpen={exportOpen}
                 onCloseExport={() => setExportOpen(false)}
-                projectName={projectFilePath ? projectFilePath.split(/[\/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
+                projectName={projectFilePath ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled' : 'Untitled'}
                 selectedClipIds={selectedClipIdsForView}
                 timelineClipsForView={timelineClipsForView}
                 bpm={projectBpm || transportBpm || DEFAULT_BPM}

@@ -228,6 +228,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             isWarped: delta.data.is_warped,
             warpMode: delta.data.warp_mode,
             warpBaseBpm: delta.data.warp_base_bpm,
+            warpSourceDurationFrames: delta.data.warp_source_duration_frames != null
+                ? Math.max(1, delta.data.warp_source_duration_frames)
+                : clip.warpSourceDurationFrames,
         };
         upsertClip(state, next);
         state.changed = true;

@@ -53,6 +53,10 @@ pub struct PhaserProcessor {
     depth_sm: SmoothedValue,
     feedback_sm: SmoothedValue,
     mix_sm: SmoothedValue,
+    rate_sm: SmoothedValue,
+    spread_sm: SmoothedValue,
+    center_sm: SmoothedValue,
+    range_sm: SmoothedValue,
 }
 
 impl PhaserProcessor {
@@ -77,6 +81,10 @@ impl PhaserProcessor {
             depth_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
             feedback_sm: SmoothedValue::new(sample_rate, 10.0, 0.4),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
+            rate_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            spread_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            center_sm: SmoothedValue::new(sample_rate, 12.0, 1000.0),
+            range_sm: SmoothedValue::new(sample_rate, 12.0, 4000.0),
         }
     }
 
@@ -136,23 +144,37 @@ impl DspProcessor for PhaserProcessor {
             self.depth_sm.set_sample_rate(sr);
             self.feedback_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
+            self.rate_sm.set_sample_rate(sr);
+            self.spread_sm.set_sample_rate(sr);
+            self.center_sm.set_sample_rate(sr);
+            self.range_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
-        let lfo_inc = self.rate as f64 / sr as f64;
         let stages = self.num_stages.min(MAX_STAGES);
-        let center_log = (self.center_freq / 20.0).max(0.001).ln();
-        let range_log = (self.range / 20.0).max(0.001).ln().max(0.001);
+        self.rate_sm.set_target(self.rate.clamp(0.01, 10.0));
         self.depth_sm.set_target(self.depth.clamp(0.0, 1.0));
-        self.feedback_sm.set_target(self.feedback.clamp(-0.95, 0.95));
+        self.feedback_sm
+            .set_target(self.feedback.clamp(-0.95, 0.95));
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
+        self.spread_sm.set_target(self.spread.clamp(0.0, 1.0));
+        self.center_sm
+            .set_target(self.center_freq.clamp(100.0, 8000.0));
+        self.range_sm.set_target(self.range.clamp(200.0, 10000.0));
 
         for i in 0..len {
+            let rate = self.rate_sm.next_value();
             let depth = self.depth_sm.next_value();
             let feedback = self.feedback_sm.next_value();
             let mix = self.mix_sm.next_value();
+            let spread = self.spread_sm.next_value();
+            let center = self.center_sm.next_value();
+            let range = self.range_sm.next_value();
+            let lfo_inc = rate as f64 / sr as f64;
+            let center_log = (center / 20.0).max(0.001).ln();
+            let range_log = (range / 20.0).max(0.001).ln().max(0.001);
             let phase_l = (self.lfo_phase as f32).fract();
-            let phase_r = (self.lfo_phase as f32 + 0.5 * self.spread).fract();
+            let phase_r = (self.lfo_phase as f32 + 0.5 * spread).fract();
 
             let lfo_l = Self::lfo(phase_l, self.lfo_shape);
             let lfo_r = Self::lfo(phase_r, self.lfo_shape);
@@ -233,9 +255,15 @@ impl DspProcessor for PhaserProcessor {
         self.fb_l = 0.0;
         self.fb_r = 0.0;
         self.lfo_phase = 0.0;
+        self.rate_sm.set_instant(self.rate.clamp(0.01, 10.0));
         self.depth_sm.set_instant(self.depth.clamp(0.0, 1.0));
-        self.feedback_sm.set_instant(self.feedback.clamp(-0.95, 0.95));
+        self.feedback_sm
+            .set_instant(self.feedback.clamp(-0.95, 0.95));
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
+        self.spread_sm.set_instant(self.spread.clamp(0.0, 1.0));
+        self.center_sm
+            .set_instant(self.center_freq.clamp(100.0, 8000.0));
+        self.range_sm.set_instant(self.range.clamp(200.0, 10000.0));
     }
 }
 

@@ -84,7 +84,7 @@ export const TypeIcon = memo(({ type, item }: { type: AssetBrowserItemLike['type
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     lineHeight: 'var(--token-size-px-9)',
                     textAlign: 'center',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-role-data)',
                     pointerEvents: 'none',
                 }}>
                     {badge}
@@ -237,13 +237,13 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         ctx.scale(dpr, dpr);
 
         ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillStyle = 'color-mix(in srgb, black 30%, transparent)';
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, 4);
         ctx.fill();
 
         const mid = h / 2;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.strokeStyle = 'color-mix(in srgb, white 6%, transparent)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(0, mid);
@@ -253,10 +253,10 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         const peakCount = peaks.length;
         const barWidth = w / peakCount;
         const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        gradient.addColorStop(0, 'rgba(74, 158, 255, 0.9)');
-        gradient.addColorStop(0.45, 'rgba(74, 158, 255, 0.6)');
-        gradient.addColorStop(0.55, 'rgba(74, 158, 255, 0.6)');
-        gradient.addColorStop(1, 'rgba(74, 158, 255, 0.9)');
+        gradient.addColorStop(0, 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)');
+        gradient.addColorStop(0.45, 'color-mix(in srgb, var(--color-accent-primary) 60%, transparent)');
+        gradient.addColorStop(0.55, 'color-mix(in srgb, var(--color-accent-primary) 60%, transparent)');
+        gradient.addColorStop(1, 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)');
         ctx.fillStyle = gradient;
 
         for (let i = 0; i < peakCount; i++) {

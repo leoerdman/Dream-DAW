@@ -72,8 +72,7 @@ impl Command for SetClipPitchCommand {
                         source_sr,
                         timeline_sr,
                     );
-                    let new_frames = (source_len_timeline / pitch_multiplier)
-                        .round() as i64;
+                    let new_frames = (source_len_timeline / pitch_multiplier).round() as i64;
                     clip.duration = AbsoluteTime::new(new_frames.max(1));
                 }
 

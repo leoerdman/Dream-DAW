@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="fogA" cx="20%" cy="15%" r="70%">
+      <stop offset="0%" stop-color="#9fffd4" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#9fffd4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="fogB" cx="82%" cy="7%" r="56%">
+      <stop offset="0%" stop-color="#7ce8ff" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#7ce8ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="fogC" cx="52%" cy="100%" r="55%">
+      <stop offset="0%" stop-color="#5ee09a" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#5ee09a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#fogA)"/>
+  <rect width="1920" height="1080" fill="url(#fogB)"/>
+  <rect width="1920" height="1080" fill="url(#fogC)"/>
+</svg>

@@ -1,11 +1,18 @@
 import { useMemo, useState } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
-import { isTrackActive } from '@/shared/utils/routing';
-import { SessionIoRow, SessionSendRow, SessionStripFader, sessionClipTransportBtnStyle, sessionMixerBtnStyle } from './DawShellPanelControls';
+import { SessionIoRow, SessionStripFader } from './DawShellPanelControls';
+import { sessionClipTransportBtnStyle, sessionMixerBtnStyle } from './sessionPanelStyles';
 import { SessionMasterScenes, SessionMasterStrip } from './DawShellPanelMaster';
+import {
+    SESSION_MASTER_WIDTH,
+    SESSION_MIXER_HEIGHT_PX,
+    SESSION_SCENE_ROWS,
+    SESSION_TRACK_WIDTH,
+} from './sessionWorkspace.constants';
 export { EmptyClipEditor, SampleClipEditor } from './ClipEditors';
 
 export const SessionWorkspace = ({
@@ -22,19 +29,15 @@ export const SessionWorkspace = ({
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
     const setTrackPan = useEngineStore((s) => s.setTrackPan);
-    const setTrackSendLevel = useEngineStore((s) => s.setTrackSendLevel);
+    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
     const masterVolume = useEngineStore((s) => s.masterVolume);
     const setMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const togglePlay = useEngineStore((s) => s.togglePlay);
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
-    const SESSION_TRACK_WIDTH = 120;
-    const SESSION_MASTER_WIDTH = 110;
-    const SESSION_SCENE_ROWS = 6;
     const scenes = useMemo(() => Array.from({ length: SESSION_SCENE_ROWS }, (_, i) => i), []);
     const [sessionClips, setSessionClips] = useState<Record<string, { id: string; name: string; color: string; looped: boolean }>>({});
     const [selectedSessionClipId, setSelectedSessionClipId] = useState<string | null>(null);
     const [playingSessionClipByTrack, setPlayingSessionClipByTrack] = useState<Record<string, string | null>>({});
-    const [activeSceneIndex, setActiveSceneIndex] = useState<number | null>(null);
 
     const masterMeterL = meters.master_left;
     const masterMeterR = meters.master_right;
@@ -42,8 +45,13 @@ export const SessionWorkspace = ({
     const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
     const slotKey = (trackId: string, sceneIndex: number) => `${trackId}:${sceneIndex}`;
 
+    const selectedSessionClipIdSafe = useMemo(() => {
+        if (!selectedSessionClipId) return null;
+        const exists = Object.values(sessionClips).some((clip) => clip.id === selectedSessionClipId);
+        return exists ? selectedSessionClipId : null;
+    }, [selectedSessionClipId, sessionClips]);
+
     const launchScene = (sceneIndex: number) => {
-        setActiveSceneIndex(sceneIndex);
         setPlayingSessionClipByTrack((prev) => {
             const next: Record<string, string | null> = { ...prev };
             for (const track of tracks) {
@@ -64,17 +72,34 @@ export const SessionWorkspace = ({
             }
             return next;
         });
-        setActiveSceneIndex((current) => (current === sceneIndex ? null : current));
     };
+
+    const activeScenes = useMemo(() => {
+        const next = new Set<number>();
+        if (!isPlaying) return next;
+        for (let sceneIndex = 0; sceneIndex < SESSION_SCENE_ROWS; sceneIndex++) {
+            let hasPlayingClip = false;
+            for (const track of tracks) {
+                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                if (!clip) continue;
+                if (playingSessionClipByTrack[track.id] === clip.id) {
+                    hasPlayingClip = true;
+                    break;
+                }
+            }
+            if (hasPlayingClip) next.add(sceneIndex);
+        }
+        return next;
+    }, [isPlaying, playingSessionClipByTrack, sessionClips, tracks]);
 
     return (
         <div style={{
             flex: 1,
             display: 'grid',
-            gridTemplateRows: '1fr var(--token-size-px-170)',
+            gridTemplateRows: `1fr ${SESSION_MIXER_HEIGHT_PX}px`,
             minWidth: 0,
             minHeight: 0,
-            background: 'var(--color-bg-canvas)',
+            background: 'var(--color-timeline-bg)',
             borderLeft: 'var(--space-px) solid var(--color-divider)',
         }}>
             <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden' }}>
@@ -82,17 +107,17 @@ export const SessionWorkspace = ({
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
                             const contrast = getContrastColor(track.color) === 'black'
-                                ? 'var(--color-text-primary)'
-                                : 'var(--color-bg-panel)';
+                                ? 'color-mix(in srgb, var(--color-text-primary) 92%, transparent)'
+                                : 'color-mix(in srgb, var(--color-text-on-accent) 96%, transparent)';
                             const isSelectedTrack = selectedTrackId === track.id;
                             return (
-                                <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: 'var(--space-px) solid var(--color-divider)', display: 'flex', flexDirection: 'column' }}>
+                                <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)', display: 'flex', flexDirection: 'column' }}>
                                     <button
                                         onClick={() => onSelectTrack(track.id)}
                                         style={{
                                             height: 28,
                                             border: 'none',
-                                            borderBottom: 'var(--space-px) solid var(--color-overlay-medium)',
+                                            borderBottom: 'var(--space-px) solid var(--color-timeline-grid-bar)',
                                             background: track.color,
                                             color: contrast,
                                             fontSize: 'var(--font-size-sm)',
@@ -107,15 +132,20 @@ export const SessionWorkspace = ({
                                     </button>
                                     {scenes.map((sceneIndex) => {
                                         const clip = sessionClips[slotKey(track.id, sceneIndex)] ?? null;
-                                        const isSelected = clip ? selectedSessionClipId === clip.id : false;
+                                        const isSelected = clip ? selectedSessionClipIdSafe === clip.id : false;
                                         const clipText = clip
-                                            ? (getContrastColor(clip.color) === 'black' ? 'var(--color-text-primary)' : 'var(--color-bg-panel)')
+                                            ? (getContrastColor(clip.color) === 'black'
+                                                ? 'color-mix(in srgb, var(--color-text-primary) 92%, transparent)'
+                                                : 'color-mix(in srgb, var(--color-text-on-accent) 96%, transparent)')
                                             : 'var(--color-text-tertiary)';
                                         const isPlayingClip = clip ? (playingSessionClipByTrack[track.id] === clip.id && isPlaying) : false;
                                         return (
                                             <div
                                                 key={`${track.id}:${sceneIndex}`}
-                                                onClick={() => onSelectTrack(track.id)}
+                                                onClick={() => {
+                                                    onSelectTrack(track.id);
+                                                    if (clip) setSelectedSessionClipId(clip.id);
+                                                }}
                                                 onDoubleClick={() => {
                                                     if (clip) return;
                                                     const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
@@ -133,11 +163,11 @@ export const SessionWorkspace = ({
                                                 style={{
                                                     height: 26,
                                                     border: 'none',
-                                                    borderBottom: 'var(--space-px) solid var(--token-color-hex-2a2a2a)',
-                                                    borderRight: 'var(--space-px) solid var(--token-color-hex-262626)',
+                                                    borderBottom: 'var(--space-px) solid var(--color-timeline-grid-line)',
+                                                    borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)',
                                                     background: clip
                                                         ? clip.color
-                                                        : 'color-mix(in srgb, var(--color-bg-panel) 90%, var(--token-color-hex-131313))',
+                                                        : 'color-mix(in srgb, var(--color-timeline-track-default) 92%, var(--color-timeline-bg))',
                                                     color: clipText,
                                                     fontSize: 'var(--font-size-xs)',
                                                     fontWeight: clip ? 600 : 500,
@@ -149,6 +179,7 @@ export const SessionWorkspace = ({
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'space-between',
+                                                    transition: 'background 90ms linear, box-shadow 90ms linear, opacity 90ms linear',
                                                 }}
                                             >
                                                 {clip ? (
@@ -162,12 +193,11 @@ export const SessionWorkspace = ({
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setSelectedSessionClipId(clip.id);
-                                                                    setActiveSceneIndex(sceneIndex);
                                                                     setPlayingSessionClipByTrack((prev) => ({
                                                                         ...prev,
                                                                         [track.id]: clip.id,
                                                                     }));
-                                                                    if (!isPlaying) togglePlay();
+                                                                    if (!isPlaying) void togglePlay();
                                                                 }}
                                                                 style={sessionClipTransportBtnStyle(isPlayingClip)}
                                                                 title="Play Clip"
@@ -203,14 +233,14 @@ export const SessionWorkspace = ({
                 <SessionMasterScenes
                     width={SESSION_MASTER_WIDTH}
                     scenes={scenes}
-                    activeSceneIndex={activeSceneIndex}
+                    activeScenes={activeScenes}
                     isPlaying={isPlaying}
                     launchScene={launchScene}
                     stopScene={stopScene}
                 />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-0e0e0e))' }}>
-                <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-timeline-grid-line)', background: 'color-mix(in srgb, var(--color-bg-panel) 94%, var(--color-timeline-bg))' }}>
+                <div style={{ display: 'flex', minHeight: 0, height: '100%', overflowX: 'auto', alignItems: 'stretch' }}>
                     {tracks.map((track, trackIndex) => {
                         const meterPair = meters.tracks[trackIndex];
                         const peakDbL = meterPair ? meterPair[0].peak : -60;
@@ -219,18 +249,16 @@ export const SessionWorkspace = ({
                         const trackMeterR = dbToMeterNorm(peakDbR);
                         const peakDb = Math.max(peakDbL, peakDbR);
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
-                        const isActive = isTrackActive(trackIndex, tracks);
                         return (
                             <div key={`mix-${track.id}`} style={{
                                 width: SESSION_TRACK_WIDTH,
-                                borderRight: 'var(--space-px) solid var(--token-color-hex-2d2d2d)',
+                                height: '100%',
+                                borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)',
                                 padding: 'var(--space-2) var(--space-1-5) var(--space-1-5)',
                                 display: 'grid',
-                                gridTemplateRows: 'auto auto auto auto auto 1fr auto',
+                                gridTemplateRows: 'auto auto auto auto 1fr auto',
                                 gap: 4,
-                                opacity: isActive ? 1 : 0.35,
-                                filter: isActive ? 'none' : 'grayscale(0.9)',
-                                transition: 'opacity 0.15s ease, filter 0.15s ease',
+                                background: 'color-mix(in srgb, var(--color-bg-panel) 96%, transparent)',
                             }}>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
                                     {track.track_type}
@@ -247,12 +275,6 @@ export const SessionWorkspace = ({
                                     label="Monitor"
                                     value={track.is_armed ? 'In' : 'Auto'}
                                 />
-                                <SessionSendRow
-                                    sendA={track.send_a ?? 0}
-                                    sendB={track.send_b ?? 0}
-                                    onChangeA={(next) => { void setTrackSendLevel(trackIndex, 'A', next); }}
-                                    onChangeB={(next) => { void setTrackSendLevel(trackIndex, 'B', next); }}
-                                />
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                         <button
@@ -267,7 +289,20 @@ export const SessionWorkspace = ({
                                             onClick={() => { void setTrackSolo(trackIndex, !track.is_solo); }}
                                             title="Solo"
                                         >S</button>
-                                        <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
+                                        <button
+                                            style={sessionMixerBtnStyle(track.is_armed)}
+                                            onClick={() => {
+                                                void engineApi
+                                                    .armTrackWithDeltas(trackIndex, !track.is_armed)
+                                                    .then((response) => applyProjectDeltas(response.deltas, 'session-arm-track'))
+                                                    .catch((err) => {
+                                                        console.error('[SessionWorkspace] Failed to arm track', err);
+                                                    });
+                                            }}
+                                            title={track.is_armed ? 'Disarm track' : 'Arm track'}
+                                        >
+                                            R
+                                        </button>
                                     </div>
                                     <SessionStripFader
                                         gain={track.volume}
@@ -278,7 +313,7 @@ export const SessionWorkspace = ({
                                         onPanChange={(nextPan) => { void setTrackPan(trackIndex, nextPan); }}
                                     />
                                 </div>
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-role-data)' }}>
                                     {peakLabel}
                                 </div>
                             </div>

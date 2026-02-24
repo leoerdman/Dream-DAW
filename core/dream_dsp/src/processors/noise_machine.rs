@@ -28,8 +28,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 /// xorshift64 PRNG — deterministic, fast, zero-alloc.
 struct Rng {
@@ -231,7 +231,8 @@ impl DspProcessor for NoiseMachineProcessor {
         self.volume_sm.set_target(self.volume_lin.max(0.0));
         self.stereo_sm.set_target(self.stereo.clamp(0.0, 1.0));
         self.pan_sm.set_target(self.pan.clamp(-1.0, 1.0));
-        self.lp_freq_sm.set_target(self.lp_freq.clamp(200.0, 20000.0));
+        self.lp_freq_sm
+            .set_target(self.lp_freq.clamp(200.0, 20000.0));
         self.hp_freq_sm.set_target(self.hp_freq.clamp(20.0, 5000.0));
 
         for i in 0..len {
@@ -365,8 +366,10 @@ impl DspProcessor for NoiseMachineProcessor {
         self.volume_sm.set_instant(self.volume_lin.max(0.0));
         self.stereo_sm.set_instant(self.stereo.clamp(0.0, 1.0));
         self.pan_sm.set_instant(self.pan.clamp(-1.0, 1.0));
-        self.lp_freq_sm.set_instant(self.lp_freq.clamp(200.0, 20000.0));
-        self.hp_freq_sm.set_instant(self.hp_freq.clamp(20.0, 5000.0));
+        self.lp_freq_sm
+            .set_instant(self.lp_freq.clamp(200.0, 20000.0));
+        self.hp_freq_sm
+            .set_instant(self.hp_freq.clamp(20.0, 5000.0));
     }
 }
 

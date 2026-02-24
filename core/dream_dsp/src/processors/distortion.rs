@@ -26,8 +26,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{DEFAULT_SAMPLE_RATE, db_to_linear, sanitize_sample_rate};
 
 pub struct DistortionProcessor {
     drive: f32,
@@ -186,7 +186,8 @@ impl DspProcessor for DistortionProcessor {
             }
             let tone_freq = 1000.0 + tone * 19000.0;
             if (tone_freq - self.cached_tone_freq).abs() > 1.0 {
-                self.cached_tone_c = crate::processors::one_pole_lp_coeff(tone_freq, self.sample_rate);
+                self.cached_tone_c =
+                    crate::processors::one_pole_lp_coeff(tone_freq, self.sample_rate);
                 self.cached_tone_freq = tone_freq;
             }
             let hp_c = self.cached_hp_c;
@@ -267,7 +268,8 @@ impl DspProcessor for DistortionProcessor {
         self.tone_sm.set_instant(self.tone.clamp(0.0, 1.0));
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
         self.output_sm.set_instant(self.output_lin.max(0.0));
-        self.tightness_sm.set_instant(self.tightness.clamp(0.0, 1.0));
+        self.tightness_sm
+            .set_instant(self.tightness.clamp(0.0, 1.0));
         self.bias_sm.set_instant(self.bias.clamp(-1.0, 1.0));
         let hp_freq = 50.0 + self.tightness * 450.0;
         self.cached_hp_c = crate::processors::one_pole_hp_coeff(hp_freq, self.sample_rate);

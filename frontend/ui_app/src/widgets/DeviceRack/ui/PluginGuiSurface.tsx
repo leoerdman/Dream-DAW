@@ -102,7 +102,9 @@ export const PluginGuiSurface = ({
                         await new Promise(r => setTimeout(r, errorBackoff));
                     }
                 }
-            } catch {}
+            } catch (err) {
+                console.warn('[PluginGuiSurface] EQ spectrum poll stopped:', err);
+            }
         };
         poll();
         return () => {

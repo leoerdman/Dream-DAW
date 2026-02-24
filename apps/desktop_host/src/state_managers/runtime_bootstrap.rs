@@ -48,8 +48,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
             )
         })
         .unwrap_or((44_100.0, 512));
-    let mut plugin_host_state =
-        PluginHostState::new_with_io(host_sample_rate, host_buffer_size);
+    let mut plugin_host_state = PluginHostState::new_with_io(host_sample_rate, host_buffer_size);
 
     let clip_pool_state = ClipPoolState::new();
     let bootstrap_project = dream_models::project::Project::default();

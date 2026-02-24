@@ -19,7 +19,7 @@ export type ProjectDelta =
     | { kind: 'MidiClipNotesReplaced'; data: { clip_id: string; notes: MidiClipDeltaNote[] } }
     | { kind: 'ClipSourceOffsetChanged'; data: { clip_id: string; source_offset: number } }
     | { kind: 'ClipFadesChanged'; data: { clip_id: string; fade_in_frames: number; fade_out_frames: number } }
-    | { kind: 'ClipWarpChanged'; data: { clip_id: string; is_warped: boolean; warp_mode: number | null; warp_base_bpm: number } }
+    | { kind: 'ClipWarpChanged'; data: { clip_id: string; is_warped: boolean; warp_mode: number | null; warp_base_bpm: number; warp_source_duration_frames?: number } }
     | { kind: 'ClipColorChanged'; data: { clip_id: string; color: string | null } }
     | { kind: 'ClipFilePathChanged'; data: { clip_id: string; file_path: string; is_offline: boolean } }
     | { kind: 'ClipRenamed'; data: { clip_id: string; new_name: string } }

@@ -1,9 +1,15 @@
-import type React from 'react';
-import { PluginSettingsPanel } from '@/widgets/DeviceRack/ui/PluginSettingsPanel';
-import { PluginGuiSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurface';
+import React, { lazy, Suspense } from 'react';
 import { QUICK_PRESETS_BY_EFFECT } from '@/widgets/DeviceRack/model/presets';
 import type { DeviceSlot, QuickPreset } from '@/widgets/DeviceRack/model/types';
 import type { DeviceRuntimeStatus } from '@/widgets/DeviceRack/ui/DeviceNodeHeader';
+
+const PluginSettingsPanelLazy = lazy(async () => ({
+    default: (await import('@/widgets/DeviceRack/ui/PluginSettingsPanel')).PluginSettingsPanel,
+}));
+
+const PluginGuiSurfaceLazy = lazy(async () => ({
+    default: (await import('@/widgets/DeviceRack/ui/PluginGuiSurface')).PluginGuiSurface,
+}));
 
 interface DeviceNodeBodyProps {
     device: DeviceSlot;
@@ -61,7 +67,8 @@ export function DeviceNodeBody({
         : [];
 
     const settingsPanel = (
-        <PluginSettingsPanel
+        <Suspense fallback={null}>
+            <PluginSettingsPanelLazy
             device={device}
             quickPresets={quickPresets}
             onParamChange={onParamChange}
@@ -81,7 +88,8 @@ export function DeviceNodeBody({
             runtimeStatus={runtimeStatus}
             editorSupported={editorSupported}
             editorReason={editorReason}
-        />
+            />
+        </Suspense>
     );
 
     if (device.source === 'internal') {
@@ -100,7 +108,8 @@ export function DeviceNodeBody({
                 }}
             >
                 <div style={{ minHeight: 0 }}>
-                    <PluginGuiSurface
+                    <Suspense fallback={null}>
+                        <PluginGuiSurfaceLazy
                         device={device}
                         onParamChange={onParamChange}
                         onParamGestureStart={onParamGestureStart}
@@ -109,7 +118,8 @@ export function DeviceNodeBody({
                         onDropSample={onDropSample}
                         onLoadSample={onLoadSample}
                         onParamContextMenu={onParamContextMenu}
-                    />
+                        />
+                    </Suspense>
                 </div>
                 {showSettings && supportsSettingsToggle && (
                     <div

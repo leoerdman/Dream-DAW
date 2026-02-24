@@ -29,6 +29,7 @@ interface StatusBarProps {
     panelMode?: 'rack' | 'clip' | 'mixer';
     onPanelModeChange?: (mode: 'rack' | 'clip' | 'mixer') => void;
     panelInfo?: string;
+    mainViewMode?: 'arrangement' | 'session';
 }
 
 export const StatusBar = ({
@@ -38,7 +39,17 @@ export const StatusBar = ({
     panelMode,
     onPanelModeChange,
     panelInfo,
+    mainViewMode = 'arrangement',
 }: StatusBarProps) => {
+    const prefetchRackPanel = () => {
+        void import('@/widgets/DeviceRack/DeviceRack');
+    };
+    const prefetchMixerPanel = () => {
+        void import('@/widgets/MixerPanel/MixerPanel');
+    };
+    const prefetchClipPanel = () => {
+        void import('@/widgets/PianoRoll/PianoRoll');
+    };
     // Live engine data
     const {
         positionSeconds,
@@ -114,6 +125,8 @@ export const StatusBar = ({
                             <button
                                 type="button"
                                 onClick={() => onPanelModeChange('rack')}
+                                onMouseEnter={prefetchRackPanel}
+                                onFocus={prefetchRackPanel}
                                 style={panelModeBtnStyle(panelMode === 'rack')}
                                 title="Instrument & Effects Chain (Shift+Tab)"
                             >
@@ -122,10 +135,22 @@ export const StatusBar = ({
                             <button
                                 type="button"
                                 onClick={() => onPanelModeChange('clip')}
+                                onMouseEnter={prefetchClipPanel}
+                                onFocus={prefetchClipPanel}
                                 style={panelModeBtnStyle(panelMode === 'clip')}
                                 title="Clip Editor (Shift+Tab)"
                             >
                                 Clip
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onPanelModeChange('mixer')}
+                                onMouseEnter={prefetchMixerPanel}
+                                onFocus={prefetchMixerPanel}
+                                style={panelModeBtnStyle(panelMode === 'mixer')}
+                                title="Mixer Panel"
+                            >
+                                Mixer
                             </button>
                         </div>
                     )}
@@ -134,7 +159,7 @@ export const StatusBar = ({
                     )}
                     {!statusMessage && (
                         <>
-                            <StatusText>Arrangement</StatusText>
+                            <StatusText>{mainViewMode === 'session' ? 'Session' : 'Arrangement'}</StatusText>
 
                             <StatusGroup>
                                 <StatusLabel>Position:</StatusLabel>

@@ -72,7 +72,7 @@ export const EssenceSynth = ({
         () => BOTTOM_KNOB_NAMES
             .map(n => findParam(n))
             .filter((pp): pp is PluginParam => pp !== null),
-        [params],
+        [findParam],
     );
     return (
         <div className="essence" data-no-drag>

@@ -96,10 +96,6 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
         const track = state.tracksById[delta.data.track_id];
         if (!track) return true;
 
-        if (track.instrument?.id === delta.data.slot_id || track.effects.some((fx) => fx.id === delta.data.slot_id)) {
-            return true;
-        }
-
         const added: FlatPluginSlot = {
             id: delta.data.slot_id,
             name: delta.data.plugin_name,
@@ -111,8 +107,18 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
             return true;
         }
         const effects = track.effects.slice();
-        const insert = Math.max(0, Math.min(delta.data.slot_index, effects.length));
-        effects.splice(insert, 0, added);
+        const existingIndex = effects.findIndex((fx) => fx.id === delta.data.slot_id);
+        if (existingIndex >= 0) {
+            effects[existingIndex] = {
+                ...effects[existingIndex],
+                name: added.name,
+                plugin_id: added.plugin_id,
+                is_bypassed: false,
+            };
+        } else {
+            const insert = Math.max(0, Math.min(delta.data.slot_index, effects.length));
+            effects.splice(insert, 0, added);
+        }
         patchTrack(state, track.id, { effects });
         return true;
     }

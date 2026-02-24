@@ -25,6 +25,7 @@ interface UseDawShellTimelinePropsParams {
     onEditCursorChange: TimelineProps['onEditCursorChange'];
     onMarqueeSelectionStart: TimelineProps['onMarqueeSelectionStart'];
     onMarqueeSelectionChange: TimelineProps['onMarqueeSelectionChange'];
+    marqueeSelection: TimelineProps['marqueeSelection'];
     onClipSelect: TimelineProps['onClipSelect'];
     selectedClipIds: string[];
     onClipSelectionChange: TimelineProps['onClipSelectionChange'];
@@ -65,6 +66,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             onEditCursorChange: params.onEditCursorChange,
             onMarqueeSelectionStart: params.onMarqueeSelectionStart,
             onMarqueeSelectionChange: params.onMarqueeSelectionChange,
+            marqueeSelection: params.marqueeSelection,
             onClipSelect: params.onClipSelect,
             selectedClipIds: params.selectedClipIds,
             onClipSelectionChange: params.onClipSelectionChange,
@@ -104,6 +106,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             params.onEditCursorChange,
             params.onMarqueeSelectionChange,
             params.onMarqueeSelectionStart,
+            params.marqueeSelection,
             params.onOpenMidiClip,
             params.onPlayheadChange,
             params.onTrackSelect,
@@ -119,4 +122,3 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
         ],
     );
 }
-

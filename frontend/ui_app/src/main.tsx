@@ -8,6 +8,7 @@ import { SplashScreen } from '@/widgets/SplashScreen'
 import * as engineApi from '@/shared/api/engine'
 import { useAutoSave } from '@/shared/hooks/useAutoSave'
 import { useSettingsStore } from '@/shared/stores/useSettingsStore'
+import { applyUiDisplayPrefs } from '@/shared/lib/uiDisplayPrefs'
 
 const img = new Image()
 img.src = '/appicon.png'
@@ -32,7 +33,7 @@ class ErrorBoundary extends Component<
       return (
         <div style={{
           background: 'var(--token-color-hex-1a0000)', color: 'var(--token-color-hex-ff6b6b)', padding: 40,
-          fontFamily: 'monospace', fontSize: 14, overflow: 'auto',
+          fontFamily: 'var(--font-role-data)', fontSize: 14, overflow: 'auto',
           width: '100vw', height: '100vh',
         }}>
           <h1 style={{ color: 'var(--token-color-hex-ff4444)', fontSize: 24, marginBottom: 16 }}>
@@ -49,8 +50,8 @@ class ErrorBoundary extends Component<
             onClick={() => window.location.reload()}
             style={{
               marginTop: 24, padding: '10px 24px', fontSize: 14, fontWeight: 600,
-              background: '#ff4444', color: '#fff', border: 'none', borderRadius: 6,
-              cursor: 'pointer', fontFamily: 'sans-serif',
+              background: 'var(--color-error)', color: 'var(--color-text-on-accent)', border: 'none', borderRadius: 6,
+              cursor: 'pointer', fontFamily: 'var(--font-role-body)',
             }}
           >
             🔄 Reload Application
@@ -64,10 +65,56 @@ class ErrorBoundary extends Component<
 
 function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const [fatalError, setFatalError] = useState<string | null>(null)
   const theme = useSettingsStore((s) => s.settings.theme)
   const darkThemeShade = useSettingsStore((s) => s.settings.darkThemeShade)
   const darkThemeTintPercent = useSettingsStore((s) => s.settings.darkThemeTintPercent)
+  const forestThemeCanopyPercent = useSettingsStore((s) => s.settings.forestThemeCanopyPercent)
+  const forestThemeFogPercent = useSettingsStore((s) => s.settings.forestThemeFogPercent)
+  const lightThemeTexturePercent = useSettingsStore((s) => s.settings.lightThemeTexturePercent)
+  const themeDetailPercent = useSettingsStore((s) => s.settings.themeDetailPercent)
+  const themePanelsDetailPercent = useSettingsStore((s) => s.settings.themePanelsDetailPercent)
+  const themeTimelineDetailPercent = useSettingsStore((s) => s.settings.themeTimelineDetailPercent)
+  const themeMotionEnabled = useSettingsStore((s) => s.settings.themeMotionEnabled)
+  const themeMotionPercent = useSettingsStore((s) => s.settings.themeMotionPercent)
+  const themeOverlayEnabled = useSettingsStore((s) => s.settings.themeOverlayEnabled)
+  const themePanelsOrnamentsEnabled = useSettingsStore((s) => s.settings.themePanelsOrnamentsEnabled)
+  const themeTimelineOrnamentsEnabled = useSettingsStore((s) => s.settings.themeTimelineOrnamentsEnabled)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
+
+  useEffect(() => {
+    applyUiDisplayPrefs()
+  }, [])
+
+  useEffect(() => {
+    const toMessage = (raw: unknown): string => {
+      if (raw instanceof Error && raw.message) return raw.message
+      if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim()
+      try {
+        return JSON.stringify(raw)
+      } catch {
+        return String(raw)
+      }
+    }
+    const reportFatal = (source: string, reason: unknown) => {
+      const message = `${source}: ${toMessage(reason)}`
+      setFatalError((prev) => prev ?? message)
+      void engineApi.logFrontendError('AppRuntime', message)
+      console.error('[AppRuntime]', message)
+    }
+    const onWindowError = (event: ErrorEvent) => {
+      reportFatal('window.error', event.error ?? event.message)
+    }
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      reportFatal('unhandledrejection', event.reason)
+    }
+    window.addEventListener('error', onWindowError)
+    window.addEventListener('unhandledrejection', onUnhandledRejection)
+    return () => {
+      window.removeEventListener('error', onWindowError)
+      window.removeEventListener('unhandledrejection', onUnhandledRejection)
+    }
+  }, [])
 
   useEffect(() => {
     if (!settingsLoaded) return
@@ -76,10 +123,48 @@ function App() {
     root.setAttribute('data-theme', normalizedTheme)
     const clampedShade = Number.isFinite(darkThemeShade) ? Math.min(255, Math.max(0, Math.round(darkThemeShade))) : 0
     const clampedPercent = Number.isFinite(darkThemeTintPercent) ? Math.min(100, Math.max(0, Math.round(darkThemeTintPercent))) : 0
-    const appliedPercent = normalizedTheme === 'dark' && clampedShade > 0 ? clampedPercent : 0
+    // Dark tint model:
+    // shade: 0..255 mapped to grayscale tone (0=black, 255=white),
+    // intensity: 0..100 controls how much that tone is mixed into dark tokens.
+    const appliedPercent = normalizedTheme === 'dark' ? clampedPercent : 0
+    const canopyStrength = Number.isFinite(forestThemeCanopyPercent) ? Math.min(100, Math.max(0, Math.round(forestThemeCanopyPercent))) : 100
+    const fogStrength = Number.isFinite(forestThemeFogPercent) ? Math.min(100, Math.max(0, Math.round(forestThemeFogPercent))) : 100
+    const lightTextureStrength = Number.isFinite(lightThemeTexturePercent) ? Math.min(100, Math.max(0, Math.round(lightThemeTexturePercent))) : 72
+    const detailStrength = Number.isFinite(themeDetailPercent) ? Math.min(100, Math.max(0, Math.round(themeDetailPercent))) : 100
+    const panelsDetailRaw = Number.isFinite(themePanelsDetailPercent) ? Math.min(100, Math.max(0, Math.round(themePanelsDetailPercent))) : 100
+    const timelineDetailRaw = Number.isFinite(themeTimelineDetailPercent) ? Math.min(100, Math.max(0, Math.round(themeTimelineDetailPercent))) : 100
+    const panelsDetailStrength = themePanelsOrnamentsEnabled ? panelsDetailRaw : 0
+    const timelineDetailStrength = themeTimelineOrnamentsEnabled ? timelineDetailRaw : 0
+    const overlayStrength = themeOverlayEnabled ? 1 : 0
+    const motionStrength = Number.isFinite(themeMotionPercent) ? Math.min(100, Math.max(0, Math.round(themeMotionPercent))) : 100
     root.style.setProperty('--theme-dark-tint-rgb', `${clampedShade} ${clampedShade} ${clampedShade}`)
     root.style.setProperty('--theme-dark-tint-strength', `${appliedPercent}%`)
-  }, [theme, darkThemeShade, darkThemeTintPercent, settingsLoaded])
+    root.style.setProperty('--theme-forest-canopy-strength', `${canopyStrength / 100}`)
+    root.style.setProperty('--theme-forest-fog-strength', `${fogStrength / 100}`)
+    root.style.setProperty('--theme-light-texture-strength', `${lightTextureStrength / 100}`)
+    root.style.setProperty('--theme-ornament-master-strength', `${detailStrength / 100}`)
+    root.style.setProperty('--theme-ornament-panels-strength', `${panelsDetailStrength / 100}`)
+    root.style.setProperty('--theme-ornament-timeline-strength', `${timelineDetailStrength / 100}`)
+    root.style.setProperty('--theme-overlay-strength', `${overlayStrength}`)
+    root.style.setProperty('--theme-motion-strength', `${motionStrength / 100}`)
+    root.style.setProperty('--theme-motion-play-state', themeMotionEnabled ? 'running' : 'paused')
+  }, [
+    theme,
+    darkThemeShade,
+    darkThemeTintPercent,
+    forestThemeCanopyPercent,
+    forestThemeFogPercent,
+    lightThemeTexturePercent,
+    themeDetailPercent,
+    themePanelsDetailPercent,
+    themeTimelineDetailPercent,
+    themeMotionEnabled,
+    themeMotionPercent,
+    themeOverlayEnabled,
+    themePanelsOrnamentsEnabled,
+    themeTimelineOrnamentsEnabled,
+    settingsLoaded,
+  ])
 
   useEffect(() => {
     // BUG-005 FIX: Retry expandWindow with exponential backoff (max 3 attempts)
@@ -99,6 +184,13 @@ function App() {
     retryExpandWindow()
   }, [])
 
+  useEffect(() => {
+    // Fail-open: ensure app never stays on blank splash forever.
+    if (splashDone) return
+    const timeoutId = window.setTimeout(() => setSplashDone(true), 8000)
+    return () => window.clearTimeout(timeoutId)
+  }, [splashDone])
+
   // ── Strike 6: Auto-Save (3 min timer, dirty-check) ──
   // Only active after splash; pauses when tab is hidden.
   useAutoSave(splashDone ? 3 * 60 * 1000 : Infinity)
@@ -114,15 +206,42 @@ function App() {
 
   return (
     <>
-      {/* Show splash in expanded window */}
-      {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
-
-      {/* Workspace mounts ONLY after splash is done, window is already maximized */}
-      {splashDone && (
-        <ErrorBoundary>
-          <Workspace />
-        </ErrorBoundary>
+      {fatalError && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 999999,
+          background: 'var(--token-color-hex-1a0000)',
+          color: 'var(--token-color-hex-ff6b6b)',
+          padding: 40,
+          fontFamily: 'var(--font-role-data)',
+          fontSize: 14,
+          overflow: 'auto',
+        }}>
+          <h1 style={{ color: 'var(--token-color-hex-ff4444)', fontSize: 24, marginBottom: 16 }}>
+            Dream DAW Runtime Crash
+          </h1>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{fatalError}</pre>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              marginTop: 24, padding: '10px 24px', fontSize: 14, fontWeight: 600,
+              background: 'var(--color-error)', color: 'var(--color-text-on-accent)', border: 'none', borderRadius: 6,
+              cursor: 'pointer', fontFamily: 'var(--font-role-body)',
+            }}
+          >
+            Reload Application
+          </button>
+        </div>
       )}
+
+      <ErrorBoundary>
+        {/* Show splash in expanded window */}
+        {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
+
+        {/* Workspace mounts ONLY after splash is done, window is already maximized */}
+        {splashDone && <Workspace />}
+      </ErrorBoundary>
     </>
   )
 }

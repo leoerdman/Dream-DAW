@@ -11,7 +11,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEngineStore } from '@/shared/stores/useEngineStore'
 import { useSettingsStore } from '@/shared/stores/useSettingsStore'
-import * as engineApi from '@/shared/api/engine'
 import './SplashScreen.css'
 
 interface SplashScreenProps {
@@ -30,7 +29,6 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     const finalizedRef = useRef(false)
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
-    const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas)
 
     const finalizeSplash = useCallback((reason: string) => {
         if (cancelledRef.current || finalizedRef.current) return
@@ -50,8 +48,9 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         }, 400)
     }, [onComplete])
 
-    const dismiss = useCallback(async () => {
+    const dismiss = useCallback(() => {
         console.log('[Splash] dismiss() START')
+        finalizeSplash('dismiss-started')
 
         // BUG-001 FIX: Per-step timeout to prevent hanging on unresponsive backend
         const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -62,59 +61,33 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 ),
             ])
 
-        try {
-            // 1. Load user settings from disk BEFORE expanding to workspace
+        void (async () => {
             try {
-                console.log('[Splash] step 1: loadSettings...')
-                await withTimeout(useSettingsStore.getState().loadSettings(), 3000, 'loadSettings')
-                console.log('[Splash] step 1: loadSettings DONE')
-            } catch (e) {
-                console.warn('[Splash] Failed to load settings:', e)
-            }
-            if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
-
-            const settings = useSettingsStore.getState().settings
-            // Force new project for now — saved settings on disk may still say 'last'
-            const shouldOpenLastProject = false
-            console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject, '(forced new)')
-
-            if (shouldOpenLastProject) {
+                // 1. Load user settings from disk in background.
                 try {
-                    console.log('[Splash] step 2: getRecentProjects...')
-                    const recent = await withTimeout(engineApi.getRecentProjects(), 3000, 'getRecentProjects')
-                    console.log('[Splash] step 2: getRecentProjects DONE, count=', recent.length)
-                    if (cancelledRef.current) { console.log('[Splash] cancelled after getRecentProjects'); return }
-                    const lastProject = recent[0]
-                    if (lastProject?.path) {
-                        console.log('[Splash] step 2b: openProject...', lastProject.path)
-                        const response = await withTimeout(engineApi.openProject(lastProject.path), 5000, 'openProject')
-                        await withTimeout(applyProjectDeltas(response.deltas, 'splash:open-last-project'), 3000, 'applyDeltas')
-                        console.log('[Splash] step 2b: openProject DONE')
-                        if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
-                        // Eagerly activate external VST3 plugins and restore their saved state
-                        engineApi.eagerActivateExternalPlugins().catch((err) =>
-                            console.warn('[Splash] Eager plugin activation (non-fatal):', err)
-                        )
-                        console.info('[Splash] Opened last project on startup:', lastProject.path)
-                    } else {
-                        console.info('[Splash] startupBehavior=last but recent list is empty')
-                    }
+                    console.log('[Splash] step 1: loadSettings...')
+                    await withTimeout(useSettingsStore.getState().loadSettings(), 3000, 'loadSettings')
+                    console.log('[Splash] step 1: loadSettings DONE')
                 } catch (e) {
-                    console.warn('[Splash] Failed to open last project on startup:', e)
+                    console.warn('[Splash] Failed to load settings:', e)
                 }
-            }
-            if (cancelledRef.current) { console.log('[Splash] cancelled before telemetry'); return }
+                if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
 
-            // 2. Start telemetry loop — the DAW comes alive
-            console.log('[Splash] step 3: startTelemetryLoop...')
-            startTelemetryLoop()
-            console.log('[Splash] step 3: startTelemetryLoop DONE')
-        } catch (e) {
-            console.warn('[Splash] Unexpected startup error:', e)
-        } finally {
-            finalizeSplash('dismiss-finished')
-        }
-    }, [startTelemetryLoop, applyProjectDeltas, finalizeSplash])
+                const settings = useSettingsStore.getState().settings
+                console.log('[Splash] startupBehavior=', settings.startupBehavior)
+
+                // 2. Start telemetry ASAP so UI is live even if project open is slow.
+                console.log('[Splash] step 2: startTelemetryLoop...')
+                startTelemetryLoop()
+                console.log('[Splash] step 2: startTelemetryLoop DONE')
+
+                // Intentionally skip opening the last project during splash.
+                // It can trigger expensive plugin initialization and stall startup.
+            } catch (e) {
+                console.warn('[Splash] Unexpected startup error:', e)
+            }
+        })()
+    }, [startTelemetryLoop, finalizeSplash])
 
     useEffect(() => {
         // Reset cancellation flag on (re-)mount — required for React StrictMode

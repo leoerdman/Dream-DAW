@@ -473,40 +473,40 @@ impl ClipPoolState {
             paths_to_decode.len()
         );
 
-        let results: Vec<(String, Result<ClipAudio, String>)> =
-            std::thread::scope(|scope| {
-                let handles: Vec<_> = paths_to_decode
-                    .iter()
-                    .map(|source_path| {
-                        let sp = source_path.clone();
-                        scope.spawn(move || {
-                            let path = PathBuf::from(&sp);
-                            if !path.exists() {
-                                return (sp, Err("file not found".to_string()));
-                            }
-                            match AudioReader::read(&path) {
-                                Ok(decoded) => (
-                                    sp.clone(),
-                                    Ok(ClipAudio {
-                                        source_path: sp,
-                                        channels: decoded.channels,
-                                        sample_rate: decoded.sample_rate,
-                                        num_frames: decoded.num_frames,
-                                    }),
-                                ),
-                                Err(e) => (sp, Err(e.to_string())),
-                            }
-                        })
+        let results: Vec<(String, Result<ClipAudio, String>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = paths_to_decode
+                .iter()
+                .map(|source_path| {
+                    let sp = source_path.clone();
+                    scope.spawn(move || {
+                        let path = PathBuf::from(&sp);
+                        if !path.exists() {
+                            return (sp, Err("file not found".to_string()));
+                        }
+                        match AudioReader::read(&path) {
+                            Ok(decoded) => (
+                                sp.clone(),
+                                Ok(ClipAudio {
+                                    source_path: sp,
+                                    channels: decoded.channels,
+                                    sample_rate: decoded.sample_rate,
+                                    num_frames: decoded.num_frames,
+                                }),
+                            ),
+                            Err(e) => (sp, Err(e.to_string())),
+                        }
                     })
-                    .collect();
+                })
+                .collect();
 
-                handles
-                    .into_iter()
-                    .map(|h| h.join().unwrap_or_else(|_| {
-                        ("".to_string(), Err("thread panicked".to_string()))
-                    }))
-                    .collect()
-            });
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| ("".to_string(), Err("thread panicked".to_string())))
+                })
+                .collect()
+        });
 
         // 4. Bulk-insert decoded clips under a single short lock.
         let mut loaded = 0usize;

@@ -4,11 +4,8 @@ import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-
 type BottomPanelMode = 'rack' | 'clip' | 'mixer';
-
 type ImportFileFn = (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
-
 interface AlsImportSummaryPayload {
     project_name: string;
     track_count: number;
@@ -37,6 +34,10 @@ export function useDawShellGlobalShortcuts(args: {
                 return;
             }
             window.dispatchEvent(new CustomEvent('dream:open-export'));
+            // Extra async dispatch for cases where listener attaches in the same tick.
+            requestAnimationFrame(() => {
+                window.dispatchEvent(new CustomEvent('dream:open-export'));
+            });
         };
 
         const isEditableTarget = (target: EventTarget | null): boolean => {
@@ -47,9 +48,31 @@ export function useDawShellGlobalShortcuts(args: {
         };
 
         const isMod = (e: KeyboardEvent): boolean => e.metaKey || e.ctrlKey;
+        const isExportShortcut = (e: KeyboardEvent): boolean => {
+            if (!isMod(e) || !e.shiftKey || e.altKey) return false;
+            const key = (e.key || '').toLowerCase();
+            return e.code === 'KeyR' || key === 'r' || key === 'к';
+        };
 
         const handler = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.isComposing) return;
+
+            // Ableton-like behavior: Tab shortcuts switch DAW views regardless of focused field.
+            if (e.key === 'Tab' && e.shiftKey && !isMod(e) && !e.altKey) {
+                e.preventDefault();
+                setBottomPanelModeForActiveTrack((prev) => {
+                    return prev === 'rack' ? 'clip' : 'rack';
+                });
+                return;
+            }
+
+            if (e.key === 'Tab' && !e.shiftKey && !isMod(e) && !e.altKey) {
+                e.preventDefault();
+                setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
+                return;
+            }
+
+            if (isEditableTarget(e.target)) return;
 
             if (isMod(e) && !e.shiftKey && !e.altKey && e.code === 'Comma') {
                 e.preventDefault();
@@ -58,7 +81,7 @@ export function useDawShellGlobalShortcuts(args: {
             }
 
             // Export shortcut (Cmd/Ctrl+Shift+R).
-            if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyR') {
+            if (isExportShortcut(e)) {
                 e.preventDefault();
                 e.stopPropagation();
                 openExportPanel();
@@ -78,24 +101,6 @@ export function useDawShellGlobalShortcuts(args: {
                 e.preventDefault();
                 e.stopPropagation();
                 openExportPanel();
-                return;
-            }
-
-            if (e.key === 'Tab' && !e.shiftKey) {
-                if (isEditableTarget(e.target)) return;
-                e.preventDefault();
-                setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
-                return;
-            }
-
-            if (e.key === 'Tab' && e.shiftKey) {
-                if (isEditableTarget(e.target)) return;
-                e.preventDefault();
-                setBottomPanelModeForActiveTrack((prev) => {
-                    if (prev === 'rack') return 'clip';
-                    if (prev === 'clip') return 'mixer';
-                    return 'rack';
-                });
                 return;
             }
 
@@ -183,8 +188,7 @@ export function useSelectedTrackConsistency(args: {
 }): void {
     const { selectedTrackIds, selectedTrackId, setSelectedTrackId } = args;
     useEffect(() => {
-        if (selectedTrackIds.length === 0) return;
-        if (!selectedTrackIds.includes(selectedTrackId)) {
+        if (selectedTrackIds.length > 0 && !selectedTrackIds.includes(selectedTrackId)) {
             setSelectedTrackId(selectedTrackIds[selectedTrackIds.length - 1]);
         }
     }, [selectedTrackIds, selectedTrackId, setSelectedTrackId]);
@@ -257,9 +261,7 @@ export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
 
 export function useInitialLayoutSync(): void {
     useEffect(() => {
-        const id = requestAnimationFrame(() => {
-            window.dispatchEvent(new Event('resize'));
-        });
+        const id = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
         return () => cancelAnimationFrame(id);
     }, []);
 }

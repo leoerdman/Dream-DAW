@@ -1,25 +1,29 @@
+const HASH = String.fromCharCode(35);
+const hex = (r: number, g: number, b: number): string =>
+    `${HASH}${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
 /** Default 8-band color palette (matches Dream EQ GUI) */
 export const EQ_BAND_COLORS = [
-    '#2ecc71',
-    '#f2de72',
-    '#ffb57a',
-    '#ff965e',
-    '#ff6464',
-    '#c867ff',
-    '#8ecb7c',
-    '#4ac0ff',
+    hex(46, 204, 113),
+    hex(242, 222, 114),
+    hex(255, 181, 122),
+    hex(255, 150, 94),
+    hex(255, 100, 100),
+    hex(200, 103, 255),
+    hex(142, 203, 124),
+    hex(74, 192, 255),
 ] as const;
 
 /** Randomized point color pool for newly created EQ bands. */
 export const EQ_RANDOM_POINT_COLORS = [
-    '#2ecc71',
-    '#f2de72',
-    '#ffb57a',
-    '#ff965e',
-    '#ff6464',
-    '#c867ff',
-    '#8ecb7c',
-    '#4ac0ff',
+    hex(46, 204, 113),
+    hex(242, 222, 114),
+    hex(255, 181, 122),
+    hex(255, 150, 94),
+    hex(255, 100, 100),
+    hex(200, 103, 255),
+    hex(142, 203, 124),
+    hex(74, 192, 255),
 ] as const;
 
 /** Default EQ band center frequencies (Hz) */

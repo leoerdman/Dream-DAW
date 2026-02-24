@@ -139,6 +139,11 @@ export function useDeviceRackSlotActions({
                     statusClear();
                     return status;
                 } catch (retryErr) {
+                    const retryMsg = errorMessage(retryErr).toLowerCase();
+                    if (retryMsg.includes('pluginslot not found')) {
+                        statusClear();
+                        return null;
+                    }
                     statusError(`Plugin activation failed: ${errorMessage(retryErr)}`);
                     return null;
                 }

@@ -134,7 +134,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             <span style={{
                                 position: 'absolute', top: 2, left: 4,
                                 fontSize: 8, color: isSelected ? pc : 'var(--token-color-rgba-255-255-255-0d25)',
-                                fontWeight: 700, fontFamily: 'var(--font-mono)',
+                                fontWeight: 700, fontFamily: 'var(--font-role-data)',
                             }}>
                                 {i + 1}
                             </span>
@@ -199,7 +199,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                         <PadWaveform samplePath={pad.sample_path} />
                                     </div>
                                 ) : (
-                                    <span style={{ fontSize: 10, color: 'var(--token-color-rgba-255-255-255-0d3)', fontFamily: 'var(--font-mono)' }}>
+                                    <span style={{ fontSize: 10, color: 'var(--token-color-rgba-255-255-255-0d3)', fontFamily: 'var(--font-role-data)' }}>
                                         NO SAMPLE LOADED
                                     </span>
                                 )}
@@ -207,14 +207,14 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             <div style={{
                                 position: 'absolute', top: 6, left: 8,
                                 color: 'var(--token-color-hex-e0e0e0)', fontSize: 10, fontWeight: 700,
-                                fontFamily: 'var(--font-mono)', letterSpacing: '0.var(--token-size-px-5)'
+                                fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-wide)'
                             }}>
                                 PAD {selectedPad + 1}
                             </div>
                             <div style={{
                                 position: 'absolute', bottom: 4, left: 8, right: 8,
                                 color: pad.sample_path ? 'var(--token-color-hex-5ce0a6)' : 'var(--token-color-rgba-255-255-255-0d4)',
-                                fontSize: 10, fontFamily: 'var(--font-mono)',
+                                fontSize: 10, fontFamily: 'var(--font-role-data)',
                                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                             }}>
                                 {pad.sample_path ? pad.sample_path.split('/').pop() : 'Drop sample here'}
@@ -261,13 +261,13 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                     width: 32, height: 20, border: pad.is_muted ? 'var(--space-px) solid var(--token-color-hex-ff5c5c)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
                                     borderRadius: 4, background: pad.is_muted ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: pad.is_muted ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
+                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
                                 }}>MUTE</button>
                                 <button onClick={toggleSolo} style={{
                                     width: 32, height: 20, border: pad.is_soloed ? 'var(--space-px) solid var(--token-color-hex-f0c430)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
                                     borderRadius: 4, background: pad.is_soloed ? 'var(--token-color-rgba-240-196-48-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
                                     color: pad.is_soloed ? 'var(--token-color-hex-f0c430)' : 'var(--token-color-rgba-255-255-255-0d4)',
-                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-mono)'
+                                    fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
                                 }}>SOLO</button>
                             </div>
                         </div>
@@ -276,7 +276,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                     <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         height: '100%', fontSize: 11, color: 'var(--token-color-rgba-255-255-255-0d3)',
-                        fontFamily: 'var(--font-mono)', fontStyle: 'italic',
+                        fontFamily: 'var(--font-role-data)', fontStyle: 'italic',
                     }}>
                         SELECT A PAD
                     </div>

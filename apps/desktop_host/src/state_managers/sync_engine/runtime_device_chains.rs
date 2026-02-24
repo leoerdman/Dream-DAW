@@ -1,8 +1,8 @@
 use super::*;
-use dream_models::project::DeviceNode;
 use crate::state_managers::sync_engine::runtime_device_import_params::{
     first_lane_value, try_apply_primary_imported_params,
 };
+use dream_models::project::DeviceNode;
 
 pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     dream_models::project::builtin_effect_type_from_plugin_id(plugin_id)
@@ -350,7 +350,14 @@ pub fn rebuild_runtime_device_chains_from_project(
             } else {
                 (false, 4u8, 5u8)
             };
-            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.rate" } else { "effect.phaser.rate" }]) {
+            if let Some(v) = first_lane_value(
+                track,
+                &[if is_flanger_device {
+                    "effect.flanger.rate"
+                } else {
+                    "effect.phaser.rate"
+                }],
+            ) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -361,7 +368,14 @@ pub fn rebuild_runtime_device_chains_from_project(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.depth" } else { "effect.phaser.depth" }]) {
+            if let Some(v) = first_lane_value(
+                track,
+                &[if is_flanger_device {
+                    "effect.flanger.depth"
+                } else {
+                    "effect.phaser.depth"
+                }],
+            ) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -372,7 +386,14 @@ pub fn rebuild_runtime_device_chains_from_project(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.feedback" } else { "effect.phaser.feedback" }]) {
+            if let Some(v) = first_lane_value(
+                track,
+                &[if is_flanger_device {
+                    "effect.flanger.feedback"
+                } else {
+                    "effect.phaser.feedback"
+                }],
+            ) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -383,7 +404,14 @@ pub fn rebuild_runtime_device_chains_from_project(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.delay" } else { "effect.phaser.center" }]) {
+            if let Some(v) = first_lane_value(
+                track,
+                &[if is_flanger_device {
+                    "effect.flanger.delay"
+                } else {
+                    "effect.phaser.center"
+                }],
+            ) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -411,7 +439,14 @@ pub fn rebuild_runtime_device_chains_from_project(
                     },
                 )?;
             }
-            if let Some(v) = first_lane_value(track, &[if is_flanger_device { "effect.flanger.mix" } else { "effect.phaser.mix" }]) {
+            if let Some(v) = first_lane_value(
+                track,
+                &[if is_flanger_device {
+                    "effect.flanger.mix"
+                } else {
+                    "effect.phaser.mix"
+                }],
+            ) {
                 push_command(
                     handle,
                     EngineCommand::SetDeviceParam {
@@ -660,9 +695,8 @@ pub fn rebuild_runtime_device_chains_from_project(
         let runtime_effects: Vec<(u8, TrackFxEntry)> = internal_effects
             .into_iter()
             .filter_map(|entry| {
-                builtin_effect_type_from_plugin_id(&entry.plugin_id).map(|effect_type| {
-                    (effect_type, entry)
-                })
+                builtin_effect_type_from_plugin_id(&entry.plugin_id)
+                    .map(|effect_type| (effect_type, entry))
             })
             .collect();
         if runtime_effects.len() > MAX_DEVICE_SLOTS as usize {
@@ -716,13 +750,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                     }
                 }
             }
-            apply_static_imported_params_for_slot(
-                handle,
-                ti,
-                si,
-                &entry.plugin_id,
-                track,
-            )?;
+            apply_static_imported_params_for_slot(handle, ti, si, &entry.plugin_id, track)?;
         }
 
         // SSOT FIX: Restore instrument bypass state on project load.
@@ -790,9 +818,8 @@ pub fn rebuild_runtime_device_chains_from_project(
         let master_runtime_effects: Vec<(u8, MasterFxEntry)> = master_internal_effects
             .into_iter()
             .filter_map(|entry| {
-                builtin_effect_type_from_plugin_id(&entry.plugin_id).map(|effect_type| {
-                    (effect_type, entry)
-                })
+                builtin_effect_type_from_plugin_id(&entry.plugin_id)
+                    .map(|effect_type| (effect_type, entry))
             })
             .collect();
         for (slot_index, (effect_type, entry)) in master_runtime_effects

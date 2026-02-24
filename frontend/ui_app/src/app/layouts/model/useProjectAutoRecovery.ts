@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
 
 // ── Auto-Recovery: Re-fetch project when frontend state is lost ────────
 // After HMR page reload or any event that resets the Zustand store,
@@ -33,14 +34,16 @@ export function useProjectAutoRecovery(): void {
 
                     if (filePath) {
                         const response = await engineApi.openProject(filePath);
-                        await useEngineStore.getState().applyProjectDeltas(
+                        await applyDeltasWithSnapshotSync(
+                            useEngineStore.getState().applyProjectDeltas,
                             response.deltas,
                             `auto-recovery:resync:${reason}`,
                         );
                         console.info('[AutoRecovery] Project re-synced successfully:', filePath);
                     } else {
                         const response = await engineApi.newProject();
-                        await useEngineStore.getState().applyProjectDeltas(
+                        await applyDeltasWithSnapshotSync(
+                            useEngineStore.getState().applyProjectDeltas,
                             response.deltas,
                             `auto-recovery:new-project:${reason}`,
                         );

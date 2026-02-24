@@ -24,8 +24,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{DEFAULT_SAMPLE_RATE, db_to_linear, sanitize_sample_rate};
 
 struct OnePole {
     state: f32,
@@ -89,6 +89,12 @@ pub struct SaturatorProcessor {
     color_sm: SmoothedValue,
     /// Last cutoff frequency sent to OnePole filters (avoids redundant set_cutoff calls)
     last_cutoff_applied: f32,
+    // 2x oversampling state for nonlinear block
+    os_prev_in_l: f32,
+    os_prev_in_r: f32,
+    os_post_l: f32,
+    os_post_r: f32,
+    os_coeff: f32,
 }
 
 impl SaturatorProcessor {
@@ -102,6 +108,7 @@ impl SaturatorProcessor {
         let dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
         // ~2kHz pre-emphasis LP for consistent "color" across SRs
         let pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
+        let os_coeff = Self::oversample_coeff(sr);
         Self {
             drive_db: 6.0,
             drive_lin: db_to_linear(6.0),
@@ -128,11 +135,24 @@ impl SaturatorProcessor {
             output_sm: SmoothedValue::new(sr, 8.0, 1.0),
             color_sm: SmoothedValue::new(sr, 10.0, 0.5),
             last_cutoff_applied: cutoff,
+            os_prev_in_l: 0.0,
+            os_prev_in_r: 0.0,
+            os_post_l: 0.0,
+            os_post_r: 0.0,
+            os_coeff,
         }
     }
 
     fn tone_to_cutoff(pct: f32) -> f32 {
         1000.0 * (20000.0 / 1000.0_f32).powf(pct / 100.0)
+    }
+
+    #[inline]
+    fn oversample_coeff(sr: f32) -> f32 {
+        let os_sr = (sr * 2.0).max(1.0);
+        // Decimator LP: below base Nyquist to suppress folded harmonics.
+        let cutoff_hz = (sr * 0.42).clamp(1000.0, 22000.0);
+        (1.0 - (-std::f32::consts::TAU * cutoff_hz / os_sr).exp()).clamp(0.01, 0.99)
     }
 
     /// DC blocker (removes DC offset introduced by asymmetric clipping).
@@ -187,6 +207,26 @@ impl SaturatorProcessor {
             _ => x.tanh(),
         }
     }
+
+    #[inline]
+    fn process_oversampled(
+        input: f32,
+        prev_in: &mut f32,
+        post_state: &mut f32,
+        mode: u8,
+        lp_coeff: f32,
+    ) -> f32 {
+        let x0 = *prev_in;
+        let x1 = input;
+        let u0 = 0.5 * (x0 + x1);
+        let u1 = x1;
+        let y0 = Self::waveshape(u0, mode);
+        let y1 = Self::waveshape(u1, mode);
+        *post_state += lp_coeff * (y0 - *post_state);
+        *post_state += lp_coeff * (y1 - *post_state);
+        *prev_in = x1;
+        *post_state
+    }
 }
 
 impl Default for SaturatorProcessor {
@@ -207,8 +247,8 @@ impl DspProcessor for SaturatorProcessor {
             // exact exponential form as initialization path.
             // R = e^(-2πfc/sr), fc = 10Hz.
             self.dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
-            self.pre_coeff =
-                (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
+            self.pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
+            self.os_coeff = Self::oversample_coeff(sr);
             self.drive_sm.set_sample_rate(sr);
             self.cutoff_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
@@ -220,6 +260,7 @@ impl DspProcessor for SaturatorProcessor {
         let mode = self.mode;
         let dc_c = self.dc_coeff;
         let pre_c = self.pre_coeff;
+        let os_c = self.os_coeff;
         self.drive_sm.set_target(self.drive_lin.max(0.0));
         let target_cutoff = Self::tone_to_cutoff(self.tone_pct);
         self.cutoff_sm.set_target(target_cutoff);
@@ -251,9 +292,21 @@ impl DspProcessor for SaturatorProcessor {
             let driven_l = pre_l * drive;
             let driven_r = pre_r * drive;
 
-            // Waveshape
-            let shaped_l = Self::waveshape(driven_l, mode);
-            let shaped_r = Self::waveshape(driven_r, mode);
+            // Waveshape in 2x oversampled path (reduced aliasing).
+            let shaped_l = Self::process_oversampled(
+                driven_l,
+                &mut self.os_prev_in_l,
+                &mut self.os_post_l,
+                mode,
+                os_c,
+            );
+            let shaped_r = Self::process_oversampled(
+                driven_r,
+                &mut self.os_prev_in_r,
+                &mut self.os_post_r,
+                mode,
+                os_c,
+            );
 
             // DC block (SR-dependent coefficient)
             let dc_l = Self::dc_block(shaped_l, &mut self.dc_x_l, &mut self.dc_y_l, dc_c);
@@ -279,6 +332,10 @@ impl DspProcessor for SaturatorProcessor {
             crate::processors::flush_denormal!(self.dc_x_r);
             crate::processors::flush_denormal!(self.pre_state_l);
             crate::processors::flush_denormal!(self.pre_state_r);
+            crate::processors::flush_denormal!(self.os_prev_in_l);
+            crate::processors::flush_denormal!(self.os_prev_in_r);
+            crate::processors::flush_denormal!(self.os_post_l);
+            crate::processors::flush_denormal!(self.os_post_r);
         }
     }
 
@@ -295,7 +352,9 @@ impl DspProcessor for SaturatorProcessor {
                 self.tone_r.set_cutoff(cutoff, self.sample_rate);
             }
             2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
-            3 => self.mode = (value as u8).min(4),
+            // BUG-029 FIX: Clamp to valid range before cast.
+            // `(256.0 as u8) = 0` via wrapping; `(-1.0 as u8) = 0` via saturation.
+            3 => self.mode = value.clamp(0.0, 4.0) as u8,
             4 => {
                 self.output_db = value.clamp(-24.0, 6.0);
                 self.output_lin = db_to_linear(self.output_db);
@@ -321,6 +380,10 @@ impl DspProcessor for SaturatorProcessor {
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
         self.output_sm.set_instant(self.output_lin.max(0.0));
         self.color_sm.set_instant(self.color.clamp(0.0, 1.0));
+        self.os_prev_in_l = 0.0;
+        self.os_prev_in_r = 0.0;
+        self.os_post_l = 0.0;
+        self.os_post_r = 0.0;
     }
 }
 
@@ -368,6 +431,29 @@ mod tests {
             let mut l = vec![0.5f32; 512];
             let mut r = vec![0.5f32; 512];
             proc.process_stereo(&mut l, &mut r, 44100.0);
+        }
+    }
+
+    #[test]
+    fn saturator_high_drive_no_nan_or_inf() {
+        let mut proc = SaturatorProcessor::new(48000.0);
+        proc.set_param(0, 36.0);
+        proc.set_param(1, 100.0);
+        proc.set_param(2, 100.0);
+        proc.set_param(3, 4.0);
+        proc.set_param(5, 100.0);
+        let n = 4096usize;
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        for i in 0..n {
+            let t = i as f32 / 48000.0;
+            let s = (2.0 * std::f32::consts::PI * 17000.0 * t).sin() * 0.95;
+            l[i] = s;
+            r[i] = -s;
+        }
+        proc.process_stereo(&mut l, &mut r, 48000.0);
+        for s in l.iter().chain(r.iter()) {
+            assert!(s.is_finite(), "Found non-finite sample: {s}");
         }
     }
 }

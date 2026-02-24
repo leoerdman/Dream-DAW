@@ -59,6 +59,12 @@ pub struct DelayProcessor {
     fb_filter_l: f32,
     fb_filter_r: f32,
     fb_filter_coeff: f32,
+    // Subtle high-pass in feedback loop to prevent low-end buildup.
+    fb_hp_state_l: f32,
+    fb_hp_state_r: f32,
+    fb_hp_prev_l: f32,
+    fb_hp_prev_r: f32,
+    fb_hp_coeff: f32,
     // Modulation LFO
     lfo_phase: f64,
     // Cross-feedback for ping-pong
@@ -99,6 +105,11 @@ impl DelayProcessor {
             fb_filter_l: 0.0,
             fb_filter_r: 0.0,
             fb_filter_coeff: 0.0,
+            fb_hp_state_l: 0.0,
+            fb_hp_state_r: 0.0,
+            fb_hp_prev_l: 0.0,
+            fb_hp_prev_r: 0.0,
+            fb_hp_coeff: 0.0,
             lfo_phase: 0.0,
             cross_fb_l: 0.0,
             cross_fb_r: 0.0,
@@ -115,6 +126,9 @@ impl DelayProcessor {
         // Correct one-pole LP: α = 1 - e^(-2πfc/sr)
         let w = (-std::f32::consts::TAU * self.filter_freq / self.sample_rate).exp();
         self.fb_filter_coeff = (1.0 - w).clamp(0.001, 0.999);
+        // Fixed gentle HP (~35 Hz) in feedback path.
+        let hp_w = std::f32::consts::TAU * 35.0 / self.sample_rate.max(1.0);
+        self.fb_hp_coeff = 1.0 / (1.0 + hp_w);
     }
 
     fn update_delay_l(&mut self) {
@@ -217,13 +231,26 @@ impl DspProcessor for DelayProcessor {
             // One-pole LP in feedback loop
             self.fb_filter_l += fc * (fb_l_raw - self.fb_filter_l);
             self.fb_filter_r += fc * (fb_r_raw - self.fb_filter_r);
+            // One-pole HP in feedback loop (remove sub buildup).
+            self.fb_hp_state_l =
+                self.fb_hp_coeff * (self.fb_hp_state_l + self.fb_filter_l - self.fb_hp_prev_l);
+            self.fb_hp_state_r =
+                self.fb_hp_coeff * (self.fb_hp_state_r + self.fb_filter_r - self.fb_hp_prev_r);
+            self.fb_hp_prev_l = self.fb_filter_l;
+            self.fb_hp_prev_r = self.fb_filter_r;
+            let fb_shaped_l = (self.fb_hp_state_l * 1.15).tanh();
+            let fb_shaped_r = (self.fb_hp_state_r * 1.15).tanh();
             // SSOT: Flush denormals in feedback filter states.
             crate::processors::flush_denormal!(self.fb_filter_l);
             crate::processors::flush_denormal!(self.fb_filter_r);
+            crate::processors::flush_denormal!(self.fb_hp_state_l);
+            crate::processors::flush_denormal!(self.fb_hp_state_r);
+            crate::processors::flush_denormal!(self.fb_hp_prev_l);
+            crate::processors::flush_denormal!(self.fb_hp_prev_r);
 
             // Write to buffer: input + filtered feedback
-            self.buf_l[self.write_pos] = dry_l + self.fb_filter_l * fb;
-            self.buf_r[self.write_pos] = dry_r + self.fb_filter_r * fb;
+            self.buf_l[self.write_pos] = dry_l + fb_shaped_l * fb;
+            self.buf_r[self.write_pos] = dry_r + fb_shaped_r * fb;
 
             // Store for ping-pong, then flush denormals.
             self.cross_fb_l = delayed_l;
@@ -284,6 +311,10 @@ impl DspProcessor for DelayProcessor {
         self.write_pos = 0;
         self.fb_filter_l = 0.0;
         self.fb_filter_r = 0.0;
+        self.fb_hp_state_l = 0.0;
+        self.fb_hp_state_r = 0.0;
+        self.fb_hp_prev_l = 0.0;
+        self.fb_hp_prev_r = 0.0;
         self.lfo_phase = 0.0;
         self.cross_fb_l = 0.0;
         self.cross_fb_r = 0.0;

@@ -46,7 +46,7 @@ export const PianoRollSidebarPanel = memo(function PianoRollSidebarPanel({
                         style={{
                             fontSize: 'var(--font-size-xs)',
                             color: 'var(--color-text-primary)',
-                            fontFamily: 'var(--font-mono)',
+                            fontFamily: 'var(--font-role-data)',
                             marginLeft: 'auto',
                         }}
                     >

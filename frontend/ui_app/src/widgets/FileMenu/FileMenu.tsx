@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
+import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { MenuItem, MenuSeparator } from './FileMenuParts';
 import { pathBasename } from './fileMenuPath';
 
@@ -60,7 +62,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         setOpen(false);
         try {
             const response = await engineApi.newProject();
-            await applyProjectDeltas(response.deltas, 'file-menu:new');
+            await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:new');
             await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
@@ -77,10 +79,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
                 const response = await engineApi.importAbletonProject(path);
-                await applyProjectDeltas(response.deltas, 'file-menu:open');
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
             } else {
                 const response = await engineApi.openProject(path);
-                await applyProjectDeltas(response.deltas, 'file-menu:open');
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
             }
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
@@ -100,10 +102,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
                 const response = await engineApi.importAbletonProject(path);
-                await applyProjectDeltas(response.deltas, 'file-menu:open-recent');
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
             } else {
                 const response = await engineApi.openProject(path);
-                await applyProjectDeltas(response.deltas, 'file-menu:open-recent');
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
             }
             await syncProjectHistory();
             // Eagerly activate external VST3 plugins and restore their saved state
@@ -120,7 +122,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const handleSaveAs = useCallback(async () => {
         setOpen(false);
         try {
-            const flush = window.__dreamFlushPendingEdits;
+            const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
                 await flush();
             }
@@ -138,7 +140,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const handleSave = useCallback(async () => {
         setOpen(false);
         try {
-            const flush = window.__dreamFlushPendingEdits;
+            const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
                 await flush();
             }
@@ -170,7 +172,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                     padding: 'var(--space-0-5) var(--space-2)',
                     cursor: 'pointer',
                     transition: 'all var(--transition-fast)',
-                    letterSpacing: '0.var(--token-size-px-5)',
+                    letterSpacing: 'var(--letter-spacing-wide)',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
                 onMouseLeave={e => {

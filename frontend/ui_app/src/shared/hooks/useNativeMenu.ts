@@ -5,6 +5,8 @@ import type { ProjectDelta } from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
+import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 export function useNativeMenu(onProjectChange?: () => void) {
     const initialized = useRef(false);
     const onProjectChangeRef = useRef(onProjectChange);
@@ -53,7 +55,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 const response = await engineApi.newProject();
-                await applyProjectDeltas(response.deltas, 'native-menu:new');
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:new');
                 onProjectChange?.();
                 console.log('[NativeMenu] New project created');
             } catch (err) {
@@ -72,10 +74,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
                     const response = await engineApi.importAbletonProject(path);
-                    await applyProjectDeltas(response.deltas, 'native-menu:open');
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
                 } else {
                     const response = await engineApi.openProject(path);
-                    await applyProjectDeltas(response.deltas, 'native-menu:open');
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
                 }
                 // Eagerly activate external VST3 plugins and restore their saved state
                 engineApi.eagerActivateExternalPlugins().catch((err) =>
@@ -95,7 +97,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+S',
         action: async () => {
             try {
-                const flush = window.__dreamFlushPendingEdits;
+                const flush = dreamGlobals.getFlushPendingEdits();
                 if (typeof flush === 'function') await flush();
                 await syncArrangementViewport();
                 const status = await engineApi.getProjectStatus();
@@ -124,13 +126,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         id: 'file_export_audio',
         text: 'Export Audio…',
         accelerator: 'CmdOrCtrl+Shift+R',
-        action: () => {
-            if (typeof window.__dreamOpenExportModal === 'function') {
-                window.__dreamOpenExportModal();
-                return;
-            }
-            window.dispatchEvent(new CustomEvent('dream:open-export'));
-        },
+        action: openExportModal,
     });
     const fileSubmenu = await Submenu.new({
         text: 'File',
@@ -208,7 +204,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
 async function handleSaveAs() {
     try {
         const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
-        const flush = window.__dreamFlushPendingEdits;
+        const flush = dreamGlobals.getFlushPendingEdits();
         if (typeof flush === 'function') await flush();
         const timeline = useTimelineStore.getState();
         try {
@@ -248,12 +244,12 @@ async function buildRecentSubmenu(
                                 if (isAbleton) {
                                     console.warn('[NativeMenu:OpenRecent] importing ALS...');
                                     const response = await engineApi.importAbletonProject(rp.path);
-                                    await applyProjectDeltas(response.deltas, 'native-menu:open-recent');
+                                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
                                     console.warn('[NativeMenu:OpenRecent] ALS import done, snapshot applied');
                                 } else {
                                     console.warn('[NativeMenu:OpenRecent] opening...');
                                     const response = await engineApi.openProject(rp.path);
-                                    await applyProjectDeltas(response.deltas, 'native-menu:open-recent');
+                                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
                                     console.warn('[NativeMenu:OpenRecent] open done, snapshot applied');
                                 }
                                 // Eagerly activate external VST3 plugins and restore their saved state
@@ -294,3 +290,10 @@ async function buildRecentSubmenu(
         items: recentItems,
     });
 }
+const openExportModal = () => {
+    const openExport = dreamGlobals.getOpenExportModal();
+    if (typeof openExport === 'function') return void openExport();
+    window.dispatchEvent(new CustomEvent('dream:open-export'));
+    document.dispatchEvent(new CustomEvent('dream:open-export'));
+    requestAnimationFrame(() => { window.dispatchEvent(new CustomEvent('dream:open-export')); document.dispatchEvent(new CustomEvent('dream:open-export')); });
+};

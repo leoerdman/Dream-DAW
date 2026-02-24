@@ -44,6 +44,19 @@ const DEFAULT_SETTINGS: AppSettings = {
     theme: 'dark',
     darkThemeShade: 0,
     darkThemeTintPercent: 0,
+    forestThemeCanopyPercent: 100,
+    forestThemeFogPercent: 100,
+    lightThemeTexturePercent: 72,
+    themeDetailPercent: 100,
+    themePanelsDetailPercent: 100,
+    themeTimelineDetailPercent: 100,
+    themeMotionEnabled: true,
+    themeMotionPercent: 100,
+    themeOverlayEnabled: true,
+    themePanelsOrnamentsEnabled: true,
+    themeTimelineOrnamentsEnabled: true,
+    themeAtmosphereProfile: 'Balanced',
+    favoriteThemePreset: 'Dark Clean',
     waveformStyle: 'colored',
     driverType: 'CoreAudio',
     outputDevice: 'Default Output',
@@ -81,7 +94,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     loadSettings: async () => {
         try {
             const settings = await engineApi.getSettings();
-            set({ settings, loaded: true });
+            // Merge with defaults so newly added settings keys never become undefined
+            // when loading older persisted payloads.
+            set({ settings: { ...DEFAULT_SETTINGS, ...settings }, loaded: true });
         } catch (err) {
             console.error('[SettingsStore] Failed to load settings:', err);
             // Keep defaults

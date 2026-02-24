@@ -2,16 +2,17 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engine from '@/shared/api/engine';
+import { ModalOverlay } from '@/shared/ui/ModalOverlay';
 import {
-    closeBtnStyle,
     contentStyle,
     modalStyle,
-    overlayStyle,
     sidebarStyle,
     tabBtnStyle,
 } from './settingsPanelStyles';
-import { AboutTab, FoldersTab, MidiTab } from './settingsPanelTabs';
-import { AudioTab, AppearanceTab, GeneralTab } from './settingsPanelMainTabs';
+import { AboutTab, AITab, FoldersTab, MidiTab, ShortcutsTab } from './settingsPanelTabs';
+import { AppearanceTab } from './settingsPanelMainTabs';
+import { AudioTab } from './settingsPanelAudioTab';
+import { GeneralTab } from './settingsPanelGeneralTab';
 
 /**
  * SettingsPanel — 5-tab modal settings window.
@@ -22,7 +23,7 @@ import { AudioTab, AppearanceTab, GeneralTab } from './settingsPanelMainTabs';
  * Trigger: ⌘, or gear icon
  */
 
-type SettingsTab = 'general' | 'appearance' | 'audio' | 'midi' | 'folders' | 'about';
+type SettingsTab = 'general' | 'appearance' | 'shortcuts' | 'audio' | 'midi' | 'ai' | 'folders' | 'about';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -33,6 +34,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const [tab, setTab] = useState<SettingsTab>('general');
     const settings = useSettingsStore(s => s.settings);
     const updateSetting = useSettingsStore(s => s.updateSetting);
+    const updateAllSettings = useSettingsStore(s => s.updateAllSettings);
     const pickAndSetFolder = useSettingsStore(s => s.pickAndSetFolder);
     const [rescanningPlugins, setRescanningPlugins] = useState(false);
     const [rescanResult, setRescanResult] = useState<string | null>(null);
@@ -192,8 +194,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const TABS: { key: SettingsTab; label: string; icon: string }[] = [
         { key: 'general', label: 'General', icon: '⚙' },
         { key: 'appearance', label: 'Appearance', icon: '🎨' },
+        { key: 'shortcuts', label: 'Shortcuts', icon: '⌨️' },
         { key: 'audio', label: 'Audio', icon: '🔊' },
-        { key: 'midi', label: 'MIDI', icon: '🎹' },
+        { key: 'midi', label: 'Midi', icon: '🎹' },
+        { key: 'ai', label: 'Ai', icon: '🤖' },
         { key: 'folders', label: 'Folders', icon: '📁' },
         { key: 'about', label: 'About', icon: 'ℹ️' },
     ];
@@ -201,12 +205,12 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const latencyMs = (settings.bufferSize / settings.sampleRate) * 1000;
 
     return (
-        <div style={overlayStyle} onClick={onClose}>
-            <div style={modalStyle} onClick={e => e.stopPropagation()}>
+        <ModalOverlay open={isOpen} onBackdropClick={onClose}>
+            <div style={modalStyle}>
                 {/* ── Sidebar ── */}
                 <div style={sidebarStyle}>
-                    <div style={{ padding: 'var(--space-4) var(--space-3) var(--space-2)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, opacity: 0.5, letterSpacing: '0.05em' }}>
-                        SETTINGS
+                    <div style={{ padding: 'var(--space-4) var(--space-3) var(--space-2)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' as unknown as number, opacity: 0.6, letterSpacing: 'normal', textTransform: 'none' }}>
+                        Settings
                     </div>
                     {TABS.map(t => (
                         <button
@@ -226,12 +230,17 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
 
                 {/* ── Content ── */}
                 <div style={contentStyle}>
-                    {/* Close button */}
-                    <button onClick={onClose} style={closeBtnStyle}>✕</button>
-
                     {tab === 'general' && <GeneralTab settings={settings} updateSetting={updateSetting} />}
 
-                    {tab === 'appearance' && <AppearanceTab settings={settings} updateSetting={updateSetting} />}
+                    {tab === 'appearance' && (
+                        <AppearanceTab
+                            settings={settings}
+                            updateSetting={updateSetting}
+                            updateAllSettings={updateAllSettings}
+                        />
+                    )}
+
+                    {tab === 'shortcuts' && <ShortcutsTab />}
 
                     {tab === 'audio' && (
                         <AudioTab
@@ -268,6 +277,11 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             midiInputs={midiInputs}
                             midiConnecting={midiConnecting}
                             connectMidiInput={connectMidiInput}
+                        />
+                    )}
+
+                    {tab === 'ai' && (
+                        <AITab
                             settings={settings}
                             updateSetting={updateSetting}
                         />
@@ -276,6 +290,6 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                     {tab === 'about' && <AboutTab />}
                 </div>
             </div>
-        </div>
+        </ModalOverlay>
     );
 };

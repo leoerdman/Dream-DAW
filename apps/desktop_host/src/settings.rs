@@ -32,6 +32,32 @@ pub(crate) struct AppSettings {
     pub(crate) dark_theme_shade: u8,
     #[serde(default = "default_dark_theme_tint_percent")]
     pub(crate) dark_theme_tint_percent: u8,
+    #[serde(default = "default_forest_theme_canopy_percent")]
+    pub(crate) forest_theme_canopy_percent: u8,
+    #[serde(default = "default_forest_theme_fog_percent")]
+    pub(crate) forest_theme_fog_percent: u8,
+    #[serde(default = "default_light_theme_texture_percent")]
+    pub(crate) light_theme_texture_percent: u8,
+    #[serde(default = "default_theme_detail_percent")]
+    pub(crate) theme_detail_percent: u8,
+    #[serde(default = "default_theme_panels_detail_percent")]
+    pub(crate) theme_panels_detail_percent: u8,
+    #[serde(default = "default_theme_timeline_detail_percent")]
+    pub(crate) theme_timeline_detail_percent: u8,
+    #[serde(default = "default_theme_motion_enabled")]
+    pub(crate) theme_motion_enabled: bool,
+    #[serde(default = "default_theme_motion_percent")]
+    pub(crate) theme_motion_percent: u8,
+    #[serde(default = "default_true")]
+    pub(crate) theme_overlay_enabled: bool,
+    #[serde(default = "default_true")]
+    pub(crate) theme_panels_ornaments_enabled: bool,
+    #[serde(default = "default_true")]
+    pub(crate) theme_timeline_ornaments_enabled: bool,
+    #[serde(default = "default_theme_atmosphere_profile")]
+    pub(crate) theme_atmosphere_profile: String,
+    #[serde(default = "default_favorite_theme_preset")]
+    pub(crate) favorite_theme_preset: String,
     #[serde(default = "default_waveform_style")]
     pub(crate) waveform_style: String,
     #[serde(default = "default_driver_type")]
@@ -94,7 +120,10 @@ pub(crate) struct AppSettings {
     #[serde(default = "default_true", alias = "transportPianoPencilMode")]
     pub(crate) transport_piano_pencil_mode: bool,
     /// Arrangement grid UI division label (OFF, ADAPTIVE, 1/1..1/32).
-    #[serde(default = "default_arrangement_grid_division", alias = "arrangementGridDivision")]
+    #[serde(
+        default = "default_arrangement_grid_division",
+        alias = "arrangementGridDivision"
+    )]
     pub(crate) arrangement_grid_division: String,
     /// Arrangement grid triplet toggle.
     #[serde(default, alias = "arrangementGridTriplet")]
@@ -118,6 +147,36 @@ pub(crate) fn default_dark_theme_shade() -> u8 {
 }
 pub(crate) fn default_dark_theme_tint_percent() -> u8 {
     0
+}
+pub(crate) fn default_forest_theme_canopy_percent() -> u8 {
+    100
+}
+pub(crate) fn default_forest_theme_fog_percent() -> u8 {
+    100
+}
+pub(crate) fn default_light_theme_texture_percent() -> u8 {
+    72
+}
+pub(crate) fn default_theme_detail_percent() -> u8 {
+    100
+}
+pub(crate) fn default_theme_panels_detail_percent() -> u8 {
+    100
+}
+pub(crate) fn default_theme_timeline_detail_percent() -> u8 {
+    100
+}
+pub(crate) fn default_theme_motion_enabled() -> bool {
+    true
+}
+pub(crate) fn default_theme_motion_percent() -> u8 {
+    100
+}
+pub(crate) fn default_theme_atmosphere_profile() -> String {
+    "Balanced".into()
+}
+pub(crate) fn default_favorite_theme_preset() -> String {
+    "Dark Clean".into()
 }
 pub(crate) fn default_waveform_style() -> String {
     "colored".into()
@@ -184,6 +243,19 @@ impl Default for AppSettings {
             theme: default_theme(),
             dark_theme_shade: default_dark_theme_shade(),
             dark_theme_tint_percent: default_dark_theme_tint_percent(),
+            forest_theme_canopy_percent: default_forest_theme_canopy_percent(),
+            forest_theme_fog_percent: default_forest_theme_fog_percent(),
+            light_theme_texture_percent: default_light_theme_texture_percent(),
+            theme_detail_percent: default_theme_detail_percent(),
+            theme_panels_detail_percent: default_theme_panels_detail_percent(),
+            theme_timeline_detail_percent: default_theme_timeline_detail_percent(),
+            theme_motion_enabled: default_theme_motion_enabled(),
+            theme_motion_percent: default_theme_motion_percent(),
+            theme_overlay_enabled: true,
+            theme_panels_ornaments_enabled: true,
+            theme_timeline_ornaments_enabled: true,
+            theme_atmosphere_profile: default_theme_atmosphere_profile(),
+            favorite_theme_preset: default_favorite_theme_preset(),
             waveform_style: "colored".into(),
             driver_type: "CoreAudio".into(),
             output_device: "Default Output".into(),

@@ -83,6 +83,11 @@ export function DawShellBottomPanel({
         setBottomPanelHeightPx(target);
     }, [setBottomPanelHeightPx]);
 
+    const onRackDragCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+    }, []);
+
     // Anti-jitter: freeze expensive panel/timeline reactions for one layout tick
     // when switching panel mode or clip target, then resume after layout settles.
     useEffect(() => {
@@ -123,7 +128,7 @@ export function DawShellBottomPanel({
                     onMouseDown={hasResizableClipEditor ? beginBottomPanelResize : undefined}
                     onPointerDown={bottomPanelMode === 'rack' ? onRackDragStart : undefined}
                     onPointerUp={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
-                    onPointerCancel={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
+                    onPointerCancel={bottomPanelMode === 'rack' ? onRackDragCancel : undefined}
                     title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack (2 rows)' : 'Resize Clip Editor'}
                     style={{
                         position: 'absolute',

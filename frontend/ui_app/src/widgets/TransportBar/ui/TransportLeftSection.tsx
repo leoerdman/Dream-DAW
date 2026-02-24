@@ -161,7 +161,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                     style={{
                         fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-secondary)',
-                        fontFamily: 'var(--font-mono)',
+                        fontFamily: 'var(--font-role-data)',
                         fontWeight: 600,
                         lineHeight: `${TRANSPORT_UI.controlHeight}px`,
                     }}
@@ -222,7 +222,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                             background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
                                             color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                                             fontSize: 'var(--font-size-xs)',
-                                            fontFamily: 'var(--font-mono)',
+                                            fontFamily: 'var(--font-role-data)',
                                             padding: 'var(--space-1) var(--space-2)',
                                             cursor: 'pointer',
                                         }}

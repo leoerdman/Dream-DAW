@@ -24,10 +24,9 @@ use super::device_params::{
     upsert_static_import_lane, upsert_static_import_lane_if_missing,
 };
 use super::plugin_mapper::{
-    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_from_plugin_device_node,
-    canonical_internal_plugin_for_import,
-    MissingExternalPluginSlotSpec, infer_device_display_name,
-    make_missing_external_plugin_slot_with_metadata,
+    ExternalPluginIndex, MissingExternalPluginSlotSpec, apply_external_plugin_meta,
+    canonical_internal_from_plugin_device_node, canonical_internal_plugin_for_import,
+    infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
 };
 use super::rack_parser::parse_als_rack;
@@ -179,6 +178,8 @@ fn import_external_plugin_device(
         &vst3_path,
         &vst3_name,
         &vst2_name,
+        &preferred_name,
+        meta.uid.as_deref(),
         external_plugins,
     );
 
@@ -388,8 +389,46 @@ fn resolve_plugin_id(
     vst3_path: &str,
     vst3_name: &str,
     vst2_name: &str,
+    preferred_name: &str,
+    plugin_uid: Option<&str>,
     external_plugins: &ExternalPluginIndex,
 ) -> Option<String> {
+    fn push_candidate(out: &mut Vec<String>, raw: &str) {
+        let c = raw.trim();
+        if c.is_empty() {
+            return;
+        }
+        if out.iter().any(|existing| existing.eq_ignore_ascii_case(c)) {
+            return;
+        }
+        out.push(c.to_string());
+    }
+
+    fn push_from_path(out: &mut Vec<String>, raw_path: &str) {
+        let p = raw_path.trim();
+        if p.is_empty() {
+            return;
+        }
+        let normalized = p.replace('\\', "/");
+        push_candidate(out, &normalized);
+        if let Some(file_name) = Path::new(&normalized).file_name().and_then(|s| s.to_str()) {
+            push_candidate(out, file_name);
+        }
+        if let Some(stem) = Path::new(&normalized).file_stem().and_then(|s| s.to_str()) {
+            push_candidate(out, stem);
+        }
+        for token in normalized.split('/') {
+            let t = token.trim();
+            if t.is_empty() {
+                continue;
+            }
+            push_candidate(out, t);
+            if let Some(stem) = Path::new(t).file_stem().and_then(|s| s.to_str()) {
+                push_candidate(out, stem);
+            }
+        }
+    }
+
     let v3_path = vst3_path.trim();
     let v2_path = vst2_path.trim();
 
@@ -401,31 +440,27 @@ fn resolve_plugin_id(
         return Some(v2_path.to_string());
     }
 
-    // Fallback to scanner index by plugin names from ALS metadata.
-    if !vst3_name.trim().is_empty()
-        && let Some(path) = external_plugins.resolve_by_name(vst3_name)
-    {
-        return Some(path);
-    }
-    if !vst2_name.trim().is_empty()
-        && let Some(path) = external_plugins.resolve_by_name(vst2_name)
+    // Prefer explicit plugin UID from ALS metadata when available.
+    if let Some(uid) = plugin_uid
+        && let Some(path) = external_plugins.resolve_by_uid(uid)
     {
         return Some(path);
     }
 
-    // Last-resort: derive bundle stem from non-local paths (e.g. Windows path
-    // inside ALS on macOS) and resolve by scanned plugin names.
-    if !v3_path.is_empty()
-        && let Some(stem) = Path::new(v3_path).file_stem().and_then(|s| s.to_str())
-        && let Some(path) = external_plugins.resolve_by_name(stem)
-    {
-        return Some(path);
-    }
-    if !v2_path.is_empty()
-        && let Some(stem) = Path::new(v2_path).file_stem().and_then(|s| s.to_str())
-        && let Some(path) = external_plugins.resolve_by_name(stem)
-    {
-        return Some(path);
+    // Fallback to scanner index by multiple metadata candidates. ALS exports
+    // can vary by OS (Windows path on macOS), format (VST2/VST3/AU), and
+    // host-specific naming, so we probe a richer candidate set.
+    let mut candidates: Vec<String> = Vec::new();
+    push_candidate(&mut candidates, preferred_name);
+    push_candidate(&mut candidates, vst3_name);
+    push_candidate(&mut candidates, vst2_name);
+    push_from_path(&mut candidates, v3_path);
+    push_from_path(&mut candidates, v2_path);
+
+    for candidate in &candidates {
+        if let Some(path) = external_plugins.resolve_by_name(candidate) {
+            return Some(path);
+        }
     }
 
     None

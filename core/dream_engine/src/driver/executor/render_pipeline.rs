@@ -254,8 +254,7 @@ pub(super) fn mix_preview_audio(
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
                             // BUG-006 FIX: Don't soft_clip here — finalize_output_and_publish does it once.
-                            data[d_idx] +=
-                                (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
+                            data[d_idx] += (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
                         } else {
                             data[d_idx] += p_left;
                             if d_idx + 1 < data.len() {
@@ -265,12 +264,13 @@ pub(super) fn mix_preview_audio(
                     }
                 }
                 let new_cursor = cursor + mix_frames * preview_channels;
-                let _ = preview_cursor.compare_exchange(
-                    cursor,
-                    new_cursor,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                );
+                // BUG-005 FIX: Use unconditional store instead of compare_exchange.
+                // The audio thread is the only writer; CAS failure means another thread
+                // wrote (e.g. reset to 0 on new preview), which we should respect by
+                // NOT overwriting. However, the old `let _ = ...` silently discarded
+                // failures, causing audio to re-play the same chunk. Using store is
+                // correct because the audio thread owns progression.
+                preview_cursor.store(new_cursor, Ordering::Release);
             } else {
                 let mut src_pos = cursor_frame as f64;
                 for f in 0..frame_count {
@@ -330,15 +330,19 @@ pub(super) fn finalize_output_and_publish(
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {
         let mut drops = 0u32;
+        // STAGE1-FIX-002 (P1): Only feed the first n*channels samples.
+        // data[] can be longer than the rendered region (cpal padding);
+        // iterating all of it sent garbage to the spectrum analyzer.
+        let active_data = &data[..n * channels];
         if channels >= 2 {
-            for frame in data.chunks_exact(channels) {
+            for frame in active_data.chunks_exact(channels) {
                 let mono = (frame[0] + frame[1]) * 0.5;
                 if producer.push(mono).is_err() {
                     drops += 1;
                 }
             }
         } else if channels == 1 {
-            for &sample in data.iter() {
+            for &sample in active_data.iter() {
                 if producer.push(sample).is_err() {
                     drops += 1;
                 }
@@ -405,8 +409,14 @@ pub(super) fn finalize_output_and_publish(
             // Mirror mono signal to both L/R master meters.
             render_ctx.meter_bank.master_left().store_rms(rms_db);
             render_ctx.meter_bank.master_right().store_rms(rms_db);
-            render_ctx.meter_bank.master_left().store_peak_decay(peak_db, master_decay);
-            render_ctx.meter_bank.master_right().store_peak_decay(peak_db, master_decay);
+            render_ctx
+                .meter_bank
+                .master_left()
+                .store_peak_decay(peak_db, master_decay);
+            render_ctx
+                .meter_bank
+                .master_right()
+                .store_peak_decay(peak_db, master_decay);
         }
     }
 }

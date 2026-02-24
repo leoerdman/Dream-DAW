@@ -9,7 +9,7 @@ export const selectStyle: React.CSSProperties = {
     fontSize: 'var(--font-size-2xs)',
     cursor: 'pointer',
     outline: 'none',
-    fontFamily: 'var(--font-family)',
+    fontFamily: 'var(--font-role-body)',
 };
 
 export const miniBtnStyle: React.CSSProperties = {
@@ -18,7 +18,7 @@ export const miniBtnStyle: React.CSSProperties = {
     background: 'var(--color-bg-input)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontFamily: 'var(--font-family)',
+    fontFamily: 'var(--font-role-body)',
     padding: 'var(--space-1) var(--space-1-5)',
     cursor: 'pointer',
 };
@@ -29,7 +29,7 @@ export const actionBtnStyle: React.CSSProperties = {
     background: 'var(--color-bg-secondary)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-2xs)',
-    fontFamily: 'var(--font-family)',
+    fontFamily: 'var(--font-role-body)',
     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     padding: 'var(--token-size-px-3) var(--space-2)',
     cursor: 'pointer',

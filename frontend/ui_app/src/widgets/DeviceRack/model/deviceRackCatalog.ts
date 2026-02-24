@@ -115,6 +115,7 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
         'lo cut': 9, 'low cut': 9, locut: 9,
         'hi cut': 10, 'high cut': 10, hicut: 10,
         diffusion: 11, density: 12, chorus: 13, 'chorus amount': 13,
+        voicing: 14, mode: 14, character: 14,
         decay: 0,   // Legacy alias → room_size
         tone: 1,    // Legacy alias → damping
     },

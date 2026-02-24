@@ -15,7 +15,7 @@ export const pluginPanelMetaStyle: React.CSSProperties = {
     justifyContent: 'space-between',
     fontSize: 'var(--font-size-xs)',
     color: 'var(--plugin-meta-color)',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-role-data)',
 };
 
 export const EQ_FREQ_LABELS = [

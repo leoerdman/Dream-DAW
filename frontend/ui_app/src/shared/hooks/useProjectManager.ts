@@ -11,6 +11,8 @@ import * as engineApi from '../../shared/api/engine';
 import type { ProjectStatus } from '../../shared/api/engine';
 import { useEngineStore } from '../../shared/stores/useEngineStore';
 import { useTimelineStore } from '../../shared/stores/useTimelineStore';
+import { applyDeltasWithSnapshotSync } from '../../shared/stores/engine/snapshotSync';
+import { dreamGlobals } from '../../shared/lib/dreamGlobals';
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 export interface ProjectManagerState {
@@ -91,7 +93,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const handleSave = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-            const flush = window.__dreamFlushPendingEdits;
+            const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
                 await flush();
             }
@@ -133,7 +135,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const handleSaveAs = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-            const flush = window.__dreamFlushPendingEdits;
+            const flush = dreamGlobals.getFlushPendingEdits();
             if (typeof flush === 'function') {
                 await flush();
             }
@@ -161,7 +163,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         }
         try {
             const response = await engineApi.newProject();
-            await applyProjectDeltas(response.deltas, 'project-manager:new');
+            await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:new');
             await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
@@ -184,10 +186,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
                     const response = await engineApi.importAbletonProject(path);
-                    await applyProjectDeltas(response.deltas, 'project-manager:open');
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
                 } else {
                     const response = await engineApi.openProject(path);
-                    await applyProjectDeltas(response.deltas, 'project-manager:open');
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
                 }
                 await syncProjectHistory();
                 await refreshStatus();
@@ -241,8 +243,12 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 return;
             }
         };
+        // Single capture listener avoids duplicate command execution when both
+        // window and document handlers receive the same keydown event.
         window.addEventListener('keydown', onKeyDown, { capture: true });
-        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+        return () => {
+            window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
+        };
     }, [handleSave, handleSaveAs]);
     // ── Auto-Backup Timer ─────────────────────────────────────────────
     // Use refs for volatile state so the interval doesn't have to be

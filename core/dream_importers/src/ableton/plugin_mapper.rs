@@ -311,10 +311,7 @@ pub fn normalize_internal_plugins_for_import(project: &mut Project) {
         display_name: &str,
     ) -> Option<(&'static str, &'static str, &'static str)> {
         let raw = display_name.trim();
-        let stripped = raw
-            .strip_prefix("Plugin Not Found:")
-            .unwrap_or(raw)
-            .trim();
+        let stripped = raw.strip_prefix("Plugin Not Found:").unwrap_or(raw).trim();
         let primary = stripped
             .split_once('[')
             .map(|(left, _)| left.trim())
@@ -372,10 +369,7 @@ fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
         display_name: &str,
     ) -> Option<(&'static str, &'static str, &'static str)> {
         let raw = display_name.trim();
-        let stripped = raw
-            .strip_prefix("Plugin Not Found:")
-            .unwrap_or(raw)
-            .trim();
+        let stripped = raw.strip_prefix("Plugin Not Found:").unwrap_or(raw).trim();
         let primary = stripped
             .split_once('[')
             .map(|(left, _)| left.trim())
@@ -540,10 +534,16 @@ pub fn make_missing_external_plugin_slot_with_metadata(
         encode_missing_meta(spec.preferred_name.trim())
     ));
     if !spec.user_name.trim().is_empty() {
-        query.push(format!("user={}", encode_missing_meta(spec.user_name.trim())));
+        query.push(format!(
+            "user={}",
+            encode_missing_meta(spec.user_name.trim())
+        ));
     }
     if !spec.vst3_name.trim().is_empty() {
-        query.push(format!("vst3={}", encode_missing_meta(spec.vst3_name.trim())));
+        query.push(format!(
+            "vst3={}",
+            encode_missing_meta(spec.vst3_name.trim())
+        ));
     }
     if !spec.vst3_path.trim().is_empty() {
         query.push(format!(
@@ -552,7 +552,10 @@ pub fn make_missing_external_plugin_slot_with_metadata(
         ));
     }
     if !spec.vst2_name.trim().is_empty() {
-        query.push(format!("vst2={}", encode_missing_meta(spec.vst2_name.trim())));
+        query.push(format!(
+            "vst2={}",
+            encode_missing_meta(spec.vst2_name.trim())
+        ));
     }
     if !spec.vst2_path.trim().is_empty() {
         query.push(format!(
@@ -774,6 +777,7 @@ pub struct ExternalPluginIndex {
     pub by_stem: std::collections::HashMap<String, String>,
     pub by_file_name: std::collections::HashMap<String, String>,
     pub by_normalized: std::collections::HashMap<String, String>,
+    pub by_uid: std::collections::HashMap<String, String>,
 }
 
 impl ExternalPluginIndex {
@@ -782,12 +786,14 @@ impl ExternalPluginIndex {
         by_stem: std::collections::HashMap<String, String>,
         by_file_name: std::collections::HashMap<String, String>,
         by_normalized: std::collections::HashMap<String, String>,
+        by_uid: std::collections::HashMap<String, String>,
     ) -> Self {
         Self {
             by_name,
             by_stem,
             by_file_name,
             by_normalized,
+            by_uid,
         }
     }
 
@@ -796,6 +802,7 @@ impl ExternalPluginIndex {
         let mut by_stem = std::collections::HashMap::new();
         let mut by_file_name = std::collections::HashMap::new();
         let mut by_normalized = std::collections::HashMap::new();
+        let mut by_uid = std::collections::HashMap::new();
 
         for desc in dream_plugins::PluginScanner::new().scan_all() {
             let path_str = desc.path.to_string_lossy().to_string();
@@ -838,14 +845,29 @@ impl ExternalPluginIndex {
             if !file_key.is_empty() {
                 by_file_name.entry(file_key).or_insert(path_str);
             }
+
+            if let Some(uid) = desc.unique_id.as_ref() {
+                let uid_trimmed = uid.trim();
+                if !uid_trimmed.is_empty() {
+                    let uid_key = uid_trimmed.to_lowercase();
+                    by_uid.entry(uid_key).or_insert_with(|| desc.path.to_string_lossy().to_string());
+                    let normalized_uid = normalize_plugin_key(uid_trimmed);
+                    if !normalized_uid.is_empty() {
+                        by_uid
+                            .entry(normalized_uid)
+                            .or_insert_with(|| desc.path.to_string_lossy().to_string());
+                    }
+                }
+            }
         }
 
         log::info!(
-            "[ALS Import] ExternalPluginIndex built: {} by_name, {} by_stem, {} by_file_name, {} by_normalized",
+            "[ALS Import] ExternalPluginIndex built: {} by_name, {} by_stem, {} by_file_name, {} by_normalized, {} by_uid",
             by_name.len(),
             by_stem.len(),
             by_file_name.len(),
-            by_normalized.len()
+            by_normalized.len(),
+            by_uid.len()
         );
 
         Self {
@@ -853,6 +875,7 @@ impl ExternalPluginIndex {
             by_stem,
             by_file_name,
             by_normalized,
+            by_uid,
         }
     }
 
@@ -933,11 +956,34 @@ impl ExternalPluginIndex {
         }
         None
     }
+
+    pub fn resolve_by_uid(&self, uid: &str) -> Option<String> {
+        let raw = uid.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let key = raw.to_lowercase();
+        if let Some(path) = self.by_uid.get(&key) {
+            return Some(path.clone());
+        }
+        let normalized = normalize_plugin_key(raw);
+        if normalized.is_empty() {
+            return None;
+        }
+        if let Some(path) = self.by_uid.get(&normalized) {
+            return Some(path.clone());
+        }
+        self.by_uid
+            .iter()
+            .find(|(k, _)| k.contains(&normalized) || normalized.contains(*k))
+            .map(|(_, v)| v.clone())
+    }
 }
 
 impl Default for ExternalPluginIndex {
     fn default() -> Self {
         Self::from_maps(
+            std::collections::HashMap::new(),
             std::collections::HashMap::new(),
             std::collections::HashMap::new(),
             std::collections::HashMap::new(),

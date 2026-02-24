@@ -7,6 +7,7 @@ import { RUNTIME_PARAM_INDEX_BY_EFFECT, internalParamIdForControl } from '../mod
 import type { AdaptiveSender, PendingGestureCommit } from './useDeviceParamGestureTypes';
 import { createAdaptiveParamSenderFactory, createAdaptiveRuntimeBatchSenderFactory } from './useDeviceParamSenders';
 import { useDeviceParamPruning } from './useDeviceParamPruning';
+import { useLastTouchedParamStore } from '@/shared/stores/useLastTouchedParamStore';
 type DeviceParamTrack = { id: string; effects: Array<{ id: string }> } | null;
 export function useDeviceParamGestures(
     chain: DeviceSlot[],
@@ -35,6 +36,12 @@ export function useDeviceParamGestures(
             options?: { gestureKey?: string; forcePushUndo?: boolean },
         ) => {
             if (!selectedTrack) return;
+            useLastTouchedParamStore.getState().setLastTouched({
+                trackId: selectedTrack.id,
+                deviceId: device.id,
+                paramName,
+                paramKey: `${device.id}:${paramName}`,
+            });
             const effectiveGestureKey = options?.gestureKey
                 ? (gestureGroupByParamKeyRef.current.get(options.gestureKey) ?? options.gestureKey)
                 : undefined;

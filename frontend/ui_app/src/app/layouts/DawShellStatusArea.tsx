@@ -7,6 +7,7 @@ interface DawShellStatusAreaProps {
     panelMode: 'rack' | 'clip' | 'mixer';
     onPanelModeChange: (mode: 'rack' | 'clip' | 'mixer') => void;
     panelInfo: string;
+    mainViewMode: 'arrangement' | 'session';
 }
 
 export function DawShellStatusArea({
@@ -16,6 +17,7 @@ export function DawShellStatusArea({
     panelMode,
     onPanelModeChange,
     panelInfo,
+    mainViewMode,
 }: DawShellStatusAreaProps) {
     return (
         <>
@@ -56,10 +58,9 @@ export function DawShellStatusArea({
                     </div>
                 </div>
             )}
-            <div className="z-50">
-                <StatusBar panelMode={panelMode} onPanelModeChange={onPanelModeChange} panelInfo={panelInfo} />
+            <div className="z-50 theme-ornament-status">
+                <StatusBar panelMode={panelMode} onPanelModeChange={onPanelModeChange} panelInfo={panelInfo} mainViewMode={mainViewMode} />
             </div>
         </>
     );
 }
-

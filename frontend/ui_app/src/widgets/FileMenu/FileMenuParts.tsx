@@ -46,7 +46,7 @@ export const MenuItem = ({
                 style={{
                     fontSize: 'var(--font-size-2xs)',
                     color: 'var(--color-text-tertiary)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-role-data)',
                     whiteSpace: 'nowrap',
                 }}
             >

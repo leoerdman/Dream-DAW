@@ -79,7 +79,15 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined
+          if (!id.includes('node_modules')) {
+            const normalized = id.replace(/\\/g, '/')
+            if (normalized.includes('/src/widgets/DeviceRack/')) return 'ui-device-rack'
+            if (normalized.includes('/src/widgets/PianoRoll/')) return 'ui-piano-roll'
+            if (normalized.includes('/src/widgets/TrackInspector/')) return 'ui-track-inspector'
+            if (normalized.includes('/src/widgets/SettingsPanel/')) return 'ui-settings'
+            if (normalized.includes('/src/widgets/AiAssistant/')) return 'ui-assistant'
+            return undefined
+          }
           if (
             id.includes('/react/')
             || id.includes('/react-dom/')

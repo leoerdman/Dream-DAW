@@ -23,8 +23,8 @@
 
 use crate::biquad::{BiquadCoeffs, BiquadFilter, BiquadType};
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 const NUM_BANDS: usize = 8;
 
@@ -145,7 +145,8 @@ impl DspProcessor for EqProcessor {
             }
         }
         // Output gain
-        self.output_gain_sm.set_target(self.output_gain_lin.max(0.0));
+        self.output_gain_sm
+            .set_target(self.output_gain_lin.max(0.0));
         for i in 0..len {
             let g = self.output_gain_sm.next_value();
             left_buf[i] *= g;
@@ -236,7 +237,8 @@ impl DspProcessor for EqProcessor {
         for band in &mut self.bands {
             band.reset();
         }
-        self.output_gain_sm.set_instant(self.output_gain_lin.max(0.0));
+        self.output_gain_sm
+            .set_instant(self.output_gain_lin.max(0.0));
     }
 }
 

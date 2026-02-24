@@ -159,7 +159,10 @@ pub fn parse_audio_clip_warp_base_bpm(clip_node: roxmltree::Node<'_, '_>) -> Opt
         "SegmentationBpm",
     ];
     for tag in DIRECT_TAGS {
-        if let Some(v) = node_child_value(clip_node, tag).as_deref().and_then(parse_bpm) {
+        if let Some(v) = node_child_value(clip_node, tag)
+            .as_deref()
+            .and_then(parse_bpm)
+        {
             return Some(v);
         }
     }

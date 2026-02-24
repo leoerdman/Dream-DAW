@@ -25,6 +25,42 @@ export function PluginGuiSurfaceSampler({
 }: PluginGuiSurfaceSamplerProps) {
     const otherSamplerParams = buildSurfaceKnobParams(device);
     const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
+    const normalizeDroppedPath = (raw: string): string | null => {
+        const trimmed = raw.trim();
+        if (!trimmed) return null;
+        if (trimmed.startsWith('file://')) {
+            try {
+                const url = new URL(trimmed);
+                return decodeURIComponent(url.pathname || '').trim() || null;
+            } catch {
+                return decodeURIComponent(trimmed.replace(/^file:\/\//, '')).trim() || null;
+            }
+        }
+        return trimmed;
+    };
+    const extractPathFromDataTransfer = (dt: DataTransfer): string | null => {
+        const uriList = dt.getData('text/uri-list');
+        if (uriList) {
+            const first = uriList
+                .split('\n')
+                .map((s) => s.trim())
+                .find((s) => s && !s.startsWith('#'));
+            const normalized = first ? normalizeDroppedPath(first) : null;
+            if (normalized) return normalized;
+        }
+        const plain = dt.getData('text/plain');
+        if (plain) {
+            const normalized = normalizeDroppedPath(plain);
+            if (normalized) return normalized;
+        }
+        const firstFile = dt.files?.[0];
+        if (firstFile) {
+            // Tauri/WebKit usually exposes absolute path here for local drops.
+            const candidate = (firstFile as File & { path?: string }).path;
+            if (candidate && candidate.trim().length > 0) return candidate.trim();
+        }
+        return null;
+    };
     const commitDropFromStore = () => {
         const dragging = useDragStore.getState().draggingItem;
         const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
@@ -37,7 +73,9 @@ export function PluginGuiSurfaceSampler({
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
         const dragging = useDragStore.getState().draggingItem;
         const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
-        if (!acceptance.allowed) return;
+        const directPath = extractPathFromDataTransfer(e.dataTransfer);
+        const hasFilePayload = Array.from(e.dataTransfer.types ?? []).includes('Files');
+        if (!acceptance.allowed && !directPath && !hasFilePayload) return;
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = 'copy';
@@ -46,10 +84,8 @@ export function PluginGuiSurfaceSampler({
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        const directPath = e.dataTransfer.getData('text/plain').trim();
-        const dragging = useDragStore.getState().draggingItem;
-        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
-        if (directPath && acceptance.allowed) {
+        const directPath = extractPathFromDataTransfer(e.dataTransfer);
+        if (directPath) {
             onDropSample?.(directPath);
             useDragStore.getState().endDrag();
             return;

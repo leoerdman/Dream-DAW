@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0e2a1b"/>
+      <stop offset="45%" stop-color="#0b2417"/>
+      <stop offset="100%" stop-color="#08170f"/>
+    </linearGradient>
+    <linearGradient id="mist" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7cf2a8" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#7cf2a8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <g opacity="0.42">
+    <path d="M0 260 C120 210 260 220 420 260 C620 315 720 300 900 238 C1090 172 1270 178 1460 250 C1615 305 1760 305 1920 260 L1920 0 L0 0 Z" fill="#173f2b"/>
+    <path d="M0 350 C180 300 320 322 520 372 C740 427 900 408 1100 340 C1320 264 1520 278 1720 356 C1810 390 1870 396 1920 380 L1920 0 L0 0 Z" fill="#1c4a33" opacity="0.66"/>
+  </g>
+
+  <g opacity="0.35">
+    <path d="M0 1080 L0 705 C90 670 160 640 235 590 C290 555 326 515 360 470 C401 527 441 573 505 612 C592 667 705 705 852 734 C954 754 1052 783 1140 828 C1229 776 1328 736 1458 708 C1608 675 1739 612 1814 520 C1834 568 1854 618 1920 680 L1920 1080 Z" fill="#102818"/>
+    <path d="M0 1080 L0 790 C102 742 194 700 262 643 C306 606 347 557 379 509 C437 571 492 620 564 658 C654 706 742 734 842 756 C986 786 1098 828 1180 890 C1245 842 1332 802 1442 772 C1588 733 1708 683 1790 606 C1836 663 1886 723 1920 760 L1920 1080 Z" fill="#0b1f13" opacity="0.78"/>
+  </g>
+
+  <g filter="url(#softGlow)" opacity="0.45">
+    <circle cx="220" cy="260" r="7" fill="#8fffc0"/>
+    <circle cx="460" cy="312" r="5" fill="#7df2ff"/>
+    <circle cx="840" cy="276" r="6" fill="#a1ffd3"/>
+    <circle cx="1220" cy="334" r="5" fill="#8fffc0"/>
+    <circle cx="1510" cy="290" r="7" fill="#7df2ff"/>
+    <circle cx="1700" cy="360" r="5" fill="#a1ffd3"/>
+  </g>
+
+  <rect width="1920" height="1080" fill="url(#mist)"/>
+</svg>

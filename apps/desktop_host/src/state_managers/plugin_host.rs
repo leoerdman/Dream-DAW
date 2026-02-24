@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use arc_swap::ArcSwap;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
     PluginCrashEvent, PluginDescriptor, PluginHost, PluginRecoveryEvent, PluginSandboxConfig,
     PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 pub(crate) struct PluginHostState {
     pub(crate) host: Arc<Mutex<PluginHost>>,
@@ -30,11 +30,7 @@ impl PluginHostState {
         let schemes = ["au://", "au:", "vst2://", "vst2:", "clap://", "clap:"];
         for scheme in schemes {
             if let Some(rest) = normalized.strip_prefix(scheme) {
-                let tail = rest
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or(rest)
-                    .trim();
+                let tail = rest.rsplit(['/', '\\']).next().unwrap_or(rest).trim();
                 if !tail.is_empty() {
                     return Some(tail.to_string());
                 }
@@ -229,6 +225,10 @@ impl PluginHostState {
         let mut host = self.host.lock().map_err(|e| e.to_string())?;
         host.reactivate_all(sample_rate, buffer_size);
         Ok(())
+    }
+    pub(crate) fn current_audio_config(&self) -> Result<(f64, usize), String> {
+        let host = self.host.lock().map_err(|e| e.to_string())?;
+        Ok(host.audio_config())
     }
     pub(crate) fn shutdown_all_plugins(&self) {
         log::info!("[PluginHostState] Initiating graceful plugin shutdown...");
@@ -544,9 +544,9 @@ impl PluginHostState {
             PluginFormat::VST2 => host
                 .load_vst2(descriptor.clone())
                 .map_err(|e| format!("Failed to load VST2 plugin '{}': {e}", descriptor.name))?,
-            PluginFormat::AudioUnit => host
-                .load_au(descriptor.clone())
-                .map_err(|e| format!("Failed to load AudioUnit plugin '{}': {e}", descriptor.name))?,
+            PluginFormat::AudioUnit => host.load_au(descriptor.clone()).map_err(|e| {
+                format!("Failed to load AudioUnit plugin '{}': {e}", descriptor.name)
+            })?,
             other => {
                 return Err(format!(
                     "Unsupported plugin format '{}' for '{}'",
@@ -590,7 +590,9 @@ impl PluginHostState {
                 &descriptor.path.to_string_lossy(),
             ));
             candidate_keys.insert(Self::normalize_plugin_lookup_key(&descriptor.name));
-            candidate_keys.insert(Self::normalize_plugin_lookup_key(&descriptor.id.to_string()));
+            candidate_keys.insert(Self::normalize_plugin_lookup_key(
+                &descriptor.id.to_string(),
+            ));
             if let Some(uid) = descriptor.unique_id.as_ref() {
                 candidate_keys.insert(Self::normalize_plugin_lookup_key(uid));
             }
@@ -648,12 +650,10 @@ impl PluginHostState {
             }
             let normalized_path = Self::normalize_plugin_lookup_key(&path.to_string_lossy());
             if let Ok(scan_result) = self.ensure_scan_cache()
-                && let Some(found) = scan_result
-                    .into_iter()
-                    .find(|desc| {
-                        let desc_path = desc.path.to_string_lossy().to_string();
-                        Self::normalize_plugin_lookup_key(&desc_path) == normalized_path
-                    })
+                && let Some(found) = scan_result.into_iter().find(|desc| {
+                    let desc_path = desc.path.to_string_lossy().to_string();
+                    Self::normalize_plugin_lookup_key(&desc_path) == normalized_path
+                })
             {
                 if found.format == PluginFormat::CLAP {
                     if let Some(redirected) = self.find_runtime_compatible_redirect(&found)? {
@@ -683,13 +683,8 @@ impl PluginHostState {
                 "clap" => PluginFormat::CLAP,
                 _ => PluginFormat::VST3,
             };
-            let descriptor = PluginDescriptor::new(
-                name,
-                "Unknown Vendor",
-                format,
-                PluginCategory::Effect,
-                path,
-            );
+            let descriptor =
+                PluginDescriptor::new(name, "Unknown Vendor", format, PluginCategory::Effect, path);
             if descriptor.format == PluginFormat::CLAP {
                 if let Some(redirected) = self.find_runtime_compatible_redirect(&descriptor)? {
                     return Ok(redirected);

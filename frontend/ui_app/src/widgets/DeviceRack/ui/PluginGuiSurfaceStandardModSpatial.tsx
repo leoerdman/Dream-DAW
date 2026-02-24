@@ -31,8 +31,8 @@ function renderAutoPanSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                     <svg viewBox="0 0 300 52" preserveAspectRatio="none" style={{ width: '100%', height: 48 }}>
                         <rect x="0" y="0" width="300" height="52" rx="4" fill="var(--token-color-rgba-8-10-14-0d65)" />
                         <line x1="150" y1="4" x2="150" y2="48" stroke="var(--token-color-rgba-109-179-255-0d2)" strokeWidth="1" />
-                        <text x="16" y="14" fill="var(--token-color-rgba-109-179-255-0d45)" fontSize="9" fontFamily="var(--font-mono)">L</text>
-                        <text x="282" y="14" fill="var(--token-color-rgba-109-179-255-0d45)" fontSize="9" fontFamily="var(--font-mono)">R</text>
+                        <text x="16" y="14" fill="var(--token-color-rgba-109-179-255-0d45)" fontSize="9" fontFamily="var(--font-role-data)">L</text>
+                        <text x="282" y="14" fill="var(--token-color-rgba-109-179-255-0d45)" fontSize="9" fontFamily="var(--font-role-data)">R</text>
                         <path d={`M 10 26 C 60 ${26 - 18 * depthNorm}, 100 ${26 + 18 * depthNorm}, 150 26 C 200 ${26 - 18 * depthNorm}, 240 ${26 + 18 * depthNorm}, 290 26`} fill="none" stroke="var(--token-color-hex-6db3ff)" strokeWidth="2.4" strokeLinecap="round" />
                         <path d={`M 10 26 C 60 ${26 + 18 * depthNorm}, 100 ${26 - 18 * depthNorm}, 150 26 C 200 ${26 + 18 * depthNorm}, 240 ${26 - 18 * depthNorm}, 290 26`} fill="none" stroke="var(--token-color-hex-6db3ff)" strokeWidth="1.6" strokeLinecap="round" opacity="0.35" />
                     </svg>

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use log::info;
 use uuid::Uuid;
 
+use crate::au_host::AudioUnitInstance;
 use crate::descriptor::PluginDescriptor;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
-use crate::au_host::AudioUnitInstance;
 use crate::sandbox_instance::SandboxedPluginInstance;
 use crate::vst2_host::Vst2Instance;
 use crate::vst3_host::Vst3Instance;
@@ -126,6 +126,11 @@ impl PluginHost {
                 );
             }
         }
+    }
+
+    /// Returns the currently configured host sample rate and buffer size.
+    pub fn audio_config(&self) -> (f64, usize) {
+        (self.sample_rate, self.buffer_size)
     }
 
     /// Registers an out-of-process sandboxed plugin instance.

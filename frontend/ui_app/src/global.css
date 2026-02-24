@@ -6,6 +6,7 @@
    needed in main.tsx.
    ═════════════════════════════════════════════════════════════ */
 
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
 @import "tailwindcss";
 
 /* ── Design System Layers ── */
@@ -126,8 +127,12 @@
    --spacing-24: var(--space-24);
 
    /* ── Fonts ── */
-   --font-sans: var(--font-family);
-   --font-mono: var(--font-mono);
+   --font-sans: var(--font-ui-family);
+   --font-display: var(--font-display-family);
+   --font-mono: var(--font-mono-family);
+   --font-body: var(--font-role-body);
+   --font-title: var(--font-role-title);
+   --font-data: var(--font-role-data);
 
    /* ── Radii ── */
    --radius-xs: var(--radius-xs);
@@ -159,9 +164,154 @@ body {
    color: var(--color-text-primary);
 }
 
+body {
+   position: relative;
+}
+
+h1, h2, h3, h4, h5, h6 {
+   font-family: var(--font-role-title);
+}
+
+body::before,
+body::after {
+   content: "";
+   position: fixed;
+   inset: 0;
+   pointer-events: none;
+   z-index: 0;
+   transition: opacity var(--transition-normal), background-image var(--transition-normal);
+   will-change: transform, opacity;
+}
+
+body::before {
+   background-image: var(--theme-overlay-primary-image);
+   background-size: var(--theme-overlay-primary-size);
+   background-position: var(--theme-overlay-primary-position);
+   background-repeat: var(--theme-overlay-primary-repeat);
+   mix-blend-mode: var(--theme-overlay-primary-blend);
+   opacity: calc(var(--theme-overlay-primary-opacity) * var(--theme-overlay-strength) * var(--theme-ornament-master-strength) * var(--theme-ornament-panels-strength));
+   animation: theme-overlay-drift-primary var(--theme-overlay-primary-animation-duration) ease-in-out infinite;
+   animation-play-state: var(--theme-motion-play-state);
+}
+
+body::after {
+   background-image: var(--theme-overlay-secondary-image);
+   background-size: var(--theme-overlay-secondary-size);
+   background-position: var(--theme-overlay-secondary-position);
+   background-repeat: var(--theme-overlay-secondary-repeat);
+   mix-blend-mode: var(--theme-overlay-secondary-blend);
+   opacity: calc(var(--theme-overlay-secondary-opacity) * var(--theme-overlay-strength) * var(--theme-ornament-master-strength) * var(--theme-ornament-panels-strength));
+   animation: theme-overlay-drift-secondary var(--theme-overlay-secondary-animation-duration) ease-in-out infinite;
+   animation-play-state: var(--theme-motion-play-state);
+}
+
 #root {
    display: flex;
    flex-direction: column;
+   position: relative;
+   z-index: 1;
+}
+
+.theme-ornament-header,
+.theme-ornament-browser,
+.theme-ornament-inspector,
+.theme-ornament-status,
+.theme-ornament-timeline {
+   position: relative;
+   isolation: isolate;
+}
+
+.theme-ornament-header::after,
+.theme-ornament-status::after {
+   content: "";
+   position: absolute;
+   left: 0;
+   right: 0;
+   top: 0;
+   height: min(100%, 44px);
+   pointer-events: none;
+   z-index: 0;
+   background-image: var(--theme-ornament-strip-image);
+   background-size: 100% 100%;
+   background-repeat: no-repeat;
+   background-position: center top;
+   mix-blend-mode: var(--theme-ornament-strip-blend);
+   opacity: calc(var(--theme-ornament-strip-opacity) * var(--theme-ornament-master-strength) * var(--theme-ornament-panels-strength));
+}
+
+.theme-ornament-browser::before,
+.theme-ornament-inspector::before {
+   content: "";
+   position: absolute;
+   top: 0;
+   width: 220px;
+   height: 220px;
+   pointer-events: none;
+   z-index: 0;
+   background-image: var(--theme-ornament-corner-image);
+   background-size: contain;
+   background-repeat: no-repeat;
+   mix-blend-mode: var(--theme-ornament-corner-blend);
+   opacity: calc(var(--theme-ornament-corner-opacity) * var(--theme-ornament-master-strength) * var(--theme-ornament-panels-strength));
+}
+
+.theme-ornament-browser::before {
+   left: 0;
+   transform: scaleX(-1);
+   transform-origin: left top;
+}
+
+.theme-ornament-inspector::before {
+   right: 0;
+}
+
+/* Legacy timeline ornament.
+   Runtime arrangement timeline no longer uses this pseudo-layer directly;
+   production timeline ornament is rendered by `.timeline-layer-bg` inside
+   the Timeline component to avoid stacking conflicts with canvas grid lines. */
+.theme-ornament-timeline::after {
+   content: "";
+   position: absolute;
+   inset: 0;
+   pointer-events: none;
+   z-index: 0;
+   background-image: var(--theme-ornament-timeline-image);
+   background-size: var(--theme-ornament-timeline-size, auto);
+   background-repeat: repeat;
+   background-position: center;
+   mix-blend-mode: var(--theme-ornament-timeline-blend, normal);
+   opacity: clamp(0, calc(var(--theme-ornament-timeline-opacity, 0) * var(--theme-ornament-master-strength, 1) * var(--theme-ornament-timeline-strength, 1)), 1);
+   animation: theme-ornament-timeline-breathe var(--theme-ornament-timeline-animation-duration, 0s) ease-in-out infinite;
+   animation-play-state: var(--theme-motion-play-state);
+}
+
+.timeline-layer-root {
+   position: relative;
+   --z-timeline-bg: var(--z-timeline-bg, 0);
+   --z-timeline-canvas: var(--z-timeline-canvas, 1);
+   --z-timeline-overlays: var(--z-timeline-overlays, 2);
+   --z-timeline-ui: var(--z-timeline-ui, 3);
+}
+
+.timeline-layer-canvas {
+   position: relative;
+   z-index: var(--z-timeline-canvas);
+}
+
+.timeline-layer-bg {
+   z-index: var(--z-timeline-bg);
+   background-image: var(--theme-ornament-timeline-image);
+   background-size: var(--theme-ornament-timeline-size, auto);
+   background-repeat: repeat;
+   background-position: center;
+   mix-blend-mode: var(--theme-ornament-timeline-blend, normal);
+   opacity: clamp(0, calc(var(--theme-ornament-timeline-opacity, 0) * var(--theme-ornament-master-strength, 1) * var(--theme-ornament-timeline-strength, 1)), 1);
+   animation: theme-ornament-timeline-breathe var(--theme-ornament-timeline-animation-duration, 0s) ease-in-out infinite;
+   animation-play-state: var(--theme-motion-play-state);
+}
+
+.timeline-layer-overlays {
+   z-index: var(--z-timeline-overlays);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -173,21 +323,19 @@ body {
    compositor thread with zero JS overhead.
    ═══════════════════════════════════════════════════════════════ */
 @keyframes timeline-cursor-blink {
-
    0%,
    100% {
-      opacity: 0.68;
-      box-shadow: 0 0 var(--token-size-px-3) var(--glow-cursor);
+      opacity: 0.62;
+      box-shadow: 0 0 var(--token-size-px-2) var(--glow-cursor);
    }
-
    50% {
-      opacity: var(--glow-cursor-dim);
-      box-shadow: none;
+      opacity: 0.5;
+      box-shadow: 0 0 var(--space-0-5) var(--glow-cursor-dim);
    }
 }
 
 .timeline-cursor-blink {
-   animation: timeline-cursor-blink 2.4s ease-in-out infinite;
+   animation: timeline-cursor-blink 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes track-drop-line-pulse {
@@ -211,4 +359,96 @@ body {
    background: var(--color-text-bright);
    animation: track-drop-line-pulse 1.5s ease-in-out infinite;
    pointer-events: none;
+}
+
+/* Theme Studio (Settings > Appearance) */
+.theme-studio-grid {
+   grid-template-columns: repeat(auto-fit, minmax(188px, 1fr));
+}
+
+.theme-studio-card {
+   transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.theme-studio-card:hover {
+   transform: translateY(-2px);
+   box-shadow: 0 8px 20px color-mix(in srgb, var(--color-accent-primary) 24%, transparent);
+}
+
+.theme-studio-card:focus-visible {
+   outline: 2px solid var(--color-accent-primary);
+   outline-offset: 2px;
+}
+
+.theme-studio-card--active {
+   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 70%, transparent),
+      0 10px 22px color-mix(in srgb, var(--color-accent-primary) 20%, transparent);
+}
+
+.theme-studio-preview {
+   transition: filter var(--transition-fast), transform var(--transition-fast);
+}
+
+.theme-studio-card:hover .theme-studio-preview {
+   filter: saturate(1.08) brightness(1.04);
+   transform: scale(1.015);
+}
+
+@keyframes theme-overlay-drift-primary {
+   0% {
+      transform: translate3d(0, 0, 0) scale(1);
+   }
+   50% {
+      transform: translate3d(
+         calc(var(--theme-overlay-primary-shift-x) * var(--theme-motion-strength)),
+         calc(var(--theme-overlay-primary-shift-y) * var(--theme-motion-strength)),
+         0
+      ) scale(calc(1 + (0.015 * var(--theme-motion-strength))));
+   }
+   100% {
+      transform: translate3d(0, 0, 0) scale(1);
+   }
+}
+
+@keyframes theme-overlay-drift-secondary {
+   0% {
+      transform: translate3d(0, 0, 0) scale(1);
+   }
+   50% {
+      transform: translate3d(
+         calc(var(--theme-overlay-secondary-shift-x) * var(--theme-motion-strength)),
+         calc(var(--theme-overlay-secondary-shift-y) * var(--theme-motion-strength)),
+         0
+      ) scale(calc(1 + (0.02 * var(--theme-motion-strength))));
+   }
+   100% {
+      transform: translate3d(0, 0, 0) scale(1);
+   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+   body::before,
+   body::after {
+      animation: none !important;
+   }
+   .theme-ornament-timeline::after {
+      animation: none !important;
+   }
+   .theme-studio-card,
+   .theme-studio-preview {
+      transition: none !important;
+      transform: none !important;
+      filter: none !important;
+   }
+}
+
+@keyframes theme-ornament-timeline-breathe {
+   0%, 100% {
+      opacity: var(--theme-ornament-timeline-opacity);
+      transform: translate3d(0, 0, 0);
+   }
+   50% {
+      opacity: calc(var(--theme-ornament-timeline-opacity) * var(--theme-ornament-master-strength) * var(--theme-ornament-timeline-strength) * 0.72);
+      transform: translate3d(0, calc(-2px * var(--theme-motion-strength)), 0);
+   }
 }

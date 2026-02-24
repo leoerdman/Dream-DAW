@@ -17,10 +17,9 @@ use dream_models::project::{
 };
 
 use super::plugin_mapper::{
-    ExternalPluginIndex, apply_external_plugin_meta, canonical_internal_from_plugin_device_node,
-    canonical_internal_plugin_for_import,
-    MissingExternalPluginSlotSpec, infer_device_display_name,
-    make_missing_external_plugin_slot_with_metadata,
+    ExternalPluginIndex, MissingExternalPluginSlotSpec, apply_external_plugin_meta,
+    canonical_internal_from_plugin_device_node, canonical_internal_plugin_for_import,
+    infer_device_display_name, make_missing_external_plugin_slot_with_metadata,
     make_missing_plugin_slot, normalize_plugin_key, parse_external_plugin_meta,
 };
 use super::xml_helpers::*;
@@ -259,24 +258,24 @@ pub fn parse_als_rack(
         if let Some(idx) = parse_macro_index(tag_name, "MacroControls.")
             && idx < rack.macro_controls.len()
         {
-                let display_name = macro_node
-                    .children()
-                    .find(|n| n.is_element() && n.has_tag_name("CustomName"))
-                    .and_then(|n| n.attribute("Value"))
-                    .unwrap_or("")
-                    .to_string();
-                let value = macro_node
-                    .children()
-                    .find(|n| n.is_element() && n.has_tag_name("Manual"))
-                    .and_then(|n| n.attribute("Value"))
-                    .and_then(parse_f64_value)
-                    .unwrap_or(0.0);
-                let mc = &mut rack.macro_controls[idx];
-                if !display_name.is_empty() {
-                    mc.name = display_name;
-                }
-                mc.value = value;
-                mc.default_value = value;
+            let display_name = macro_node
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("CustomName"))
+                .and_then(|n| n.attribute("Value"))
+                .unwrap_or("")
+                .to_string();
+            let value = macro_node
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                .and_then(|n| n.attribute("Value"))
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            let mc = &mut rack.macro_controls[idx];
+            if !display_name.is_empty() {
+                mc.name = display_name;
+            }
+            mc.value = value;
+            mc.default_value = value;
         }
     }
 

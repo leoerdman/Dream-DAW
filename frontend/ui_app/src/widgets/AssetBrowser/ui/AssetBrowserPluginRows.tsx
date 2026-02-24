@@ -72,9 +72,12 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                 const cleanup = () => {
                     if (cancelled) return;
                     cancelled = true;
-                    if (fileListRef.current) {
+                    // Only restore styles if we actually changed them during drag
+                    if (dragStarted && fileListRef.current) {
                         fileListRef.current.style.pointerEvents = '';
                         fileListRef.current.style.overflow = '';
+                        fileListRef.current.style.overflowY = 'auto';
+                        fileListRef.current.style.overflowX = 'hidden';
                     }
                     window.removeEventListener('mousemove', onMove);
                     window.removeEventListener('mouseup', onUp);
@@ -87,6 +90,11 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                     const dy = me.clientY - startY;
                     if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                         dragStarted = true;
+                        // Lock scroll only when drag actually begins
+                        if (fileListRef.current) {
+                            fileListRef.current.style.overflow = 'hidden';
+                            fileListRef.current.style.pointerEvents = 'none';
+                        }
                         useDragStore.getState().startDrag({
                             id: item.id, name: item.name, type: isPlugin ? 'plugin' : 'audio', path: item.path!, slotHint: item.slotHint ?? 'auto',
                             durationSeconds: isAudio ? (item.durationSeconds ?? undefined) : undefined,

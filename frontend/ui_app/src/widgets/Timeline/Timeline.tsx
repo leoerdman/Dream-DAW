@@ -42,7 +42,7 @@ interface TimelineProps {
     selectedClipIds?: string[];
     onClipSelectionChange?: (clipIds: string[]) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;

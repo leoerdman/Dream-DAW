@@ -26,6 +26,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::processors::smoothing::SmoothedValue;
 
 #[derive(PartialEq, Clone, Copy)]
 enum GateState {
@@ -61,6 +62,8 @@ pub struct GateProcessor {
     sc_prev_r: f32,
     sc_coeff: f32,
     sample_rate: f32,
+    threshold_sm_db: SmoothedValue,
+    range_sm_lin: SmoothedValue,
 }
 
 impl GateProcessor {
@@ -88,6 +91,8 @@ impl GateProcessor {
             sc_prev_r: 0.0,
             sc_coeff: 0.0,
             sample_rate,
+            threshold_sm_db: SmoothedValue::new(sample_rate, 8.0, -30.0),
+            range_sm_lin: SmoothedValue::new(sample_rate, 8.0, 0.0),
         };
         proc.update_all();
         proc
@@ -122,6 +127,8 @@ impl GateProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_all();
+            self.threshold_sm_db.set_sample_rate(sr);
+            self.range_sm_lin.set_sample_rate(sr);
         }
     }
 
@@ -130,11 +137,7 @@ impl GateProcessor {
         if x < 1e-10 {
             -96.0
         } else {
-            // BUG-DSP4 FIX: Fast log2 approximation → dB (missing BUG-036 fix).
-            // 20 * log10(x) = 20 * log2(x) / log2(10) ≈ 6.0206 * log2(x)
-            let bits = x.to_bits() as i32;
-            let log2_approx = (bits as f32) * 1.192_092_9e-7 - 126.942_696;
-            log2_approx * 6.0206
+            20.0 * x.log10()
         }
     }
 }
@@ -143,11 +146,13 @@ impl DspProcessor for GateProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let thresh_open = self.threshold_db;
-        let thresh_close = self.threshold_db - self.hysteresis;
-        let range = self.range_lin;
+        self.threshold_sm_db.set_target(self.threshold_db);
+        self.range_sm_lin.set_target(self.range_lin);
 
         for i in 0..len {
+            let thresh_open = self.threshold_sm_db.next();
+            let thresh_close = thresh_open - self.hysteresis;
+            let range = self.range_sm_lin.next();
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
                 self.sc_state_l = self.sc_coeff * (self.sc_state_l + left[i] - self.sc_prev_l);
@@ -241,11 +246,13 @@ impl DspProcessor for GateProcessor {
     ) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let thresh_open = self.threshold_db;
-        let thresh_close = self.threshold_db - self.hysteresis;
-        let range = self.range_lin;
+        self.threshold_sm_db.set_target(self.threshold_db);
+        self.range_sm_lin.set_target(self.range_lin);
 
         for i in 0..len {
+            let thresh_open = self.threshold_sm_db.next();
+            let thresh_close = thresh_open - self.hysteresis;
+            let range = self.range_sm_lin.next();
             let sc_in_l = sidechain_left
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(left[i]);
@@ -313,6 +320,13 @@ impl DspProcessor for GateProcessor {
                 }
             }
 
+            if self.sc_state_l.abs() < 1.0e-20 {
+                self.sc_state_l = 0.0;
+            }
+            if self.sc_state_r.abs() < 1.0e-20 {
+                self.sc_state_r = 0.0;
+            }
+
             let mut gain = range + (1.0 - range) * self.envelope;
             if self.duck_mode {
                 gain = range + (1.0 - range) * (1.0 - self.envelope);
@@ -366,6 +380,8 @@ impl DspProcessor for GateProcessor {
         self.sc_state_r = 0.0;
         self.sc_prev_l = 0.0;
         self.sc_prev_r = 0.0;
+        self.threshold_sm_db.set_instant(self.threshold_db);
+        self.range_sm_lin.set_instant(self.range_lin);
     }
 }
 

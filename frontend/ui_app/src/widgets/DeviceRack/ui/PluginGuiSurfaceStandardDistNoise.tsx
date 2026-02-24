@@ -4,10 +4,12 @@ import { pluginPanelKnobGrid } from '@/widgets/DeviceRack/ui/styles';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import {
+    formatSurfaceParam,
     pluginPanelCardBaseStyle,
     pluginPanelLayoutStyle,
     pluginPanelMetaStyle,
     pluginPanelTitleStyle,
+    readSurfaceParam,
     safeParamValue,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
@@ -25,9 +27,9 @@ export function renderStandardDistNoiseSurface(
             ? 'Bitcrusher'
             : (PLUGIN_TITLE_MAP[normalizedInternalId] ?? 'Distortion');
         const color = device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)';
-        const drive = safeParamValue(device, 'drive', 0);
-        const mix = safeParamValue(device, 'mix', 0);
-        const tone = safeParamValue(device, 'tone', 0);
+        const drive = readSurfaceParam(device, 'drive', 0, 'dB');
+        const mix = readSurfaceParam(device, 'mix', 0, '%');
+        const tone = readSurfaceParam(device, 'tone', 0, '%');
         const isAmp = title === 'Amp' || title === 'Cabinet';
         const isErosion = title === 'Erosion';
         const isBit = title === 'Bitcrusher';
@@ -68,9 +70,9 @@ export function renderStandardDistNoiseSurface(
                         )}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
-                        <span>Drive {drive.toFixed(1)}</span>
-                        <span>Tone {tone.toFixed(2)}</span>
-                        <span>Mix {mix.toFixed(2)}</span>
+                        <span>Drive {formatSurfaceParam(drive)}</span>
+                        <span>Tone {formatSurfaceParam(tone)}</span>
+                        <span>Mix {formatSurfaceParam(mix)}</span>
                     </div>
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
@@ -91,9 +93,10 @@ export function renderStandardDistNoiseSurface(
 
     if (device.effectType === 'noiseMachine') {
         const type = Math.round(safeParamValue(device, 'type', 0));
-        const level = safeParamValue(device, 'level', -30);
-        const stereo = safeParamValue(device, 'stereo', 0.5);
-        const typeLabel = type <= 0 ? 'Vinyl' : type === 1 ? 'Air' : 'Storm';
+        const level = readSurfaceParam(device, 'level', -30, 'dB');
+        const stereo = readSurfaceParam(device, 'stereo', 0.5, '%');
+        const NOISE_TYPE_LABELS = ['White', 'Pink', 'Brown', 'Blue', 'Violet', 'Grey'];
+        const typeLabel = NOISE_TYPE_LABELS[Math.min(type, 5)] ?? 'White';
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-noise)' }}>
@@ -104,8 +107,8 @@ export function renderStandardDistNoiseSurface(
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{typeLabel}</span>
-                        <span>Level {level.toFixed(1)} dB</span>
-                        <span>Stereo {(stereo * 100).toFixed(0)}%</span>
+                        <span>Level {formatSurfaceParam(level)}</span>
+                        <span>Stereo {formatSurfaceParam(stereo)}</span>
                     </div>
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>

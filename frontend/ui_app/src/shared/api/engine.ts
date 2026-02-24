@@ -110,7 +110,7 @@ export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
         pitch: Math.max(0, Math.min(127, Math.round(pitch))),
     });
 
-export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
 export const BuiltinEffectType: {
     Eq: BuiltinEffectType;
     Compressor: BuiltinEffectType;
@@ -128,6 +128,7 @@ export const BuiltinEffectType: {
     Bitcrusher: BuiltinEffectType;
     NoiseMachine: BuiltinEffectType;
     AutoPan: BuiltinEffectType;
+    Analyzer: BuiltinEffectType;
 } = {
     Eq: 0,
     Compressor: 1,
@@ -145,6 +146,7 @@ export const BuiltinEffectType: {
     Bitcrusher: 13,
     NoiseMachine: 14,
     AutoPan: 15,
+    Analyzer: 16,
 };
 
 export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
@@ -779,10 +781,10 @@ export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrame
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
 export const moveClipWithDeltas = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<DeltaMutationResponse>('move_clip_with_deltas_cmd', { clipId, newTrackIndex, newPositionFrames });
-export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
-    invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames });
-export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
-    invoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames });
+export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
+    invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
+export const resizeClipWithDeltas = (clipId: string, newPositionFrames: number, newDurationFrames: number, allowStretch: boolean = false) =>
+    invoke<DeltaMutationResponse>('resize_clip_with_deltas_cmd', { clipId, newPositionFrames, newDurationFrames, allowStretch });
 export const splitClip = (clipId: string, splitFrame: number) =>
     invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
 export const splitClipWithDeltas = (clipId: string, splitFrame: number) =>
@@ -1121,6 +1123,7 @@ export interface ExternalPluginParamInfo {
     min: number;
     max: number;
     step: number;
+    defaultValue?: number;
     value: number;
 }
 
@@ -1369,7 +1372,6 @@ export const removeDeviceFromRack = (
     invoke<void>('remove_device_from_rack_cmd', {
         payload: { trackId, rackId, deviceId, autoDissolve },
     });
-
 export const saveDevicePreset = (
     trackId: string,
     deviceId: string,

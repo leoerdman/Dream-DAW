@@ -14,16 +14,20 @@ pub struct NormalizedPluginTarget {
 }
 
 fn is_external_plugin_reference(plugin_id: &str) -> bool {
-    !plugin_id.starts_with("internal://")
-        && (plugin_id.contains('/')
-            || plugin_id.contains('\\')
-            || plugin_id.ends_with(".vst3")
-            || plugin_id.ends_with(".vst")
-            || plugin_id.ends_with(".component")
-            || plugin_id.starts_with("com.")
-            || plugin_id.starts_with("vst3:")
-            || plugin_id.starts_with("au:")
-            || plugin_id.starts_with("vst2:"))
+    let id = plugin_id.trim();
+    let id_no_slash = id.trim_end_matches(['/', '\\']);
+    let id_lower = id_no_slash.to_ascii_lowercase();
+    !id_lower.starts_with("internal://")
+        && (id_no_slash.contains('/')
+            || id_no_slash.contains('\\')
+            || id_lower.ends_with(".vst3")
+            || id_lower.ends_with(".vst")
+            || id_lower.ends_with(".component")
+            || id_lower.starts_with("com.")
+            || id_lower.starts_with("vst3:")
+            || id_lower.starts_with("au:")
+            || id_lower.starts_with("au://")
+            || id_lower.starts_with("vst2:"))
 }
 
 pub fn normalize_plugin_target_for_add(

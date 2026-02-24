@@ -19,7 +19,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
+use crate::processors::{db_to_linear as db_to_linear_fast, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
+use crate::processors::smoothing::SmoothedValue;
 
 /// Utility processor — gain, pan, width, mono.
 pub struct UtilityProcessor {
@@ -39,6 +40,9 @@ pub struct UtilityProcessor {
     smooth_coeff: f32,
     /// Cached sample rate
     sample_rate: f32,
+    pan_sm: SmoothedValue,
+    width_sm: SmoothedValue,
+    mono_sm: SmoothedValue,
 }
 
 impl UtilityProcessor {
@@ -55,6 +59,9 @@ impl UtilityProcessor {
             // ~5ms smoothing derived from actual sample rate
             smooth_coeff: (-1.0 / (0.005 * sr)).exp(),
             sample_rate: sr,
+            pan_sm: SmoothedValue::new(sr, 8.0, 0.0),
+            width_sm: SmoothedValue::new(sr, 8.0, 1.0),
+            mono_sm: SmoothedValue::new(sr, 6.0, 0.0),
         }
     }
 
@@ -63,7 +70,7 @@ impl UtilityProcessor {
         if db <= -60.0 {
             0.0
         } else {
-            db_to_linear(db)
+            db_to_linear_fast(db)
         }
     }
 }
@@ -81,40 +88,40 @@ impl DspProcessor for UtilityProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.smooth_coeff = (-1.0 / (0.005 * sr)).exp();
+            self.pan_sm.set_sample_rate(sr);
+            self.width_sm.set_sample_rate(sr);
+            self.mono_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let coeff = self.smooth_coeff;
-
-        // Pre-compute pan gains (constant power panning)
-        let pan_angle = (self.pan + 1.0) * 0.25 * std::f32::consts::PI;
-        let pan_l = pan_angle.cos();
-        let pan_r = pan_angle.sin();
-
-        // Width coefficients (Mid/Side encoding)
-        let mid_coeff = 1.0;
-        let side_coeff = self.width;
+        self.pan_sm.set_target(self.pan.clamp(-1.0, 1.0));
+        self.width_sm.set_target(self.width.clamp(0.0, 2.0));
+        self.mono_sm.set_target(if self.mono { 1.0 } else { 0.0 });
 
         for i in 0..len {
             // Smooth gain (exponential one-pole)
             self.current_gain = coeff * self.current_gain + (1.0 - coeff) * self.target_gain;
+            let pan = self.pan_sm.next();
+            let width = self.width_sm.next();
+            let mono_mix = self.mono_sm.next().clamp(0.0, 1.0);
 
             let mut l = left[i] * self.current_gain;
             let mut r = right[i] * self.current_gain;
 
-            // Mono collapse
-            if self.mono {
-                let mono_sample = (l + r) * 0.5;
-                l = mono_sample;
-                r = mono_sample;
-            } else if (self.width - 1.0).abs() > 0.001 {
-                // Mid/Side width processing
-                let mid = (l + r) * 0.5 * mid_coeff;
-                let side = (l - r) * 0.5 * side_coeff;
-                l = mid + side;
-                r = mid - side;
-            }
+            // Mid/Side width processing with smoothed width.
+            let mid = (l + r) * 0.5;
+            let side = (l - r) * 0.5 * width;
+            let width_l = mid + side;
+            let width_r = mid - side;
+            // Mono blend is smoothed to avoid clicks on toggle automation.
+            let mono_sample = (width_l + width_r) * 0.5;
+            l = width_l * (1.0 - mono_mix) + mono_sample * mono_mix;
+            r = width_r * (1.0 - mono_mix) + mono_sample * mono_mix;
 
-            // Apply pan
+            // Apply smoothed constant-power pan.
+            let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
+            let pan_l = pan_angle.cos();
+            let pan_r = pan_angle.sin();
             left[i] = l * pan_l * std::f32::consts::SQRT_2;
             right[i] = r * pan_r * std::f32::consts::SQRT_2;
         }
@@ -145,6 +152,9 @@ impl DspProcessor for UtilityProcessor {
 
     fn reset(&mut self) {
         self.current_gain = self.target_gain;
+        self.pan_sm.set_instant(self.pan.clamp(-1.0, 1.0));
+        self.width_sm.set_instant(self.width.clamp(0.0, 2.0));
+        self.mono_sm.set_instant(if self.mono { 1.0 } else { 0.0 });
     }
 }
 
@@ -183,11 +193,11 @@ mod tests {
         let mut proc = UtilityProcessor::new(44100.0);
         proc.set_param(3, 1.0); // Mono ON
         proc.current_gain = 1.0;
-        let mut left = vec![1.0f32; 64];
-        let mut right = vec![-1.0f32; 64];
+        let mut left = vec![1.0f32; 2048];
+        let mut right = vec![-1.0f32; 2048];
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        // Mid = (1 + -1) / 2 = 0, so both channels should be ~0
-        for i in 0..64 {
+        // Mono switch is smoothed, so validate settled tail.
+        for i in 1536..2048 {
             assert!(left[i].abs() < 0.01, "Mono collapse failed L: {}", left[i]);
             assert!(
                 right[i].abs() < 0.01,

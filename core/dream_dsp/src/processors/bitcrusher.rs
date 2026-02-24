@@ -25,6 +25,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 use crate::processors::DEFAULT_SAMPLE_RATE;
 
 pub struct BitcrusherProcessor {
@@ -51,11 +53,12 @@ pub struct BitcrusherProcessor {
     // Simple PRNG for jitter/dither
     rng_state: u64,
     sample_rate: f32,
+    mix_sm: SmoothedValue,
 }
 
 impl BitcrusherProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         let mut proc = Self {
             bit_depth: 16.0,
             downsample: 1.0,
@@ -77,6 +80,7 @@ impl BitcrusherProcessor {
             post_coeff: 0.99,
             rng_state: 0xBEEF_CAFE_1234_5678,
             sample_rate,
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
         };
         proc.update_filters();
         proc
@@ -116,22 +120,23 @@ impl Default for BitcrusherProcessor {
 impl DspProcessor for BitcrusherProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate if changed
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
             self.update_filters();
+            self.mix_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let levels = 2.0_f32.powf(self.bit_depth - 1.0);
         let step = self.downsample.max(1.0);
         let jitter_range = self.jitter * step;
         let dither_amt = self.dither / levels;
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let mix = self.mix_sm.next();
 
             // Pre-filter
             self.pre_state_l += self.pre_coeff * (dry_l - self.pre_state_l);
@@ -191,8 +196,8 @@ impl DspProcessor for BitcrusherProcessor {
             self.post_state_l += self.post_coeff * (self.hold_l - self.post_state_l);
             self.post_state_r += self.post_coeff * (self.hold_r - self.post_state_r);
 
-            left[i] = dry_l * (1.0 - self.mix) + self.post_state_l * self.mix;
-            right[i] = dry_r * (1.0 - self.mix) + self.post_state_r * self.mix;
+            left[i] = dry_l * (1.0 - mix) + self.post_state_l * mix;
+            right[i] = dry_r * (1.0 - mix) + self.post_state_r * mix;
 
             // AUD-132 FIX: Flush denormals in pre/post LP filter states.
             if self.pre_state_l.abs() < 1e-20 {
@@ -240,6 +245,7 @@ impl DspProcessor for BitcrusherProcessor {
         self.post_state_l = 0.0;
         self.post_state_r = 0.0;
         self.rng_state = 0xBEEF_CAFE_1234_5678;
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
     }
 }
 

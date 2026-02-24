@@ -6,6 +6,7 @@ async fn bounce_selection_to_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let project = project_state
         .project
@@ -117,6 +118,14 @@ async fn bounce_selection_to_track_cmd(
         bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
 
+    crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
+        &bounce_project,
+        &clip_pool_state,
+        &plugin_host_state,
+        project.sample_rate,
+        "Bounce",
+    )?;
+
     let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
     let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
@@ -198,6 +207,7 @@ async fn bounce_selection_to_track_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<DeltaMutationResponse, String> {
     let before_project = project_state
         .project
@@ -210,6 +220,7 @@ async fn bounce_selection_to_track_with_deltas_cmd(
         project_state.clone(),
         clip_pool_state,
         handle,
+        plugin_host_state,
     )
     .await?;
     let after_project = project_state
@@ -231,6 +242,7 @@ async fn bounce_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let project = project_state
         .project
@@ -281,6 +293,14 @@ async fn bounce_track_cmd(
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
+
+    crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
+        &bounce_project,
+        &clip_pool_state,
+        &plugin_host_state,
+        project.sample_rate,
+        "Bounce",
+    )?;
 
     let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
@@ -364,6 +384,7 @@ async fn bounce_track_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<DeltaMutationResponse, String> {
     let project = project_state
         .project
@@ -378,131 +399,55 @@ async fn bounce_track_with_deltas_cmd(
         .ok_or_else(|| "Track not found".to_string())?;
     let source_track = &project.tracks[source_index];
 
-    let mut start_frame = i64::MAX;
-    let mut end_frame = i64::MIN;
-    for c in &source_track.clips {
-        start_frame = start_frame.min(c.position.sample_frame);
-        end_frame = end_frame.max(c.position.sample_frame + c.duration.sample_frame);
-    }
-    for c in &source_track.midi_clips {
-        start_frame = start_frame.min(c.position.sample_frame);
-        end_frame = end_frame.max(c.position.sample_frame + c.duration.sample_frame);
-    }
-    if start_frame == i64::MAX || end_frame == i64::MIN || end_frame <= start_frame {
-        return Err("Track has no content to bounce".to_string());
-    }
+    bounce_track_cmd(
+        track_id,
+        app.clone(),
+        project_state.clone(),
+        clip_pool_state.clone(),
+        handle.clone(),
+        plugin_host_state,
+    )
+    .await?;
 
-    let mut bounce_project = project.clone();
-    for (idx, track) in bounce_project.tracks.iter_mut().enumerate() {
-        if idx != source_index {
-            track.clips.clear();
-            track.midi_clips.clear();
-        }
-    }
-
-    let local_pool = build_local_pool_for_project(&bounce_project, &clip_pool_state)?;
-    let output_path = dream_importers::stem_separation::make_bounce_output_path("track_bounce")?;
-    let cfg = BounceConfig {
-        output_path: output_path.clone(),
-        sample_rate: project.sample_rate.max(1.0).round() as u32,
-        bit_depth: 32,
-        start_frame,
-        end_frame,
-        normalize: false,
-        tail_frames: 0,
-        format: "wav".to_string(),
-        project_sample_rate: project.sample_rate.max(1.0),
-        bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
+    let placement_project = project_state
+        .project
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let maybe_new_track = placement_project
+        .tracks
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, t)| t.name == format!("{} Bounce", source_track.name))
+        .map(|(idx, t)| (idx, t.id, t.name.clone()));
+    let Some((track_index, track_id_new, track_name_new)) = maybe_new_track else {
+        return Err("Bounce succeeded but bounced track was not found".to_string());
     };
-
-    let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
-    let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
-    let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
-
-    handle
-        .export_cancel
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-    let cancel_flag = std::sync::Arc::clone(&job_cancel);
-    let app_for_progress = app.clone();
-    let job_id_for_progress = job_id.clone();
-    let bounce_res = tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
-        bouncer.cancel_flag = cancel_flag;
-        let mut bounce_project = bounce_project;
-        let mut local_pool = local_pool;
-        let plugin_registry_snapshot = plugin_registry_snapshot;
-        let external_fx_snapshot = external_fx_snapshot;
-        bouncer
-            .bounce(
-                &mut bounce_project,
-                &mut local_pool,
-                None,
-                &plugin_registry_snapshot,
-                &external_fx_snapshot,
-                move |progress| {
-                    let _ = set_job_progress(
-                        &app_for_progress,
-                        &job_id_for_progress,
-                        (progress * 100.0).clamp(0.0, 100.0),
-                        "Rendering",
-                    );
-                },
-            )
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("Bounce worker failed: {e}"))?;
-
-    if let Err(e) = bounce_res {
-        let cancelled = job_cancel.load(std::sync::atomic::Ordering::SeqCst);
-        let _ = finish_job(&app, &job_id, false, cancelled, Some(e.clone()));
-        return Err(e);
-    }
-
-    if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
-        let _ = finish_job(
-            &app,
-            &job_id,
-            false,
-            true,
-            Some("Bounce cancelled".to_string()),
-        );
-        return Err("Bounce cancelled".to_string());
-    }
-
-    let placement = place_bounced_file_on_new_track(
-        &project_state,
-        &clip_pool_state,
-        &handle,
-        &app,
-        &output_path,
-        &format!("{} Bounce", source_track.name),
-        start_frame,
-        &format!("{} Bounce", source_track.name),
-        Some(source_index),
-    );
-    if let Err(err) = &placement {
-        let _ = finish_job(&app, &job_id, false, false, Some(err.clone()));
-    }
-    let placement = placement?;
-    let _ = finish_job(&app, &job_id, true, false, None);
+    let Some(new_clip) = placement_project
+        .tracks
+        .get(track_index)
+        .and_then(|t| t.clips.last())
+    else {
+        return Err("Bounce succeeded but bounced clip was not found".to_string());
+    };
 
     Ok(DeltaMutationResponse {
         deltas: vec![
             dream_models::delta::ProjectDelta::TrackAdded {
-                track_index: placement.track_index,
-                track_id: placement.track_id,
-                name: placement.track_name,
+                track_index,
+                track_id: track_id_new,
+                name: track_name_new,
                 track_type: "audio".to_string(),
             },
             dream_models::delta::ProjectDelta::ClipAdded {
-                clip_id: placement.clip_id,
-                track_index: placement.track_index,
-                name: placement.clip_name,
+                clip_id: new_clip.id,
+                track_index,
+                name: new_clip.name.clone(),
                 clip_type: "audio".to_string(),
-                file_path: Some(output_path),
-                position: placement.clip_position,
-                duration: placement.clip_duration,
+                file_path: Some(new_clip.file_path.clone()),
+                position: new_clip.position.sample_frame,
+                duration: new_clip.duration.sample_frame,
             },
         ],
     })
@@ -516,6 +461,7 @@ async fn bounce_group_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let project = project_state
         .project
@@ -591,6 +537,14 @@ async fn bounce_group_cmd(
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
+
+    crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
+        &bounce_project,
+        &clip_pool_state,
+        &plugin_host_state,
+        project.sample_rate,
+        "Bounce",
+    )?;
 
     let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
@@ -674,6 +628,7 @@ async fn bounce_group_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<DeltaMutationResponse, String> {
     let before_project = project_state
         .project
@@ -686,6 +641,7 @@ async fn bounce_group_with_deltas_cmd(
         project_state.clone(),
         clip_pool_state,
         handle,
+        plugin_host_state,
     )
     .await?;
     let after_project = project_state

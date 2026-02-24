@@ -210,7 +210,7 @@ export function useDeviceParamGestures(
                     return;
                 }
                 const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
-                if (!effectType) return;
+                if (effectType == null) return;
                 const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
                 void engineApi.setInternalPluginParamWithDeltas(
                     entry.trackId, entry.deviceId, scopedParamId, entry.value,

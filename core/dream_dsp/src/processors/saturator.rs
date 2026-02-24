@@ -25,6 +25,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
+use crate::processors::smoothing::SmoothedValue;
 
 struct OnePole {
     state: f32,
@@ -79,6 +80,11 @@ pub struct SaturatorProcessor {
     /// Pre-emphasis LP coefficient — SR-dependent for consistent cutoff
     pre_coeff: f32,
     sample_rate: f32,
+    drive_sm: SmoothedValue,
+    tone_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
+    output_sm: SmoothedValue,
+    color_sm: SmoothedValue,
 }
 
 impl SaturatorProcessor {
@@ -111,6 +117,11 @@ impl SaturatorProcessor {
             pre_state_r: 0.0,
             pre_coeff,
             sample_rate: sr,
+            drive_sm: SmoothedValue::new(sr, 8.0, db_to_linear(6.0)),
+            tone_sm: SmoothedValue::new(sr, 8.0, 50.0),
+            mix_sm: SmoothedValue::new(sr, 8.0, 0.5),
+            output_sm: SmoothedValue::new(sr, 8.0, 1.0),
+            color_sm: SmoothedValue::new(sr, 10.0, 0.5),
         }
     }
 
@@ -190,19 +201,34 @@ impl DspProcessor for SaturatorProcessor {
             self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sr);
             self.pre_coeff =
                 (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
+            self.drive_sm.set_sample_rate(sr);
+            self.tone_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
+            self.output_sm.set_sample_rate(sr);
+            self.color_sm.set_sample_rate(sr);
         }
 
         let len = left.len().min(right.len());
-        let drive = self.drive_lin;
-        let out = self.output_lin;
         let mode = self.mode;
-        let color = self.color;
         let dc_c = self.dc_coeff;
         let pre_c = self.pre_coeff;
+        self.drive_sm.set_target(self.drive_lin.max(0.0));
+        self.tone_sm.set_target(self.tone_pct.clamp(0.0, 100.0));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
+        self.output_sm.set_target(self.output_lin.max(0.0));
+        self.color_sm.set_target(self.color.clamp(0.0, 1.0));
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let drive = self.drive_sm.next();
+            let tone_pct = self.tone_sm.next();
+            let mix = self.mix_sm.next();
+            let out = self.output_sm.next();
+            let color = self.color_sm.next();
+            let cutoff = Self::tone_to_cutoff(tone_pct);
+            self.tone_l.set_cutoff(cutoff, self.sample_rate);
+            self.tone_r.set_cutoff(cutoff, self.sample_rate);
 
             // Pre-emphasis (color)
             let pre_l = Self::pre_emphasis(dry_l, &mut self.pre_state_l, color, pre_c);
@@ -227,8 +253,8 @@ impl DspProcessor for SaturatorProcessor {
             // Output gain + mix
             let wet_l = toned_l * out;
             let wet_r = toned_r * out;
-            left[i] = dry_l * (1.0 - self.mix) + wet_l * self.mix;
-            right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
+            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
+            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
 
             // AUD-131 FIX: Flush denormals in tone LP, DC blocker, and pre-emphasis
             // states to prevent CPU stalls on x86 during prolonged silence.
@@ -285,6 +311,11 @@ impl DspProcessor for SaturatorProcessor {
         self.dc_y_r = 0.0;
         self.pre_state_l = 0.0;
         self.pre_state_r = 0.0;
+        self.drive_sm.set_instant(self.drive_lin.max(0.0));
+        self.tone_sm.set_instant(self.tone_pct.clamp(0.0, 100.0));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
+        self.output_sm.set_instant(self.output_lin.max(0.0));
+        self.color_sm.set_instant(self.color.clamp(0.0, 1.0));
     }
 }
 

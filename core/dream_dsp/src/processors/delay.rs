@@ -275,8 +275,10 @@ impl DspProcessor for DelayProcessor {
             }
             3 => {
                 self.dry_wet = (value / 100.0).clamp(0.0, 1.0);
-                // Keep deterministic bypass behavior when mix is automated to 0/100.
-                self.dry_wet_sm.set_instant(self.dry_wet);
+                // Preserve deterministic pure-dry / pure-wet behavior.
+                if self.dry_wet <= 0.0001 || self.dry_wet >= 0.9999 {
+                    self.dry_wet_sm.set_instant(self.dry_wet);
+                }
             }
             4 => {
                 self.filter_freq = value.clamp(200.0, 15000.0);

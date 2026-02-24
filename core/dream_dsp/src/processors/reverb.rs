@@ -26,6 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
 use crate::processors::smoothing::SmoothedValue;
 
 // ── Comb Filter ─────────────────────────────────────────────────────────
@@ -172,11 +173,13 @@ pub struct ReverbProcessor {
     mix_sm: SmoothedValue,
     width_sm: SmoothedValue,
     predelay_sm_ms: SmoothedValue,
+    low_damp_sm: SmoothedValue,
+    mod_depth_sm: SmoothedValue,
 }
 
 impl ReverbProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = crate::processors::sanitize_sample_rate(sample_rate);
+        let sample_rate = sanitize_sample_rate(sample_rate);
         // AUD-113 FIX: Pre-allocate ALL comb and allpass buffers at MAX_SUPPORTED_RATE
         // so that sync_sample_rate() never needs to resize (= zero heap allocs on RT thread).
         // Logical buf_size is adjusted on SR change; physical capacity stays fixed.
@@ -226,6 +229,8 @@ impl ReverbProcessor {
             mix_sm: SmoothedValue::new(sample_rate, 10.0, 0.3),
             width_sm: SmoothedValue::new(sample_rate, 10.0, 1.0),
             predelay_sm_ms: SmoothedValue::new(sample_rate, 12.0, 10.0),
+            low_damp_sm: SmoothedValue::new(sample_rate, 10.0, 0.2),
+            mod_depth_sm: SmoothedValue::new(sample_rate, 10.0, 0.15),
         };
         // Set logical buf_size for the actual sample rate (within max capacity)
         proc.rescale_logical_sizes(sample_rate);
@@ -292,22 +297,22 @@ impl ReverbProcessor {
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
 
             // AUD-113 FIX: Rescale logical sizes WITHOUT reallocation.
             // Physical Vec capacity was pre-allocated at MAX_SUPPORTED_RATE in new().
             // Previous code called resize() which could allocate on the RT thread.
-            self.rescale_logical_sizes(sample_rate);
+            self.rescale_logical_sizes(sr);
 
             self.update_combs();
             self.update_predelay();
-            self.mix_sm.set_sample_rate(sample_rate);
-            self.width_sm.set_sample_rate(sample_rate);
-            self.predelay_sm_ms.set_sample_rate(sample_rate);
+            self.mix_sm.set_sample_rate(sr);
+            self.width_sm.set_sample_rate(sr);
+            self.predelay_sm_ms.set_sample_rate(sr);
+            self.low_damp_sm.set_sample_rate(sr);
+            self.mod_depth_sm.set_sample_rate(sr);
         }
     }
 }
@@ -317,7 +322,6 @@ impl DspProcessor for ReverbProcessor {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
-        let low_damp_coeff = self.low_damp * 0.5;
 
         // BUG-FIX: Normalise the summed output of 8 parallel combs.
         // Without this, the wet signal is ~8× hotter than the dry signal,
@@ -327,10 +331,14 @@ impl DspProcessor for ReverbProcessor {
         self.mix_sm.set_target(self.mix);
         self.width_sm.set_target(self.width);
         self.predelay_sm_ms.set_target(self.predelay_ms);
+        self.low_damp_sm.set_target(self.low_damp.clamp(0.0, 1.0));
+        self.mod_depth_sm.set_target(self.mod_depth.clamp(0.0, 1.0));
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let low_damp_coeff = self.low_damp_sm.next() * 0.5;
+            let mod_depth = self.mod_depth_sm.next();
 
             let wet = self.mix_sm.next();
             let dry = 1.0 - wet;
@@ -373,7 +381,7 @@ impl DspProcessor for ReverbProcessor {
             };
             let t2 = t * (1.0 - t);
             let fast_sin = sign * (16.0 * t2) / (5.0 - 4.0 * t2);
-            let lfo = fast_sin * self.mod_depth * 0.01;
+            let lfo = fast_sin * mod_depth * 0.01;
             self.lfo_phase += lfo_inc;
             // AUD-109 FIX: Use fract() for safe phase wrapping.
             // Previous `if >= 1.0 { -= 1.0 }` fails when lfo_inc > 1.0
@@ -486,6 +494,8 @@ impl DspProcessor for ReverbProcessor {
         self.mix_sm.set_instant(self.mix);
         self.width_sm.set_instant(self.width);
         self.predelay_sm_ms.set_instant(self.predelay_ms);
+        self.low_damp_sm.set_instant(self.low_damp);
+        self.mod_depth_sm.set_instant(self.mod_depth);
     }
 }
 

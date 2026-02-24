@@ -29,6 +29,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::processors::smoothing::SmoothedValue;
 
 /// xorshift64 PRNG — deterministic, fast, zero-alloc.
 struct Rng {
@@ -143,6 +144,11 @@ pub struct NoiseMachineProcessor {
     /// BUG-012 FIX: DC blocker coefficient for brown noise (~5Hz HPF).
     brown_dc_coeff: f32,
     sample_rate: f32,
+    volume_sm: SmoothedValue,
+    stereo_sm: SmoothedValue,
+    pan_sm: SmoothedValue,
+    lp_freq_sm: SmoothedValue,
+    hp_freq_sm: SmoothedValue,
 }
 
 impl NoiseMachineProcessor {
@@ -182,6 +188,11 @@ impl NoiseMachineProcessor {
             hp_coeff: 0.0,
             brown_dc_coeff,
             sample_rate,
+            volume_sm: SmoothedValue::new(sample_rate, 8.0, db_to_linear(-12.0)),
+            stereo_sm: SmoothedValue::new(sample_rate, 10.0, 1.0),
+            pan_sm: SmoothedValue::new(sample_rate, 8.0, 0.0),
+            lp_freq_sm: SmoothedValue::new(sample_rate, 10.0, 20000.0),
+            hp_freq_sm: SmoothedValue::new(sample_rate, 10.0, 20.0),
         };
         proc.update_filters();
         proc
@@ -201,6 +212,11 @@ impl NoiseMachineProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_filters();
+            self.volume_sm.set_sample_rate(sr);
+            self.stereo_sm.set_sample_rate(sr);
+            self.pan_sm.set_sample_rate(sr);
+            self.lp_freq_sm.set_sample_rate(sr);
+            self.hp_freq_sm.set_sample_rate(sr);
         }
     }
 }
@@ -209,17 +225,25 @@ impl DspProcessor for NoiseMachineProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let vol = self.volume_lin;
-        let stereo = self.stereo;
-        let lp = self.lp_coeff;
-        let hp = self.hp_coeff;
-
-        // Pan gains (constant power)
-        let pan_angle = (self.pan + 1.0) * 0.25 * std::f32::consts::PI;
-        let pan_l = pan_angle.cos() * std::f32::consts::SQRT_2;
-        let pan_r = pan_angle.sin() * std::f32::consts::SQRT_2;
+        self.volume_sm.set_target(self.volume_lin.max(0.0));
+        self.stereo_sm.set_target(self.stereo.clamp(0.0, 1.0));
+        self.pan_sm.set_target(self.pan.clamp(-1.0, 1.0));
+        self.lp_freq_sm.set_target(self.lp_freq.clamp(200.0, 20000.0));
+        self.hp_freq_sm.set_target(self.hp_freq.clamp(20.0, 5000.0));
 
         for i in 0..len {
+            let vol = self.volume_sm.next();
+            let stereo = self.stereo_sm.next();
+            let pan = self.pan_sm.next();
+            let lp_freq = self.lp_freq_sm.next();
+            let hp_freq = self.hp_freq_sm.next().min(lp_freq - 1.0).max(20.0);
+            let lp = (1.0 - (-std::f32::consts::TAU * lp_freq / self.sample_rate).exp())
+                .clamp(0.0, 1.0);
+            let hp = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
+            let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
+            let pan_l = pan_angle.cos() * std::f32::consts::SQRT_2;
+            let pan_r = pan_angle.sin() * std::f32::consts::SQRT_2;
+
             // Generate L channel noise
             let mut raw_l = Self::generate_sample_static(
                 self.noise_type,
@@ -342,6 +366,11 @@ impl DspProcessor for NoiseMachineProcessor {
         self.hp_state_r = 0.0;
         self.hp_prev_in_l = 0.0;
         self.hp_prev_in_r = 0.0;
+        self.volume_sm.set_instant(self.volume_lin.max(0.0));
+        self.stereo_sm.set_instant(self.stereo.clamp(0.0, 1.0));
+        self.pan_sm.set_instant(self.pan.clamp(-1.0, 1.0));
+        self.lp_freq_sm.set_instant(self.lp_freq.clamp(200.0, 20000.0));
+        self.hp_freq_sm.set_instant(self.hp_freq.clamp(20.0, 5000.0));
     }
 }
 
@@ -423,21 +452,33 @@ mod tests {
         let mut proc = NoiseMachineProcessor::new(44100.0);
         proc.set_param(0, -6.0);
         proc.set_param(2, 0.0); // stereo = 0 => mono
-        let mut l = vec![0.0f32; 1024];
+        let mut l = vec![0.0f32; 4096];
         let mut r = vec![0.0f32; 1024];
+        r.resize(4096, 0.0);
         proc.process_stereo(&mut l, &mut r, 44100.0);
-        let diff: f32 = l.iter().zip(r.iter()).map(|(a, b)| (a - b).abs()).sum();
-        assert!(diff < 0.1, "Mono should be correlated, diff: {diff}");
+        let diff_tail_sum: f32 = l[2048..]
+            .iter()
+            .zip(r[2048..].iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        let diff_tail_mean = diff_tail_sum / (l.len() - 2048) as f32;
+        assert!(
+            diff_tail_mean < 0.001,
+            "Mono tail should be correlated, mean diff: {diff_tail_mean}"
+        );
     }
 
     #[test]
     fn noise_muted_at_minus_60() {
         let mut proc = NoiseMachineProcessor::new(44100.0);
         proc.set_param(0, -60.0);
-        let mut l = vec![0.0f32; 1024];
-        let mut r = vec![0.0f32; 1024];
+        let mut l = vec![0.0f32; 4096];
+        let mut r = vec![0.0f32; 4096];
         proc.process_stereo(&mut l, &mut r, 44100.0);
-        let energy: f32 = l.iter().map(|s| s * s).sum();
-        assert!(energy < 0.001, "Should be silent at -60dB, got: {energy}");
+        let energy_tail: f32 = l[2048..].iter().map(|s| s * s).sum();
+        assert!(
+            energy_tail < 0.001,
+            "Should settle near silent at -60dB, got: {energy_tail}"
+        );
     }
 }

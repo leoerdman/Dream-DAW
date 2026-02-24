@@ -68,6 +68,49 @@ export function safeParamValue(
     return fallback;
 }
 
+export type SurfaceParamRead = {
+    value: number;
+    suffix: string;
+};
+
+export function readSurfaceParam(
+    device: DeviceSlot,
+    names: string | string[],
+    fallback: number,
+    fallbackSuffix = '',
+): SurfaceParamRead {
+    const aliases = Array.isArray(names) ? names : [names];
+    for (const alias of aliases) {
+        const param = device.params.find((p) => p.name.toLowerCase() === alias.toLowerCase());
+        if (param && Number.isFinite(param.value)) {
+            return {
+                value: param.value,
+                suffix: param.suffix ?? '',
+            };
+        }
+    }
+    return { value: fallback, suffix: fallbackSuffix };
+}
+
+export function formatSurfaceParam(
+    param: SurfaceParamRead,
+    decimals?: number,
+): string {
+    let value = param.value;
+    const suffix = (param.suffix ?? '').trim();
+    // Normalize 0..1 percentages for UI cards where runtime reports normalized values.
+    if (suffix === '%' && Math.abs(value) <= 1.0) {
+        value *= 100;
+    }
+    const precision = typeof decimals === 'number'
+        ? decimals
+        : (suffix === 'dB' || suffix === 'Hz' || suffix === 'ms' ? 1 : 0);
+    const valueText = Number.isFinite(value) ? value.toFixed(precision) : '0';
+    if (!suffix) return valueText;
+    if (suffix === '%' || suffix === '°' || suffix === 'x') return `${valueText}${suffix}`;
+    return `${valueText} ${suffix}`;
+}
+
 /**
  * Enterprise title lookup map for internal plugin IDs.
  * Replaces deeply nested ternary chains across all surface files.

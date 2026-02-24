@@ -27,12 +27,9 @@ impl ClipReader {
         if source.is_empty() {
             return 0.0;
         }
-        if pos <= 0.0 {
-            return source[0];
-        }
         let last = (source.len() - 1) as f64;
-        if pos >= last {
-            return source[source.len() - 1];
+        if !(0.0..=last).contains(&pos) {
+            return 0.0;
         }
         let i0 = pos.floor() as usize;
         let i1 = (i0 + 1).min(source.len() - 1);
@@ -43,6 +40,10 @@ impl ClipReader {
     #[inline(always)]
     fn sample_cubic(source: &[f32], pos: f64) -> f32 {
         if source.is_empty() {
+            return 0.0;
+        }
+        let last = (source.len() - 1) as f64;
+        if !(0.0..=last).contains(&pos) {
             return 0.0;
         }
         if source.len() < 4 {

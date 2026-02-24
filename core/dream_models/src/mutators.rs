@@ -153,6 +153,7 @@ pub fn resize_clip(
     clip_id: Uuid,
     new_position: AbsoluteTime,
     new_duration: AbsoluteTime,
+    allow_stretch: bool,
 ) -> Result<(), MutatorError> {
     // Validate duration
     if new_duration.sample_frame < MIN_CLIP_FRAMES {
@@ -176,7 +177,23 @@ pub fn resize_clip(
 
     // Update bounds
     clip.position = new_position;
-    clip.duration = new_duration;
+    let mut next_duration = new_duration.sample_frame;
+
+    // Default resize behavior is TRIM (no stretch): keep playback rate stable
+    // and clamp timeline duration to available source material.
+    //
+    // Shift-resize (allow_stretch=true) preserves legacy/stretch behavior and
+    // allows timeline duration to exceed currently available source region.
+    if !allow_stretch {
+        let source_total_frames = clip
+            .warp_source_duration_frames
+            .max(clip.duration.sample_frame)
+            .max(MIN_CLIP_FRAMES);
+        let available_frames =
+            (source_total_frames - clip.source_offset.sample_frame).max(MIN_CLIP_FRAMES);
+        next_duration = next_duration.min(available_frames);
+    }
+    clip.duration = AbsoluteTime::new(next_duration.max(MIN_CLIP_FRAMES));
 
     // Clamp fades to not exceed the new duration
     let max_fade = (clip.duration.sample_frame / 2).max(0);
@@ -1100,6 +1117,7 @@ mod tests {
             clip_a_id,
             AbsoluteTime::new(0),
             AbsoluteTime::new(44100 * 3),
+            false,
         )
         .unwrap();
 

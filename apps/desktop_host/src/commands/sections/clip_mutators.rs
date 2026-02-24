@@ -68,7 +68,6 @@ use jobs::{
     background_jobs, emit_job_update, finish_job, prune_finished_jobs_locked, set_job_progress,
     start_job, BackgroundJobSnapshot,
 };
-
 include!("clip_mutators/basic_edit_commands.rs");
 include!("clip_mutators/audio_state_commands.rs");
 

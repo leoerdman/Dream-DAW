@@ -27,6 +27,8 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::processors::smoothing::SmoothedValue;
+use crate::zdf::{ZdfMode, ZdfSvf};
 
 pub struct AutoFilterProcessor {
     cutoff_hz: f32,
@@ -47,16 +49,17 @@ pub struct AutoFilterProcessor {
     lfo_phase: f64,
     env_follower: f32,
     env_coeff: f32,
-    // SVF filter state (per channel)
-    ic1eq_l: f32,
-    ic2eq_l: f32,
-    ic1eq_r: f32,
-    ic2eq_r: f32,
+    // ZDF filter state (per channel)
+    zdf_l: ZdfSvf,
+    zdf_r: ZdfSvf,
     // Random S&H state — xorshift32 PRNG for deterministic, high-quality randomness
     sh_value: f32,
     sh_phase: f32,
     sh_rng_state: u32,
     sample_rate: f32,
+    resonance_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
+    drive_sm: SmoothedValue,
 }
 
 impl AutoFilterProcessor {
@@ -81,14 +84,15 @@ impl AutoFilterProcessor {
             lfo_phase: 0.0,
             env_follower: 0.0,
             env_coeff,
-            ic1eq_l: 0.0,
-            ic2eq_l: 0.0,
-            ic1eq_r: 0.0,
-            ic2eq_r: 0.0,
+            zdf_l: ZdfSvf::new(sample_rate, 1000.0, 0.25, ZdfMode::Lowpass),
+            zdf_r: ZdfSvf::new(sample_rate, 1000.0, 0.25, ZdfMode::Lowpass),
             sh_value: 0.0,
             sh_phase: 0.0,
             sh_rng_state: 0xDEAD_BEEF,
             sample_rate,
+            resonance_sm: SmoothedValue::new(sample_rate, 8.0, 0.25),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            drive_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
         }
     }
 
@@ -101,6 +105,11 @@ impl AutoFilterProcessor {
             self.sample_rate = sr;
             self.update_env_coeff();
             self.cutoff_smooth_coeff = (-1.0 / (0.003 * sr)).exp();
+            self.zdf_l.set_sample_rate(sr);
+            self.zdf_r.set_sample_rate(sr);
+            self.resonance_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
+            self.drive_sm.set_sample_rate(sr);
         }
     }
 
@@ -155,36 +164,13 @@ impl AutoFilterProcessor {
         }
     }
 
-    /// SVF process (Cytomic/Andy Simper topology).
-    #[inline]
-    fn svf_process(
-        signal: f32,
-        cutoff: f32,
-        q: f32,
-        sr: f32,
-        ic1eq: &mut f32,
-        ic2eq: &mut f32,
-        filter_type: u8,
-    ) -> f32 {
-        let g = (std::f32::consts::PI * cutoff / sr).tan();
-        let k = 1.0 / q;
-        let a1 = 1.0 / (1.0 + g * (g + k));
-        let a2 = g * a1;
-        let a3 = g * a2;
-
-        let v3 = signal - *ic2eq;
-        let v1 = a1 * *ic1eq + a2 * v3;
-        let v2 = *ic2eq + a2 * *ic1eq + a3 * v3;
-
-        *ic1eq = 2.0 * v1 - *ic1eq;
-        *ic2eq = 2.0 * v2 - *ic2eq;
-
+    #[inline(always)]
+    fn zdf_mode(filter_type: u8) -> ZdfMode {
         match filter_type {
-            0 => v2,                   // LP
-            1 => signal - k * v1 - v2, // HP
-            2 => v1,                   // BP
-            3 => signal - k * v1,      // Notch
-            _ => v2,
+            1 => ZdfMode::Highpass,
+            2 => ZdfMode::Bandpass,
+            3 => ZdfMode::Notch,
+            _ => ZdfMode::Lowpass,
         }
     }
 }
@@ -198,15 +184,19 @@ impl DspProcessor for AutoFilterProcessor {
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
         let lfo_inc = self.lfo_rate as f64 / sr as f64;
-        let ft = self.filter_type;
-        let q = 0.5 + self.resonance * 15.0; // 0.5 to ~15
-        let mix = self.mix;
+        let zdf_mode = Self::zdf_mode(self.filter_type);
+        self.resonance_sm.set_target(self.resonance.clamp(0.0, 1.0));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
+        self.drive_sm.set_target(self.drive_lin.max(0.0));
 
         let max_range = (20000.0_f32 / 20.0).log2(); // ≈ 9.97
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let zdf_res = (self.resonance_sm.next() * 0.98).clamp(0.0, 0.98);
+            let mix = self.mix_sm.next();
+            let drive = self.drive_sm.next();
 
             // Envelope follower
             let peak = dry_l.abs().max(dry_r.abs());
@@ -237,48 +227,23 @@ impl DspProcessor for AutoFilterProcessor {
             .clamp(20.0, nyq_safe_max);
 
             // Drive
-            let driven_l = (dry_l * self.drive_lin).tanh();
-            let driven_r = (dry_r * self.drive_lin).tanh();
+            let driven_l = (dry_l * drive).tanh();
+            let driven_r = (dry_r * drive).tanh();
 
-            // SVF
-            let wet_l = Self::svf_process(
-                driven_l,
-                mod_cutoff,
-                q,
-                sr,
-                &mut self.ic1eq_l,
-                &mut self.ic2eq_l,
-                ft,
-            );
-            let wet_r = Self::svf_process(
-                driven_r,
-                mod_cutoff,
-                q,
-                sr,
-                &mut self.ic1eq_r,
-                &mut self.ic2eq_r,
-                ft,
-            );
+            // ZDF/TPT filter core
+            self.zdf_l.set_mode(zdf_mode);
+            self.zdf_r.set_mode(zdf_mode);
+            self.zdf_l.set_params(mod_cutoff, zdf_res);
+            self.zdf_r.set_params(mod_cutoff, zdf_res);
+            let wet_l = self.zdf_l.process(driven_l);
+            let wet_r = self.zdf_r.process(driven_r);
 
             // BUG-3 FIX: Clamp output to prevent runaway levels from
             // high resonance + drive combinations (self-oscillation guard).
             left[i] = (dry_l * (1.0 - mix) + wet_l * mix).clamp(-8.0, 8.0);
             right[i] = (dry_r * (1.0 - mix) + wet_r * mix).clamp(-8.0, 8.0);
 
-            // BUG-AUD-107 FIX: Flush denormals in SVF integrator and envelope
-            // follower states to prevent CPU stalls during silence.
-            if self.ic1eq_l.abs() < 1.0e-20 {
-                self.ic1eq_l = 0.0;
-            }
-            if self.ic2eq_l.abs() < 1.0e-20 {
-                self.ic2eq_l = 0.0;
-            }
-            if self.ic1eq_r.abs() < 1.0e-20 {
-                self.ic1eq_r = 0.0;
-            }
-            if self.ic2eq_r.abs() < 1.0e-20 {
-                self.ic2eq_r = 0.0;
-            }
+            // Flush denormals in envelope follower state.
             if self.env_follower < 1.0e-20 {
                 self.env_follower = 0.0;
             }
@@ -314,13 +279,14 @@ impl DspProcessor for AutoFilterProcessor {
     fn reset(&mut self) {
         self.lfo_phase = 0.0;
         self.env_follower = 0.0;
-        self.ic1eq_l = 0.0;
-        self.ic2eq_l = 0.0;
-        self.ic1eq_r = 0.0;
-        self.ic2eq_r = 0.0;
+        self.zdf_l.reset();
+        self.zdf_r.reset();
         self.sh_value = 0.0;
         self.sh_phase = 0.0;
         self.sh_rng_state = 0xDEAD_BEEF;
+        self.resonance_sm.set_instant(self.resonance.clamp(0.0, 1.0));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
+        self.drive_sm.set_instant(self.drive_lin.max(0.0));
     }
 }
 

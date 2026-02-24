@@ -23,6 +23,8 @@
 
 use crate::biquad::{BiquadCoeffs, BiquadFilter, BiquadType};
 use crate::dsp_processor::DspProcessor;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::processors::smoothing::SmoothedValue;
 
 const NUM_BANDS: usize = 8;
 
@@ -86,11 +88,12 @@ pub struct EqProcessor {
     /// Output gain in dB (-24 to +24)
     output_gain_db: f32,
     output_gain_lin: f32,
+    output_gain_sm: SmoothedValue,
 }
 
 impl EqProcessor {
     pub fn new(sample_rate: f64) -> Self {
-        let safe_sr = crate::processors::sanitize_sample_rate(sample_rate as f32) as f64;
+        let safe_sr = sanitize_sample_rate(sample_rate as f32) as f64;
         let bands = std::array::from_fn(|i| {
             let gain = 0.0;
             EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], safe_sr)
@@ -100,14 +103,16 @@ impl EqProcessor {
             sample_rate: safe_sr,
             output_gain_db: 0.0,
             output_gain_lin: 1.0,
+            output_gain_sm: SmoothedValue::new(safe_sr as f32, 8.0, 1.0),
         }
     }
 
     #[inline]
     fn sync_sample_rate(&mut self, sample_rate: f32) {
-        let sr = crate::processors::sanitize_sample_rate(sample_rate) as f64;
+        let sr = sanitize_sample_rate(sample_rate) as f64;
         if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
+            self.output_gain_sm.set_sample_rate(sr as f32);
             for band in &mut self.bands {
                 band.update(sr);
             }
@@ -130,12 +135,11 @@ impl DspProcessor for EqProcessor {
             band.filter_r.process_buffer(right_buf);
         }
         // Output gain
-        if (self.output_gain_lin - 1.0).abs() > 0.0001 {
-            let g = self.output_gain_lin;
-            for i in 0..len {
-                left_buf[i] *= g;
-                right_buf[i] *= g;
-            }
+        self.output_gain_sm.set_target(self.output_gain_lin.max(0.0));
+        for i in 0..len {
+            let g = self.output_gain_sm.next();
+            left_buf[i] *= g;
+            right_buf[i] *= g;
         }
         // Numeric runaway guard only for extreme boost stacks / pathological automation.
         // Transparent in normal operating range and bounded in stress scenarios.
@@ -162,8 +166,7 @@ impl DspProcessor for EqProcessor {
         // Param 32 = output gain
         if idx == 32 {
             self.output_gain_db = value.clamp(-24.0, 24.0);
-            // BUG-032 FIX: exp() is ~5x faster than powf() for dB→linear.
-            self.output_gain_lin = (self.output_gain_db * 0.11512925_f32).exp();
+            self.output_gain_lin = db_to_linear(self.output_gain_db);
             return;
         }
 
@@ -223,6 +226,7 @@ impl DspProcessor for EqProcessor {
         for band in &mut self.bands {
             band.reset();
         }
+        self.output_gain_sm.set_instant(self.output_gain_lin.max(0.0));
     }
 }
 
@@ -264,14 +268,15 @@ mod tests {
             proc.set_param((b * 4 + 3) as u8, 0.0);
         }
         proc.set_param(32, 6.0); // +6 dB output gain
-        let mut left = vec![0.25f32; 256];
-        let mut right = vec![0.25f32; 256];
+        let mut left = vec![0.25f32; 2048];
+        let mut right = vec![0.25f32; 2048];
         proc.process_stereo(&mut left, &mut right, 44100.0);
         let expected = 0.25 * 10.0_f32.powf(6.0 / 20.0);
+        let tail_avg: f32 = left[1536..].iter().sum::<f32>() / (left.len() - 1536) as f32;
         assert!(
-            (left[100] - expected).abs() < 0.05,
+            (tail_avg - expected).abs() < 0.05,
             "Output gain failed: got {} expected {}",
-            left[100],
+            tail_avg,
             expected
         );
     }

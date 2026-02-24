@@ -1,25 +1,15 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-    VB_W, VB_H, MARGIN_L, MARGIN_R,
-    freqToX, gainToY, isFilterOnlyType,
-    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams, EQ_BAND_COLORS, EQ_RANDOM_POINT_COLORS,
+    VB_W, VB_H, MARGIN_L, MARGIN_R, freqToX, gainToY, isFilterOnlyType,
+    buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams, EQ_BAND_COLORS, EQ_RANDOM_POINT_COLORS
 } from '@/widgets/DeviceRack/lib/eqMath';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
 import { useEqSurfaceHandlers } from '@/widgets/DeviceRack/model/useEqSurfaceHandlers';
-import {
-    EqBandContextMenu,
-    EqBandOverlays,
-    type EqContextMenu,
-} from './PluginGuiSurfaceEqOverlays';
+import { EqBandContextMenu, EqBandOverlays, type EqContextMenu } from './PluginGuiSurfaceEqOverlays';
 import { PluginGuiSurfaceEqControls } from './PluginGuiSurfaceEqControls';
 import { PluginGuiSurfaceEqBandStrip } from './PluginGuiSurfaceEqBandStrip';
-import {
-    EQ_FREQ_LABELS,
-    EQ_FREQ_SUB_LINES,
-    pluginPanelCardBaseStyle,
-    pluginPanelMetaStyle,
-} from './PluginGuiSurfaceEqLayout';
+import { EQ_FREQ_LABELS, EQ_FREQ_SUB_LINES, pluginPanelCardBaseStyle, pluginPanelMetaStyle } from './PluginGuiSurfaceEqLayout';
 
 type Props = {
     device: DeviceSlot;
@@ -108,14 +98,8 @@ export function PluginGuiSurfaceEq({
 
     const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
-    const { curvePath, fillPath } = useMemo(
-        () => buildEqCurvePaths(bands, projectSampleRate),
-        [bands, projectSampleRate],
-    );
-    const spectrumPath = useMemo(
-        () => (eqSpectrumEnabled ? buildSpectrumPath(spectrumData) : null),
-        [eqSpectrumEnabled, spectrumData],
-    );
+    const { curvePath, fillPath } = useMemo(() => buildEqCurvePaths(bands, projectSampleRate), [bands, projectSampleRate]);
+    const spectrumPath = useMemo(() => (eqSpectrumEnabled ? buildSpectrumPath(spectrumData) : null), [eqSpectrumEnabled, spectrumData]);
 
     const bi = activeBandIdx;
     const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);
@@ -124,7 +108,7 @@ export function PluginGuiSurfaceEq({
     const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
-    const curveColor = 'var(--color-effect-eq)';
+    const curveColor = activeBand?.color ?? 'var(--color-effect-eq)';
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
     const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
         eqSurfaceRef,

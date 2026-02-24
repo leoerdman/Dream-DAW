@@ -8,6 +8,19 @@ struct AddedPluginOutcome {
     plugin_uid: String,
 }
 
+fn is_runtime_unsupported_external_id(plugin_id: &str) -> bool {
+    let trimmed = plugin_id.trim().trim_end_matches(['/', '\\']);
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("au:")
+        || lower.starts_with("au://")
+        || lower.ends_with(".component")
+        || lower.ends_with(".au")
+        || lower.starts_with("vst2:")
+        || lower.ends_with(".vst")
+        || lower.starts_with("clap:")
+        || lower.ends_with(".clap")
+}
+
 fn add_plugin_to_track_impl(
     payload: AddPluginToTrackPayload,
     project_state: tauri::State<'_, ProjectState>,
@@ -119,7 +132,8 @@ fn add_plugin_to_track_impl(
         let runtime_unsupported = matches!(
             external_plugin_format,
             Some(PluginFormat::AudioUnit | PluginFormat::CLAP | PluginFormat::VST2)
-        );
+        ) || (external_plugin_format.is_none()
+            && is_runtime_unsupported_external_id(&effective_plugin_id));
         if runtime_unsupported {
             log::warn!(
                 "[IPC] add_plugin_to_track_cmd: inserted unsupported runtime plugin '{}' (id='{}'): {}",

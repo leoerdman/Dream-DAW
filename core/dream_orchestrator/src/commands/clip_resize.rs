@@ -15,6 +15,7 @@ pub struct ResizeClipCommand {
     pub clip_id: Uuid,
     pub new_position_frames: i64,
     pub new_duration_frames: i64,
+    pub allow_stretch: bool,
 }
 
 impl ResizeClipCommand {
@@ -22,6 +23,7 @@ impl ResizeClipCommand {
         clip_id: &str,
         new_position_frames: i64,
         new_duration_frames: i64,
+        allow_stretch: bool,
     ) -> OrchestratorResult<Self> {
         let uuid = Uuid::parse_str(clip_id).map_err(|e| OrchestratorError::InvalidId {
             field: "clip_id",
@@ -32,6 +34,7 @@ impl ResizeClipCommand {
             clip_id: uuid,
             new_position_frames,
             new_duration_frames,
+            allow_stretch,
         })
     }
 }
@@ -45,8 +48,13 @@ impl Command for ResizeClipCommand {
         let new_position = AbsoluteTime::new(self.new_position_frames);
         let new_duration = AbsoluteTime::new(self.new_duration_frames);
 
-        if let Err(audio_err) =
-            mutators::resize_clip(&mut project, self.clip_id, new_position, new_duration)
+        if let Err(audio_err) = mutators::resize_clip(
+            &mut project,
+            self.clip_id,
+            new_position,
+            new_duration,
+            self.allow_stretch,
+        )
         {
             // Fall back to MIDI clip resize
             if mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)

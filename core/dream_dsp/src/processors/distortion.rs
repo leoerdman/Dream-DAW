@@ -27,6 +27,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate, DEFAULT_SAMPLE_RATE};
+use crate::processors::smoothing::SmoothedValue;
 
 pub struct DistortionProcessor {
     drive: f32,
@@ -49,6 +50,12 @@ pub struct DistortionProcessor {
     cab_state_l: f32,
     cab_state_r: f32,
     sample_rate: f32,
+    drive_sm: SmoothedValue,
+    tone_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
+    output_sm: SmoothedValue,
+    tightness_sm: SmoothedValue,
+    bias_sm: SmoothedValue,
 }
 
 impl DistortionProcessor {
@@ -73,6 +80,12 @@ impl DistortionProcessor {
             cab_state_l: 0.0,
             cab_state_r: 0.0,
             sample_rate,
+            drive_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
+            tone_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            output_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            tightness_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            bias_sm: SmoothedValue::new(sample_rate, 10.0, 0.0),
         }
     }
 
@@ -122,35 +135,45 @@ impl DspProcessor for DistortionProcessor {
         let sr = sanitize_sample_rate(sample_rate);
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
+            self.drive_sm.set_sample_rate(sr);
+            self.tone_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
+            self.output_sm.set_sample_rate(sr);
+            self.tightness_sm.set_sample_rate(sr);
+            self.bias_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
-        let gain = 1.0 + self.drive * 30.0; // up to 31x
         let mode = self.mode;
-        let bias = self.bias;
-        let out = self.output_lin;
-        let mix = self.mix;
-
-        // HP coefficient for tightness (50–500Hz based on tightness)
-        // BUG-4 FIX: Use exact exponential coefficient for first-order HP:
-        //   α = e^(-2πf/sr)  →  y[n] = α * (y[n-1] + x[n] - x[n-1])
-        let hp_freq = 50.0 + self.tightness * 450.0;
-        let hp_c = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
-
-        // Tone: tilt EQ (LP amount) — exact one-pole coefficient
-        let tone_c = (1.0
-            - (-std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).exp())
-        .clamp(0.0, 1.0);
-
-        // Cabinet simulation LP (~4.5kHz) — exact one-pole coefficient
+        // Cabinet simulation LP (~4.5kHz) — exact one-pole coefficient.
         let cab_c = if self.cab_sim {
             (1.0 - (-std::f32::consts::TAU * 4500.0 / self.sample_rate).exp()).clamp(0.0, 1.0)
         } else {
             1.0 // passthrough
         };
+        self.drive_sm.set_target(self.drive.clamp(0.0, 1.0));
+        self.tone_sm.set_target(self.tone.clamp(0.0, 1.0));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
+        self.output_sm.set_target(self.output_lin.max(0.0));
+        self.tightness_sm.set_target(self.tightness.clamp(0.0, 1.0));
+        self.bias_sm.set_target(self.bias.clamp(-1.0, 1.0));
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let drive = self.drive_sm.next();
+            let tone = self.tone_sm.next();
+            let mix = self.mix_sm.next();
+            let out = self.output_sm.next();
+            let tightness = self.tightness_sm.next();
+            let bias = self.bias_sm.next();
+
+            // Keep coefficient updates sample-accurate to avoid zipper artifacts.
+            let gain = 1.0 + drive * 30.0; // up to 31x
+            let hp_freq = 50.0 + tightness * 450.0;
+            let hp_c = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
+            let tone_c = (1.0
+                - (-std::f32::consts::TAU * (1000.0 + tone * 19000.0) / self.sample_rate).exp())
+            .clamp(0.0, 1.0);
 
             // BUG-4 FIX: Correct first-order HP filter for bass tightness.
             // Standard form: y[n] = α * (y[n-1] + x[n] - x[n-1])
@@ -236,6 +259,12 @@ impl DspProcessor for DistortionProcessor {
         self.tone_state_r = 0.0;
         self.cab_state_l = 0.0;
         self.cab_state_r = 0.0;
+        self.drive_sm.set_instant(self.drive.clamp(0.0, 1.0));
+        self.tone_sm.set_instant(self.tone.clamp(0.0, 1.0));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
+        self.output_sm.set_instant(self.output_lin.max(0.0));
+        self.tightness_sm.set_instant(self.tightness.clamp(0.0, 1.0));
+        self.bias_sm.set_instant(self.bias.clamp(-1.0, 1.0));
     }
 }
 

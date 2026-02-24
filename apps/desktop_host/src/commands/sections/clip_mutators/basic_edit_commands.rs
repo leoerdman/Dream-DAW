@@ -76,6 +76,7 @@ async fn resize_clip_cmd(
     clip_id: String,
     new_position_frames: i64,
     new_duration_frames: i64,
+    allow_stretch: Option<bool>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -88,6 +89,7 @@ async fn resize_clip_cmd(
         &clip_id,
         new_position_frames,
         new_duration_frames,
+        allow_stretch.unwrap_or(false),
     )
     .map_err(|e| e.to_string())?;
 
@@ -109,6 +111,7 @@ async fn resize_clip_with_deltas_cmd(
     clip_id: String,
     new_position_frames: i64,
     new_duration_frames: i64,
+    allow_stretch: Option<bool>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -121,6 +124,7 @@ async fn resize_clip_with_deltas_cmd(
         &clip_id,
         new_position_frames,
         new_duration_frames,
+        allow_stretch.unwrap_or(false),
     )
     .map_err(|e| e.to_string())?;
 

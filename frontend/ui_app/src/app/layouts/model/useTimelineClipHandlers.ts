@@ -24,7 +24,7 @@ type Args = {
 type Result = {
     handleDoubleClickTrack: (trackIndex: number, beat: number) => void;
     handleClipMove: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number) => void;
+    handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => void;
     handleClipFades: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     handleOpenMidiClip: (clipId: string) => void;
 };
@@ -98,16 +98,16 @@ export function useTimelineClipHandlers({
             });
     }, [applyProjectDeltas, projectBpm, projectSampleRate, selectedClipIds, timelineClipsForView, trackCountRaw, transportBpm]);
 
-    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
+    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
         const bpm = projectBpm || transportBpm || 120;
         const sampleRate = projectSampleRate;
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
         const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate));
 
-        void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames)
+        void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)
             .then(async (response) => {
                 await applyProjectDeltas(response.deltas, 'clip-resize');
-                console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
+                console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats, allowStretch });
             })
             .catch((err) => {
                 console.error('[DawShell] resizeClip failed:', err);

@@ -6,7 +6,7 @@ export type TimelineCommand =
     | { type: 'clip-select'; clipId: string; isShift: boolean; isCtrl: boolean }
     | { type: 'clip-selection'; clipIds: string[] }
     | { type: 'clip-move'; clipId: string; beat: number; trackIndex: number }
-    | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number }
+    | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number; allowStretch: boolean }
     | { type: 'track-dblclick'; trackIndex: number; beat: number }
     | { type: 'clip-dblclick'; clipId: string; trackIndex: number }
     | { type: 'marquee-start' }

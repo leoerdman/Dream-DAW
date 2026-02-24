@@ -9,10 +9,17 @@ use dream_models::time::AbsoluteTime;
 use crate::context::{Command, OrchestratorContext};
 use crate::error::{OrchestratorError, OrchestratorResult};
 
+fn source_to_timeline_frames(source_frames: i64, source_sr: f64, timeline_sr: f64) -> f64 {
+    let src = source_frames.max(1) as f64;
+    let safe_source_sr = source_sr.max(1.0);
+    let safe_timeline_sr = timeline_sr.max(1.0);
+    src * (safe_timeline_sr / safe_source_sr)
+}
+
 /// Set warp state on an audio clip and recalculate timeline duration.
 ///
 /// When warping is enabled, the clip's timeline duration is computed from:
-///   `source_frames * (warp_base_bpm / project_bpm)`
+///   `source_timeline_frames * (warp_base_bpm / project_bpm)`
 ///
 /// When warping is disabled, duration reverts to raw source length
 /// adjusted by pitch shift.
@@ -59,16 +66,21 @@ impl Command for SetClipWarpCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
         let project_bpm = project.pulse_map.initial_bpm().clamp(20.0, 999.0);
-        let project_sr = project.sample_rate.max(1.0);
+        let timeline_sr = project.sample_rate.max(1.0);
         let mut updated = false;
 
         for track in &mut project.tracks {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
+                let source_audio = ctx.clip_pool.get_clip_audio(&clip.file_path);
+                let source_sr = source_audio
+                    .as_ref()
+                    .map(|audio| audio.sample_rate.max(1) as f64)
+                    .unwrap_or(timeline_sr);
+
                 // Lazily initialize warp_source_duration_frames from clip pool
                 if clip.warp_source_duration_frames <= 0 {
-                    let source_frames = ctx
-                        .clip_pool
-                        .get_clip_audio(&clip.file_path)
+                    let source_frames = source_audio
+                        .as_ref()
                         .map(|audio| audio.num_frames.max(1) as i64)
                         .unwrap_or(clip.duration.sample_frame.max(1));
                     clip.warp_source_duration_frames = source_frames;
@@ -79,15 +91,21 @@ impl Command for SetClipWarpCommand {
                 clip.warp_base_bpm = self.warp_base_bpm;
 
                 if clip.is_warped {
-                    // timeline_frames = source_frames * (warp_base_bpm / project_bpm)
+                    // timeline_frames = source_timeline_frames * (warp_base_bpm / project_bpm)
                     // 120 BPM clip at 140 BPM project: 120/140 ≈ 0.857 → SHRINKS (correct!)
-                    let source_len = clip.warp_source_duration_frames.max(1) as f64;
-                    let next_len = (source_len * (clip.warp_base_bpm / project_bpm)).round() as i64;
+                    let source_len_timeline = source_to_timeline_frames(
+                        clip.warp_source_duration_frames,
+                        source_sr,
+                        timeline_sr,
+                    );
+                    let next_len =
+                        (source_len_timeline * (clip.warp_base_bpm / project_bpm)).round() as i64;
                     clip.duration = AbsoluteTime::new(next_len.max(1));
 
                     // Initialize default warp markers if empty
                     if clip.warp_markers.is_empty() {
-                        let source_dur_sec = clip.warp_source_duration_frames as f64 / project_sr;
+                        let source_dur_sec =
+                            clip.warp_source_duration_frames.max(1) as f64 / source_sr;
                         let source_beats = source_dur_sec * (self.warp_base_bpm / 60.0);
                         clip.warp_markers
                             .push(dream_models::project::WarpMarkerPoint {
@@ -102,8 +120,12 @@ impl Command for SetClipWarpCommand {
                     }
                 } else {
                     let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
-                    let new_frames = (clip.warp_source_duration_frames.max(1) as f64
-                        / pitch_multiplier)
+                    let source_len_timeline = source_to_timeline_frames(
+                        clip.warp_source_duration_frames,
+                        source_sr,
+                        timeline_sr,
+                    );
+                    let new_frames = (source_len_timeline / pitch_multiplier)
                         .round() as i64;
                     clip.duration = AbsoluteTime::new(new_frames.max(1));
                     clip.warp_markers.clear();

@@ -91,7 +91,7 @@ export function useTimelineCommandBusBindings({
                     callbacksRef.current.onClipMove?.(command.clipId, command.beat, command.trackIndex);
                     break;
                 case 'clip-resize':
-                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration);
+                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration, command.allowStretch);
                     break;
                 case 'track-dblclick':
                     callbacksRef.current.onDoubleClickTrack?.(command.trackIndex, command.beat);
@@ -146,7 +146,9 @@ export function useTimelineEngineCommandBindings({
         engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
         engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
         engine.onClipBoxSelection = (clipIds) => commandBusRef.current.emit({ type: 'clip-selection', clipIds });
-        engine.onClipResize = (clipId, newStartBeat, newDuration) => commandBusRef.current.emit({ type: 'clip-resize', clipId, startBeat: newStartBeat, duration: newDuration });
+        engine.onClipResize = (clipId, newStartBeat, newDuration, allowStretch) => {
+            commandBusRef.current.emit({ type: 'clip-resize', clipId, startBeat: newStartBeat, duration: newDuration, allowStretch });
+        };
         engine.onDoubleClickTrack = (trackIndex, beat) => commandBusRef.current.emit({ type: 'track-dblclick', trackIndex, beat });
         engine.onDoubleClickClip = (clipId, trackIndex) => commandBusRef.current.emit({ type: 'clip-dblclick', clipId, trackIndex });
         engine.onTrackSelect = (trackIndex) => commandBusRef.current.emit({ type: 'track-select', trackIndex });

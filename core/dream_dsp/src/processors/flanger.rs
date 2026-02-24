@@ -26,6 +26,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 const MAX_DELAY_SAMPLES: usize = 2048;
 const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
@@ -59,6 +60,9 @@ pub struct FlangerProcessor {
     prev_phase_l: f32,
     prev_phase_r: f32,
     sh_rng: u64,
+    depth_sm: SmoothedValue,
+    feedback_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
 }
 
 impl FlangerProcessor {
@@ -89,6 +93,9 @@ impl FlangerProcessor {
             prev_phase_l: 0.0,
             prev_phase_r: 0.0,
             sh_rng: 0xDEAD_BEEF_CAFE_1234,
+            depth_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            feedback_sm: SmoothedValue::new(sample_rate, 10.0, 0.4),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
         };
         proc.update_damp();
         proc
@@ -149,15 +156,24 @@ impl DspProcessor for FlangerProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_damp();
+            self.depth_sm.set_sample_rate(sr);
+            self.feedback_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
         let lfo_inc = self.rate as f64 / sr as f64;
         let base = self.base_delay_ms * 0.001 * sr;
-        let mod_depth = base * self.depth;
         let dc = self.damp_coeff;
+        self.depth_sm.set_target(self.depth.clamp(0.0, 1.0));
+        self.feedback_sm.set_target(self.feedback.clamp(-0.95, 0.95));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
 
         for i in 0..len {
+            let depth = self.depth_sm.next();
+            let feedback = self.feedback_sm.next();
+            let mix = self.mix_sm.next();
+            let mod_depth = base * depth;
             let phase_l = (self.lfo_phase as f32).fract();
             let phase_r = (self.lfo_phase as f32 + self.stereo_offset).fract();
 
@@ -179,12 +195,12 @@ impl DspProcessor for FlangerProcessor {
             // Sub-sample delays cause read_interp to read from ~write_pos,
             // producing harsh metallic self-oscillation artifacts.
             let delay_l = if self.tz_mode {
-                (base + lfo_l * (base * self.depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
+                (base + lfo_l * (base * depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_l * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };
             let delay_r = if self.tz_mode {
-                (base + lfo_r * (base * self.depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
+                (base + lfo_r * (base * depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };
@@ -203,8 +219,8 @@ impl DspProcessor for FlangerProcessor {
             if self.damp_state_r.abs() < 1.0e-20 {
                 self.damp_state_r = 0.0;
             }
-            self.buf_l[self.write_pos] = dry_l + self.damp_state_l * self.feedback;
-            self.buf_r[self.write_pos] = dry_r + self.damp_state_r * self.feedback;
+            self.buf_l[self.write_pos] = dry_l + self.damp_state_l * feedback;
+            self.buf_r[self.write_pos] = dry_r + self.damp_state_r * feedback;
 
             // Read
             let wet_l = Self::read_interp(&self.buf_l, self.write_pos, delay_l);
@@ -213,8 +229,8 @@ impl DspProcessor for FlangerProcessor {
             self.fb_l = wet_l;
             self.fb_r = wet_r;
 
-            left[i] = dry_l * (1.0 - self.mix) + wet_l * self.mix;
-            right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
+            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
+            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
 
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
@@ -256,6 +272,9 @@ impl DspProcessor for FlangerProcessor {
         self.prev_phase_l = 0.0;
         self.prev_phase_r = 0.0;
         self.sh_rng = 0xDEAD_BEEF_CAFE_1234;
+        self.depth_sm.set_instant(self.depth.clamp(0.0, 1.0));
+        self.feedback_sm.set_instant(self.feedback.clamp(-0.95, 0.95));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
     }
 }
 

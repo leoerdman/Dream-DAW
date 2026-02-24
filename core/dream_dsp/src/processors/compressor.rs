@@ -30,6 +30,10 @@ use crate::dsp_processor::DspProcessor;
 use crate::processors::sanitize_sample_rate;
 use crate::processors::smoothing::SmoothedValue;
 
+const MAX_LOOKAHEAD_SAMPLES: usize = 2048;
+const LOOKAHEAD_MASK: usize = MAX_LOOKAHEAD_SAMPLES - 1;
+const DEFAULT_LOOKAHEAD_MS: f32 = 1.0;
+
 pub struct CompressorProcessor {
     threshold_db: f32,
     ratio: f32,
@@ -58,6 +62,13 @@ pub struct CompressorProcessor {
     sample_rate: f32,
     threshold_sm_db: SmoothedValue,
     mix_sm: SmoothedValue,
+    // Fixed internal lookahead (pre-allocated; zero RT allocs).
+    lookahead_ms: f32,
+    lookahead_samples: usize,
+    la_pos: usize,
+    la_filled: usize,
+    la_buf_l: [f32; MAX_LOOKAHEAD_SAMPLES],
+    la_buf_r: [f32; MAX_LOOKAHEAD_SAMPLES],
 }
 
 impl CompressorProcessor {
@@ -87,6 +98,12 @@ impl CompressorProcessor {
             sample_rate,
             threshold_sm_db: SmoothedValue::new(sample_rate, 10.0, -18.0),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            lookahead_ms: DEFAULT_LOOKAHEAD_MS,
+            lookahead_samples: 0,
+            la_pos: 0,
+            la_filled: 0,
+            la_buf_l: [0.0; MAX_LOOKAHEAD_SAMPLES],
+            la_buf_r: [0.0; MAX_LOOKAHEAD_SAMPLES],
         };
         proc.update_coefficients();
         proc.update_sc_hpf();
@@ -112,6 +129,8 @@ impl CompressorProcessor {
             } else {
                 0.0 // Instant release
             };
+            self.lookahead_samples = ((self.lookahead_ms * 0.001 * sr) as usize)
+                .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
         }
     }
 
@@ -170,8 +189,7 @@ impl CompressorProcessor {
 
     /// Soft-knee gain computation.
     #[inline]
-    fn compute_gain_reduction(&self, input_db: f32) -> f32 {
-        let threshold = self.threshold_db;
+    fn compute_gain_reduction(&self, input_db: f32, threshold: f32) -> f32 {
         let ratio = self.ratio;
         let knee = self.knee_db;
         if knee <= 1.0e-6 {
@@ -219,7 +237,9 @@ impl DspProcessor for CompressorProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            self.threshold_db = self.threshold_sm_db.next();
+            self.la_buf_l[self.la_pos] = dry_l;
+            self.la_buf_r[self.la_pos] = dry_r;
+            let threshold_db = self.threshold_sm_db.next();
             let mix = self.mix_sm.next();
             let dry_mix = 1.0 - mix;
 
@@ -266,11 +286,25 @@ impl DspProcessor for CompressorProcessor {
             }
 
             // Gain computation (with soft knee)
-            let gain_db = self.compute_gain_reduction(self.envelope_db);
+            let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
             let gain = Self::db_to_linear(gain_db) * makeup;
 
-            left[i] = dry_l * dry_mix + dry_l * gain * mix;
-            right[i] = dry_r * dry_mix + dry_r * gain * mix;
+            let read_pos =
+                (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
+            let delayed_l = if self.la_filled < self.lookahead_samples {
+                dry_l
+            } else {
+                self.la_buf_l[read_pos]
+            };
+            let delayed_r = if self.la_filled < self.lookahead_samples {
+                dry_r
+            } else {
+                self.la_buf_r[read_pos]
+            };
+            left[i] = delayed_l * dry_mix + delayed_l * gain * mix;
+            right[i] = delayed_r * dry_mix + delayed_r * gain * mix;
+            self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
+            self.la_filled = (self.la_filled + 1).min(self.lookahead_samples);
         }
     }
 
@@ -299,7 +333,9 @@ impl DspProcessor for CompressorProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            self.threshold_db = self.threshold_sm_db.next();
+            self.la_buf_l[self.la_pos] = dry_l;
+            self.la_buf_r[self.la_pos] = dry_r;
+            let threshold_db = self.threshold_sm_db.next();
             let mix = self.mix_sm.next();
             let dry_mix = 1.0 - mix;
 
@@ -357,11 +393,25 @@ impl DspProcessor for CompressorProcessor {
                 self.sc_hp_state_r = 0.0;
             }
 
-            let gain_db = self.compute_gain_reduction(self.envelope_db);
+            let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
             let gain = Self::db_to_linear(gain_db) * makeup;
 
-            left[i] = dry_l * dry_mix + dry_l * gain * mix;
-            right[i] = dry_r * dry_mix + dry_r * gain * mix;
+            let read_pos =
+                (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
+            let delayed_l = if self.la_filled < self.lookahead_samples {
+                dry_l
+            } else {
+                self.la_buf_l[read_pos]
+            };
+            let delayed_r = if self.la_filled < self.lookahead_samples {
+                dry_r
+            } else {
+                self.la_buf_r[read_pos]
+            };
+            left[i] = delayed_l * dry_mix + delayed_l * gain * mix;
+            right[i] = delayed_r * dry_mix + delayed_r * gain * mix;
+            self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
+            self.la_filled = (self.la_filled + 1).min(self.lookahead_samples);
         }
     }
 
@@ -400,6 +450,10 @@ impl DspProcessor for CompressorProcessor {
         self.sc_hp_state_r = 0.0;
         self.sc_hp_prev_l = 0.0;
         self.sc_hp_prev_r = 0.0;
+        self.la_pos = 0;
+        self.la_filled = 0;
+        self.la_buf_l = [0.0; MAX_LOOKAHEAD_SAMPLES];
+        self.la_buf_r = [0.0; MAX_LOOKAHEAD_SAMPLES];
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.mix_sm.set_instant(self.mix);
     }

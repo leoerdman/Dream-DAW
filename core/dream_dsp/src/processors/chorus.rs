@@ -23,6 +23,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 const MAX_DELAY_SAMPLES: usize = 4096;
 const DELAY_MASK: usize = MAX_DELAY_SAMPLES - 1;
@@ -59,6 +60,10 @@ pub struct ChorusProcessor {
     fb_l: [f32; MAX_VOICES],
     fb_r: [f32; MAX_VOICES],
     sample_rate: f32,
+    rate_sm: SmoothedValue,
+    depth_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
+    feedback_sm: SmoothedValue,
 }
 
 impl ChorusProcessor {
@@ -84,6 +89,10 @@ impl ChorusProcessor {
             fb_l: [0.0; MAX_VOICES],
             fb_r: [0.0; MAX_VOICES],
             sample_rate,
+            rate_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            depth_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
+            feedback_sm: SmoothedValue::new(sample_rate, 8.0, 0.0),
         };
         proc.update_hp();
         proc
@@ -101,6 +110,10 @@ impl ChorusProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_hp();
+            self.rate_sm.set_sample_rate(sr);
+            self.depth_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
+            self.feedback_sm.set_sample_rate(sr);
         }
     }
 
@@ -119,19 +132,26 @@ impl DspProcessor for ChorusProcessor {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
-        let phase_inc = self.rate_hz as f64 / sr as f64;
         let nv = self.num_voices.min(MAX_VOICES);
         let voice_gain = 1.0 / nv as f32;
+        self.rate_sm.set_target(self.rate_hz);
+        self.depth_sm.set_target(self.depth);
+        self.mix_sm.set_target(self.mix);
+        self.feedback_sm.set_target(self.feedback);
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
+            let rate = self.rate_sm.next();
+            let depth = self.depth_sm.next();
+            let mix = self.mix_sm.next();
+            let feedback = self.feedback_sm.next();
             let mut wet_l = 0.0f32;
             let mut wet_r = 0.0f32;
 
             for v in 0..nv {
                 let base = VOICE_BASE_DELAY_MS[v] * 0.001 * sr;
-                let mod_depth = VOICE_MOD_DEPTH_MS[v] * 0.001 * sr * self.depth;
+                let mod_depth = VOICE_MOD_DEPTH_MS[v] * 0.001 * sr * depth;
 
                 // Per-voice LFO with offset (fast sine approximation)
                 #[inline(always)]
@@ -156,8 +176,8 @@ impl DspProcessor for ChorusProcessor {
                 let delay_r = (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32);
 
                 // Write with feedback
-                self.buf_l[v][self.write_pos] = dry_l + self.fb_l[v] * self.feedback;
-                self.buf_r[v][self.write_pos] = dry_r + self.fb_r[v] * self.feedback;
+                self.buf_l[v][self.write_pos] = dry_l + self.fb_l[v] * feedback;
+                self.buf_r[v][self.write_pos] = dry_r + self.fb_r[v] * feedback;
 
                 let out_l = Self::read_delay(&self.buf_l[v], self.write_pos, delay_l);
                 let out_r = Self::read_delay(&self.buf_r[v], self.write_pos, delay_r);
@@ -207,10 +227,10 @@ impl DspProcessor for ChorusProcessor {
             }
 
             // Mix
-            left[i] = (dry_l * (1.0 - self.mix) + self.hp_state_l * self.mix).clamp(-8.0, 8.0);
-            right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-8.0, 8.0);
+            left[i] = (dry_l * (1.0 - mix) + self.hp_state_l * mix).clamp(-8.0, 8.0);
+            right[i] = (dry_r * (1.0 - mix) + self.hp_state_r * mix).clamp(-8.0, 8.0);
 
-            self.lfo_phase += phase_inc;
+            self.lfo_phase += rate as f64 / sr as f64;
             self.lfo_phase = self.lfo_phase.fract();
             self.write_pos = (self.write_pos + 1) & DELAY_MASK;
         }
@@ -245,6 +265,10 @@ impl DspProcessor for ChorusProcessor {
         self.hp_state_r = 0.0;
         self.hp_prev_l = 0.0;
         self.hp_prev_r = 0.0;
+        self.rate_sm.set_instant(self.rate_hz);
+        self.depth_sm.set_instant(self.depth);
+        self.mix_sm.set_instant(self.mix);
+        self.feedback_sm.set_instant(self.feedback);
     }
 }
 

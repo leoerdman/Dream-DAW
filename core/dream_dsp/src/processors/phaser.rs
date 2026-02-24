@@ -26,6 +26,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
+use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 const MAX_STAGES: usize = 12;
 
@@ -48,6 +50,9 @@ pub struct PhaserProcessor {
     // LFO
     lfo_phase: f64,
     sample_rate: f32,
+    depth_sm: SmoothedValue,
+    feedback_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
 }
 
 impl PhaserProcessor {
@@ -69,6 +74,9 @@ impl PhaserProcessor {
             fb_r: 0.0,
             lfo_phase: 0.0,
             sample_rate,
+            depth_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
+            feedback_sm: SmoothedValue::new(sample_rate, 10.0, 0.4),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 0.5),
         }
     }
 
@@ -117,11 +125,12 @@ impl PhaserProcessor {
 impl DspProcessor for PhaserProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         // Sync sample rate
-        if sample_rate.is_finite()
-            && sample_rate > 1000.0
-            && (sample_rate - self.sample_rate).abs() > 0.5
-        {
-            self.sample_rate = sample_rate;
+        let sr = sanitize_sample_rate(sample_rate);
+        if (sr - self.sample_rate).abs() > 0.5 {
+            self.sample_rate = sr;
+            self.depth_sm.set_sample_rate(sr);
+            self.feedback_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
@@ -129,8 +138,14 @@ impl DspProcessor for PhaserProcessor {
         let stages = self.num_stages.min(MAX_STAGES);
         let center_log = (self.center_freq / 20.0).max(0.001).ln();
         let range_log = (self.range / 20.0).max(0.001).ln().max(0.001);
+        self.depth_sm.set_target(self.depth.clamp(0.0, 1.0));
+        self.feedback_sm.set_target(self.feedback.clamp(-0.95, 0.95));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
 
         for i in 0..len {
+            let depth = self.depth_sm.next();
+            let feedback = self.feedback_sm.next();
+            let mix = self.mix_sm.next();
             let phase_l = (self.lfo_phase as f32).fract();
             let phase_r = (self.lfo_phase as f32 + 0.5 * self.spread).fract();
 
@@ -138,8 +153,8 @@ impl DspProcessor for PhaserProcessor {
             let lfo_r = Self::lfo(phase_r, self.lfo_shape);
 
             // Modulated frequency (log scale)
-            let freq_l = 20.0 * (center_log + lfo_l * self.depth * range_log * 0.5).exp();
-            let freq_r = 20.0 * (center_log + lfo_r * self.depth * range_log * 0.5).exp();
+            let freq_l = 20.0 * (center_log + lfo_l * depth * range_log * 0.5).exp();
+            let freq_r = 20.0 * (center_log + lfo_r * depth * range_log * 0.5).exp();
             let freq_l = freq_l.clamp(20.0, sr * 0.45);
             let freq_r = freq_r.clamp(20.0, sr * 0.45);
 
@@ -150,8 +165,8 @@ impl DspProcessor for PhaserProcessor {
             let coeff_r = ((coeff_r - 1.0) / (coeff_r + 1.0)).clamp(-0.999, 0.999);
 
             // Input with feedback
-            let in_l = left[i] + self.fb_l * self.feedback;
-            let in_r = right[i] + self.fb_r * self.feedback;
+            let in_l = left[i] + self.fb_l * feedback;
+            let in_r = right[i] + self.fb_r * feedback;
 
             // Cascade allpass stages
             let mut out_l = in_l;
@@ -184,8 +199,8 @@ impl DspProcessor for PhaserProcessor {
             };
 
             // Mix
-            left[i] = left[i] * (1.0 - self.mix) + out_l * self.mix;
-            right[i] = right[i] * (1.0 - self.mix) + out_r * self.mix;
+            left[i] = left[i] * (1.0 - mix) + out_l * mix;
+            right[i] = right[i] * (1.0 - mix) + out_r * mix;
 
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
@@ -213,6 +228,9 @@ impl DspProcessor for PhaserProcessor {
         self.fb_l = 0.0;
         self.fb_r = 0.0;
         self.lfo_phase = 0.0;
+        self.depth_sm.set_instant(self.depth.clamp(0.0, 1.0));
+        self.feedback_sm.set_instant(self.feedback.clamp(-0.95, 0.95));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
     }
 }
 

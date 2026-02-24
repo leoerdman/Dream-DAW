@@ -20,6 +20,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::sanitize_sample_rate;
+use crate::processors::smoothing::SmoothedValue;
 
 pub struct AutoPanProcessor {
     rate_hz: f32,
@@ -30,6 +31,9 @@ pub struct AutoPanProcessor {
     /// BUG-25 FIX: f64 phase accumulator prevents precision loss in long sessions.
     lfo_phase: f64,
     sample_rate: f32,
+    rate_sm: SmoothedValue,
+    depth_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
 }
 
 impl AutoPanProcessor {
@@ -43,6 +47,9 @@ impl AutoPanProcessor {
             mix: 1.0,
             lfo_phase: 0.0,
             sample_rate,
+            rate_sm: SmoothedValue::new(sample_rate, 10.0, 1.0),
+            depth_sm: SmoothedValue::new(sample_rate, 8.0, 0.7),
+            mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
         }
     }
 
@@ -79,18 +86,25 @@ impl DspProcessor for AutoPanProcessor {
         let sr = sanitize_sample_rate(sample_rate);
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
+            self.rate_sm.set_sample_rate(sr);
+            self.depth_sm.set_sample_rate(sr);
+            self.mix_sm.set_sample_rate(sr);
         }
         let len = left.len().min(right.len());
         if len == 0 {
             return;
         }
-        let phase_inc = self.rate_hz as f64 / self.sample_rate.max(1.0) as f64;
-        let depth = self.depth.clamp(0.0, 1.0);
-        let mix = self.mix.clamp(0.0, 1.0);
+        let sr_f64 = self.sample_rate.max(1.0) as f64;
+        self.rate_sm.set_target(self.rate_hz.clamp(0.01, 20.0));
+        self.depth_sm.set_target(self.depth.clamp(0.0, 1.0));
+        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
         let shape = self.shape;
         let phase_offset = self.phase_offset_norm;
 
         for i in 0..len {
+            let depth = self.depth_sm.next();
+            let mix = self.mix_sm.next();
+            let rate = self.rate_sm.next();
             let dry_l = left[i];
             let dry_r = right[i];
 
@@ -122,7 +136,7 @@ impl DspProcessor for AutoPanProcessor {
             left[i] = dry_l * (1.0 - mix) + wet_l * mix;
             right[i] = dry_r * (1.0 - mix) + wet_r * mix;
 
-            self.lfo_phase += phase_inc;
+            self.lfo_phase += rate as f64 / sr_f64;
             self.lfo_phase = self.lfo_phase.fract();
         }
     }
@@ -140,6 +154,9 @@ impl DspProcessor for AutoPanProcessor {
 
     fn reset(&mut self) {
         self.lfo_phase = 0.0;
+        self.rate_sm.set_instant(self.rate_hz.clamp(0.01, 20.0));
+        self.depth_sm.set_instant(self.depth.clamp(0.0, 1.0));
+        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
     }
 }
 

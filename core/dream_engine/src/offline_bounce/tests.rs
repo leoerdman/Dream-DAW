@@ -18,6 +18,66 @@ fn make_test_project() -> Project {
     project
 }
 
+fn make_external_vst_midi_project() -> Project {
+    use dream_models::midi::{MidiClip, MidiNote};
+    use dream_models::time::AbsoluteTime;
+
+    let mut project = Project::default();
+    let mut track = Track::new("VST MIDI Track");
+    track.track_type = TrackType::Midi;
+
+    let mut clip = MidiClip::new("MIDI", AbsoluteTime::new(0), AbsoluteTime::new(4096));
+    clip.add_note(MidiNote::new(60, 100, 0, 1024));
+    track.midi_clips.push(clip);
+
+    // External (non-internal) instrument declaration.
+    let vst_instrument = PluginSlot::new("External Instrument", "/Library/Plugins/Test.vst3");
+    track.instrument = Some(DeviceNode::single(vst_instrument));
+
+    project.tracks.push(track);
+    project
+}
+
+fn make_external_vst_fx_project_on_track() -> Project {
+    use dream_models::time::AbsoluteTime;
+
+    let mut project = Project::default();
+    let mut track = Track::new("Audio Track");
+    track.track_type = TrackType::Audio;
+    track.clips.push(AudioClip::new(
+        "Audio",
+        "__test_dummy__/silence.wav",
+        AbsoluteTime::new(0),
+        AbsoluteTime::new(4096),
+    ));
+    let ext_fx = PluginSlot::new("External FX", "/Library/Plugins/TestFx.vst3");
+    track.effects.push(DeviceNode::single(ext_fx));
+    project.tracks.push(track);
+    project
+}
+
+fn make_external_vst_fx_project_on_master() -> Project {
+    use dream_models::time::AbsoluteTime;
+
+    let mut project = Project::default();
+    let mut track = Track::new("Audio Track");
+    track.track_type = TrackType::Audio;
+    track.clips.push(AudioClip::new(
+        "Audio",
+        "__test_dummy__/silence.wav",
+        AbsoluteTime::new(0),
+        AbsoluteTime::new(4096),
+    ));
+    project.tracks.push(track);
+
+    let ext_master_fx = PluginSlot::new("External Master FX", "/Library/Plugins/TestMasterFx.vst3");
+    project
+        .master_track
+        .effects
+        .push(DeviceNode::single(ext_master_fx));
+    project
+}
+
 #[test]
 fn bounce_config_total_frames() {
     let config = BounceConfig {
@@ -139,6 +199,115 @@ fn bounce_with_normalization() {
 
     let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
     assert!(result.is_ok());
+
+    let _ = std::fs::remove_file(&out_path);
+}
+
+#[test]
+fn bounce_fails_fast_when_external_vst_instrument_binding_is_missing() {
+    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_binding.wav");
+    let config = BounceConfig {
+        output_path: out_path.to_str().unwrap().to_string(),
+        sample_rate: 44100,
+        bit_depth: 32,
+        start_frame: 0,
+        end_frame: 4096,
+        normalize: false,
+        tail_frames: 0,
+        format: "wav".to_string(),
+        project_sample_rate: 44100.0,
+        bpm: 120.0,
+    };
+
+    let bouncer = OfflineBouncer::new(config);
+    let mut project = make_external_vst_midi_project();
+    let mut pool = ClipPool::new();
+
+    // No runtime external FX slots supplied for the declared VST instrument.
+    let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
+
+    match result {
+        Err(BounceError::RenderError(msg)) => {
+            assert!(
+                msg.contains("External VST runtime binding is incomplete"),
+                "unexpected error message: {msg}"
+            );
+        }
+        other => panic!("expected RenderError for missing VST runtime binding, got {other:?}"),
+    }
+
+    let _ = std::fs::remove_file(&out_path);
+}
+
+#[test]
+fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_track() {
+    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_track_fx_binding.wav");
+    let config = BounceConfig {
+        output_path: out_path.to_str().unwrap().to_string(),
+        sample_rate: 44100,
+        bit_depth: 32,
+        start_frame: 0,
+        end_frame: 4096,
+        normalize: false,
+        tail_frames: 0,
+        format: "wav".to_string(),
+        project_sample_rate: 44100.0,
+        bpm: 120.0,
+    };
+
+    let bouncer = OfflineBouncer::new(config);
+    let mut project = make_external_vst_fx_project_on_track();
+    let mut pool = ClipPool::new();
+
+    let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
+    match result {
+        Err(BounceError::RenderError(msg)) => {
+            assert!(
+                msg.contains("External VST runtime binding is incomplete"),
+                "unexpected error message: {msg}"
+            );
+            assert!(msg.contains("scope=track"), "missing track scope in error: {msg}");
+        }
+        other => panic!("expected RenderError for missing track FX binding, got {other:?}"),
+    }
+
+    let _ = std::fs::remove_file(&out_path);
+}
+
+#[test]
+fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_master() {
+    let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_master_fx_binding.wav");
+    let config = BounceConfig {
+        output_path: out_path.to_str().unwrap().to_string(),
+        sample_rate: 44100,
+        bit_depth: 32,
+        start_frame: 0,
+        end_frame: 4096,
+        normalize: false,
+        tail_frames: 0,
+        format: "wav".to_string(),
+        project_sample_rate: 44100.0,
+        bpm: 120.0,
+    };
+
+    let bouncer = OfflineBouncer::new(config);
+    let mut project = make_external_vst_fx_project_on_master();
+    let mut pool = ClipPool::new();
+
+    let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
+    match result {
+        Err(BounceError::RenderError(msg)) => {
+            assert!(
+                msg.contains("External VST runtime binding is incomplete"),
+                "unexpected error message: {msg}"
+            );
+            assert!(
+                msg.contains("scope=master"),
+                "missing master scope in error: {msg}"
+            );
+        }
+        other => panic!("expected RenderError for missing master FX binding, got {other:?}"),
+    }
 
     let _ = std::fs::remove_file(&out_path);
 }

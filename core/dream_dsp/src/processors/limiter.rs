@@ -23,6 +23,7 @@
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::{db_to_linear, sanitize_sample_rate};
+use crate::processors::smoothing::SmoothedValue;
 
 /// 1024 samples is a power of 2, allowing fast bitwise wrapping.
 const MAX_LOOKAHEAD: usize = 1024;
@@ -51,6 +52,8 @@ pub struct LimiterProcessor {
     fast_release: f32,
     slow_release: f32,
     sample_rate: f32,
+    threshold_sm_lin: SmoothedValue,
+    ceiling_sm_lin: SmoothedValue,
 }
 
 impl LimiterProcessor {
@@ -75,6 +78,8 @@ impl LimiterProcessor {
             fast_release: 0.0,
             slow_release: 0.0,
             sample_rate,
+            threshold_sm_lin: SmoothedValue::new(sample_rate, 6.0, db_to_linear(-0.3)),
+            ceiling_sm_lin: SmoothedValue::new(sample_rate, 6.0, db_to_linear(-0.1)),
         };
         proc.update_coefficients();
         proc
@@ -97,6 +102,8 @@ impl LimiterProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_coefficients();
+            self.threshold_sm_lin.set_sample_rate(sr);
+            self.ceiling_sm_lin.set_sample_rate(sr);
         }
     }
 }
@@ -105,12 +112,14 @@ impl DspProcessor for LimiterProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let threshold = self.threshold_lin;
-        let ceiling = self.ceiling_lin;
         let link = self.stereo_link;
         let la_samples = self.la_samples;
+        self.threshold_sm_lin.set_target(self.threshold_lin);
+        self.ceiling_sm_lin.set_target(self.ceiling_lin);
 
         for i in 0..len {
+            let threshold = self.threshold_sm_lin.next();
+            let ceiling = self.ceiling_sm_lin.next();
             // Write incoming sample into the lookahead delay buffer
             self.la_buf_l[self.la_pos] = left[i];
             self.la_buf_r[self.la_pos] = right[i];
@@ -226,6 +235,8 @@ impl DspProcessor for LimiterProcessor {
         self.la_buf_r = [0.0; MAX_LOOKAHEAD];
         self.la_gain = [1.0; MAX_LOOKAHEAD];
         self.la_pos = 0;
+        self.threshold_sm_lin.set_instant(self.threshold_lin);
+        self.ceiling_sm_lin.set_instant(self.ceiling_lin);
     }
 }
 

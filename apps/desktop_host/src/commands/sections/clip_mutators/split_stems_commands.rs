@@ -6,6 +6,7 @@ async fn split_track_to_stems_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let project = project_state
         .project
@@ -45,6 +46,14 @@ async fn split_track_to_stems_cmd(
         project_sample_rate: project.sample_rate.max(1.0),
         bpm: handle.playback_state.lock().map_err(|e| e.to_string())?.bpm,
     };
+
+    crate::commands::plugins_routing_helpers::ensure_external_plugins_prepared_for_offline_render(
+        &bounce_project,
+        &clip_pool_state,
+        &plugin_host_state,
+        project.sample_rate,
+        "Stem split",
+    )?;
 
     let (job_id, job_cancel) = start_job(&app, "split_to_stems", true)?;
     let _ = app.emit(
@@ -179,6 +188,7 @@ async fn split_track_to_stems_with_deltas_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<DeltaMutationResponse, String> {
     let before_project = project_state
         .project
@@ -191,6 +201,7 @@ async fn split_track_to_stems_with_deltas_cmd(
         project_state.clone(),
         clip_pool_state,
         handle,
+        plugin_host_state,
     )
     .await?;
     let after_project = project_state

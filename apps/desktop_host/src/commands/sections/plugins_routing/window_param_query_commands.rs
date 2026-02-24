@@ -8,6 +8,7 @@ fn fallback_external_param_block(metadata_count: usize) -> Vec<ExternalPluginPar
             min: 0.0,
             max: 1.0,
             step: 0.001,
+            default_value: Some(0.5),
             value: 0.5,
         });
     }
@@ -33,6 +34,7 @@ fn get_external_plugin_params(
             min: 0.0,
             max: 2.0,
             step: 0.001,
+            default_value: Some(1.0),
             value: 1.0,
         }]);
     }
@@ -93,6 +95,7 @@ fn get_external_plugin_params(
             min: 0.0,
             max: 1.0,
             step: 0.001,
+            default_value: Some(value),
             value,
         });
     }
@@ -121,7 +124,15 @@ fn get_external_plugin_params_for_slot(
         return Ok(Vec::new());
     }
 
-    let metadata_count = slot_state.external_parameter_count.unwrap_or(0).max(0) as usize;
+    let hints = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
+            plugin_id: slot_state.plugin_id.clone(),
+        },
+    )?;
+    let lane_name_hints = hints.lane_name_hints;
+    let metadata_count = (slot_state.external_parameter_count.unwrap_or(0).max(0) as usize)
+        .max(hints.metadata_count);
     let instance_id =
         plugin_host_state.ensure_loaded_instance_for_slot(slot_state.slot_id, &slot_state.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot_state.slot_id, instance_id);
@@ -151,13 +162,20 @@ fn get_external_plugin_params_for_slot(
 
     let mut params = Vec::with_capacity(count as usize);
     for idx in 0..count {
+        let value = instance.lock().get_parameter(idx).unwrap_or(0.5);
+        let fallback_name = format!("Param {}", idx + 1);
+        let name = lane_name_hints
+            .get(&idx)
+            .cloned()
+            .unwrap_or(fallback_name);
         params.push(ExternalPluginParamInfo {
             index: idx,
-            name: format!("Param {}", idx + 1),
+            name,
             min: 0.0,
             max: 1.0,
             step: 0.001,
-            value: instance.lock().get_parameter(idx).unwrap_or(0.5),
+            default_value: Some(value),
+            value,
         });
     }
     drop(host);

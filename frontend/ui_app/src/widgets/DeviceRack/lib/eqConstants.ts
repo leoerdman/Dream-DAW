@@ -1,13 +1,13 @@
 /** Default 8-band color palette (matches Dream EQ GUI) */
 export const EQ_BAND_COLORS = [
-    'color-mix(in srgb, var(--color-effect-eq) 58%, var(--color-bg-panel) 42%)',
-    'color-mix(in srgb, var(--color-effect-eq) 64%, var(--color-bg-panel) 36%)',
-    'color-mix(in srgb, var(--color-effect-eq) 70%, var(--color-bg-panel) 30%)',
-    'color-mix(in srgb, var(--color-effect-eq) 76%, var(--color-bg-panel) 24%)',
-    'color-mix(in srgb, var(--color-effect-eq) 82%, var(--color-bg-panel) 18%)',
-    'color-mix(in srgb, var(--color-effect-eq) 88%, var(--color-bg-panel) 12%)',
-    'color-mix(in srgb, var(--color-effect-eq) 68%, var(--color-bg-panel) 32%)',
-    'color-mix(in srgb, var(--color-effect-eq) 74%, var(--color-bg-panel) 26%)',
+    'var(--token-color-hex-2ecc71)',
+    'var(--token-color-hex-f2de72)',
+    'var(--token-color-hex-ffb57a)',
+    'var(--token-color-hex-ff965e)',
+    'var(--token-color-hex-ff6464)',
+    'var(--token-color-hex-c867ff)',
+    'var(--token-color-hex-8ecb7c)',
+    'var(--token-color-hex-4ac0ff)',
 ] as const;
 
 /** Randomized point color pool for newly created EQ bands. */

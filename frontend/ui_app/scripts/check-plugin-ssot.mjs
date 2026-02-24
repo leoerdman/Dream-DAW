@@ -4,6 +4,7 @@ import path from 'node:path';
 const root = path.resolve(process.cwd(), 'src');
 const manifestPath = path.join(root, 'shared/config/pluginManifest.ts');
 const internalPluginsPath = path.join(root, 'shared/lib/internalPlugins.ts');
+const internalInstrumentPluginsPath = path.join(root, 'shared/lib/internalInstrumentPlugins.ts');
 const catalogPath = path.join(root, 'widgets/DeviceRack/model/deviceRackCatalog.ts');
 const presetsPath = path.join(root, 'widgets/DeviceRack/model/deviceParamPresets.ts');
 
@@ -50,11 +51,15 @@ function extractPresetEffectKeys(text) {
 
 const manifestText = read(manifestPath);
 const internalText = read(internalPluginsPath);
+const internalInstrumentText = read(internalInstrumentPluginsPath);
 const catalogText = read(catalogPath);
 const presetsText = read(presetsPath);
 
 const manifestMap = extractManifestMap(manifestText);
-const internalIds = extractInternalIds(internalText);
+const internalIds = new Set([
+    ...extractInternalIds(internalText),
+    ...extractInternalIds(internalInstrumentText),
+]);
 const catalogMap = extractCatalogMap(catalogText);
 const presetEffectKeys = extractPresetEffectKeys(presetsText);
 

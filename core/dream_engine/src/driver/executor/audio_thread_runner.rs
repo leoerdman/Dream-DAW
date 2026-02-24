@@ -355,9 +355,16 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             render_ctx.advance_playhead_by_frames(render_frames);
                             playhead_advanced_in_render = true;
                         } else {
-                            // AUD-017 FIX: When stopped or no clips, only clear tracks
-                            // that are actually in use. Previously cleared ALL 256 slots.
-                            for slot in render_ctx.track_slots[..track_count].iter_mut() {
+                            // BUG-WARP-SILENCE FIX:
+                            // `track_count` derives from clip snapshot only. When clips are
+                            // removed, it can become 0 before graph/midi snapshots converge,
+                            // leaving stale audio in previously active track slots.
+                            // Clear all tracks known to any active snapshot domain.
+                            let clear_count = track_count
+                                .max(prepared.track_count)
+                                .max(midi_snap.len())
+                                .min(render_ctx.track_slots.len());
+                            for slot in render_ctx.track_slots[..clear_count].iter_mut() {
                                 slot.clear(frame_count);
                             }
                         }
@@ -452,6 +459,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 );
                                             }
                                         } else {
+                                            let mut applied_any_runtime_slot = false;
                                             for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                                                 let source_slot = runtime_slot
                                                     .sidechain_track_index
@@ -482,6 +490,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         sc_r,
                                                         sample_rate_f64 as f32,
                                                     );
+                                                    applied_any_runtime_slot = true;
                                                     continue;
                                                 }
 
@@ -659,6 +668,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     );
                                                     left[..c].copy_from_slice(&external_left[..c]);
                                                     right[..c].copy_from_slice(&external_right[..c]);
+                                                    applied_any_runtime_slot = true;
 
                                                     // DIAG: Log VST instrument output peak
                                                     if _vst_diag_counter.is_multiple_of(200) {
@@ -672,6 +682,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         }
                                                     }
                                                 }
+                                            }
+                                            if !applied_any_runtime_slot && !slot.device_chain.is_empty() {
+                                                slot.device_chain.process_stereo(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    sample_rate_f64 as f32,
+                                                );
                                             }
                                         }
                                     } else if !slot.device_chain.is_empty() {

@@ -158,6 +158,7 @@ pub struct ExternalPluginParamInfo {
     pub min: f64,
     pub max: f64,
     pub step: f64,
+    pub default_value: Option<f64>,
     pub value: f64,
 }
 

@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use uuid::Uuid;
 
 use log::info;
 
@@ -189,56 +190,121 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
+    fn collect_declared_external_slot_ids(
+        node: &dream_models::project::DeviceNode,
+        parent_bypassed: bool,
+        out: &mut Vec<Uuid>,
+    ) {
+        match node {
+            dream_models::project::DeviceNode::Single(slot) => {
+                let effective_bypassed = parent_bypassed || slot.is_bypassed;
+                if effective_bypassed {
+                    return;
+                }
+                let pid = slot.plugin_id.as_str();
+                if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+                    out.push(slot.id);
+                }
+            }
+            dream_models::project::DeviceNode::Rack(rack) => {
+                let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                if let Some(chain) = if has_solo {
+                    rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                } else {
+                    rack.chains.iter().find(|c| !c.is_mute)
+                } {
+                    for child in &chain.devices {
+                        Self::collect_declared_external_slot_ids(child, rack_bypassed, out);
+                    }
+                }
+            }
+        }
+    }
+
     fn validate_external_vst_runtime_bindings(
         project: &Project,
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
     ) -> Result<(), BounceError> {
-        let mut unresolved_tracks: Vec<String> = Vec::new();
+        let mut unresolved_slots: Vec<String> = Vec::new();
 
         for (track_idx, track) in project.tracks.iter().enumerate() {
-            if track.midi_clips.is_empty() {
+            let mut declared_slot_ids: Vec<Uuid> = Vec::new();
+            if let Some(inst) = track.instrument.as_ref() {
+                Self::collect_declared_external_slot_ids(inst, false, &mut declared_slot_ids);
+            }
+            for node in &track.effects {
+                Self::collect_declared_external_slot_ids(node, false, &mut declared_slot_ids);
+            }
+            if declared_slot_ids.is_empty() {
                 continue;
             }
-
-            let has_external_instrument_declared = track
-                .instrument
-                .as_ref()
-                .map(|node| {
-                    node.collect_plugin_slots().iter().any(|slot| {
-                        let pid = slot.plugin_id.as_str();
-                        !pid.starts_with("internal://") && !pid.starts_with("missing://")
-                    })
-                })
-                .unwrap_or(false);
-
-            if !has_external_instrument_declared {
-                continue;
-            }
-
-            let runtime_slots = external_fx_map
+            let runtime_slot_ids: std::collections::HashSet<Uuid> = external_fx_map
                 .get(track_idx)
-                .map(|slots| slots.as_slice())
-                .unwrap_or(&[]);
-
-            let has_runtime_external_slot = runtime_slots
-                .iter()
-                .any(|slot| slot.instance_id.is_some() && slot.internal_slot_index.is_none());
-
-            if !has_runtime_external_slot {
-                unresolved_tracks.push(format!(
-                    "track='{}' index={} id={}",
-                    track.name, track_idx, track.id
-                ));
+                .map(|slots| {
+                    slots
+                        .iter()
+                        .filter_map(|slot| {
+                            if slot.internal_slot_index.is_none() && slot.instance_id.is_some() {
+                                slot.slot_id
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for slot_id in declared_slot_ids {
+                if !runtime_slot_ids.contains(&slot_id) {
+                    unresolved_slots.push(format!(
+                        "scope=track name='{}' track_index={} track_id={} slot_id={}",
+                        track.name, track_idx, track.id, slot_id
+                    ));
+                }
             }
         }
 
-        if unresolved_tracks.is_empty() {
+        let master_runtime_index = project.tracks.len();
+        let mut master_declared_slot_ids: Vec<Uuid> = Vec::new();
+        if let Some(inst) = project.master_track.instrument.as_ref() {
+            Self::collect_declared_external_slot_ids(inst, false, &mut master_declared_slot_ids);
+        }
+        for node in &project.master_track.effects {
+            Self::collect_declared_external_slot_ids(node, false, &mut master_declared_slot_ids);
+        }
+        if !master_declared_slot_ids.is_empty() {
+            let master_runtime_slot_ids: std::collections::HashSet<Uuid> = external_fx_map
+                .get(master_runtime_index)
+                .map(|slots| {
+                    slots
+                        .iter()
+                        .filter_map(|slot| {
+                            if slot.internal_slot_index.is_none() && slot.instance_id.is_some() {
+                                slot.slot_id
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for slot_id in master_declared_slot_ids {
+                if !master_runtime_slot_ids.contains(&slot_id) {
+                    unresolved_slots.push(format!(
+                        "scope=master track_index={} slot_id={}",
+                        master_runtime_index, slot_id
+                    ));
+                }
+            }
+        }
+
+        if unresolved_slots.is_empty() {
             return Ok(());
         }
 
         Err(BounceError::RenderError(format!(
-            "External VST instrument runtime binding is incomplete: {}",
-            unresolved_tracks.join("; ")
+            "External VST runtime binding is incomplete: {}",
+            unresolved_slots.join("; ")
         )))
     }
 

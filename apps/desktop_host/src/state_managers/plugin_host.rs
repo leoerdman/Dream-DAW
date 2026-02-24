@@ -39,6 +39,31 @@ pub(crate) struct PluginHostState {
 }
 
 impl PluginHostState {
+    fn normalize_plugin_lookup_key(input: &str) -> String {
+        input
+            .trim()
+            .trim_end_matches(['/', '\\'])
+            .to_ascii_lowercase()
+    }
+
+    fn external_scheme_name_hint(input: &str) -> Option<String> {
+        let normalized = Self::normalize_plugin_lookup_key(input);
+        let schemes = ["au://", "au:", "vst2://", "vst2:", "clap://", "clap:"];
+        for scheme in schemes {
+            if let Some(rest) = normalized.strip_prefix(scheme) {
+                let tail = rest
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(rest)
+                    .trim();
+                if !tail.is_empty() {
+                    return Some(tail.to_string());
+                }
+            }
+        }
+        None
+    }
+
     /// Returns `true` when in-process (unsandboxed) VST3 loading is permitted.
     ///
     /// Default: **true** — in-process loading is the primary path for native
@@ -555,17 +580,47 @@ impl PluginHostState {
                 .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
             all
         };
+        let normalized_plugin_id = Self::normalize_plugin_lookup_key(plugin_id);
+        let name_hint = Self::external_scheme_name_hint(plugin_id);
         scan_result
             .into_iter()
             .find(|desc| {
-                desc.path.to_string_lossy() == plugin_id
-                    || desc.name == plugin_id
-                    || desc.id.to_string() == plugin_id
-                    || desc
-                        .unique_id
-                        .as_ref()
-                        .map(|u| u == plugin_id)
+                let desc_path = desc.path.to_string_lossy().to_string();
+                let desc_path_norm = Self::normalize_plugin_lookup_key(&desc_path);
+                let desc_name_norm = Self::normalize_plugin_lookup_key(&desc.name);
+                let desc_id_norm = Self::normalize_plugin_lookup_key(&desc.id.to_string());
+                let desc_uid_norm = desc
+                    .unique_id
+                    .as_ref()
+                    .map(|u| Self::normalize_plugin_lookup_key(u));
+
+                if desc_path_norm == normalized_plugin_id
+                    || desc_name_norm == normalized_plugin_id
+                    || desc_id_norm == normalized_plugin_id
+                    || desc_uid_norm
+                        .as_deref()
+                        .map(|u| u == normalized_plugin_id)
                         .unwrap_or(false)
+                {
+                    return true;
+                }
+
+                if let Some(hint) = name_hint.as_deref() {
+                    if desc_name_norm == hint {
+                        return true;
+                    }
+                    if let Some(file_stem) = desc
+                        .path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(Self::normalize_plugin_lookup_key)
+                    {
+                        if file_stem == hint {
+                            return true;
+                        }
+                    }
+                }
+                false
             })
             .ok_or_else(|| format!("Plugin not found: {plugin_id}"))
     }

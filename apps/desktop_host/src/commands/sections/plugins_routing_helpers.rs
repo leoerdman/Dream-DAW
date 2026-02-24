@@ -163,6 +163,79 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     Ok(())
 }
 
+pub fn ensure_external_plugins_prepared_for_offline_render(
+    project: &Project,
+    clip_pool_state: &State<'_, ClipPoolState>,
+    plugin_host_state: &State<'_, PluginHostState>,
+    project_sample_rate: f64,
+    op_name: &str,
+) -> Result<(), String> {
+    let mut slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    let mut ensured_count = 0usize;
+
+    let mut ensure_loaded_slot = |slot: &PluginSlot| {
+        let plugin_id = slot.plugin_id.as_str();
+        if plugin_id.starts_with("internal://") || plugin_id.starts_with("missing://") {
+            return;
+        }
+        if slot_instance_map.contains_key(&slot.id) {
+            return;
+        }
+        match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, plugin_id) {
+            Ok(_) => {
+                ensured_count = ensured_count.saturating_add(1);
+                slot_instance_map = plugin_host_state.slot_instance_snapshot();
+            }
+            Err(err) => {
+                log::warn!(
+                    "[{op_name}] Failed to ensure plugin instance for slot '{}' ({}): {}",
+                    slot.name,
+                    plugin_id,
+                    err
+                );
+            }
+        }
+    };
+
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            for slot in inst.collect_plugin_slots() {
+                ensure_loaded_slot(slot);
+            }
+        }
+        for node in &track.effects {
+            for slot in node.collect_plugin_slots() {
+                ensure_loaded_slot(slot);
+            }
+        }
+    }
+    if let Some(inst) = &project.master_track.instrument {
+        for slot in inst.collect_plugin_slots() {
+            ensure_loaded_slot(slot);
+        }
+    }
+    for node in &project.master_track.effects {
+        for slot in node.collect_plugin_slots() {
+            ensure_loaded_slot(slot);
+        }
+    }
+
+    if ensured_count > 0 {
+        log::info!(
+            "[{op_name}] Ensured {} previously-unbound external plugin slot(s) before offline render",
+            ensured_count
+        );
+    }
+
+    clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    plugin_host_state
+        .reactivate_all(project_sample_rate.max(1.0), 512)
+        .map_err(|e| format!("{op_name} aborted: failed to reactivate plugin runtime: {e}"))?;
+
+    Ok(())
+}
+
 pub fn finalize_external_param_update(
     project_state: &State<'_, ProjectState>,
     clip_pool_state: &State<'_, ClipPoolState>,

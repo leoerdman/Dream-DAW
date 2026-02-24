@@ -111,7 +111,7 @@ export class TimelineEngine {
     // ── Callbacks (to React shell) ────────────────────────────────────
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onPlayheadSeek?: (beat: number) => void;
@@ -1501,7 +1501,12 @@ export class TimelineEngine {
                             preview.startBeat !== this._drag.clipOriginalBeat ||
                             preview.durationBeats !== this._drag.clipOriginalDuration
                         ) {
-                            this.onClipResize?.(this._drag.clipId, preview.startBeat, preview.durationBeats);
+                            this.onClipResize?.(
+                                this._drag.clipId,
+                                preview.startBeat,
+                                preview.durationBeats,
+                                e.shiftKey,
+                            );
                         }
                     }
                 }

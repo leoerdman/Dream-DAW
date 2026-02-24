@@ -315,7 +315,7 @@ impl DspProcessor for AnalyzerProcessor {
         }
 
         // Update sample rate if changed
-        let sr = sample_rate as f64;
+        let sr = crate::processors::sanitize_sample_rate(sample_rate) as f64;
         if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.kw_stage1_l = k_weight_stage1(sr);

@@ -42,7 +42,8 @@ export function EqBandOverlays({
                 const leftPct = (bx / vbW) * 100;
                 const topPct = (by / vbH) * 100;
                 const isActive = dragEqBand === band.idx || selectedEqBand === band.idx;
-                const DOT_SIZE = isActive ? 10 : 8;
+                // UX tweak: points are 1.5x larger for easier grab/context-click.
+                const DOT_SIZE = isActive ? 12 : 9;
                 const bandColor = band.color;
                 return (
                     <div
@@ -80,8 +81,8 @@ export function EqBandOverlays({
                                     position: 'absolute',
                                     left: '50%',
                                     top: '50%',
-                                    width: 18,
-                                    height: 18,
+                                    width: 21,
+                                    height: 21,
                                     transform: 'translate(-50%, -50%)',
                                     borderRadius: '50%',
                                     background: `color-mix(in srgb, ${bandColor} 18%, transparent)`,

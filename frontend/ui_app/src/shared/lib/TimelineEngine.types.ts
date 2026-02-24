@@ -34,6 +34,10 @@ export interface TrimPreviewState {
     clipId: string;
     startBeat: number;
     durationBeats: number;
+    edge: 'left' | 'right';
+    allowStretch: boolean;
+    originalStartBeat: number;
+    originalDurationBeats: number;
 }
 
 export const EDGE_GRIP_PX = 8;
@@ -78,6 +82,7 @@ export interface DragState {
     clipOriginalFadeOut?: number;
     clipOriginalFadeInCurve?: number;
     clipOriginalFadeOutCurve?: number;
+    clipResizeAllowStretch?: boolean;
     coMoverOrigins?: Map<string, { beat: number; track: number }>;
 }
 

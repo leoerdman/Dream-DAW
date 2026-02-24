@@ -58,11 +58,8 @@ impl CombFilter {
     fn process(&mut self, input: f32) -> f32 {
         let output = self.buffer[self.index];
         self.filter_store = output * self.damp2 + self.filter_store * self.damp1;
-        // BUG-FIX: Flush denormals in the feedback path to prevent
-        // 100x CPU slowdown in long reverb tails on x86 CPUs.
-        if self.filter_store.abs() < 1.0e-20 {
-            self.filter_store = 0.0;
-        }
+        // SSOT: Flush denormals in feedback path.
+        crate::processors::flush_denormal!(self.filter_store);
         self.buffer[self.index] = input + self.filter_store * self.feedback;
         self.index = (self.index + 1) % self.buf_size;
         output
@@ -111,13 +108,8 @@ impl AllpassFilter {
         let buf_out = self.buffer[self.index];
         let output = -input + buf_out;
         let mut new_val = input + buf_out * Self::AP_FEEDBACK;
-        // AUD-111 FIX: Flush denormals in allpass feedback path.
-        // The serial allpass chain propagates denormals from stage to stage,
-        // causing the same 100x CPU slowdown as the comb filters.
-        // The comb filter had this fix but allpass was missing it.
-        if new_val.abs() < 1.0e-20 {
-            new_val = 0.0;
-        }
+        // SSOT: Flush denormals in allpass feedback path.
+        crate::processors::flush_denormal!(new_val);
         self.buffer[self.index] = new_val;
         self.index = (self.index + 1) % self.buf_size;
         output
@@ -365,28 +357,10 @@ impl DspProcessor for ReverbProcessor {
             let input_l = pd_l;
             let input_r = pd_r;
 
-            // AUD-110 FIX: Correct Bhaskara sin approximation (~4x faster than sin()).
-            // Previous version treated the FULL [0,1) phase as one parabola, placing
-            // the peak at x=0.5 instead of x=0.25, and creating a massive
-            // discontinuity from +1.0 to -1.0 at the midpoint — a click/pop artifact.
-            //
-            // Correct approach: split into two half-periods [0,0.5) and [0.5,1.0),
-            // rescale each to [0,1), and apply the Bhaskara formula independently.
-            // sin(θ) ≈ 16t(1-t) / (5 - 4t(1-t))  where t ∈ [0,1] maps to [0,π].
-            let phase = (self.lfo_phase as f32).fract();
-            let (t, sign) = if phase < 0.5 {
-                (phase * 2.0, 1.0f32) // positive half: [0, π)
-            } else {
-                ((phase - 0.5) * 2.0, -1.0) // negative half: [π, 2π)
-            };
-            let t2 = t * (1.0 - t);
-            let fast_sin = sign * (16.0 * t2) / (5.0 - 4.0 * t2);
+            // SSOT: Fast sine approximation from mod.rs.
+            let fast_sin = crate::processors::fast_sin_phase(self.lfo_phase as f32);
             let lfo = fast_sin * mod_depth * 0.01;
             self.lfo_phase += lfo_inc;
-            // AUD-109 FIX: Use fract() for safe phase wrapping.
-            // Previous `if >= 1.0 { -= 1.0 }` fails when lfo_inc > 1.0
-            // (high mod_rate at low sample rates), causing phase to exceed 1.0
-            // and produce aliased modulation artifacts.
             self.lfo_phase = self.lfo_phase.fract();
 
             let input_l_mod = input_l * (1.0 + lfo);
@@ -417,15 +391,9 @@ impl DspProcessor for ReverbProcessor {
             // Low-frequency damping (HP filter in the reverb tail)
             self.low_cut_l += low_damp_coeff * (out_l - self.low_cut_l);
             self.low_cut_r += low_damp_coeff * (out_r - self.low_cut_r);
-            // AUD-112 FIX: Flush denormals in low-damp HP filter states.
-            // These one-pole states go denormal on long silent tails,
-            // causing the same 100x CPU slowdown as comb/allpass denormals.
-            if self.low_cut_l.abs() < 1.0e-20 {
-                self.low_cut_l = 0.0;
-            }
-            if self.low_cut_r.abs() < 1.0e-20 {
-                self.low_cut_r = 0.0;
-            }
+            // SSOT: Flush denormals in low-damp HP filter states.
+            crate::processors::flush_denormal!(self.low_cut_l);
+            crate::processors::flush_denormal!(self.low_cut_r);
             out_l -= self.low_cut_l;
             out_r -= self.low_cut_r;
 

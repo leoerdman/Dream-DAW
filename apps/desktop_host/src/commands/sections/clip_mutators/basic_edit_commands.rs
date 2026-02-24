@@ -120,6 +120,22 @@ async fn resize_clip_with_deltas_cmd(
     push_undo_coalesced(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
+    let before_audio_state = {
+        let project = project_state.project.read().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip_uuid)
+            .map(|clip| {
+                (
+                    clip.source_offset.sample_frame,
+                    clip.is_warped,
+                    clip.warp_mode,
+                    clip.warp_base_bpm,
+                )
+            })
+    };
     let cmd = dream_orchestrator::commands::ResizeClipCommand::from_str_id(
         &clip_id,
         new_position_frames,
@@ -130,11 +146,45 @@ async fn resize_clip_with_deltas_cmd(
 
     execute_orchestrator_command(&project_state, &cmd)?;
 
-    let deltas = vec![dream_models::delta::ProjectDelta::ClipResized {
+    let mut deltas = vec![dream_models::delta::ProjectDelta::ClipResized {
         clip_id: clip_uuid,
         new_position: new_position_frames,
         new_duration: new_duration_frames,
     }];
+
+    let after_audio_state = {
+        let project = project_state.project.read().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip_uuid)
+            .map(|clip| {
+                (
+                    clip.source_offset.sample_frame,
+                    clip.is_warped,
+                    clip.warp_mode,
+                    clip.warp_base_bpm,
+                )
+            })
+    };
+
+    if let (Some(before), Some(after)) = (before_audio_state, after_audio_state) {
+        if before.0 != after.0 {
+            deltas.push(dream_models::delta::ProjectDelta::ClipSourceOffsetChanged {
+                clip_id: clip_uuid,
+                source_offset: after.0,
+            });
+        }
+        if before.1 != after.1 || before.2 != after.2 || (before.3 - after.3).abs() > f64::EPSILON {
+            deltas.push(dream_models::delta::ProjectDelta::ClipWarpChanged {
+                clip_id: clip_uuid,
+                is_warped: after.1,
+                warp_mode: after.2,
+                warp_base_bpm: after.3,
+            });
+        }
+    }
 
     rebuild_clip_views_and_mark_dirty(
         &project_state,

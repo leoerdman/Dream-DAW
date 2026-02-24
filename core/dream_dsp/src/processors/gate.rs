@@ -214,14 +214,11 @@ impl DspProcessor for GateProcessor {
                 }
             }
 
-            // BUG-AUD-104 FIX: Flush denormals in SC HPF state to prevent
-            // CPU stalls on x86 during prolonged silence.
-            if self.sc_state_l.abs() < 1.0e-20 {
-                self.sc_state_l = 0.0;
-            }
-            if self.sc_state_r.abs() < 1.0e-20 {
-                self.sc_state_r = 0.0;
-            }
+            // SSOT: Use flush_denormal! macro for SC HPF states.
+            crate::processors::flush_denormal!(self.sc_state_l);
+            crate::processors::flush_denormal!(self.sc_state_r);
+            // BUG-C12 FIX: Flush denormals in envelope state.
+            crate::processors::flush_denormal!(self.envelope);
 
             // Apply gain (range to 1.0)
             let mut gain = range + (1.0 - range) * self.envelope;
@@ -320,12 +317,8 @@ impl DspProcessor for GateProcessor {
                 }
             }
 
-            if self.sc_state_l.abs() < 1.0e-20 {
-                self.sc_state_l = 0.0;
-            }
-            if self.sc_state_r.abs() < 1.0e-20 {
-                self.sc_state_r = 0.0;
-            }
+            crate::processors::flush_denormal!(self.sc_state_l);
+            crate::processors::flush_denormal!(self.sc_state_r);
 
             let mut gain = range + (1.0 - range) * self.envelope;
             if self.duck_mode {

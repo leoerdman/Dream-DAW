@@ -18,6 +18,7 @@ export function TrackInspectorTrackList({
     mixerFocusMode,
 }: TrackInspectorTrackListProps) {
     let trackNum = 0;
+    const trailingEmptySlotHeight = clampTrackHeightPx(trackHeight);
     const routingTargets = logic.tracks
         .filter((track) => track.type !== 'master')
         .map((track) => ({ id: track.id, name: track.name }));
@@ -179,6 +180,13 @@ export function TrackInspectorTrackList({
                     </div>
                 );
             })}
+            <div
+                aria-hidden="true"
+                style={{
+                    height: trailingEmptySlotHeight,
+                    minHeight: trailingEmptySlotHeight,
+                }}
+            />
         </div>
     );
 }

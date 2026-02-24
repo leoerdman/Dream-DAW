@@ -175,12 +175,13 @@ impl DspProcessor for LimiterProcessor {
             } else {
                 self.gain = self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
-            // BUG-030 FIX: Flush denormals in gain state. During release after
-            // limiting, gain exponentially approaches 1.0 through tiny increments
-            // that become denormals on x86 without DAZ/FTZ, causing CPU stalls.
+            // SSOT: Flush gain state denormals. During release, gain exponentially
+            // approaches 1.0 — snap when difference is negligible.
             if (1.0 - self.gain).abs() < 1.0e-10 {
                 self.gain = 1.0;
             }
+            // Also flush denormals in absolute gain value (near-zero case).
+            crate::processors::flush_denormal!(self.gain);
 
             // Apply gain and ceiling.
             // When no limiting (gain ≈ 1.0): output = sample * ceiling_lin
@@ -237,6 +238,10 @@ impl DspProcessor for LimiterProcessor {
         self.la_pos = 0;
         self.threshold_sm_lin.set_instant(self.threshold_lin);
         self.ceiling_sm_lin.set_instant(self.ceiling_lin);
+    }
+
+    fn latency_samples(&self) -> usize {
+        self.la_samples
     }
 }
 

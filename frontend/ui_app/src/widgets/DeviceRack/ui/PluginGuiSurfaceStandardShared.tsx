@@ -151,6 +151,8 @@ const HIDE_ALL_PARAMS_INTERNAL_IDS = new Set([
     'internal://effect/tuner',
     'internal://effect/auto-shift',
     'internal://effect/shifter',
+    'internal://effect/external-audio-effect',
+    'internal://effect/looper',
 ]);
 
 const HIDDEN_SURFACE_PARAM_NAMES = new Set([
@@ -193,6 +195,100 @@ const EFFECT_PARAM_WHITELIST: Partial<Record<DeviceSlot['effectType'], Set<strin
         return acc;
     }, {} as Partial<Record<DeviceSlot['effectType'], Set<string>>>);
 
+// Internal alias variants that intentionally expose only a subset of the
+// shared DSP parameter bank to avoid misleading "dead" controls in UI.
+const INTERNAL_PLUGIN_PARAM_ALLOWLIST: Record<string, Set<string>> = {
+    'internal://effect/eq-three': new Set([
+        'lowfreq', 'low', 'lowq',
+        'midfreq', 'mid', 'midq',
+        'highfreq', 'high', 'highq',
+        'out',
+    ]),
+    'internal://effect/channel-eq': new Set([
+        'lowfreq', 'low',
+        'midfreq', 'mid',
+        'highfreq', 'high',
+        'out',
+    ]),
+    // Glue Compressor: same DSP as compressor, limit to relevant subset.
+    'internal://effect/glue-compressor': new Set([
+        'thr', 'ratio', 'atk', 'rel', 'makeup', 'mix',
+    ]),
+    // Multiband Dynamics: limited to single-band compressor params.
+    'internal://effect/multiband-dynamics': new Set([
+        'thr', 'ratio', 'atk', 'rel', 'knee', 'mix', 'rms',
+    ]),
+    // Transient Shaper: transient envelope mode of compressor.
+    'internal://effect/transient-shaper': new Set([
+        'atk', 'rel', 'mix',
+    ]),
+    // ── Delay variants ──
+    'internal://effect/simple-delay': new Set([
+        'time l', 'time r', 'fb', 'dry/wet',
+    ]),
+    'internal://effect/filter-delay': new Set([
+        'time l', 'time r', 'fb', 'dry/wet',
+    ]),
+    'internal://effect/grain-delay': new Set([
+        'time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth',
+    ]),
+    'internal://effect/echo': new Set([
+        'time l', 'time r', 'fb', 'dry/wet',
+    ]),
+    'internal://effect/spectral-time': new Set([
+        'time l', 'time r', 'fb', 'dry/wet', 'mod rate', 'mod depth',
+    ]),
+    'internal://effect/beat-repeat': new Set([
+        'time l', 'fb', 'dry/wet',
+    ]),
+    // ── Reverb variants ──
+    'internal://effect/hybrid-reverb': new Set([
+        'size', 'damp', 'predelay', 'dry/wet', 'mod rate', 'mod depth',
+    ]),
+    'internal://effect/corpus': new Set([
+        'size', 'damp', 'predelay', 'dry/wet',
+    ]),
+    'internal://effect/resonators': new Set([
+        'size', 'damp', 'dry/wet',
+    ]),
+    'internal://effect/spectral-resonator': new Set([
+        'size', 'damp', 'dry/wet',
+    ]),
+    // ── Distortion variants ──
+    'internal://effect/drum-buss': new Set([
+        'drive', 'tone', 'mix',
+    ]),
+    'internal://effect/dynamic-tube': new Set([
+        'drive', 'tone', 'mix', 'mode',
+    ]),
+    'internal://effect/amp': new Set([
+        'drive', 'tone', 'output',
+    ]),
+    'internal://effect/cabinet': new Set([
+        'tone', 'output',
+    ]),
+    'internal://effect/overdrive': new Set([
+        'drive', 'tone', 'mix', 'output',
+    ]),
+    'internal://effect/pedal': new Set([
+        'drive', 'tone', 'mix', 'output',
+    ]),
+    'internal://effect/roar': new Set([
+        'drive', 'tone', 'mix', 'output', 'tight',
+    ]),
+    'internal://effect/erosion': new Set([
+        'drive', 'tone', 'mix',
+    ]),
+    'internal://effect/phaser-flanger': new Set([
+        'rate', 'depth', 'fb', 'mix', 'stages', 'spread',
+    ]),
+    // Vocoder: maps to autoFilter core, only expose valid params.
+    'internal://effect/vocoder': new Set([
+        'cutoff', 'res', 'mix',
+    ]),
+    'internal://effect/spectrum': new Set(['reset']),
+};
+
 export function buildSurfaceKnobParams(
     device: DeviceSlot,
     options: SurfaceParamFilterOptions = {},
@@ -205,6 +301,9 @@ export function buildSurfaceKnobParams(
     if (isInternal && HIDE_ALL_PARAMS_INTERNAL_IDS.has(normalizedInternalId)) {
         return [];
     }
+    const pluginAllowlist = isInternal
+        ? INTERNAL_PLUGIN_PARAM_ALLOWLIST[normalizedInternalId]
+        : undefined;
     const allowedParamsForEffect = EFFECT_PARAM_WHITELIST[device.effectType];
     const useEffectWhitelist = isInternal && !!allowedParamsForEffect && allowedParamsForEffect.size > 0;
     const bySemantic = new Map<string, DeviceSlot['params'][number]>();
@@ -213,6 +312,7 @@ export function buildSurfaceKnobParams(
         if (!normalized) continue;
         if (normalized.startsWith('_')) continue;
         if (isInternal && HIDDEN_SURFACE_PARAM_NAMES.has(normalized)) continue;
+        if (pluginAllowlist && !pluginAllowlist.has(normalized)) continue;
         if (useEffectWhitelist && !allowedParamsForEffect?.has(normalized)) continue;
         if (
             omitMixWhenDryWet &&
@@ -243,8 +343,10 @@ export function formatSurfaceParam(
 ): string {
     let value = param.value;
     const suffix = (param.suffix ?? '').trim();
-    // Normalize 0..1 percentages for UI cards where runtime reports normalized values.
-    if (suffix === '%' && Math.abs(value) <= 1.0) {
+    // H01 FIX: Only normalize 0..1 → 0..100 when suffix is '%' AND value
+    // is strictly in normalized range. Some DSP params already use 0..100
+    // natively (e.g. noise machine stereo), so only scale if value ≤ 1.01.
+    if (suffix === '%' && value >= 0.0 && value <= 1.01) {
         value *= 100;
     }
     const precision = typeof decimals === 'number'
@@ -330,3 +432,20 @@ export const PLUGIN_TITLE_MAP: Record<string, string> = {
     // Modulation
     'internal://effect/vocoder': 'Vocoder',
 };
+
+/* ── Shared surface layout style helpers (L04/L05) ── */
+
+/** Layout for plugin surface with DryWet knob on the right side. */
+export const panelWithDryWetStyle: React.CSSProperties = {
+    ...pluginPanelCardBaseStyle,
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    gap: 'var(--space-2-5)',
+    alignItems: 'center',
+};
+
+/** Dynamic layout: show grid split only when DryWet knob is visible. */
+export const panelWithOptionalDryWetStyle = (showDryWet: boolean): React.CSSProperties => ({
+    ...panelWithDryWetStyle,
+    gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
+});

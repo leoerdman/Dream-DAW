@@ -20,7 +20,7 @@ pub(crate) const DENORMAL_THRESHOLD_F64: f64 = 1.0e-300;
 /// Prevents 50-100x CPU slowdown on x86 CPUs during silent/quiet passages.
 macro_rules! flush_denormal {
     ($x:expr) => {
-        if $x.abs() < DENORMAL_THRESHOLD {
+        if $x.abs() < $crate::processors::DENORMAL_THRESHOLD {
             $x = 0.0;
         }
     };

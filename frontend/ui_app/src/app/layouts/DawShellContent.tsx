@@ -35,6 +35,7 @@ interface DawShellContentProps {
     bottomPanelMode: 'rack' | 'clip';
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
+    setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
     beginBottomPanelResize: (event: React.MouseEvent<HTMLDivElement>) => void;
     selectedTimelineClip: ReturnType<typeof import('./model/useArrangementTrackViewModel').useArrangementTrackViewModel>['selectedTimelineClip'] | undefined;
     clipColor: string;
@@ -97,6 +98,7 @@ export function DawShellContent(props: DawShellContentProps) {
                     bottomPanelMode={props.bottomPanelMode}
                     hasResizableClipEditor={props.hasResizableClipEditor}
                     bottomPanelHeightPx={props.bottomPanelHeightPx}
+                    setBottomPanelHeightPx={props.setBottomPanelHeightPx}
                     beginBottomPanelResize={props.beginBottomPanelResize}
                     selectedTimelineClip={props.selectedTimelineClip ?? undefined}
                     clipColor={props.clipColor}

@@ -14,6 +14,9 @@ import { useEqBandDragEffect } from '@/widgets/DeviceRack/model/useEqBandDragEff
 import type { SampleRackConfig } from '@bindings/SampleRackConfig';
 
 /* ── Module-level EQ filter type cache (persists across component remounts) ── */
+// BUG-H12 FIX: Use a Map with a max-size eviction to prevent memory leak.
+// Over long sessions with many EQ create/delete cycles, old entries are evicted.
+const MAX_EQ_CACHE_SIZE = 64;
 const eqFilterTypeCache = new Map<string, string[]>();
 const EQ_DEFAULT_TYPES = ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
 
@@ -55,6 +58,11 @@ export const PluginGuiSurface = ({
         const next = resolvedEqBandFilterTypes;
         if (!cached || cached.length !== next.length || cached.some((v, i) => v !== next[i])) {
             eqFilterTypeCache.set(device.id, next);
+            // BUG-H12 FIX: Evict oldest entries when cache exceeds max size.
+            if (eqFilterTypeCache.size > MAX_EQ_CACHE_SIZE) {
+                const firstKey = eqFilterTypeCache.keys().next().value;
+                if (firstKey !== undefined) eqFilterTypeCache.delete(firstKey);
+            }
         }
         setEqBandFilterTypes((prev) => {
             if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
@@ -72,28 +80,36 @@ export const PluginGuiSurface = ({
     useEffect(() => {
         if (!eqSpectrumEnabled) { setSpectrumData(null); return; }
         let active = true;
+        let errorBackoff = 50; // BUG-H13 FIX: Start with 50ms, double on error, max 2000ms.
         const poll = async () => {
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
                 while (active) {
                     if (!active) break; // Pre-invoke guard
-                    const data = await invoke<number[]>('get_spectrum_data');
-                    if (!active) break;
-                    if (Array.isArray(data) && data.length > 0) {
-                        const prev = lastSpectrumRef.current;
-                        if (prev && prev.length === data.length) {
-                            const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
-                            lastSpectrumRef.current = smoothed;
-                            setSpectrumData(smoothed);
+                    try {
+                        const data = await invoke<number[]>('get_spectrum_data');
+                        if (!active) break;
+                        errorBackoff = 50; // Reset backoff on success.
+                        if (Array.isArray(data) && data.length > 0) {
+                            const prev = lastSpectrumRef.current;
+                            if (prev && prev.length === data.length) {
+                                const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
+                                lastSpectrumRef.current = smoothed;
+                                setSpectrumData(smoothed);
+                            } else {
+                                lastSpectrumRef.current = data;
+                                setSpectrumData(data);
+                            }
                         } else {
-                            lastSpectrumRef.current = data;
-                            setSpectrumData(data);
+                            lastSpectrumRef.current = null;
+                            setSpectrumData(null);
                         }
-                    } else {
-                        lastSpectrumRef.current = null;
-                        setSpectrumData(null);
+                        await new Promise(r => setTimeout(r, 50)); // ~20fps
+                    } catch {
+                        // BUG-H13 FIX: Exponential backoff on repeated errors.
+                        errorBackoff = Math.min(errorBackoff * 2, 2000);
+                        await new Promise(r => setTimeout(r, errorBackoff));
                     }
-                    await new Promise(r => setTimeout(r, 50)); // ~20fps
                 }
             } catch { /* silence errors when component unmounts */ }
         };

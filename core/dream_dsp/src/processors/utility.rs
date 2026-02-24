@@ -101,6 +101,8 @@ impl DspProcessor for UtilityProcessor {
         for i in 0..len {
             // Smooth gain (exponential one-pole)
             self.current_gain = coeff * self.current_gain + (1.0 - coeff) * self.target_gain;
+            // BUG-H20 FIX: Flush denormals in gain smoothing state.
+            crate::processors::flush_denormal!(self.current_gain);
             let pan = self.pan_sm.next();
             let width = self.width_sm.next();
             let mono_mix = self.mono_sm.next().clamp(0.0, 1.0);

@@ -62,6 +62,8 @@ pub struct CompressorProcessor {
     sample_rate: f32,
     threshold_sm_db: SmoothedValue,
     mix_sm: SmoothedValue,
+    /// Cached RMS coefficient — only recalculated on SR change.
+    rms_coeff: f32,
     // Fixed internal lookahead (pre-allocated; zero RT allocs).
     lookahead_ms: f32,
     lookahead_samples: usize,
@@ -98,6 +100,7 @@ impl CompressorProcessor {
             sample_rate,
             threshold_sm_db: SmoothedValue::new(sample_rate, 10.0, -18.0),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
+            rms_coeff: 0.0,
             lookahead_ms: DEFAULT_LOOKAHEAD_MS,
             lookahead_samples: 0,
             la_pos: 0,
@@ -107,6 +110,7 @@ impl CompressorProcessor {
         };
         proc.update_coefficients();
         proc.update_sc_hpf();
+        proc.update_rms_coeff();
         proc
     }
 
@@ -142,6 +146,14 @@ impl CompressorProcessor {
         self.sc_hp_coeff = 1.0 / (1.0 + w);
     }
 
+    fn update_rms_coeff(&mut self) {
+        self.rms_coeff = if self.rms_mode {
+            1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
+        } else {
+            0.0
+        };
+    }
+
     fn compute_auto_makeup(&self) -> f32 {
         // Estimate makeup from threshold and ratio
         if self.auto_gain {
@@ -164,8 +176,13 @@ impl CompressorProcessor {
             self.sample_rate = sr;
             self.update_coefficients();
             self.update_sc_hpf();
+            self.update_rms_coeff();
             self.threshold_sm_db.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
+            // BUG-C09 FIX: Recalculate lookahead_samples on SR change.
+            // Without this, the lookahead in ms drifts across sample rates.
+            self.lookahead_samples = ((self.lookahead_ms * 0.001 * sr) as usize)
+                .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
         }
     }
 
@@ -227,12 +244,8 @@ impl DspProcessor for CompressorProcessor {
         let makeup = self.compute_auto_makeup();
         self.threshold_sm_db.set_target(self.threshold_db);
         self.mix_sm.set_target(self.mix);
-        // RMS coefficient: target ~20ms integration window, sample-rate-independent.
-        let rms_coeff = if self.rms_mode {
-            1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
-        } else {
-            0.0
-        };
+        // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
+        let rms_coeff = self.rms_coeff;
 
         for i in 0..len {
             let dry_l = left[i];
@@ -279,11 +292,9 @@ impl DspProcessor for CompressorProcessor {
                 release
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
-            // BUG-AUD-103 FIX: Flush denormals in envelope/RMS state to prevent
-            // CPU stalls during long silence on x86 without DAZ/FTZ.
-            if self.rms_state.abs() < 1.0e-20 {
-                self.rms_state = 0.0;
-            }
+            // SSOT: Flush denormals in envelope/RMS state.
+            crate::processors::flush_denormal!(self.envelope_db);
+            crate::processors::flush_denormal!(self.rms_state);
 
             // Gain computation (with soft knee)
             let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
@@ -301,8 +312,8 @@ impl DspProcessor for CompressorProcessor {
             } else {
                 self.la_buf_r[read_pos]
             };
-            left[i] = delayed_l * dry_mix + delayed_l * gain * mix;
-            right[i] = delayed_r * dry_mix + delayed_r * gain * mix;
+            left[i] = dry_l * dry_mix + delayed_l * gain * mix;
+            right[i] = dry_r * dry_mix + delayed_r * gain * mix;
             self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
             self.la_filled = (self.la_filled + 1).min(self.lookahead_samples);
         }
@@ -323,12 +334,8 @@ impl DspProcessor for CompressorProcessor {
         let makeup = self.compute_auto_makeup();
         self.threshold_sm_db.set_target(self.threshold_db);
         self.mix_sm.set_target(self.mix);
-        // RMS coefficient: target ~20ms integration window, sample-rate-independent.
-        let rms_coeff = if self.rms_mode {
-            1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
-        } else {
-            0.0
-        };
+        // BUG-15 FIX: Use cached rms_coeff instead of per-call exp().
+        let rms_coeff = self.rms_coeff;
 
         for i in 0..len {
             let dry_l = left[i];
@@ -379,19 +386,11 @@ impl DspProcessor for CompressorProcessor {
                 release
             };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
-            // BUG-029 FIX: Flush denormals in envelope/RMS/SC-HPF state.
-            // This guard was present in process_stereo (BUG-AUD-103) but
-            // missing from the sidechain path, causing CPU stalls during
-            // long silence on x86 without DAZ/FTZ.
-            if self.rms_state.abs() < 1.0e-20 {
-                self.rms_state = 0.0;
-            }
-            if self.sc_hp_state_l.abs() < 1.0e-20 {
-                self.sc_hp_state_l = 0.0;
-            }
-            if self.sc_hp_state_r.abs() < 1.0e-20 {
-                self.sc_hp_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in envelope/RMS/SC-HPF state.
+            crate::processors::flush_denormal!(self.envelope_db);
+            crate::processors::flush_denormal!(self.rms_state);
+            crate::processors::flush_denormal!(self.sc_hp_state_l);
+            crate::processors::flush_denormal!(self.sc_hp_state_r);
 
             let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
             let gain = Self::db_to_linear(gain_db) * makeup;
@@ -408,8 +407,8 @@ impl DspProcessor for CompressorProcessor {
             } else {
                 self.la_buf_r[read_pos]
             };
-            left[i] = delayed_l * dry_mix + delayed_l * gain * mix;
-            right[i] = delayed_r * dry_mix + delayed_r * gain * mix;
+            left[i] = dry_l * dry_mix + delayed_l * gain * mix;
+            right[i] = dry_r * dry_mix + delayed_r * gain * mix;
             self.la_pos = (self.la_pos + 1) & LOOKAHEAD_MASK;
             self.la_filled = (self.la_filled + 1).min(self.lookahead_samples);
         }
@@ -438,7 +437,10 @@ impl DspProcessor for CompressorProcessor {
                 self.update_sc_hpf();
             }
             8 => self.auto_gain = value > 0.5,
-            9 => self.rms_mode = value > 0.5,
+            9 => {
+                self.rms_mode = value > 0.5;
+                self.update_rms_coeff();
+            }
             _ => {}
         }
     }
@@ -456,6 +458,10 @@ impl DspProcessor for CompressorProcessor {
         self.la_buf_r = [0.0; MAX_LOOKAHEAD_SAMPLES];
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.mix_sm.set_instant(self.mix);
+    }
+
+    fn latency_samples(&self) -> usize {
+        self.lookahead_samples
     }
 }
 

@@ -60,6 +60,15 @@ pub trait DspProcessor: Send {
     ///
     /// Called on transport seek or loop boundary to prevent artifacts.
     fn reset(&mut self);
+
+    /// Returns the processor's latency in samples (for PDC compensation).
+    ///
+    /// Processors with lookahead buffers (Compressor, Limiter) must report
+    /// their internal delay so the host can align tracks correctly.
+    /// Default: 0 (no latency).
+    fn latency_samples(&self) -> usize {
+        0
+    }
 }
 
 const MAX_SMOOTHED_PARAMS: usize = 64;
@@ -223,6 +232,10 @@ impl DspProcessor for SmoothedProcessor {
         self.inner.reset();
         self.active.fill(false);
         // Keep current/target so post-reset parameter continuity remains smooth.
+    }
+
+    fn latency_samples(&self) -> usize {
+        self.inner.latency_samples()
     }
 }
 

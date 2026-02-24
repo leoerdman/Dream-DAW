@@ -153,24 +153,12 @@ impl DspProcessor for ChorusProcessor {
                 let base = VOICE_BASE_DELAY_MS[v] * 0.001 * sr;
                 let mod_depth = VOICE_MOD_DEPTH_MS[v] * 0.001 * sr * depth;
 
-                // Per-voice LFO with offset (fast sine approximation)
-                #[inline(always)]
-                fn fast_sin_frac(phase: f32) -> f32 {
-                    let p = phase.fract();
-                    let (t, sign) = if p < 0.5 {
-                        (p * 2.0, 1.0f32)
-                    } else {
-                        ((p - 0.5) * 2.0, -1.0)
-                    };
-                    let t2 = t * (1.0 - t);
-                    sign * (16.0 * t2) / (5.0 - 4.0 * t2)
-                }
-
+                // Per-voice LFO with offset — SSOT fast sine approximation from mod.rs
                 let phase_l = (self.lfo_phase + VOICE_PHASE_OFFSETS[v]) as f32;
                 let phase_r = phase_l + 0.25 * self.spread;
 
-                let lfo_l = fast_sin_frac(phase_l);
-                let lfo_r = fast_sin_frac(phase_r);
+                let lfo_l = crate::processors::fast_sin_phase(phase_l);
+                let lfo_r = crate::processors::fast_sin_phase(phase_r);
 
                 let delay_l = (base + lfo_l * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32);
                 let delay_r = (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32);
@@ -185,16 +173,9 @@ impl DspProcessor for ChorusProcessor {
                 self.fb_l[v] = out_l;
                 self.fb_r[v] = out_r;
 
-                // AUDIT-S3-02 FIX: Flush denormals in per-voice feedback buffers.
-                // BUG-AUD-105 flushed HP state but missed fb_l/fb_r.
-                // With high feedback, denormal tails persist through the delay line,
-                // causing 100x CPU slowdown on x86 during prolonged silence.
-                if self.fb_l[v].abs() < 1.0e-20 {
-                    self.fb_l[v] = 0.0;
-                }
-                if self.fb_r[v].abs() < 1.0e-20 {
-                    self.fb_r[v] = 0.0;
-                }
+                // SSOT: Flush denormals in per-voice feedback states.
+                crate::processors::flush_denormal!(self.fb_l[v]);
+                crate::processors::flush_denormal!(self.fb_r[v]);
 
                 // Pan voices for stereo spread
                 let pan = if nv > 1 {
@@ -217,14 +198,12 @@ impl DspProcessor for ChorusProcessor {
                 (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-8.0, 8.0);
             self.hp_prev_l = wet_l;
             self.hp_prev_r = wet_r;
-            // BUG-AUD-105 FIX: Flush denormals in HP filter state to prevent
-            // CPU stalls on x86 during silence.
-            if self.hp_state_l.abs() < 1.0e-20 {
-                self.hp_state_l = 0.0;
-            }
-            if self.hp_state_r.abs() < 1.0e-20 {
-                self.hp_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in HP filter and prev states.
+            crate::processors::flush_denormal!(self.hp_state_l);
+            crate::processors::flush_denormal!(self.hp_state_r);
+            // M03 FIX: hp_prev states can also go denormal from input.
+            crate::processors::flush_denormal!(self.hp_prev_l);
+            crate::processors::flush_denormal!(self.hp_prev_r);
 
             // Mix
             left[i] = (dry_l * (1.0 - mix) + self.hp_state_l * mix).clamp(-8.0, 8.0);

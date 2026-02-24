@@ -1,6 +1,10 @@
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import type { TimelineClip, BrowserDragItem } from '@/shared/lib/arrangementTypes';
+import {
+    BOTTOM_PANEL_HEIGHT_DEFAULT_PX,
+    BOTTOM_PANEL_RACK_EXPANDED_PX,
+} from '@/shared/config/layoutConstants';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { EmptyClipEditor, SampleClipEditor } from './DawShellPanels';
 
@@ -16,6 +20,7 @@ interface DawShellBottomPanelProps {
     bottomPanelMode: 'rack' | 'clip';
     hasResizableClipEditor: boolean;
     bottomPanelHeightPx: number;
+    setBottomPanelHeightPx: React.Dispatch<React.SetStateAction<number>>;
     beginBottomPanelResize: (event: React.MouseEvent<HTMLDivElement>) => void;
     selectedTimelineClip: TimelineClip | undefined;
     clipColor: string;
@@ -28,11 +33,15 @@ interface DawShellBottomPanelProps {
     onGenerateVariation: () => void;
 }
 
+/** Minimum vertical drag distance to trigger a toggle (prevents accidental clicks). */
+const RACK_DRAG_THRESHOLD_PX = 12;
+
 export function DawShellBottomPanel({
     selectedTrackId,
     bottomPanelMode,
     hasResizableClipEditor,
     bottomPanelHeightPx,
+    setBottomPanelHeightPx,
     beginBottomPanelResize,
     selectedTimelineClip,
     clipColor,
@@ -45,6 +54,28 @@ export function DawShellBottomPanel({
     onGenerateVariation,
 }: DawShellBottomPanelProps) {
     const settleRafRef = useRef<number | null>(null);
+    const rackExpanded = bottomPanelHeightPx >= BOTTOM_PANEL_RACK_EXPANDED_PX;
+
+    // ── Rack 2-position instant snap ──
+    // No live preview. Drag up → expand to 2 rows. Drag down → collapse to 1 row.
+    const rackDragStartYRef = useRef(0);
+
+    const onRackDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        rackDragStartYRef.current = e.clientY;
+    }, []);
+
+    const onRackDragEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        const deltaY = rackDragStartYRef.current - e.clientY; // positive = dragged up
+        if (Math.abs(deltaY) < RACK_DRAG_THRESHOLD_PX) return; // ignore tiny movements
+        const shouldExpand = deltaY > 0;
+        const target = shouldExpand ? BOTTOM_PANEL_RACK_EXPANDED_PX : BOTTOM_PANEL_HEIGHT_DEFAULT_PX;
+        setBottomPanelHeightPx(target);
+    }, [setBottomPanelHeightPx]);
 
     // Anti-jitter: freeze expensive panel/timeline reactions for one layout tick
     // when switching panel mode or clip target, then resume after layout settles.
@@ -80,10 +111,14 @@ export function DawShellBottomPanel({
                 contain: 'layout paint style',
             }}
         >
-            {hasResizableClipEditor && (
+            {/* ── Resize handle: Clip editor (free drag) or Rack (2-position snap) ── */}
+            {(hasResizableClipEditor || bottomPanelMode === 'rack') && (
                 <div
-                    onMouseDown={beginBottomPanelResize}
-                    title="Resize Clip Editor"
+                    onMouseDown={hasResizableClipEditor ? beginBottomPanelResize : undefined}
+                    onPointerDown={bottomPanelMode === 'rack' ? onRackDragStart : undefined}
+                    onPointerUp={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
+                    onPointerCancel={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
+                    title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack (2 rows)' : 'Resize Clip Editor'}
                     style={{
                         position: 'absolute',
                         top: 0,
@@ -93,6 +128,7 @@ export function DawShellBottomPanel({
                         cursor: 'ns-resize',
                         zIndex: 'var(--z-modal)' as unknown as number,
                         background: 'transparent',
+                        touchAction: 'none',
                     }}
                 >
                     <div
@@ -111,6 +147,7 @@ export function DawShellBottomPanel({
                     <Suspense fallback={null}>
                         <DeviceRack
                             selectedTrackId={selectedTrackId}
+                            rackExpanded={rackExpanded}
                             onDropPluginToTrack={(item, trackId) => onDropPluginToTrack(item, trackId)}
                         />
                     </Suspense>

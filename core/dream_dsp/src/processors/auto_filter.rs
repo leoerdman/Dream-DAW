@@ -49,6 +49,8 @@ pub struct AutoFilterProcessor {
     lfo_phase: f64,
     env_follower: f32,
     env_coeff: f32,
+    /// BUG-C04 FIX: Smoothed attack for envelope follower (~2ms).
+    env_attack_coeff: f32,
     // ZDF filter state (per channel)
     zdf_l: ZdfSvf,
     zdf_r: ZdfSvf,
@@ -66,6 +68,8 @@ impl AutoFilterProcessor {
     pub fn new(sample_rate: f32) -> Self {
         let sample_rate = sanitize_sample_rate(sample_rate);
         let env_coeff = (-1.0 / (20.0 * 0.001 * sample_rate)).exp();
+        // BUG-C04 FIX: Envelope attack coefficient — prevents instant cutoff slam on clicks.
+        let env_attack_coeff = (-1.0 / (2.0 * 0.001 * sample_rate)).exp(); // ~2ms attack
         Self {
             cutoff_hz: 1000.0,
             cutoff_target_hz: 1000.0,
@@ -84,6 +88,7 @@ impl AutoFilterProcessor {
             lfo_phase: 0.0,
             env_follower: 0.0,
             env_coeff,
+            env_attack_coeff,
             zdf_l: ZdfSvf::new(sample_rate, 1000.0, 0.25, ZdfMode::Lowpass),
             zdf_r: ZdfSvf::new(sample_rate, 1000.0, 0.25, ZdfMode::Lowpass),
             sh_value: 0.0,
@@ -104,6 +109,7 @@ impl AutoFilterProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_env_coeff();
+            self.env_attack_coeff = (-1.0 / (2.0 * 0.001 * sr)).exp();
             self.cutoff_smooth_coeff = (-1.0 / (0.003 * sr)).exp();
             self.zdf_l.set_sample_rate(sr);
             self.zdf_r.set_sample_rate(sr);
@@ -144,9 +150,13 @@ impl AutoFilterProcessor {
             } // Square
             5 => {
                 // Random Sample & Hold — xorshift32 PRNG for high-quality randomness
+                // BUG-C05 FIX: Use modular subtraction instead of unbounded accumulation.
+                // Old code: `self.sh_phase += 1.0` — as f32, precision degrades after
+                // ~16M calls (~6 min at 44.1kHz), causing S&H to freeze.
+                let thresh = self.sample_rate / self.lfo_rate.max(0.01);
                 self.sh_phase += 1.0;
-                if self.sh_phase >= self.sample_rate / self.lfo_rate.max(0.01) {
-                    self.sh_phase = 0.0;
+                if self.sh_phase >= thresh {
+                    self.sh_phase -= thresh;
                     self.sh_value = self.next_sh_random();
                 }
                 self.sh_value
@@ -199,9 +209,12 @@ impl DspProcessor for AutoFilterProcessor {
             let drive = self.drive_sm.next();
 
             // Envelope follower
+            // BUG-C04 FIX: Attack path now uses smoothed attack coefficient instead
+            // of instant jump. Prevents cutoff slam on single loud clicks/pops.
             let peak = dry_l.abs().max(dry_r.abs());
             if peak > self.env_follower {
-                self.env_follower = peak;
+                self.env_follower =
+                    self.env_attack_coeff * self.env_follower + (1.0 - self.env_attack_coeff) * peak;
             } else {
                 self.env_follower =
                     self.env_coeff * self.env_follower + (1.0 - self.env_coeff) * peak;
@@ -284,6 +297,8 @@ impl DspProcessor for AutoFilterProcessor {
         self.sh_value = 0.0;
         self.sh_phase = 0.0;
         self.sh_rng_state = 0xDEAD_BEEF;
+        // BUG-H19 FIX: Reset cutoff smoother to prevent old-value artifact on re-start.
+        self.cutoff_smooth_hz = self.cutoff_target_hz;
         self.resonance_sm.set_instant(self.resonance.clamp(0.0, 1.0));
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
         self.drive_sm.set_instant(self.drive_lin.max(0.0));

@@ -19,23 +19,12 @@ import {
     readSurfaceParam,
     safeParamValue,
     shouldShowDryWet,
+    panelWithOptionalDryWetStyle,
     PLUGIN_TITLE_MAP,
     type SurfaceHandlers,
 } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
 
-/* ── Shared layout with DryWet on right ── */
-const panelWithDryWet: React.CSSProperties = {
-    ...pluginPanelCardBaseStyle,
-    display: 'grid',
-    gridTemplateColumns: '1fr auto',
-    gap: 'var(--space-2-5)',
-    alignItems: 'center',
-};
 
-const panelWithOptionalDryWet = (showDryWet: boolean): React.CSSProperties => ({
-    ...panelWithDryWet,
-    gridTemplateColumns: showDryWet ? '1fr auto' : '1fr',
-});
 
 export function renderStandardDistNoiseSurface(
     device: DeviceSlot,
@@ -67,7 +56,7 @@ export function renderStandardDistNoiseSurface(
         const isBit = title === 'Bitcrusher';
         return (
             <div data-no-drag style={pluginPanelLayoutStyle}>
-                <div style={{ ...panelWithOptionalDryWet(showDryWet), background: 'var(--plugin-bg-distortion)' }}>
+                <div style={{ ...panelWithOptionalDryWetStyle(showDryWet), background: 'var(--plugin-bg-distortion)' }}>
                     <div style={{ display: 'grid', gap: 6 }}>
                         <div style={{ ...pluginPanelTitleStyle, color: 'var(--token-color-hex-d6c1a5)' }}>{title}</div>
                         <svg viewBox="0 0 280 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>

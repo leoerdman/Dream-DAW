@@ -1,5 +1,5 @@
 import {
-    INTERNAL_EFFECT_PLUGINS,
+    INTERNAL_EFFECT_PLUGINS_BROWSER,
     INTERNAL_INSTRUMENT_PLUGINS,
 } from '@/shared/lib/internalPlugins';
 import type { BrowserGlyphName } from '@/widgets/AssetBrowser/ui/AssetBrowserPrimitives';
@@ -67,7 +67,7 @@ export const INTERNAL_INSTRUMENT_ITEMS: BrowserItem[] = INTERNAL_INSTRUMENT_PLUG
     pluginSource: 'internal' as const,
 }));
 
-export const INTERNAL_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_PLUGINS.map((plugin) => ({
+export const INTERNAL_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_PLUGINS_BROWSER.map((plugin) => ({
     id: `internal-fx-${plugin.name.toLowerCase().replace(/\s+/g, '-')}`,
     name: plugin.name,
     type: 'plugin',

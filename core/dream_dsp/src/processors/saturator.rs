@@ -81,10 +81,14 @@ pub struct SaturatorProcessor {
     pre_coeff: f32,
     sample_rate: f32,
     drive_sm: SmoothedValue,
-    tone_sm: SmoothedValue,
+    /// BUG-4 FIX: Smooth cutoff in Hz (already exponential) instead of
+    /// tone_pct. Avoids per-sample pow() call.
+    cutoff_sm: SmoothedValue,
     mix_sm: SmoothedValue,
     output_sm: SmoothedValue,
     color_sm: SmoothedValue,
+    /// Last cutoff frequency sent to OnePole filters (avoids redundant set_cutoff calls)
+    last_cutoff_applied: f32,
 }
 
 impl SaturatorProcessor {
@@ -92,9 +96,10 @@ impl SaturatorProcessor {
         let sample_rate = sanitize_sample_rate(sample_rate);
         let sr = sample_rate;
         let cutoff = Self::tone_to_cutoff(50.0);
-        // BUG-18 FIX: SR-dependent DC blocker coefficient.
-        // 10 Hz cutoff: R = 1 - (2π × 10 / sr)
-        let dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sr);
+        // BUG-C07 FIX: Use exact exponential DC blocker coefficient.
+        // Old code: `1.0 - (TAU * 10.0 / sr)` — diverges from exp() at low SRs.
+        // ~10 Hz cutoff: R = e^(-2π × 10 / sr)
+        let dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
         // ~2kHz pre-emphasis LP for consistent "color" across SRs
         let pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
         Self {
@@ -118,10 +123,11 @@ impl SaturatorProcessor {
             pre_coeff,
             sample_rate: sr,
             drive_sm: SmoothedValue::new(sr, 8.0, db_to_linear(6.0)),
-            tone_sm: SmoothedValue::new(sr, 8.0, 50.0),
+            cutoff_sm: SmoothedValue::new(sr, 8.0, cutoff),
             mix_sm: SmoothedValue::new(sr, 8.0, 0.5),
             output_sm: SmoothedValue::new(sr, 8.0, 1.0),
             color_sm: SmoothedValue::new(sr, 10.0, 0.5),
+            last_cutoff_applied: cutoff,
         }
     }
 
@@ -197,12 +203,14 @@ impl DspProcessor for SaturatorProcessor {
             let cutoff = Self::tone_to_cutoff(self.tone_pct);
             self.tone_l.set_cutoff(cutoff, sr);
             self.tone_r.set_cutoff(cutoff, sr);
-            // BUG-18 FIX: Recalculate SR-dependent coefficients
-            self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sr);
+            // BUG-18 FIX: Recalculate SR-dependent coefficients using the same
+            // exact exponential form as initialization path.
+            // R = e^(-2πfc/sr), fc = 10Hz.
+            self.dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
             self.pre_coeff =
                 (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
             self.drive_sm.set_sample_rate(sr);
-            self.tone_sm.set_sample_rate(sr);
+            self.cutoff_sm.set_sample_rate(sr);
             self.mix_sm.set_sample_rate(sr);
             self.output_sm.set_sample_rate(sr);
             self.color_sm.set_sample_rate(sr);
@@ -213,7 +221,8 @@ impl DspProcessor for SaturatorProcessor {
         let dc_c = self.dc_coeff;
         let pre_c = self.pre_coeff;
         self.drive_sm.set_target(self.drive_lin.max(0.0));
-        self.tone_sm.set_target(self.tone_pct.clamp(0.0, 100.0));
+        let target_cutoff = Self::tone_to_cutoff(self.tone_pct);
+        self.cutoff_sm.set_target(target_cutoff);
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
         self.output_sm.set_target(self.output_lin.max(0.0));
         self.color_sm.set_target(self.color.clamp(0.0, 1.0));
@@ -222,13 +231,17 @@ impl DspProcessor for SaturatorProcessor {
             let dry_l = left[i];
             let dry_r = right[i];
             let drive = self.drive_sm.next();
-            let tone_pct = self.tone_sm.next();
+            let cutoff = self.cutoff_sm.next();
             let mix = self.mix_sm.next();
             let out = self.output_sm.next();
             let color = self.color_sm.next();
-            let cutoff = Self::tone_to_cutoff(tone_pct);
-            self.tone_l.set_cutoff(cutoff, self.sample_rate);
-            self.tone_r.set_cutoff(cutoff, self.sample_rate);
+            // BUG-4 FIX: Only recalculate filter coefficient when cutoff moves
+            // by >1 Hz. Eliminates per-sample exp() call (44,100/sec → ~10/sec).
+            if (cutoff - self.last_cutoff_applied).abs() > 1.0 {
+                self.tone_l.set_cutoff(cutoff, self.sample_rate);
+                self.tone_r.set_cutoff(cutoff, self.sample_rate);
+                self.last_cutoff_applied = cutoff;
+            }
 
             // Pre-emphasis (color)
             let pre_l = Self::pre_emphasis(dry_l, &mut self.pre_state_l, color, pre_c);
@@ -256,26 +269,16 @@ impl DspProcessor for SaturatorProcessor {
             left[i] = dry_l * (1.0 - mix) + wet_l * mix;
             right[i] = dry_r * (1.0 - mix) + wet_r * mix;
 
-            // AUD-131 FIX: Flush denormals in tone LP, DC blocker, and pre-emphasis
-            // states to prevent CPU stalls on x86 during prolonged silence.
-            if self.tone_l.state.abs() < 1e-20 {
-                self.tone_l.state = 0.0;
-            }
-            if self.tone_r.state.abs() < 1e-20 {
-                self.tone_r.state = 0.0;
-            }
-            if self.dc_y_l.abs() < 1e-20 {
-                self.dc_y_l = 0.0;
-            }
-            if self.dc_y_r.abs() < 1e-20 {
-                self.dc_y_r = 0.0;
-            }
-            if self.pre_state_l.abs() < 1e-20 {
-                self.pre_state_l = 0.0;
-            }
-            if self.pre_state_r.abs() < 1e-20 {
-                self.pre_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in all filter states.
+            crate::processors::flush_denormal!(self.tone_l.state);
+            crate::processors::flush_denormal!(self.tone_r.state);
+            crate::processors::flush_denormal!(self.dc_y_l);
+            crate::processors::flush_denormal!(self.dc_y_r);
+            // M04 FIX: dc_x states also need flush (missed in original audit).
+            crate::processors::flush_denormal!(self.dc_x_l);
+            crate::processors::flush_denormal!(self.dc_x_r);
+            crate::processors::flush_denormal!(self.pre_state_l);
+            crate::processors::flush_denormal!(self.pre_state_r);
         }
     }
 
@@ -312,7 +315,9 @@ impl DspProcessor for SaturatorProcessor {
         self.pre_state_l = 0.0;
         self.pre_state_r = 0.0;
         self.drive_sm.set_instant(self.drive_lin.max(0.0));
-        self.tone_sm.set_instant(self.tone_pct.clamp(0.0, 100.0));
+        let cutoff = Self::tone_to_cutoff(self.tone_pct);
+        self.cutoff_sm.set_instant(cutoff);
+        self.last_cutoff_applied = cutoff;
         self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
         self.output_sm.set_instant(self.output_lin.max(0.0));
         self.color_sm.set_instant(self.color.clamp(0.0, 1.0));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     knobDialStyle,
     knobDragValueBadgeStyle,
@@ -81,9 +81,27 @@ export const PluginKnob = ({
         onGestureEnd,
     });
 
+    // BUG-H15 FIX: Wheel changes now fire gesture start/end so undo history
+    // groups consecutive wheel ticks into a single entry.
+    const wheelGestureActive = useRef(false);
+    const wheelGestureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const handleWheel = useCallback((e: WheelEvent) => {
         e.preventDefault();
         e.stopPropagation();
+
+        // Start gesture on first wheel tick.
+        if (!wheelGestureActive.current) {
+            wheelGestureActive.current = true;
+            onGestureStart?.(param.name);
+        }
+        // Debounce gesture end — 300ms after last wheel tick.
+        if (wheelGestureTimer.current) clearTimeout(wheelGestureTimer.current);
+        wheelGestureTimer.current = setTimeout(() => {
+            wheelGestureActive.current = false;
+            onGestureEnd?.(param.name);
+        }, 300);
+
         const valueRange = Math.max(1e-9, param.max - param.min);
         const linearStep = param.step && param.step > 0 ? param.step : valueRange / 160;
         const unitStep = 1 / 160;
@@ -96,7 +114,7 @@ export const PluginKnob = ({
         }
         const delta = (e.deltaY < 0 ? 1 : -1) * linearStep * wheelMul;
         onChange(param.name, quantizeValue(safeValue + delta));
-    }, [onChange, param.max, param.min, param.name, param.step, quantizeValue, safeValue, unitToValue, useLogScale, valueToUnit]);
+    }, [onChange, onGestureStart, onGestureEnd, param.max, param.min, param.name, param.step, quantizeValue, safeValue, unitToValue, useLogScale, valueToUnit]);
 
     useEffect(() => {
         const node = dialRef.current;

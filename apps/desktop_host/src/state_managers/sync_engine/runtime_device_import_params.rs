@@ -1,13 +1,33 @@
 use super::*;
 
 pub fn first_lane_value(track: &Track, keys: &[&str]) -> Option<f32> {
-    for key in keys {
-        if let Some(lane) = track
-            .automation_lanes
+    fn normalize_lane_key(raw: &str) -> String {
+        let lowered = raw.to_ascii_lowercase();
+        let unscoped = if let Some(rest) = lowered.strip_prefix("slot:") {
+            if let Some(split_at) = rest.find(':') {
+                &rest[split_at + 1..]
+            } else {
+                lowered.as_str()
+            }
+        } else {
+            lowered.as_str()
+        };
+        unscoped
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect()
+    }
+
+    let normalized_keys: Vec<String> = keys.iter().map(|k| normalize_lane_key(k)).collect();
+    for lane in &track.automation_lanes {
+        let lane_key = normalize_lane_key(&lane.param_id);
+        let matches = normalized_keys
             .iter()
-            .find(|lane| lane.param_id.eq_ignore_ascii_case(key))
-            && let Some(point) = lane.points.first()
-        {
+            .any(|key| lane_key == *key || lane_key.ends_with(key));
+        if !matches {
+            continue;
+        }
+        if let Some(point) = lane.points.first() {
             return Some(point.value as f32);
         }
     }

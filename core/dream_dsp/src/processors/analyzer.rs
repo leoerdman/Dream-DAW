@@ -257,7 +257,6 @@ fn to_dbfs(linear: f64) -> f32 {
     }
 }
 
-#[allow(dead_code)] // rms_sum_l, rms_sum_r, rms_count reserved for future RMS windowing
 pub struct AnalyzerProcessor {
     sample_rate: f64,
     // K-weighting filters (stereo = 4 biquads)
@@ -268,11 +267,8 @@ pub struct AnalyzerProcessor {
     // LUFS ring buffer (stores per-block mean-square of K-weighted signal)
     lufs_ring: MeanSquareRing,
     blocks_per_second: f64,
-    // RMS accumulators (sliding window, ~300ms)
-    rms_sum_l: f64,
-    rms_sum_r: f64,
-    rms_count: usize,
-    rms_decay: f64, // one-pole smoother coefficient
+    // RMS (one-pole smoother, ~300ms time constant)
+    rms_decay: f64,
     rms_smoothed_l: f64,
     rms_smoothed_r: f64,
     // Peak hold with decay
@@ -319,6 +315,7 @@ impl DspProcessor for AnalyzerProcessor {
         }
 
         // BUG-C01 FIX: Recalculate SR-dependent coefficients on SR change.
+        let sr = crate::processors::sanitize_sample_rate(sample_rate) as f64;
         if sr.is_finite() && sr > 1000.0 && (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.kw_stage1_l = k_weight_stage1(sr);

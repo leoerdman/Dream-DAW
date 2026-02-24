@@ -112,8 +112,8 @@ impl Command for SetInternalPluginParamCommand {
             match key.as_str() {
                 "gain" | "utility.gain" | "plugin.gain" => {
                     let linear = 10.0_f64
-                        .powf(self.value.clamp(-60.0, 12.0) / 20.0)
-                        .clamp(0.0, 2.0);
+                        .powf(self.value.clamp(-60.0, 24.0) / 20.0)
+                        .clamp(0.0, 16.0);
                     mutators::upsert_static_automation_lane(
                         track,
                         &lane_param_id("plugin.gain"),

@@ -212,6 +212,9 @@ impl NoiseMachineProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_filters();
+            // BUG-C10 FIX: Recalculate brown noise DC blocker coefficient on SR change.
+            // Without this, the DC blocker operates at wrong cutoff after SR change.
+            self.brown_dc_coeff = (-std::f32::consts::TAU * 5.0 / sr).exp();
             self.volume_sm.set_sample_rate(sr);
             self.stereo_sm.set_sample_rate(sr);
             self.pan_sm.set_sample_rate(sr);
@@ -237,9 +240,11 @@ impl DspProcessor for NoiseMachineProcessor {
             let pan = self.pan_sm.next();
             let lp_freq = self.lp_freq_sm.next();
             let hp_freq = self.hp_freq_sm.next().min(lp_freq - 1.0).max(20.0);
-            let lp = (1.0 - (-std::f32::consts::TAU * lp_freq / self.sample_rate).exp())
-                .clamp(0.0, 1.0);
-            let hp = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
+            // BUG-M10 FIX: Use SSOT one_pole helpers (pre-computed once per SR change)
+            // instead of calling exp() per-sample (~50 cycles wasted per sample).
+            let lp = crate::processors::one_pole_lp_coeff(lp_freq, self.sample_rate);
+            let hp = crate::processors::one_pole_hp_coeff(hp_freq, self.sample_rate);
+            // BUG-M26 FIX: Constant-power pan using fast sine approximation.
             let pan_angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
             let pan_l = pan_angle.cos() * std::f32::consts::SQRT_2;
             let pan_r = pan_angle.sin() * std::f32::consts::SQRT_2;
@@ -294,20 +299,11 @@ impl DspProcessor for NoiseMachineProcessor {
             self.hp_state_r = hp * (self.hp_state_r + lp_out_r - self.hp_prev_in_r);
             self.hp_prev_in_l = lp_out_l;
             self.hp_prev_in_r = lp_out_r;
-            // BUG-AUD-106 FIX: Flush denormals in LP/HP filter chain to prevent
-            // CPU stalls when noise volume is very low or muted.
-            if self.lp_state_l.abs() < 1.0e-20 {
-                self.lp_state_l = 0.0;
-            }
-            if self.lp_state_r.abs() < 1.0e-20 {
-                self.lp_state_r = 0.0;
-            }
-            if self.hp_state_l.abs() < 1.0e-20 {
-                self.hp_state_l = 0.0;
-            }
-            if self.hp_state_r.abs() < 1.0e-20 {
-                self.hp_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in LP/HP filter chain.
+            crate::processors::flush_denormal!(self.lp_state_l);
+            crate::processors::flush_denormal!(self.lp_state_r);
+            crate::processors::flush_denormal!(self.hp_state_l);
+            crate::processors::flush_denormal!(self.hp_state_r);
 
             let out_l = self.hp_state_l * vol;
             let out_r = self.hp_state_r * vol;

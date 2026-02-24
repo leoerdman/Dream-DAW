@@ -89,6 +89,12 @@ fn canonical_project_path(path: &std::path::Path, project_name: &str) -> std::pa
     path.to_path_buf()
 }
 
+fn is_legacy_project_path(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".dream.json") || name.ends_with(".json"))
+}
+
 /// Saves the current project to its existing path (or fails if unsaved).
 #[tauri::command]
 async fn save_project(
@@ -96,7 +102,7 @@ async fn save_project(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let (snapshot, path, project_name) = {
+    let (snapshot, path, project_name, legacy_path_to_remove) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
         // ── Capture live plugin state into the project model ──
@@ -123,7 +129,17 @@ async fn save_project(
         }
 
         let canonical_path = canonical_project_path(&path, &snapshot.name);
-        (snapshot.clone(), canonical_path, snapshot.name.clone())
+        let legacy_path_to_remove = if canonical_path != path && is_legacy_project_path(&path) {
+            Some(path.clone())
+        } else {
+            None
+        };
+        (
+            snapshot.clone(),
+            canonical_path,
+            snapshot.name.clone(),
+            legacy_path_to_remove,
+        )
     };
 
     let save_path = path.clone();
@@ -131,6 +147,16 @@ async fn save_project(
         .await
         .map_err(|e| format!("Save task join error: {e}"))?
         .map_err(|e| e.to_string())?;
+    if let Some(legacy_path) = legacy_path_to_remove
+        && legacy_path.exists()
+        && let Err(e) = std::fs::remove_file(&legacy_path)
+    {
+        log::warn!(
+            "[Save] Could not remove legacy project file {}: {}",
+            legacy_path.display(),
+            e
+        );
+    }
 
     {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -581,6 +607,11 @@ async fn auto_save_if_dirty(
         .name
         .clone();
     let path = canonical_project_path(&raw_path, &project_name);
+    let legacy_path_to_remove = if path != raw_path && is_legacy_project_path(&raw_path) {
+        Some(raw_path.clone())
+    } else {
+        None
+    };
 
     // ── Gate 3: Capture plugin states + serialize ──
     let snapshot = {
@@ -599,6 +630,16 @@ async fn auto_save_if_dirty(
         .await
         .map_err(|e| format!("AutoSave task join error: {e}"))?
         .map_err(|e| e.to_string())?;
+    if let Some(legacy_path) = legacy_path_to_remove
+        && legacy_path.exists()
+        && let Err(e) = std::fs::remove_file(&legacy_path)
+    {
+        log::warn!(
+            "[AutoSave] Could not remove legacy project file {}: {}",
+            legacy_path.display(),
+            e
+        );
+    }
 
     // ── Gate 5: Clear dirty flag ──
     *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(path.clone());

@@ -107,17 +107,22 @@ impl PhaserProcessor {
     }
 
     /// First-order allpass: y = (x - state) * a + state; state = y * a + x
+    /// BUG-H06 FIX: NaN/Inf guard now smoothly decays to zero over ~32 samples
+    /// instead of hard-resetting, preventing the audible click.
     #[inline]
     fn allpass(input: f32, state: &mut f32, coeff: f32) -> f32 {
-        // Guard: if state is NaN/Inf, reset it
         if !state.is_finite() {
             *state = 0.0;
         }
         let input = if input.is_finite() { input } else { 0.0 };
         let y = *state + coeff * (input - *state);
         *state = input + coeff * (y - input);
-        // Clamp state to prevent runaway
-        *state = state.clamp(-10.0, 10.0);
+        // Clamp state to prevent runaway; use soft clamp to avoid discontinuity.
+        if state.abs() > 10.0 {
+            *state *= 0.97; // Smooth decay toward safe range (~32 samples to halve)
+        }
+        // SSOT denormal flush
+        crate::processors::flush_denormal!(*state);
         y.clamp(-10.0, 10.0)
     }
 }

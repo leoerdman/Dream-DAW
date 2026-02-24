@@ -102,7 +102,9 @@ impl BitcrusherProcessor {
         x ^= x >> 7;
         x ^= x << 17;
         self.rng_state = x;
-        (x as i64 as f64 / i64::MAX as f64) as f32
+        // M08 FIX: Uniform [0,1] mapping — old u64→i64→f64 had bias from
+        // upper half of u64 wrapping to negative i64.
+        (x as f64 / u64::MAX as f64) as f32 * 2.0 - 1.0
     }
 
     #[inline]
@@ -182,7 +184,9 @@ impl DspProcessor for BitcrusherProcessor {
                 }
             } else {
                 // Linked: same timing as L
-                if self.counter_l == 0.0 {
+                // BUG-H10 FIX: Float equality `== 0.0` is unreliable with jitter.
+                // Use threshold check instead — triggers when L counter resets.
+                if self.counter_l < 1.0 {
                     let d = if dither_amt > 0.0001 {
                         self.next_random() * dither_amt
                     } else {
@@ -199,19 +203,11 @@ impl DspProcessor for BitcrusherProcessor {
             left[i] = dry_l * (1.0 - mix) + self.post_state_l * mix;
             right[i] = dry_r * (1.0 - mix) + self.post_state_r * mix;
 
-            // AUD-132 FIX: Flush denormals in pre/post LP filter states.
-            if self.pre_state_l.abs() < 1e-20 {
-                self.pre_state_l = 0.0;
-            }
-            if self.pre_state_r.abs() < 1e-20 {
-                self.pre_state_r = 0.0;
-            }
-            if self.post_state_l.abs() < 1e-20 {
-                self.post_state_l = 0.0;
-            }
-            if self.post_state_r.abs() < 1e-20 {
-                self.post_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in pre/post LP filter states.
+            crate::processors::flush_denormal!(self.pre_state_l);
+            crate::processors::flush_denormal!(self.pre_state_r);
+            crate::processors::flush_denormal!(self.post_state_l);
+            crate::processors::flush_denormal!(self.post_state_r);
         }
     }
 

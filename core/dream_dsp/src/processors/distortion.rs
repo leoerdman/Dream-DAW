@@ -56,6 +56,11 @@ pub struct DistortionProcessor {
     output_sm: SmoothedValue,
     tightness_sm: SmoothedValue,
     bias_sm: SmoothedValue,
+    /// BUG-5 FIX: Cached filter coefficients to avoid per-sample exp() calls.
+    cached_hp_c: f32,
+    cached_tone_c: f32,
+    cached_hp_freq: f32,
+    cached_tone_freq: f32,
 }
 
 impl DistortionProcessor {
@@ -86,6 +91,10 @@ impl DistortionProcessor {
             output_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
             tightness_sm: SmoothedValue::new(sample_rate, 10.0, 0.5),
             bias_sm: SmoothedValue::new(sample_rate, 10.0, 0.0),
+            cached_hp_c: crate::processors::one_pole_hp_coeff(275.0, sample_rate),
+            cached_tone_c: crate::processors::one_pole_lp_coeff(10500.0, sample_rate),
+            cached_hp_freq: 275.0,
+            cached_tone_freq: 10500.0,
         }
     }
 
@@ -167,13 +176,21 @@ impl DspProcessor for DistortionProcessor {
             let tightness = self.tightness_sm.next();
             let bias = self.bias_sm.next();
 
-            // Keep coefficient updates sample-accurate to avoid zipper artifacts.
+            // BUG-5 FIX: Only recalculate coefficients when smoothed freq
+            // moves by >1 Hz. Eliminates 2× exp() per sample.
             let gain = 1.0 + drive * 30.0; // up to 31x
             let hp_freq = 50.0 + tightness * 450.0;
-            let hp_c = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
-            let tone_c = (1.0
-                - (-std::f32::consts::TAU * (1000.0 + tone * 19000.0) / self.sample_rate).exp())
-            .clamp(0.0, 1.0);
+            if (hp_freq - self.cached_hp_freq).abs() > 1.0 {
+                self.cached_hp_c = crate::processors::one_pole_hp_coeff(hp_freq, self.sample_rate);
+                self.cached_hp_freq = hp_freq;
+            }
+            let tone_freq = 1000.0 + tone * 19000.0;
+            if (tone_freq - self.cached_tone_freq).abs() > 1.0 {
+                self.cached_tone_c = crate::processors::one_pole_lp_coeff(tone_freq, self.sample_rate);
+                self.cached_tone_freq = tone_freq;
+            }
+            let hp_c = self.cached_hp_c;
+            let tone_c = self.cached_tone_c;
 
             // BUG-4 FIX: Correct first-order HP filter for bass tightness.
             // Standard form: y[n] = α * (y[n-1] + x[n] - x[n-1])
@@ -207,29 +224,16 @@ impl DspProcessor for DistortionProcessor {
             left[i] = (dry_l * (1.0 - mix) + wet_l * out * mix).clamp(-8.0, 8.0);
             right[i] = (dry_r * (1.0 - mix) + wet_r * out * mix).clamp(-8.0, 8.0);
 
-            // BUG-AUD-108 FIX: Flush denormals in HP/tone/cab filter states
-            // to prevent CPU stalls on x86 during prolonged silence.
-            if self.hp_state_l.abs() < 1.0e-20 {
-                self.hp_state_l = 0.0;
-            }
-            if self.hp_state_r.abs() < 1.0e-20 {
-                self.hp_state_r = 0.0;
-            }
-            if self.tone_state_l.abs() < 1.0e-20 {
-                self.tone_state_l = 0.0;
-            }
-            if self.tone_state_r.abs() < 1.0e-20 {
-                self.tone_state_r = 0.0;
-            }
-            // AUDIT-S3-01 FIX: BUG-AUD-108 missed cab_state flush.
-            // The comment says "HP/tone/cab" but only flushed HP + tone.
-            // cab_state one-pole LP has the same denormal risk during silence.
-            if self.cab_state_l.abs() < 1.0e-20 {
-                self.cab_state_l = 0.0;
-            }
-            if self.cab_state_r.abs() < 1.0e-20 {
-                self.cab_state_r = 0.0;
-            }
+            // SSOT: Use flush_denormal! macro for all filter states.
+            crate::processors::flush_denormal!(self.hp_state_l);
+            crate::processors::flush_denormal!(self.hp_state_r);
+            // BUG-H27 FIX: hp_prev_in states could inherit denormals from dry input.
+            crate::processors::flush_denormal!(self.hp_prev_in_l);
+            crate::processors::flush_denormal!(self.hp_prev_in_r);
+            crate::processors::flush_denormal!(self.tone_state_l);
+            crate::processors::flush_denormal!(self.tone_state_r);
+            crate::processors::flush_denormal!(self.cab_state_l);
+            crate::processors::flush_denormal!(self.cab_state_r);
         }
     }
 
@@ -265,6 +269,12 @@ impl DspProcessor for DistortionProcessor {
         self.output_sm.set_instant(self.output_lin.max(0.0));
         self.tightness_sm.set_instant(self.tightness.clamp(0.0, 1.0));
         self.bias_sm.set_instant(self.bias.clamp(-1.0, 1.0));
+        let hp_freq = 50.0 + self.tightness * 450.0;
+        self.cached_hp_c = crate::processors::one_pole_hp_coeff(hp_freq, self.sample_rate);
+        self.cached_hp_freq = hp_freq;
+        let tone_freq = 1000.0 + self.tone * 19000.0;
+        self.cached_tone_c = crate::processors::one_pole_lp_coeff(tone_freq, self.sample_rate);
+        self.cached_tone_freq = tone_freq;
     }
 }
 

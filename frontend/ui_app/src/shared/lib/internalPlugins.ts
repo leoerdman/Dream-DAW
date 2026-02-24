@@ -413,6 +413,46 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
     },
 ];
 
+// Compatibility/import aliases mapped to shared DSP cores.
+// Keep these IDs resolvable for project import/open, but hide them from
+// standard browser insertion so users only add canonical, non-duplicated devices.
+export const HIDDEN_INTERNAL_EFFECT_IDS_IN_BROWSER = new Set<string>([
+    'internal://effect/channel-eq',
+    'internal://effect/eq-three',
+    'internal://effect/glue-compressor',
+    'internal://effect/multiband-dynamics',
+    'internal://effect/transient-shaper',
+    'internal://effect/echo',
+    'internal://effect/simple-delay',
+    'internal://effect/filter-delay',
+    'internal://effect/grain-delay',
+    'internal://effect/beat-repeat',
+    'internal://effect/looper',
+    'internal://effect/spectral-time',
+    'internal://effect/hybrid-reverb',
+    'internal://effect/corpus',
+    'internal://effect/resonators',
+    'internal://effect/spectral-resonator',
+    'internal://effect/drum-buss',
+    'internal://effect/dynamic-tube',
+    'internal://effect/phaser-flanger',
+    'internal://effect/amp',
+    'internal://effect/cabinet',
+    'internal://effect/overdrive',
+    'internal://effect/pedal',
+    'internal://effect/roar',
+    'internal://effect/erosion',
+    'internal://effect/tuner',
+    'internal://effect/external-audio-effect',
+    'internal://effect/auto-shift',
+    'internal://effect/shifter',
+    'internal://effect/vocoder',
+    'internal://effect/spectrum',
+]);
+
+export const INTERNAL_EFFECT_PLUGINS_BROWSER: InternalPluginDefinition[] =
+    INTERNAL_EFFECT_PLUGINS.filter((plugin) => !HIDDEN_INTERNAL_EFFECT_IDS_IN_BROWSER.has(plugin.id));
+
 export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'internal://instrument/simple-sine-synth': 'internal://instrument/wave-synth',
     // Keep Sample Rack distinct from Sampler so dedicated UI/effectType can resolve.
@@ -438,13 +478,13 @@ export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'channeleq': 'internal://effect/channel-eq',
     'compressor': 'internal://effect/compressor',
     'compressor2': 'internal://effect/compressor',
-    'glue compressor': 'internal://effect/compressor',
-    'gluecompressor': 'internal://effect/compressor',
+    'glue compressor': 'internal://effect/glue-compressor',
+    'gluecompressor': 'internal://effect/glue-compressor',
     'multiband dynamics': 'internal://effect/multiband-dynamics',
     'multibanddynamics': 'internal://effect/multiband-dynamics',
     'stereogain': 'internal://effect/utility',
-    'simple delay': 'internal://effect/delay',
-    'simpledelay': 'internal://effect/delay',
+    'simple delay': 'internal://effect/simple-delay',
+    'simpledelay': 'internal://effect/simple-delay',
     'ping pong delay': 'internal://effect/delay',
     'pingpongdelay': 'internal://effect/delay',
     'echo': 'internal://effect/echo',
@@ -467,8 +507,8 @@ export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'auto pan': 'internal://effect/auto-pan',
     'autopan': 'internal://effect/auto-pan',
     'autopan2': 'internal://effect/auto-pan',
-    'phaser-flanger': 'internal://effect/phaser',
-    'phaserflanger': 'internal://effect/phaser',
+    'phaser-flanger': 'internal://effect/phaser-flanger',
+    'phaserflanger': 'internal://effect/phaser-flanger',
     'phasernew': 'internal://effect/phaser',
     'utility': 'internal://effect/utility',
     'gate': 'internal://effect/gate',
@@ -501,8 +541,8 @@ export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'tuner': 'internal://effect/tuner',
     'beat repeat': 'internal://effect/beat-repeat',
     'beatrepeat': 'internal://effect/beat-repeat',
-    'filter delay': 'internal://effect/delay',
-    'filterdelay': 'internal://effect/delay',
+    'filter delay': 'internal://effect/filter-delay',
+    'filterdelay': 'internal://effect/filter-delay',
     'grain delay': 'internal://effect/grain-delay',
     'graindelay': 'internal://effect/grain-delay',
     'drum buss': 'internal://effect/drum-buss',

@@ -166,11 +166,11 @@ pub fn resize_clip(
     // Find and remove the clip
     let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
 
-    // BUG-C4 FIX: Adjust source_offset when left edge moves.
-    // If the clip starts later than before, we're trimming the start —
-    // the source_offset must advance by the same amount.
+    // Left-edge move semantics:
+    // - trim (allow_stretch=false): advance source_offset, waveform stays static
+    // - stretch (allow_stretch=true): keep source_offset fixed, timeline duration changes
     let left_edge_delta = new_position.sample_frame - clip.position.sample_frame;
-    if left_edge_delta != 0 {
+    if left_edge_delta != 0 && !allow_stretch {
         clip.source_offset =
             AbsoluteTime::new((clip.source_offset.sample_frame + left_edge_delta).max(0));
     }
@@ -182,8 +182,25 @@ pub fn resize_clip(
     // Default resize behavior is TRIM (no stretch): keep playback rate stable
     // and clamp timeline duration to available source material.
     //
-    // Shift-resize (allow_stretch=true) preserves legacy/stretch behavior and
-    // allows timeline duration to exceed currently available source region.
+    // Shift-resize (allow_stretch=true):
+    // convert this clip into warped timeline behavior so duration changes
+    // stretch/compress source instead of trimming it.
+    if allow_stretch {
+        clip.is_warped = true;
+        if clip.warp_mode.is_none() {
+            clip.warp_mode = Some(0);
+        }
+        clip.warp_base_bpm = project
+            .pulse_map
+            .bpm_at(new_position.sample_frame)
+            .max(1e-6);
+        if clip.warp_source_duration_frames <= 0 {
+            clip.warp_source_duration_frames = clip.duration.sample_frame.max(MIN_CLIP_FRAMES);
+        }
+    }
+
+    // Trim behavior (allow_stretch=false): keep playback rate stable and clamp
+    // timeline duration to available source material.
     if !allow_stretch {
         let source_total_frames = clip
             .warp_source_duration_frames
@@ -1104,14 +1121,33 @@ mod tests {
     }
 
     #[test]
-    fn resize_clip_covers_and_deletes_existing() {
+    fn resize_clip_with_stretch_can_cover_and_delete_existing() {
         let mut project = make_test_project();
 
         // Clip A: [0, 1s]
         // Clip B: [2s, 3s]
         let clip_a_id = project.tracks[0].clips[0].id;
 
-        // Resize Clip A to 3s -> Should cover and delete Clip B
+        // Shift-resize Clip A to 3s -> Should cover and delete Clip B
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(44100 * 3),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(project.tracks[0].clips.len(), 1);
+        assert_eq!(project.tracks[0].clips[0].id, clip_a_id);
+    }
+
+    #[test]
+    fn resize_clip_without_stretch_trims_to_available_source() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+
+        // Default resize mode (allow_stretch=false) should clamp to source bounds.
         resize_clip(
             &mut project,
             clip_a_id,
@@ -1121,8 +1157,37 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(project.tracks[0].clips.len(), 1);
-        assert_eq!(project.tracks[0].clips[0].id, clip_a_id);
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.duration.sample_frame, 44100);
+        assert_eq!(project.tracks[0].clips.len(), 2);
+    }
+
+    #[test]
+    fn resize_clip_left_trim_advances_source_offset_without_stretch() {
+        let mut project = make_test_project();
+        let clip_a_id = project.tracks[0].clips[0].id;
+
+        resize_clip(
+            &mut project,
+            clip_a_id,
+            AbsoluteTime::new(22050),
+            AbsoluteTime::new(22050),
+            false,
+        )
+        .unwrap();
+
+        let clip_a = project.tracks[0]
+            .clips
+            .iter()
+            .find(|c| c.id == clip_a_id)
+            .unwrap();
+        assert_eq!(clip_a.position.sample_frame, 22050);
+        assert_eq!(clip_a.duration.sample_frame, 22050);
+        assert_eq!(clip_a.source_offset.sample_frame, 22050);
     }
 
     #[test]

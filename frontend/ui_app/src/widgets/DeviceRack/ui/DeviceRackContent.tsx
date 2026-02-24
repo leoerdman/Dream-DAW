@@ -5,9 +5,10 @@ import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots'
 
 interface DeviceRackContentProps {
     logic: DeviceRackLogicOutput;
+    rackExpanded?: boolean;
 }
 
-export function DeviceRackContent({ logic }: DeviceRackContentProps) {
+export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProps) {
     const {
         chain,
         selectedTrack,
@@ -51,13 +52,15 @@ export function DeviceRackContent({ logic }: DeviceRackContentProps) {
                 }}
                 style={{
                     display: 'flex',
-                    alignItems: 'stretch',
+                    alignItems: rackExpanded ? 'flex-start' : 'stretch',
+                    flexWrap: rackExpanded ? 'wrap' : 'nowrap',
+                    alignContent: rackExpanded ? 'flex-start' : undefined,
                     gap: 'var(--space-1-5)',
                     padding: 'var(--space-2-5)',
                     flex: 1,
                     minHeight: 0,
-                    overflowX: 'auto',
-                    overflowY: 'hidden',
+                    overflowX: rackExpanded ? 'hidden' : 'auto',
+                    overflowY: rackExpanded ? 'auto' : 'hidden',
                 }}
             >
                 <MeterStrip levelL={inLevelL} levelR={inLevelR} isMidi={selectedTrack?.track_type === 'Midi'} />

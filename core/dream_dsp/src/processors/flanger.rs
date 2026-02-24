@@ -109,6 +109,8 @@ impl FlangerProcessor {
     }
 
     /// Advance S&H RNG and return value in [-1, 1]
+    /// BUG-M01 FIX: Fixed u64→i64 cast bias. Upper half of u64 wrapped to
+    /// negative i64, causing asymmetric distribution. Now uses uniform mapping.
     #[inline]
     fn next_sh_random(&mut self) -> f32 {
         let mut x = self.sh_rng;
@@ -116,7 +118,8 @@ impl FlangerProcessor {
         x ^= x >> 7;
         x ^= x << 17;
         self.sh_rng = x;
-        (x as i64 as f64 / i64::MAX as f64) as f32
+        // Uniform [0, 1] → scale to [-1, 1]
+        (x as f64 / u64::MAX as f64) as f32 * 2.0 - 1.0
     }
 
     #[inline]
@@ -191,16 +194,17 @@ impl DspProcessor for FlangerProcessor {
             let lfo_r = self.lfo(phase_r, self.lfo_shape, self.sh_value_r);
 
             // Modulated delay
-            // BUG-027 FIX: Clamp TZ mode to minimum 1.0 sample (was 0.1).
-            // Sub-sample delays cause read_interp to read from ~write_pos,
-            // producing harsh metallic self-oscillation artifacts.
+            // BUG-C06 FIX: Through-zero mode now correctly allows the delay to pass
+            // through zero. The old code computed `base + lfo * (base * depth)` which
+            // is identical to non-TZ mode. True TZ flanging requires the LFO to sweep
+            // the delay from (base + mod_depth) down through 0.
             let delay_l = if self.tz_mode {
-                (base + lfo_l * (base * depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
+                (base * (1.0 + lfo_l * depth)).clamp(0.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_l * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };
             let delay_r = if self.tz_mode {
-                (base + lfo_r * (base * depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
+                (base * (1.0 + lfo_r * depth)).clamp(0.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };
@@ -211,14 +215,9 @@ impl DspProcessor for FlangerProcessor {
             // Write with damped feedback
             self.damp_state_l += dc * (self.fb_l - self.damp_state_l);
             self.damp_state_r += dc * (self.fb_r - self.damp_state_r);
-            // BUG-AUD-102 FIX: Flush denormals in feedback damping filter to
-            // prevent 50-100x CPU slowdown on x86 CPUs during quiet passages.
-            if self.damp_state_l.abs() < 1.0e-20 {
-                self.damp_state_l = 0.0;
-            }
-            if self.damp_state_r.abs() < 1.0e-20 {
-                self.damp_state_r = 0.0;
-            }
+            // SSOT: Flush denormals in feedback damping filter.
+            crate::processors::flush_denormal!(self.damp_state_l);
+            crate::processors::flush_denormal!(self.damp_state_r);
             self.buf_l[self.write_pos] = dry_l + self.damp_state_l * feedback;
             self.buf_r[self.write_pos] = dry_r + self.damp_state_r * feedback;
 
@@ -228,6 +227,11 @@ impl DspProcessor for FlangerProcessor {
 
             self.fb_l = wet_l;
             self.fb_r = wet_r;
+            // BUG-H01 FIX: Flush denormals in raw feedback values.
+            // damp_state was flushed but fb_l/fb_r could hold denormals
+            // that propagate to the write buffer during silence.
+            crate::processors::flush_denormal!(self.fb_l);
+            crate::processors::flush_denormal!(self.fb_r);
 
             left[i] = dry_l * (1.0 - mix) + wet_l * mix;
             right[i] = dry_r * (1.0 - mix) + wet_r * mix;

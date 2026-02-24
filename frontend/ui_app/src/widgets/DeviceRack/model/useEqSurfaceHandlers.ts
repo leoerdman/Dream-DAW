@@ -26,9 +26,11 @@ export function useEqSurfaceHandlers({
     onBandCreated,
 }: Args) {
     const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+        // Do not cancel right-button mousedown: cancelling here suppresses
+        // subsequent contextmenu on some platforms/browsers.
+        if (e.button === 2) return;
         e.preventDefault();
         e.stopPropagation();
-        if (e.button === 2) return;
         const svg = eqSurfaceRef.current;
         if (!svg) return;
         const rect = svg.getBoundingClientRect();

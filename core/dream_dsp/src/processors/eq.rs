@@ -133,6 +133,16 @@ impl DspProcessor for EqProcessor {
             }
             band.filter_l.process_buffer(left_buf);
             band.filter_r.process_buffer(right_buf);
+            // BUG-C08 FIX: Per-band output clamp to prevent cascaded extreme gain
+            // from producing values exceeding ±1000 before the runaway guard.
+            // 8 bands × +18dB = +144dB theoretical — intermediate clamp at ±30.0
+            // prevents inter-band accumulation while remaining transparent in normal use.
+            for s in left_buf.iter_mut() {
+                *s = s.clamp(-30.0, 30.0);
+            }
+            for s in right_buf.iter_mut() {
+                *s = s.clamp(-30.0, 30.0);
+            }
         }
         // Output gain
         self.output_gain_sm.set_target(self.output_gain_lin.max(0.0));

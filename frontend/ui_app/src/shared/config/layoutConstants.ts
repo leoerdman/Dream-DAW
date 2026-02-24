@@ -7,6 +7,8 @@ export const BROWSER_WIDTH_DEFAULT_PX = 320;
 export const BOTTOM_PANEL_HEIGHT_DEFAULT_PX = 220;
 export const BOTTOM_PANEL_HEIGHT_MIN_PX = 220;
 export const BOTTOM_PANEL_HEIGHT_MAX_PX = 500;
+/** 2-row expanded rack height — exactly 2× the default collapsed height. */
+export const BOTTOM_PANEL_RACK_EXPANDED_PX = 440;
 
 export const TRACK_HEIGHT_DEFAULT_PX = 48;
 export const TRACK_HEIGHT_MIN_PX = 24;

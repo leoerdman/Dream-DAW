@@ -637,11 +637,15 @@ export class CanvasClipRenderer {
         const samplesPerBeat = sampleRate * 60 / this._bpm;
         const samplesPerPixel = samplesPerBeat / ppb;
 
+        const sourceWindowSamples = clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0
+            ? (clip.warpSourceDurationFrames as number)
+            : clip.durationSamples;
+
         const drawData = this._waveformCache.getDrawData(
             clip.id,
             samplesPerPixel,
             clip.sourceOffset ?? 0,
-            clip.durationSamples,
+            sourceWindowSamples,
         );
 
         if (!drawData) return; // Still loading

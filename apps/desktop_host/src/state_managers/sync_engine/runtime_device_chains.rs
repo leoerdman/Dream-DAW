@@ -123,7 +123,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 0,
-                        value: v.clamp(0.1, 10.0),
+                        value: v.clamp(0.05, 10.0),
                     },
                 )?;
             }
@@ -160,7 +160,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 0,
-                        value: v.clamp(0.0, 24.0),
+                        value: v.clamp(0.0, 36.0),
                     },
                 )?;
             }
@@ -208,7 +208,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 1,
-                        value: v.clamp(1.0, 1000.0),
+                        value: v.clamp(10.0, 1000.0),
                     },
                 )?;
             }
@@ -219,7 +219,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 2,
-                        value: v.clamp(-30.0, 0.0),
+                        value: v.clamp(-6.0, 0.0),
                     },
                 )?;
             }
@@ -234,7 +234,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 0,
-                        value: v.clamp(-80.0, 0.0),
+                        value: v.clamp(-60.0, 0.0),
                     },
                 )?;
             }
@@ -245,7 +245,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 1,
-                        value: v.clamp(0.01, 100.0),
+                        value: v.clamp(0.01, 50.0),
                     },
                 )?;
             }
@@ -267,7 +267,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 3,
-                        value: v.clamp(1.0, 2000.0),
+                        value: v.clamp(5.0, 2000.0),
                     },
                 )?;
             }
@@ -278,7 +278,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 4,
-                        value: v.clamp(-80.0, 0.0),
+                        value: v.clamp(-96.0, 0.0),
                     },
                 )?;
             }
@@ -393,7 +393,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         value: if is_flanger_device {
                             v.clamp(0.1, 10.0)
                         } else {
-                            v.clamp(100.0, 5000.0)
+                            v.clamp(100.0, 8000.0)
                         },
                     },
                 )?;
@@ -407,7 +407,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                         track_index,
                         slot_index,
                         param_index: 3,
-                        value: v.round().clamp(2.0, 8.0),
+                        value: v.round().clamp(2.0, 12.0),
                     },
                 )?;
             }
@@ -517,7 +517,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                     EngineCommand::SetDeviceParam {
                         track_index,
                         slot_index,
-                        param_index: 0,
+                        param_index: 1,
                         value: v.round().clamp(0.0, 5.0),
                     },
                 )?;
@@ -528,7 +528,7 @@ pub fn rebuild_runtime_device_chains_from_project(
                     EngineCommand::SetDeviceParam {
                         track_index,
                         slot_index,
-                        param_index: 1,
+                        param_index: 0,
                         value: v.clamp(-60.0, 0.0),
                     },
                 )?;
@@ -657,66 +657,72 @@ pub fn rebuild_runtime_device_chains_from_project(
     for (track_index, track) in project.tracks.iter().enumerate() {
         let mut internal_effects: Vec<TrackFxEntry> = Vec::new();
         collect_runtime_internal_effects(&track.effects, false, &mut internal_effects);
-        if internal_effects.len() > MAX_DEVICE_SLOTS as usize {
+        let runtime_effects: Vec<(u8, TrackFxEntry)> = internal_effects
+            .into_iter()
+            .filter_map(|entry| {
+                builtin_effect_type_from_plugin_id(&entry.plugin_id).map(|effect_type| {
+                    (effect_type, entry)
+                })
+            })
+            .collect();
+        if runtime_effects.len() > MAX_DEVICE_SLOTS as usize {
             log::warn!(
                 "[RuntimeChain] track '{}' has {} internal effects; truncating to {} slots",
                 track.name,
-                internal_effects.len(),
+                runtime_effects.len(),
                 MAX_DEVICE_SLOTS
             );
         }
-        for (slot_index, entry) in internal_effects
+        for (slot_index, (effect_type, entry)) in runtime_effects
             .into_iter()
             .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
-            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&entry.plugin_id) {
-                let ti = track_index as u16;
-                let si = slot_index.min(u8::MAX as usize) as u8;
+            let ti = track_index as u16;
+            let si = slot_index.min(u8::MAX as usize) as u8;
+            push_command(
+                handle,
+                EngineCommand::AddDevice {
+                    track_index: ti,
+                    slot_index: si,
+                    effect_type,
+                },
+            )?;
+            if entry.bypassed {
                 push_command(
                     handle,
-                    EngineCommand::AddDevice {
+                    EngineCommand::BypassDevice {
                         track_index: ti,
                         slot_index: si,
-                        effect_type,
+                        bypassed: true,
                     },
                 )?;
-                if entry.bypassed {
-                    push_command(
-                        handle,
-                        EngineCommand::BypassDevice {
-                            track_index: ti,
-                            slot_index: si,
-                            bypassed: true,
-                        },
-                    )?;
-                }
-                // SSOT FIX: Restore persisted params from project file.
-                // Previously only master track effects had their saved params
-                // restored; regular track effects lost knob positions on reload.
-                if let Some(ref params) = entry.params {
-                    for (param_idx, &value) in params.iter().enumerate() {
-                        if value != 0.0 || param_idx < 33 {
-                            push_command(
-                                handle,
-                                EngineCommand::SetDeviceParam {
-                                    track_index: ti,
-                                    slot_index: si,
-                                    param_index: param_idx.min(u8::MAX as usize) as u8,
-                                    value,
-                                },
-                            )?;
-                        }
+            }
+            // SSOT FIX: Restore persisted params from project file.
+            // Previously only master track effects had their saved params
+            // restored; regular track effects lost knob positions on reload.
+            if let Some(ref params) = entry.params {
+                for (param_idx, &value) in params.iter().enumerate() {
+                    if value != 0.0 || param_idx < 33 {
+                        push_command(
+                            handle,
+                            EngineCommand::SetDeviceParam {
+                                track_index: ti,
+                                slot_index: si,
+                                param_index: param_idx.min(u8::MAX as usize) as u8,
+                                value,
+                            },
+                        )?;
                     }
                 }
-                apply_static_imported_params_for_slot(
-                    handle,
-                    ti,
-                    si,
-                    &entry.plugin_id,
-                    track,
-                )?;
             }
+            apply_static_imported_params_for_slot(
+                handle,
+                ti,
+                si,
+                &entry.plugin_id,
+                track,
+            )?;
         }
 
         // SSOT FIX: Restore instrument bypass state on project load.
@@ -781,43 +787,49 @@ pub fn rebuild_runtime_device_chains_from_project(
             collect_master_internal_effects(node, false, &mut master_internal_effects);
         }
 
-        for (slot_index, entry) in master_internal_effects
+        let master_runtime_effects: Vec<(u8, MasterFxEntry)> = master_internal_effects
+            .into_iter()
+            .filter_map(|entry| {
+                builtin_effect_type_from_plugin_id(&entry.plugin_id).map(|effect_type| {
+                    (effect_type, entry)
+                })
+            })
+            .collect();
+        for (slot_index, (effect_type, entry)) in master_runtime_effects
             .into_iter()
             .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
-            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&entry.plugin_id) {
+            push_command(
+                handle,
+                EngineCommand::AddDevice {
+                    track_index: MASTER_TRACK_INDEX,
+                    slot_index: slot_index.min(u8::MAX as usize) as u8,
+                    effect_type,
+                },
+            )?;
+            if entry.bypassed {
                 push_command(
                     handle,
-                    EngineCommand::AddDevice {
+                    EngineCommand::BypassDevice {
                         track_index: MASTER_TRACK_INDEX,
                         slot_index: slot_index.min(u8::MAX as usize) as u8,
-                        effect_type,
+                        bypassed: true,
                     },
                 )?;
-                if entry.bypassed {
-                    push_command(
-                        handle,
-                        EngineCommand::BypassDevice {
-                            track_index: MASTER_TRACK_INDEX,
-                            slot_index: slot_index.min(u8::MAX as usize) as u8,
-                            bypassed: true,
-                        },
-                    )?;
-                }
-                if let Some(ref params) = entry.params {
-                    for (param_idx, &value) in params.iter().enumerate() {
-                        if value != 0.0 || param_idx < 33 {
-                            push_command(
-                                handle,
-                                EngineCommand::SetDeviceParam {
-                                    track_index: MASTER_TRACK_INDEX,
-                                    slot_index: slot_index.min(u8::MAX as usize) as u8,
-                                    param_index: param_idx.min(u8::MAX as usize) as u8,
-                                    value,
-                                },
-                            )?;
-                        }
+            }
+            if let Some(ref params) = entry.params {
+                for (param_idx, &value) in params.iter().enumerate() {
+                    if value != 0.0 || param_idx < 33 {
+                        push_command(
+                            handle,
+                            EngineCommand::SetDeviceParam {
+                                track_index: MASTER_TRACK_INDEX,
+                                slot_index: slot_index.min(u8::MAX as usize) as u8,
+                                param_index: param_idx.min(u8::MAX as usize) as u8,
+                                value,
+                            },
+                        )?;
                     }
                 }
             }

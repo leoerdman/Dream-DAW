@@ -182,18 +182,9 @@ impl DspProcessor for DelayProcessor {
             let wet = self.dry_wet_sm.next();
             let dry = 1.0 - wet;
 
-            // LFO modulation (fast sine approximation)
-            let phase = self.lfo_phase as f32;
-            let (t, sign) = if phase < 0.5 {
-                (phase * 2.0, 1.0f32)
-            } else {
-                ((phase - 0.5) * 2.0, -1.0)
-            };
-            let t2 = t * (1.0 - t);
-            let fast_sin = sign * (16.0 * t2) / (5.0 - 4.0 * t2);
-            let lfo = fast_sin;
+            // SSOT: Fast sine LFO from mod.rs.
+            let lfo = crate::processors::fast_sin_phase(self.lfo_phase as f32);
             self.lfo_phase += lfo_inc;
-            // AUD-109 FIX: Use fract() for safe phase wrapping.
             self.lfo_phase = self.lfo_phase.fract();
 
             let mod_offset = lfo * mod_max;
@@ -224,33 +215,19 @@ impl DspProcessor for DelayProcessor {
             // One-pole LP in feedback loop
             self.fb_filter_l += fc * (fb_l_raw - self.fb_filter_l);
             self.fb_filter_r += fc * (fb_r_raw - self.fb_filter_r);
-            // BUG-AUD-101 FIX: Flush denormals in feedback filter to prevent
-            // 50-100x CPU slowdown on x86 CPUs during long quiet tails.
-            if self.fb_filter_l.abs() < 1.0e-20 {
-                self.fb_filter_l = 0.0;
-            }
-            if self.fb_filter_r.abs() < 1.0e-20 {
-                self.fb_filter_r = 0.0;
-            }
+            // SSOT: Flush denormals in feedback filter states.
+            crate::processors::flush_denormal!(self.fb_filter_l);
+            crate::processors::flush_denormal!(self.fb_filter_r);
 
             // Write to buffer: input + filtered feedback
             self.buf_l[self.write_pos] = dry_l + self.fb_filter_l * fb;
             self.buf_r[self.write_pos] = dry_r + self.fb_filter_r * fb;
 
-            // Store for ping-pong
-            // AUD-114 FIX: Flush denormals in cross-feedback buffers.
-            // When ping-pong is on, these delay tails cross over and can
-            // sustain denormal values indefinitely, causing CPU spikes.
-            self.cross_fb_l = if delayed_l.abs() < 1.0e-20 {
-                0.0
-            } else {
-                delayed_l
-            };
-            self.cross_fb_r = if delayed_r.abs() < 1.0e-20 {
-                0.0
-            } else {
-                delayed_r
-            };
+            // Store for ping-pong, then flush denormals.
+            self.cross_fb_l = delayed_l;
+            self.cross_fb_r = delayed_r;
+            crate::processors::flush_denormal!(self.cross_fb_l);
+            crate::processors::flush_denormal!(self.cross_fb_r);
 
             // Mix
             left[i] = dry_l * dry + delayed_l * wet;

@@ -486,15 +486,34 @@ export class TimelineEngine {
     private _composeDrawClips(): TimelineClipData[] {
         const preview = this._trimPreview;
         if (!preview) return this._clips;
-        return this._clips.map((clip) =>
-            clip.id === preview.clipId
-                ? {
-                    ...clip,
-                    startBeat: preview.startBeat,
-                    durationBeats: preview.durationBeats,
+        return this._clips.map((clip) => {
+            if (clip.id !== preview.clipId) return clip;
+
+            const nextClip: TimelineClipData = {
+                ...clip,
+                startBeat: preview.startBeat,
+                durationBeats: preview.durationBeats,
+            };
+
+            if (clip.type !== 'audio' || !clip.durationSamples) {
+                return nextClip;
+            }
+
+            if (!preview.allowStretch) {
+                // Trim preview must keep waveform scale static:
+                // - update visible sample window length to preview duration
+                // - when trimming from the left, advance source offset by trimmed frames
+                const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
+                nextClip.durationSamples = previewFrames;
+                if (preview.edge === 'left') {
+                    const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
+                    const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                    nextClip.sourceOffset = Math.max(0, (clip.sourceOffset ?? 0) + trimmedFrames);
                 }
-                : clip,
-        );
+            }
+
+            return nextClip;
+        });
     }
 
     private _didClipStructureChange(prev: TimelineClipData[], next: TimelineClipData[]): boolean {
@@ -945,6 +964,7 @@ export class TimelineEngine {
                 // ── Edge Resize (left / right) ──
                 if (hit.edge === 'left') {
                     this.onClipClick?.(hit.clipId, false, false);
+                    const allowStretch = e.shiftKey;
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -955,16 +975,22 @@ export class TimelineEngine {
                         clipOriginalBeat: clip.startBeat,
                         clipOriginalTrack: clip.trackIndex,
                         clipOriginalDuration: clip.durationBeats,
+                        clipResizeAllowStretch: allowStretch,
                     };
                     this._trimPreview = {
                         clipId: hit.clipId,
                         startBeat: clip.startBeat,
                         durationBeats: clip.durationBeats,
+                        edge: 'left',
+                        allowStretch,
+                        originalStartBeat: clip.startBeat,
+                        originalDurationBeats: clip.durationBeats,
                     };
                     break;
                 }
                 if (hit.edge === 'right') {
                     this.onClipClick?.(hit.clipId, false, false);
+                    const allowStretch = e.shiftKey;
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,
@@ -975,11 +1001,16 @@ export class TimelineEngine {
                         clipOriginalBeat: clip.startBeat,
                         clipOriginalTrack: clip.trackIndex,
                         clipOriginalDuration: clip.durationBeats,
+                        clipResizeAllowStretch: allowStretch,
                     };
                     this._trimPreview = {
                         clipId: hit.clipId,
                         startBeat: clip.startBeat,
                         durationBeats: clip.durationBeats,
+                        edge: 'right',
+                        allowStretch,
+                        originalStartBeat: clip.startBeat,
+                        originalDurationBeats: clip.durationBeats,
                     };
                     break;
                 }
@@ -1280,7 +1311,15 @@ export class TimelineEngine {
                 // start before the left neighbor.
                 const safeStart = Math.max(leftBound, newStart);
                 const newDuration = Math.max(0.25, clipEnd - safeStart);
-                this._trimPreview = { clipId: this._drag.clipId, startBeat: safeStart, durationBeats: newDuration };
+                this._trimPreview = {
+                    clipId: this._drag.clipId,
+                    startBeat: safeStart,
+                    durationBeats: newDuration,
+                    edge: 'left',
+                    allowStretch: this._drag.clipResizeAllowStretch === true,
+                    originalStartBeat: this._drag.clipOriginalBeat,
+                    originalDurationBeats: this._drag.clipOriginalDuration,
+                };
                 this._requestRedraw();
                 break;
             }
@@ -1307,7 +1346,15 @@ export class TimelineEngine {
                 // Final safety: ensure snapped end doesn't exceed right bound
                 const finalEnd = rightBound < Infinity ? Math.min(rightBound, snappedEnd) : snappedEnd;
                 const newDuration = Math.max(0.25, finalEnd - this._drag.clipOriginalBeat);
-                this._trimPreview = { clipId: this._drag.clipId, startBeat: this._drag.clipOriginalBeat, durationBeats: newDuration };
+                this._trimPreview = {
+                    clipId: this._drag.clipId,
+                    startBeat: this._drag.clipOriginalBeat,
+                    durationBeats: newDuration,
+                    edge: 'right',
+                    allowStretch: this._drag.clipResizeAllowStretch === true,
+                    originalStartBeat: this._drag.clipOriginalBeat,
+                    originalDurationBeats: this._drag.clipOriginalDuration,
+                };
                 this._requestRedraw();
                 break;
             }
@@ -1527,7 +1574,7 @@ export class TimelineEngine {
                                 this._drag.clipId,
                                 preview.startBeat,
                                 preview.durationBeats,
-                                e.shiftKey,
+                                preview.allowStretch,
                             );
                         }
                     }
@@ -1651,6 +1698,7 @@ export class TimelineEngine {
             // calculations in MarqueeSelect and MultiCursorSelect.
             startClientX: 0,
             startClientY: 0,
+            clipResizeAllowStretch: false,
         };
     }
 
@@ -1863,7 +1911,7 @@ export class TimelineEngine {
                 }
                 // FIX: Clear trim preview on escape so stale resize ghost doesn't persist.
                 this._trimPreview = null;
-                this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0 };
+                this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0, clipResizeAllowStretch: false };
                 if (this._canvas) this._canvas.style.cursor = 'default';
                 this._requestRedraw();
             } else if (this._marquee) {

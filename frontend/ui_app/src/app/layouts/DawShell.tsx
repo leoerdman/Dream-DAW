@@ -515,6 +515,7 @@ export const DawShell = () => {
                 bottomPanelMode={bottomPanelMode}
                 hasResizableClipEditor={hasResizableClipEditor}
                 bottomPanelHeightPx={bottomPanelHeightPx}
+                setBottomPanelHeightPx={setBottomPanelHeightPx}
                 beginBottomPanelResize={beginBottomPanelResize}
                 selectedTimelineClip={selectedTimelineClip ?? undefined}
                 clipColor={selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)'}

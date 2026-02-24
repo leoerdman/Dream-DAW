@@ -121,7 +121,7 @@ export function renderStandardUtilityCompressorSurface(device: DeviceSlot, handl
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-a5bed8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mode</div>
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--token-color-hex-dce9ff)', fontFamily: 'var(--font-mono)' }}>
-                                        Compatibility alias (Utility DSP)
+                                        Utility profile
                                     </div>
                                     <svg viewBox="0 0 220 28" preserveAspectRatio="none" style={{ width: '100%', height: 20 }}>
                                         <rect x="0" y="0" width="220" height="28" rx="4" fill="var(--token-color-rgba-16-24-34-0d8)" />

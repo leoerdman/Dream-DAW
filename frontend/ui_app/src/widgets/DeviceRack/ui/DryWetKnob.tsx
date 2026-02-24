@@ -20,8 +20,8 @@ export interface DryWetKnobProps {
     accent?: string;
 }
 
-const SIZE = 40;
-const ARC_R = 16;
+const SIZE = 34;
+const ARC_R = 13;
 const ARC_CIRC = 2 * Math.PI * ARC_R;
 const ARC_LEN = (270 / 360) * ARC_CIRC;
 
@@ -117,8 +117,9 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 2,
-                minWidth: 56,
+                gap: 1,
+                minWidth: 52,
+                minHeight: 60,
                 alignSelf: 'center',
                 padding: '0 2px',
                 boxSizing: 'border-box',
@@ -155,7 +156,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                             cx="24" cy="24" r={ARC_R}
                             fill="none"
                             stroke="var(--color-bg-elevated)"
-                            strokeWidth="4.5"
+                            strokeWidth="4"
                             strokeLinecap="round"
                             strokeDasharray={ARC_CIRC}
                             strokeDashoffset={ARC_CIRC - ARC_LEN}
@@ -167,7 +168,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                                 cx="24" cy="24" r={ARC_R}
                                 fill="none"
                                 stroke={accentColor}
-                                strokeWidth="6"
+                                strokeWidth="5"
                                 strokeLinecap="round"
                                 strokeDasharray={ARC_LEN}
                                 strokeDashoffset={dashOffset}
@@ -182,7 +183,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                                 cx="24" cy="24" r={ARC_R}
                                 fill="none"
                                 stroke={accentColor}
-                                strokeWidth="4.5"
+                                strokeWidth="4"
                                 strokeLinecap="round"
                                 strokeDasharray={ARC_LEN}
                                 strokeDashoffset={dashOffset}
@@ -198,12 +199,12 @@ export const DryWetKnob = React.memo(function DryWetKnob({
             </div>
             {/* Label */}
             <span style={{
-                fontSize: 'var(--font-size-micro)',
+                fontSize: '10px',
                 color: 'var(--color-text-tertiary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.06em',
                 fontWeight: 600,
-                lineHeight: 1.05,
+                lineHeight: 1,
             }}>
                 DRY/WET
             </span>
@@ -212,7 +213,7 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                 fontSize: 'var(--font-size-2xs)',
                 fontFamily: 'var(--font-mono)',
                 color: 'var(--color-text-primary)',
-                lineHeight: 1.05,
+                lineHeight: 1,
             }}>
                 {displayPct}%
             </span>

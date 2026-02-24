@@ -50,9 +50,12 @@ function pickRandomBandColor(exclude?: string): string {
 function buildInitialEqBandColors(deviceId: string): string[] {
     const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
     if (cached && cached.length === EQ_BAND_COUNT) return [...cached];
-    // Keep deterministic vivid palette across sessions; randomization is only used
-    // when creating a brand-new band during editing.
-    const seeded = [...EQ_BAND_COLORS];
+    // Build per-device randomized colors so new instances don't default to a
+    // single repeated hue family.
+    const seeded: string[] = [];
+    for (let i = 0; i < EQ_BAND_COUNT; i++) {
+        seeded.push(pickRandomBandColor(seeded[i - 1]));
+    }
     EQ_BAND_COLOR_CACHE.set(deviceId, seeded);
     return seeded;
 }

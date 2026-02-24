@@ -161,6 +161,35 @@ struct PluginMutationDeltaResponse {
     deltas: Vec<dream_models::delta::ProjectDelta>,
 }
 
+fn normalize_scoped_internal_param_id(slot_id: Uuid, param_id: &str) -> Result<String, String> {
+    let trimmed = param_id.trim();
+    if trimmed.is_empty() {
+        return Err("param_id cannot be empty".to_string());
+    }
+
+    let mut parts = trimmed.splitn(3, ':');
+    let first = parts.next().unwrap_or_default();
+    let second = parts.next().unwrap_or_default();
+    let third = parts.next().unwrap_or_default();
+
+    if first.eq_ignore_ascii_case("slot") {
+        let scoped_slot = Uuid::parse_str(second)
+            .map_err(|_| format!("Invalid scoped slot in param_id: {param_id}"))?;
+        if scoped_slot != slot_id {
+            return Err(format!(
+                "Scoped param_id slot mismatch: payload slot={} param slot={}",
+                slot_id, scoped_slot
+            ));
+        }
+        if third.trim().is_empty() {
+            return Err(format!("Invalid scoped param_id (missing parameter key): {param_id}"));
+        }
+        return Ok(format!("slot:{slot_id}:{}", third.trim()));
+    }
+
+    Ok(format!("slot:{slot_id}:{trimmed}"))
+}
+
 /// Add a plugin slot to a track (instrument/effect) from frontend DnD.
 #[tauri::command]
 fn add_plugin_to_track_cmd(
@@ -299,13 +328,31 @@ fn set_internal_plugin_param_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+    let slot_state = execute_orchestrator_query(
+        &project_state,
+        &dream_orchestrator::queries::ResolvePluginSlotStateQuery {
+            track_id: track_uuid,
+            slot_id: slot_uuid,
+        },
+    )?;
+    if !slot_state.plugin_id.starts_with("internal://") {
+        return Err(format!(
+            "set_internal_plugin_param_cmd expects internal plugin slot, got '{}'",
+            slot_state.plugin_id
+        ));
+    }
+    let scoped_param_id = normalize_scoped_internal_param_id(slot_uuid, &payload.param_id)?;
     let should_commit_snapshot = payload.push_undo_step.unwrap_or(true);
     if should_commit_snapshot {
         push_undo(&project_state)?;
     }
     let cmd = dream_orchestrator::commands::SetInternalPluginParamCommand::from_str_track_id(
         &payload.track_id,
-        payload.param_id.clone(),
+        scoped_param_id.clone(),
         payload.value,
     )
     .map_err(|e| e.to_string())?;
@@ -432,7 +479,7 @@ fn set_internal_plugin_param_cmd(
         "[IPC] set_internal_plugin_param_cmd(track={}, slot={}, param={} value={})",
         payload.track_id,
         payload.slot_id,
-        payload.param_id,
+        scoped_param_id,
         payload.value
     );
     Ok(())
@@ -449,12 +496,17 @@ fn set_internal_plugin_param_with_deltas_cmd(
 ) -> Result<PluginMutationDeltaResponse, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    let slot_uuid = Uuid::parse_str(&payload.slot_id).ok();
-    let param_id = payload.param_id.clone();
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+    let scoped_param_id = normalize_scoped_internal_param_id(slot_uuid, &payload.param_id)?;
+    let param_id = scoped_param_id.clone();
     let value = payload.value;
 
     set_internal_plugin_param_cmd(
-        payload,
+        InternalPluginParamPayload {
+            param_id: scoped_param_id,
+            ..payload
+        },
         project_state,
         clip_pool_state,
         automation_runtime,
@@ -462,16 +514,12 @@ fn set_internal_plugin_param_with_deltas_cmd(
         app,
     )?;
 
-    let deltas = if let Some(slot_id) = slot_uuid {
-        vec![dream_models::delta::ProjectDelta::InternalPluginParamChanged {
-            track_id: track_uuid,
-            slot_id,
-            param_id,
-            value,
-        }]
-    } else {
-        Vec::new()
-    };
+    let deltas = vec![dream_models::delta::ProjectDelta::InternalPluginParamChanged {
+        track_id: track_uuid,
+        slot_id: slot_uuid,
+        param_id,
+        value,
+    }];
 
     Ok(PluginMutationDeltaResponse { deltas })
 }

@@ -103,6 +103,22 @@ fn collect_name_variants(raw: &str) -> Vec<String> {
         push_unique(&mut out, &token_no_ext);
     }
 
+    // Drop common host/plugin suffixes that prevent scanner matching.
+    let mut simplified = no_ext.to_ascii_lowercase();
+    for suffix in [
+        " plugin",
+        " vst3",
+        " vst2",
+        " au",
+        " aax",
+        " 64-bit",
+        " 64 bit",
+        " x64",
+    ] {
+        simplified = simplified.replace(suffix, "");
+    }
+    push_unique(&mut out, simplified.trim());
+
     out
 }
 
@@ -414,6 +430,7 @@ fn auto_resolve_missing_external_plugin_slots(
     let mut by_path = std::collections::HashMap::new();
     let mut by_name = std::collections::HashMap::new();
     let mut by_stem = std::collections::HashMap::new();
+    let mut by_file = std::collections::HashMap::new();
     let mut by_name_compact = std::collections::HashMap::new();
     let mut by_stem_compact = std::collections::HashMap::new();
     let mut by_uid = std::collections::HashMap::new();
@@ -441,6 +458,11 @@ fn auto_resolve_missing_external_plugin_slots(
                     .entry(compact_stem)
                     .or_insert_with(|| desc.clone());
             }
+        }
+        if let Some(file_name) = desc.path.file_name().and_then(|s| s.to_str()) {
+            by_file
+                .entry(normalize_lookup_key(file_name))
+                .or_insert_with(|| desc.clone());
         }
         if let Some(uid) = &desc.unique_id {
             by_uid
@@ -489,6 +511,10 @@ fn auto_resolve_missing_external_plugin_slots(
                     if let Some(path) = meta.get(key) {
                         let normalized = normalize_lookup_key(path);
                         if let Some(desc) = by_path.get(&normalized) {
+                            resolved = Some(desc.clone());
+                            break;
+                        }
+                        if let Some(desc) = by_file.get(&normalized) {
                             resolved = Some(desc.clone());
                             break;
                         }
@@ -625,6 +651,10 @@ fn auto_resolve_missing_external_plugin_slots(
                     if let Some(path) = meta.get(key) {
                         let normalized = normalize_lookup_key(path);
                         if let Some(desc) = by_path.get(&normalized) {
+                            resolved = Some(desc.clone());
+                            break;
+                        }
+                        if let Some(desc) = by_file.get(&normalized) {
                             resolved = Some(desc.clone());
                             break;
                         }

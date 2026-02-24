@@ -72,10 +72,9 @@ export function useDawShellGlobalShortcuts(args: {
                 return;
             }
 
-            if (isEditableTarget(e.target)) return;
-
             if (isMod(e) && !e.shiftKey && !e.altKey && e.code === 'Comma') {
                 e.preventDefault();
+                e.stopPropagation();
                 setSettingsOpen((prev) => !prev);
                 return;
             }
@@ -87,6 +86,8 @@ export function useDawShellGlobalShortcuts(args: {
                 openExportPanel();
                 return;
             }
+
+            if (isEditableTarget(e.target)) return;
 
             // Reload shortcut uses Cmd/Ctrl+Alt+R to avoid conflicts with export (Cmd/Ctrl+Shift+R).
             if (isMod(e) && !e.shiftKey && e.altKey && e.code === 'KeyR') {

@@ -67,7 +67,7 @@ const ChannelBar: React.FC<{
 }> = React.memo(({ level, align, chWidth, fillBg }) => {
     // BUG-95 FIX: NaN guard — prevents clip-path: inset(NaN% 0 0 0).
     const safeLevel = Number.isNaN(level) ? 0 : level;
-    const h = Math.max(0, Math.min(100, safeLevel * 100));
+    const scale = Math.max(0, Math.min(1, safeLevel));
 
     return (
         <div
@@ -79,10 +79,9 @@ const ChannelBar: React.FC<{
                 // Full height — the gradient spans the entire meter
                 height: '100%',
                 background: fillBg,
-                // Clip from top: reveal only the bottom h%
-                clipPath: `inset(${100 - h}% 0 0 0)`,
-                transition: `clip-path 0.06s linear`,
-                willChange: 'clip-path',
+                transformOrigin: 'bottom',
+                transform: `scaleY(${scale})`,
+                willChange: 'transform',
             }}
         />
     );

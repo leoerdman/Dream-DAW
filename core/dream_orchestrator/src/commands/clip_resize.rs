@@ -43,23 +43,37 @@ impl Command for ResizeClipCommand {
     type Result = ();
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
+        // BUG-038 FIX: Validate inputs before mutating.
+        if self.new_duration_frames <= 0 {
+            return Err(OrchestratorError::Other(format!(
+                "Clip duration must be positive, got {}",
+                self.new_duration_frames
+            )));
+        }
+        if self.new_position_frames < 0 {
+            return Err(OrchestratorError::Other(format!(
+                "Clip position must be non-negative, got {}",
+                self.new_position_frames
+            )));
+        }
+
         let mut project = ctx.lock_project()?;
 
         let new_position = AbsoluteTime::new(self.new_position_frames);
         let new_duration = AbsoluteTime::new(self.new_duration_frames);
 
-        if let Err(audio_err) = mutators::resize_clip(
+        if let Err(_audio_err) = mutators::resize_clip(
             &mut project,
             self.clip_id,
             new_position,
             new_duration,
             self.allow_stretch,
         ) {
-            // Fall back to MIDI clip resize
-            if mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)
-                .is_err()
+            // BUG-017 FIX: Return the MIDI error (not audio error) when both fail.
+            if let Err(midi_err) =
+                mutators::resize_midi_clip(&mut project, self.clip_id, new_position, new_duration)
             {
-                return Err(OrchestratorError::MutatorFailed(audio_err));
+                return Err(OrchestratorError::MutatorFailed(midi_err));
             }
         }
 

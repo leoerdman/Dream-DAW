@@ -97,7 +97,17 @@ fn set_track_routing_with_deltas_cmd(
     if !preview_result.changed {
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });
     }
-    set_track_routing_cmd(track_id, target_id, project_state, clip_pool_state, app)?;
+
+    // BUG-001 FIX: Inline the routing logic instead of delegating to
+    // set_track_routing_cmd, which would push undo + execute a second time.
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(RoutingDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackRoutingChanged {
@@ -167,7 +177,15 @@ fn set_track_input_with_deltas_cmd(
     if !preview_result.changed {
         return Ok(DeltaMutationResponse { deltas: Vec::new() });
     }
-    set_track_input_cmd(track_id, input_id, project_state.clone(), app)?;
+    // BUG-002 FIX: Inline the logic instead of delegating to set_track_input_cmd,
+    // which would push undo + execute a second time.
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackInputChanged {
@@ -281,15 +299,26 @@ fn set_plugin_sidechain_source_with_deltas_cmd(
         return Ok(RoutingDeltaResponse { deltas: Vec::new() });
     }
 
-    set_plugin_sidechain_source_cmd(
+    // BUG-003 FIX: Inline the logic instead of delegating to set_plugin_sidechain_source_cmd,
+    // which would push undo + execute a second time.
+    push_undo(&project_state)?;
+    execute_orchestrator_command(&project_state, &cmd)?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let source_value = cmd.source_track_id.map(|id| id.to_string());
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    plugin_host_state.publish_registry();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    log::info!(
+        "[IPC] set_plugin_sidechain_source_with_deltas_cmd(track={} slot={} source={})",
         track_id,
         slot_id,
-        source_track_id,
-        project_state,
-        clip_pool_state,
-        plugin_host_state,
-        app,
-    )?;
+        source_value.as_deref().unwrap_or("none")
+    );
 
     Ok(RoutingDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::PluginSidechainChanged {

@@ -190,7 +190,7 @@ export function EqBandContextMenu({
                                 ? 'var(--color-text-primary)'
                                 : 'color-mix(in srgb, var(--color-text-primary) 72%, transparent)',
                         cursor: 'pointer',
-                        fontWeight: bands[eqContextMenu.bandIdx].filterType === type ? 700 : 400,
+                        fontWeight: activeBand.filterType === type ? 700 : 400,
                     }}
                     onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';

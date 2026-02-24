@@ -48,8 +48,18 @@ impl Command for SetClipFadesCommand {
             if let Some(clip) = track.clips.iter_mut().find(|c| c.id == self.clip_id) {
                 let clip_len = clip.duration.sample_frame.max(1);
                 let max_fade = (clip_len / 2).max(0);
-                clip.fade_in_frames = self.fade_in_frames.max(0).min(max_fade);
-                clip.fade_out_frames = self.fade_out_frames.max(0).min(max_fade);
+                let mut fade_in = self.fade_in_frames.max(0).min(max_fade);
+                let mut fade_out = self.fade_out_frames.max(0).min(max_fade);
+                // BUG-016 FIX: Guard combined overlap. If fade_in + fade_out
+                // exceeds clip length, proportionally shrink both fades.
+                let total = fade_in + fade_out;
+                if total > clip_len && total > 0 {
+                    let scale = clip_len as f64 / total as f64;
+                    fade_in = (fade_in as f64 * scale) as i64;
+                    fade_out = clip_len - fade_in; // give remainder to fade_out
+                }
+                clip.fade_in_frames = fade_in;
+                clip.fade_out_frames = fade_out;
                 updated = true;
                 break;
             }
@@ -61,8 +71,17 @@ impl Command for SetClipFadesCommand {
                 if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == self.clip_id) {
                     let clip_len = clip.duration.sample_frame.max(1);
                     let max_fade = (clip_len / 2).max(0);
-                    clip.fade_in_frames = self.fade_in_frames.max(0).min(max_fade);
-                    clip.fade_out_frames = self.fade_out_frames.max(0).min(max_fade);
+                    let mut fade_in = self.fade_in_frames.max(0).min(max_fade);
+                    let mut fade_out = self.fade_out_frames.max(0).min(max_fade);
+                    // BUG-016 FIX: Same combined overlap guard as audio clips.
+                    let total = fade_in + fade_out;
+                    if total > clip_len && total > 0 {
+                        let scale = clip_len as f64 / total as f64;
+                        fade_in = (fade_in as f64 * scale) as i64;
+                        fade_out = clip_len - fade_in;
+                    }
+                    clip.fade_in_frames = fade_in;
+                    clip.fade_out_frames = fade_out;
                     updated = true;
                     break;
                 }

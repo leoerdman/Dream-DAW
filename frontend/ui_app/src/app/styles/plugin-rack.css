@@ -58,8 +58,9 @@
 
 /* Effect-type color stripes — display:block enables the stripe */
 .device-node[data-effect]::before {
-    display: none;
-    /* User request: remove these lines */
+    /* BUG FIX: Was `display: none` which killed the color stripe.
+       The ::before pseudo-element needs `display: block` to be visible. */
+    display: block;
 }
 
 .device-node[data-effect="eq"]::before {

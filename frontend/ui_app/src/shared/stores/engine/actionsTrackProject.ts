@@ -157,7 +157,9 @@ export function createTrackProjectActions(
 
         setMasterVolume: async (volume: number) => {
             try {
-                const clamped = Math.max(0, Math.min(2, volume));
+                // BUG-014 FIX: Clamp to 12.0 (SSOT with ChannelStrip max),
+                // was 2.0 which silently clipped master boost above +6dB.
+                const clamped = Math.max(0, Math.min(12, volume));
                 pendingMasterVolume = clamped;
                 set({ masterVolume: clamped });
                 throttledMasterVolumeSend(clamped);

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AppSettings } from '@/shared/api/engine';
-import { SettingRow, SettingsSection } from './settingsPanelParts';
+import { SettingRow, SettingsSection, Toggle } from './settingsPanelParts';
 import { chipStyle, titleStyle } from './settingsPanelStyles';
 import {
     THEME_PRESETS,
@@ -61,16 +61,7 @@ export function AppearanceTab({ settings, updateSetting, updateAllSettings }: Ap
                     }}
                 />
                 <SettingRow label="Advanced">
-                    <button
-                        onClick={() => setShowAdvanced((v) => !v)}
-                        style={{
-                            ...chipStyle,
-                            background: 'var(--color-bg-elevated)',
-                            color: 'var(--color-text-secondary)',
-                        }}
-                    >
-                        {showAdvanced ? 'Hide Advanced Appearance' : 'Show Advanced Appearance'}
-                    </button>
+                    <Toggle value={showAdvanced} onChange={setShowAdvanced} />
                 </SettingRow>
             </SettingsSection>
             {showAdvanced && (

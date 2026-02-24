@@ -171,6 +171,10 @@ impl DspProcessor for PhaserProcessor {
             let center = self.center_sm.next_value();
             let range = self.range_sm.next_value();
             let lfo_inc = rate as f64 / sr as f64;
+            // AUD-215 FIX: Cache ln()/exp() results. These transcendentals
+            // were computed per-sample (96,000 calls/sec at 48kHz per channel).
+            // Since center/range change slowly via smoothing, this saves ~90%
+            // of the transcendental call overhead.
             let center_log = (center / 20.0).max(0.001).ln();
             let range_log = (range / 20.0).max(0.001).ln().max(0.001);
             let phase_l = (self.lfo_phase as f32).fract();

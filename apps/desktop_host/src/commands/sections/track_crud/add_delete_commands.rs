@@ -192,6 +192,9 @@ async fn delete_tracks_cmd(
     )?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
+    // BUG-046 FIX: Evict unused clips after bulk deletion — previously only
+    // single delete_track_cmd had this, causing memory leaks on bulk delete.
+    clip_pool_state.evict_unused_clips(&project_state);
     log::info!("[IPC] delete_tracks_cmd(count={})", result.removed_track_ids.len());
     Ok(())
 }

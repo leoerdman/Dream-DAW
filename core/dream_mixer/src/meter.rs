@@ -78,6 +78,34 @@ impl VuMeter {
         }
     }
 
+    /// AUD-212 FIX: Recalculate ballistic coefficients from IEC-standard time
+    /// constants based on actual sample rate and block size.
+    /// Previous hardcoded values (0.9 attack, 0.005 release) produced inconsistent
+    /// timing at different block sizes / sample rates.
+    ///
+    /// Target time constants: 12ms attack (~IEC 268-10), 300ms release.
+    pub fn set_sample_rate(&mut self, sample_rate: f32, block_size: usize) {
+        let blocks_per_sec = sample_rate / (block_size.max(1) as f32);
+        if blocks_per_sec > 0.0 && blocks_per_sec.is_finite() {
+            // τ_attack  = 12ms  → coefficient per block
+            let attack_blocks = 0.012 * blocks_per_sec;
+            self.attack_coeff = if attack_blocks > 0.0 {
+                (-1.0 / attack_blocks as f64).exp() as f32
+            } else {
+                0.9
+            };
+            // τ_release = 300ms → coefficient per block
+            let release_blocks = 0.300 * blocks_per_sec;
+            self.release_coeff = if release_blocks > 0.0 {
+                (1.0 - (-1.0 / release_blocks as f64).exp()) as f32
+            } else {
+                0.005
+            };
+            // Hold = ~1.5 seconds in blocks
+            self.hold_duration_frames = (1.5 * blocks_per_sec) as u32;
+        }
+    }
+
     /// Processes a block of audio samples and updates meter levels.
     ///
     /// # Real-Time Safety

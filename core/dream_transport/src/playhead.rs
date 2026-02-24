@@ -16,6 +16,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use super::loop_region::LoopRegion;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// AUD-238 FIX: Counter for invalid-SR rejections. Replaces `log::warn!`
+/// which acquires a Mutex (RT safety violation) with a lock-free atomic.
+/// The UI thread can read this periodically and display a warning.
+static INVALID_SR_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Sample-accurate playhead position tracker.
 ///
@@ -129,8 +135,9 @@ impl Playhead {
             && self.position < region.end
             && new_position >= region.end
         {
-            // Calculate how many frames fit before the wrap
-            let frames_before_wrap = (region.end - self.position) as usize;
+            // AUD-239 FIX: Use saturating_sub to prevent underflow if
+            // position > end after a seek past the loop region.
+            let frames_before_wrap = (region.end.saturating_sub(self.position)).max(0) as usize;
             let overshoot = new_position - region.end;
             let loop_length = region.end - region.start;
 
@@ -160,13 +167,17 @@ impl Playhead {
         if sample_rate.is_finite() && sample_rate > 0.0 {
             self.sample_rate = sample_rate;
         } else {
-            // BUG-92 FIX: Don't silently ignore invalid sample rates.
-            log::warn!(
-                "[Playhead] Rejected invalid sample rate: {} (keeping {:.0}Hz)",
-                sample_rate,
-                self.sample_rate
-            );
+            // BUG-92 + AUD-238 FIX: Don't silently ignore invalid sample rates.
+            // Uses atomic counter instead of log::warn! to avoid acquiring
+            // a Mutex on the RT thread (log backends hold a global lock).
+            INVALID_SR_COUNT.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Returns and resets the count of rejected invalid sample rate attempts.
+    /// Call from the UI thread to surface warnings without RT thread locks.
+    pub fn drain_invalid_sr_count() -> u32 {
+        INVALID_SR_COUNT.swap(0, Ordering::Relaxed)
     }
 }
 

@@ -69,42 +69,36 @@ export function TimelineMasterLane({
                 zIndex: 'var(--z-timeline-overlays)' as unknown as number,
             }}
         >
-            <svg
-                width="100%"
-                height="100%"
-                viewBox={`0 0 ${masterGridViewportWidth} ${Math.max(1, trackHeight)}`}
-                preserveAspectRatio="none"
-                style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-            >
-                <g>
-                    {masterLaneGridLines.subLines.map((x) => (
-                        <line
-                            key={`master-sub-${x}`}
-                            x1={x}
-                            y1={0}
-                            x2={x}
-                            y2={trackHeight}
-                            stroke="var(--color-timeline-grid-line)"
-                            strokeWidth={1}
-                            opacity="var(--timeline-master-grid-sub-opacity, 0.42)"
-                        />
-                    ))}
-                </g>
-                <g>
-                    {masterLaneGridLines.barLines.map((x) => (
-                        <line
-                            key={`master-bar-${x}`}
-                            x1={x}
-                            y1={0}
-                            x2={x}
-                            y2={trackHeight}
-                            stroke="var(--color-timeline-grid-bar)"
-                            strokeWidth={1}
-                            opacity="var(--timeline-master-grid-bar-opacity, 0.95)"
-                        />
-                    ))}
-                </g>
-            </svg>
+            {masterLaneGridLines.subLines.map((x) => (
+                <div
+                    key={`master-sub-${x}`}
+                    style={{
+                        position: 'absolute',
+                        left: x,
+                        top: 0,
+                        bottom: 0,
+                        width: 1,
+                        background: 'var(--color-timeline-grid-line)',
+                        opacity: 0.42,
+                        pointerEvents: 'none',
+                    }}
+                />
+            ))}
+            {masterLaneGridLines.barLines.map((x) => (
+                <div
+                    key={`master-bar-${x}`}
+                    style={{
+                        position: 'absolute',
+                        left: x,
+                        top: 0,
+                        bottom: 0,
+                        width: 1,
+                        background: 'var(--color-timeline-grid-bar)',
+                        opacity: 0.95,
+                        pointerEvents: 'none',
+                    }}
+                />
+            ))}
             {loopVisible && (
                 <>
                     <div

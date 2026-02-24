@@ -171,11 +171,28 @@ impl MidiScheduler {
                 };
                 let velocity_scaled = ((note.velocity as f64) * fade_in_gain.min(fade_out_gain))
                     .round()
-                    .clamp(1.0, 127.0) as u8;
+                    .clamp(0.0, 127.0) as u8;
+
+                // AUD-208 FIX: Per MIDI 1.0 spec, velocity-0 note-on is note-off
+                // (Running Status optimization). Some MIDI files/controllers use this.
+                // Without this, such notes create a stuck note with velocity=1 that
+                // never receives its corresponding note-off.
+                if velocity_scaled == 0 && is_note_on {
+                    out.push(ScheduledNote {
+                        pitch: note.pitch,
+                        velocity: 0,
+                        note_uid: Self::note_uid(clip, note),
+                        buffer_onset: onset.min(frame_count),
+                        buffer_offset_end: onset.min(frame_count),
+                        is_note_on: false,
+                        is_note_off: true,
+                    });
+                    continue;
+                }
 
                 out.push(ScheduledNote {
                     pitch: note.pitch,
-                    velocity: velocity_scaled,
+                    velocity: velocity_scaled.max(1),
                     note_uid: Self::note_uid(clip, note),
                     buffer_onset: onset.min(frame_count),
                     buffer_offset_end: offset_end.min(frame_count),

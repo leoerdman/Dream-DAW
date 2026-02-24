@@ -165,11 +165,20 @@ impl SmoothedProcessor {
             let c = self.current[i];
             let t = self.target[i];
             let next = coeff * c + blend * t;
-            self.current[i] = next;
-            self.inner.set_param(i as u8, next);
+            // AUD-207 FIX: Check convergence BEFORE calling set_param.
+            // Processors like Compressor/Gate/Limiter recalculate coefficients
+            // inside set_param() — calling it with the same converged value is
+            // redundant and wastes CPU (multiple exp() calls per buffer).
             if (next - t).abs() < 1.0e-6 {
-                self.current[i] = t;
+                if (self.current[i] - t).abs() > 1.0e-6 {
+                    // Final call to reach exact target value
+                    self.current[i] = t;
+                    self.inner.set_param(i as u8, t);
+                }
                 self.active[i] = false;
+            } else {
+                self.current[i] = next;
+                self.inner.set_param(i as u8, next);
             }
         }
     }

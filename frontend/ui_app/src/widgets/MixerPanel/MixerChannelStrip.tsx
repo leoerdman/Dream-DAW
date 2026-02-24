@@ -1,17 +1,16 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { getContrastColor } from '@/shared/lib/colorUtils';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { vuNorm } from '@/shared/lib/audioMath';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
-import { METER_WIDTH, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
+import { METER_WIDTH, STRIP_ACCENT_HEIGHT, STRIP_ACCENT_INSET, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
 
 interface ChannelStripProps {
     track: ProjectTrack;
     trackIndex: number;
     isSelected: boolean;
-    peakDbL: number;
-    peakDbR: number;
     onSelect: () => void;
     onVolumeChange: (gain: number) => void;
     onPanChange: (pan: number) => void;
@@ -23,8 +22,6 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     track,
     trackIndex,
     isSelected,
-    peakDbL,
-    peakDbR,
     onSelect,
     onVolumeChange,
     onPanChange,
@@ -34,6 +31,9 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const faderRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const activePointerId = useRef<number | null>(null);
+    const meterPair = useEngineStore((s) => s.meters.tracks[trackIndex]);
+    const peakDbL = meterPair?.[0]?.peak ?? -96;
+    const peakDbR = meterPair?.[1]?.peak ?? -96;
 
     const volumeDb = gainToDb(track.volume ?? 1);
     const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
@@ -41,6 +41,9 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const meterR = Math.max(0, Math.min(1, vuNorm(peakDbR)));
     const panVal = track.pan ?? 0;
     const trackColor = track.color || 'var(--color-accent-primary)';
+    const headerTextColor = getContrastColor(trackColor) === 'black'
+        ? 'var(--token-color-hex-0b0b0b)'
+        : 'var(--color-text-bright)';
     const isMuted = track.is_mute;
     const isSoloed = track.is_solo;
     const isMidi = track.track_type === 'midi';
@@ -72,8 +75,33 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 transition: 'background 80ms ease',
             }}
         >
-            <div style={{ height: 3, width: '100%', background: trackColor, flexShrink: 0 }} />
-            <div style={{ padding: '3px 4px 2px', fontSize: 9, fontFamily: 'var(--font-role-body)', fontWeight: 600, color: isSelected ? 'var(--color-text-bright)' : 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center', borderBottom: '1px solid var(--color-divider-light)', flexShrink: 0 }}>
+            <div style={{ height: STRIP_ACCENT_HEIGHT, width: '100%', flexShrink: 0, display: 'flex', alignItems: 'stretch' }}>
+                <div
+                    style={{
+                        marginInline: STRIP_ACCENT_INSET,
+                        width: `calc(100% - ${STRIP_ACCENT_INSET * 2}px)`,
+                        background: trackColor,
+                        borderBottomLeftRadius: 'var(--radius-xs)',
+                        borderBottomRightRadius: 'var(--radius-xs)',
+                    }}
+                />
+            </div>
+            <div
+                style={{
+                    padding: '3px 4px 2px',
+                    fontSize: 9,
+                    fontFamily: 'var(--font-role-body)',
+                    fontWeight: 700,
+                    color: headerTextColor,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    textAlign: 'center',
+                    borderBottom: '1px solid color-mix(in srgb, var(--color-divider-light) 70%, transparent)',
+                    flexShrink: 0,
+                    background: trackColor,
+                }}
+            >
                 {track.name || `Track ${trackIndex + 1}`}
             </div>
             <div style={{ padding: '1px 4px', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', textAlign: 'center', flexShrink: 0 }}>
@@ -110,15 +138,15 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
                 onPointerCancel={endDrag}
                 onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(1.0); void useEngineStore.getState().flushTrackControlFinals(); }}
                 onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; const next = Math.max(0, Math.min(2, (track.volume ?? 1) + (e.deltaY < 0 ? step : -step))); onVolumeChange(next); void useEngineStore.getState().flushTrackControlFinals(); }}
-                style={{ flex: 1, minHeight: 80, display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 2, padding: '4px 6px', cursor: 'ns-resize', touchAction: 'none', position: 'relative' }}
+                style={{ flex: 1, minHeight: 190, display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 2, padding: '4px 3px', cursor: 'ns-resize', touchAction: 'none', position: 'relative' }}
             >
                 <div style={{ width: METER_WIDTH, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
                     <MeterStrip levelL={meterL} levelR={meterL} isMidi={isMidi} width={METER_WIDTH} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
                 </div>
                 <div style={{ flex: 1, position: 'relative', borderRadius: 'var(--radius-xs)', background: 'color-mix(in srgb, var(--surface-2) 60%, transparent)', border: '1px solid color-mix(in srgb, var(--text-primary) 6%, transparent)' }}>
                     <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${dbToFader(0) * 100}%`, height: 1, background: 'color-mix(in srgb, var(--color-text-secondary) 40%, transparent)', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 0, height: `${volNorm * 100}%`, background: `linear-gradient(to top, color-mix(in srgb, ${trackColor} 50%, var(--color-meter-green-start)) 0%, color-mix(in srgb, ${trackColor} 30%, var(--color-meter-green-end)) 100%)`, borderRadius: 'var(--radius-xs)', opacity: 0.7, transition: isDragging ? 'none' : 'height 60ms linear', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 2px)`, height: 4, background: 'var(--color-text-bright)', borderRadius: 'var(--radius-xs)', boxShadow: '0 0 4px color-mix(in srgb, var(--color-text-bright) 50%, transparent)', transition: isDragging ? 'none' : 'bottom 60ms linear', pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 0, height: `${volNorm * 100}%`, background: `linear-gradient(to top, color-mix(in srgb, ${trackColor} 50%, var(--color-meter-green-start)) 0%, color-mix(in srgb, ${trackColor} 30%, var(--color-meter-green-end)) 100%)`, borderRadius: 'var(--radius-xs)', opacity: 0.7, transition: 'none', pointerEvents: 'none' }} />
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 2px)`, height: 4, background: 'var(--color-text-bright)', borderRadius: 'var(--radius-xs)', boxShadow: '0 0 4px color-mix(in srgb, var(--color-text-bright) 50%, transparent)', transition: 'none', pointerEvents: 'none' }} />
                 </div>
                 <div style={{ width: METER_WIDTH, position: 'relative', borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
                     <MeterStrip levelL={meterR} levelR={meterR} isMidi={isMidi} width={METER_WIDTH} show0dBLine style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
@@ -126,6 +154,9 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             </div>
             <div style={{ textAlign: 'center', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', padding: '1px 0', flexShrink: 0, borderTop: '1px solid var(--color-divider-light)' }}>
                 {formatDb(volumeDb)}
+            </div>
+            <div style={{ textAlign: 'center', fontSize: 7, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', padding: '0 0 2px', flexShrink: 0 }}>
+                L {Number.isFinite(peakDbL) ? formatDb(peakDbL) : '-inf'} / R {Number.isFinite(peakDbR) ? formatDb(peakDbR) : '-inf'}
             </div>
             <div style={{ display: 'flex', flexDirection: 'row', gap: 2, padding: '3px 4px', justifyContent: 'center', flexShrink: 0, borderTop: '1px solid var(--color-divider-light)' }}>
                 <button onClick={(e) => { e.stopPropagation(); onToggleSolo(); }} title="Solo" style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)', color: isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)', transition: 'background 80ms ease' }}>S</button>

@@ -97,12 +97,12 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                         onClick={this.handleRetry}
                         style={retryBtnStyle}
                         onMouseEnter={e => {
-                            (e.target as HTMLButtonElement).style.background = 'var(--color-accent-primary)';
-                            (e.target as HTMLButtonElement).style.color = 'var(--token-color-hex-ffffff)';
+                            (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-accent-primary)';
+                            (e.currentTarget as HTMLButtonElement).style.color = 'var(--token-color-hex-ffffff)';
                         }}
                         onMouseLeave={e => {
-                            (e.target as HTMLButtonElement).style.background = 'var(--color-border-subtle)';
-                            (e.target as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
+                            (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-border-subtle)';
+                            (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
                         }}
                     >
                         ↻ Retry

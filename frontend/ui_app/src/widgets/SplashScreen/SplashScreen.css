@@ -201,9 +201,10 @@
   transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Responsive: shrink on very small windows ───────────────── */
-@media (max-width: var(--token-size-px-500)),
-(max-height: var(--token-size-px-500)) {
+/* BUG-021 FIX: CSS variables are NOT supported in @media queries per spec.
+   Replaced var(--token-size-px-500) with literal 500px. */
+@media (max-width: 500px),
+(max-height: 500px) {
   .splash-logo-container {
     width: var(--token-size-px-120);
     height: var(--token-size-px-120);

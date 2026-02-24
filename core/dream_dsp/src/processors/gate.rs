@@ -104,12 +104,16 @@ impl GateProcessor {
     fn update_all(&mut self) {
         let sr = self.sample_rate;
         if sr > 0.0 {
+            // AUD-213/AUD-214 FIX: Use -2.2 time constant multiplier for consistent
+            // 10dB/τ envelope timing across all dynamics processors (compressor,
+            // limiter, gate). Previously used -1.0, which made attack/release ~2.2×
+            // faster than the specified millisecond values.
             self.attack_coeff = if self.attack_ms > 0.01 {
-                (-1.0 / (self.attack_ms * 0.001 * sr)).exp()
+                (-2.2 / (self.attack_ms * 0.001 * sr)).exp()
             } else {
                 0.0
             };
-            self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
+            self.release_coeff = (-2.2 / (self.release_ms * 0.001 * sr)).exp();
             self.hold_samples = (self.hold_ms * 0.001 * sr) as u32;
             // BUG-FIX: The previous formula exp(-2πfc/fs) is a low-pass coefficient,
             // not a high-pass one. The filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])

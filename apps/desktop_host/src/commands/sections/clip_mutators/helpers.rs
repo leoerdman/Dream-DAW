@@ -288,6 +288,24 @@ pub(super) fn collect_added_track_and_clip_deltas(
                 duration: clip.duration.sample_frame,
             });
         }
+
+        // BUG-007 FIX: Also collect MIDI clips — previously only audio clips
+        // were collected, so new MIDI clips never appeared until a full reload.
+        for clip in &track.midi_clips {
+            if before_clip_ids.contains(&clip.id) {
+                continue;
+            }
+            deltas.push(dream_models::delta::ProjectDelta::ClipAdded {
+                clip_id: clip.id,
+                track_index,
+                name: clip.name.clone(),
+                clip_type: "midi".to_string(),
+                file_path: None,
+                position: clip.position.sample_frame,
+                duration: clip.duration.sample_frame,
+            });
+        }
+
     }
 
     deltas

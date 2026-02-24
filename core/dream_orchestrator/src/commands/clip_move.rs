@@ -55,6 +55,15 @@ impl Command for MoveClipCommand {
             });
         }
 
+        // BUG-025 FIX: Reject negative positions — i64 field allows them but
+        // negative timeline positions are semantically invalid.
+        if self.new_position_frames < 0 {
+            return Err(OrchestratorError::Other(format!(
+                "Clip position cannot be negative: {}",
+                self.new_position_frames
+            )));
+        }
+
         let new_position = AbsoluteTime::new(self.new_position_frames);
         let old_track_index = project
             .tracks

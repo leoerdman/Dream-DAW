@@ -27,6 +27,7 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
 
     const [appScale, setAppScale] = useState<number>(() => getAppScalePercent());
     const [gridIntensity, setGridIntensity] = useState<number>(() => getTimelineGridIntensityPercent());
+    const [showAdvancedGrid, setShowAdvancedGrid] = useState<boolean>(true);
     const gridOptions = useMemo(() => ALL_DIVISIONS.map((d) => (d === 'ADAPTIVE' ? 'Adaptive' : d)), []);
     const gridDivisionLabel = gridDivision === 'ADAPTIVE' ? 'Adaptive' : gridDivision;
 
@@ -45,10 +46,11 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
                         }}
                     />
                 </SettingRow>
-                <details open style={{ marginTop: 'var(--space-1)' }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
-                        Advanced Grid Settings
-                    </summary>
+                <SettingRow label="Advanced Grid Settings">
+                    <Toggle value={showAdvancedGrid} onChange={setShowAdvancedGrid} />
+                </SettingRow>
+                {showAdvancedGrid && (
+                    <>
                     <SettingRow label="Triplet Grid">
                         <Toggle
                             value={gridTriplet}
@@ -87,7 +89,8 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
                             </span>
                         </div>
                     </SettingRow>
-                </details>
+                    </>
+                )}
             </SettingsSection>
 
             <SettingsSection title="Workspace" description="Language, startup behavior and overall app scaling.">

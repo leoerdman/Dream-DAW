@@ -1,3 +1,5 @@
+import { snapTimelineX } from './pixelSnap';
+
 interface MasterLaneGridStyle {
     backgroundColor: string;
 }
@@ -5,13 +7,6 @@ interface MasterLaneGridStyle {
 export interface MasterLaneGridLines {
     barLines: number[];
     subLines: number[];
-}
-
-function toCrispLineX(rawX: number): number {
-    // Keep master-lane grid on the same pixel snapping strategy
-    // as the canvas renderer (Math.round), otherwise playhead/loop
-    // overlays drift by ~1px relative to grid at some zoom/scroll states.
-    return Math.round(rawX);
 }
 
 function fallbackGridStepBeats(pixelsPerBeat: number, beatsPerBar: number): number {
@@ -42,14 +37,22 @@ export function buildMasterLaneGridLines(
     const startBeat = Math.floor((scrollX / ppb) / gridStepBeats) * gridStepBeats;
     const endBeat = Math.ceil(((scrollX + viewportWidth) / ppb) / gridStepBeats) * gridStepBeats;
 
-    const barLines: number[] = [];
-    const subLines: number[] = [];
+    const barLines = new Set<number>();
+    const subLines = new Set<number>();
     for (let beat = startBeat; beat <= endBeat; beat += gridStepBeats) {
         const barPhase = beat / beatsPerBar;
-        const x = toCrispLineX(beat * ppb - scrollX);
+        const x = snapTimelineX(beat * ppb - scrollX);
         if (x < -1 || x > viewportWidth + 1) continue;
-        if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) barLines.push(x);
-        else subLines.push(x);
+        if (!Number.isFinite(x)) continue;
+        if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) {
+            barLines.add(x);
+            subLines.delete(x);
+        } else if (!barLines.has(x)) {
+            subLines.add(x);
+        }
     }
-    return { barLines, subLines };
+    return {
+        barLines: Array.from(barLines).sort((a, b) => a - b),
+        subLines: Array.from(subLines).sort((a, b) => a - b),
+    };
 }

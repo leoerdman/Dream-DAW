@@ -200,6 +200,10 @@ impl DspProcessor for EqProcessor {
                 if band.filter_type != new_type {
                     band.filter_type = new_type;
                     band.update(sr);
+                    // AUD-211 FIX: Reset biquad history (x1, x2, y1, y2) when
+                    // filter type changes. Stale state from the old filter type
+                    // causes an audible transient click on the first output sample.
+                    band.reset();
                 }
             }
             return;

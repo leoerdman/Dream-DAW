@@ -412,7 +412,14 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("limiter") {
         return Some(FX_LIMITER);
     }
-    if key.contains("gate") {
+    // AUD-282 FIX: "gate" matches "aggregate", "delegate" etc.
+    // Use word-boundary-aware matching to prevent false positives.
+    if key == "gate"
+        || key.starts_with("gate ")
+        || key.ends_with(" gate")
+        || key.contains(" gate ")
+        || key.contains("noise gate")
+    {
         return Some(FX_GATE);
     }
     if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
@@ -437,7 +444,14 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         || key.contains("overdrive")
         || key.contains("pedal")
         || key.contains("cabinet")
-        || key.contains("amp")
+        // AUD-281 FIX: "amp" matches "sample", "example", "trampoline" etc.
+        // Use word-boundary matching to prevent false positives.
+        || key == "amp"
+        || key.starts_with("amp ")
+        || key.ends_with(" amp")
+        || key.contains(" amp ")
+        || key.contains("guitar amp")
+        || key.contains("amp sim")
     {
         return Some(FX_DISTORTION);
     }

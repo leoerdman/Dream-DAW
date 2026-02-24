@@ -1,7 +1,7 @@
 use arc_swap::ArcSwap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
@@ -466,70 +466,88 @@ impl ClipPoolState {
             return;
         }
 
-        // 3. Decode all files in parallel using OS threads.
-        //    This is the expensive part — we do it WITHOUT holding the Mutex.
+        // 3. Decode using a bounded worker pool and stream results directly
+        //    into ClipPool. This avoids holding all decoded clips in memory
+        //    at once, which can crash on large projects.
+        let cpu_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let worker_count = paths_to_decode.len().clamp(1, cpu_workers.min(8));
         log::info!(
-            "[ClipPool] decoding {} audio file(s) in parallel...",
-            paths_to_decode.len()
+            "[ClipPool] decoding {} audio file(s) with {} worker(s)...",
+            paths_to_decode.len(),
+            worker_count
         );
 
-        let results: Vec<(String, Result<ClipAudio, String>)> = std::thread::scope(|scope| {
-            let handles: Vec<_> = paths_to_decode
-                .iter()
-                .map(|source_path| {
-                    let sp = source_path.clone();
-                    scope.spawn(move || {
-                        let path = PathBuf::from(&sp);
-                        if !path.exists() {
-                            return (sp, Err("file not found".to_string()));
-                        }
+        let mut buckets: Vec<Vec<String>> = vec![Vec::new(); worker_count];
+        for (idx, path) in paths_to_decode.into_iter().enumerate() {
+            buckets[idx % worker_count].push(path);
+        }
+
+        let total_jobs: usize = buckets.iter().map(Vec::len).sum();
+        let (tx, rx) = mpsc::channel::<(String, Result<ClipAudio, String>)>();
+        let mut workers = Vec::with_capacity(worker_count);
+        for bucket in buckets {
+            let tx_worker = tx.clone();
+            workers.push(std::thread::spawn(move || {
+                for sp in bucket {
+                    let path = PathBuf::from(&sp);
+                    let result = if !path.exists() {
+                        Err("file not found".to_string())
+                    } else {
                         match AudioReader::read(&path) {
-                            Ok(decoded) => (
-                                sp.clone(),
-                                Ok(ClipAudio {
-                                    source_path: sp,
-                                    channels: decoded.channels,
-                                    sample_rate: decoded.sample_rate,
-                                    num_frames: decoded.num_frames,
-                                }),
-                            ),
-                            Err(e) => (sp, Err(e.to_string())),
+                            Ok(decoded) => Ok(ClipAudio {
+                                source_path: sp.clone(),
+                                channels: decoded.channels,
+                                sample_rate: decoded.sample_rate,
+                                num_frames: decoded.num_frames,
+                            }),
+                            Err(e) => Err(e.to_string()),
                         }
-                    })
-                })
-                .collect();
+                    };
+                    if tx_worker.send((sp, result)).is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
+        drop(tx);
 
-            handles
-                .into_iter()
-                .map(|h| {
-                    h.join()
-                        .unwrap_or_else(|_| ("".to_string(), Err("thread panicked".to_string())))
-                })
-                .collect()
-        });
-
-        // 4. Bulk-insert decoded clips under a single short lock.
+        // 4. Insert decoded clips as they finish (streaming).
         let mut loaded = 0usize;
         let mut failed = 0usize;
-        {
-            let mut pool = match self.pool.lock() {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!("[ClipPool] lock failed after parallel decode: {e}");
-                    return;
-                }
+        for _ in 0..total_jobs {
+            let Ok((source_path, result)) = rx.recv() else {
+                failed = failed.saturating_add(1);
+                continue;
             };
-            for (source_path, result) in results {
-                match result {
-                    Ok(clip_audio) => {
-                        let _ = pool.insert(clip_audio);
-                        loaded += 1;
-                    }
-                    Err(e) => {
-                        log::warn!("[ClipPool] decode failed for '{}': {e}", source_path);
-                        failed += 1;
+            match result {
+                Ok(clip_audio) => {
+                    let insert_result = match self.pool.lock() {
+                        Ok(mut pool) => pool.insert(clip_audio),
+                        Err(e) => {
+                            log::error!("[ClipPool] lock failed during insert for '{}': {e}", source_path);
+                            Err("pool lock failed".to_string())
+                        }
+                    };
+                    match insert_result {
+                        Ok(()) => loaded = loaded.saturating_add(1),
+                        Err(e) => {
+                            log::warn!("[ClipPool] insert skipped for '{}': {e}", source_path);
+                            failed = failed.saturating_add(1);
+                        }
                     }
                 }
+                Err(e) => {
+                    log::warn!("[ClipPool] decode failed for '{}': {e}", source_path);
+                    failed = failed.saturating_add(1);
+                }
+            }
+        }
+
+        for worker in workers {
+            if let Err(join_err) = worker.join() {
+                log::warn!("[ClipPool] worker thread panicked during project clip decode: {join_err:?}");
             }
         }
 

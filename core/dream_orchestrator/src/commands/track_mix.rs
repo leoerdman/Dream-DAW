@@ -28,7 +28,10 @@ impl Command for SetTrackVolumeByIndexCommand {
                 requested: idx,
                 total,
             })?;
-        let clamped = self.volume.clamp(0.0, 2.0);
+        // BUG-043 FIX: Clamp to 12.0 to match ChannelStrip's actual ceiling.
+        // ChannelStrip::set_volume (BUG-M5 FIX) clamps to [0.0, 12.0].
+        // Previously clamped to 2.0 here → SSOT violation with the mixer.
+        let clamped = self.volume.clamp(0.0, 12.0);
         track.volume = clamped as f64;
         Ok(SetTrackVolumeResult {
             track_id: track.id,
@@ -190,21 +193,31 @@ impl Command for SetTrackSendLevelByIndexCommand {
         let param_id = format!("send.{send_label}");
         let clamped = self.value.clamp(0.0, 1.0);
 
+        // BUG-026 FIX: Only update/insert the initial (beat=0) anchor point.
+        // Previously replaced ALL automation points with a single point,
+        // destroying the user's send automation envelope.
         if let Some(lane) = track
             .automation_lanes
             .iter_mut()
             .find(|lane| lane.param_id == param_id)
         {
-            lane.points = vec![AutomationPoint {
-                beat: 0.0,
-                value: clamped as f64,
-                curve_type: "linear".to_string(),
-                tension: None,
-                bezier_cp1x: None,
-                bezier_cp1y: None,
-                bezier_cp2x: None,
-                bezier_cp2y: None,
-            }];
+            if let Some(anchor) = lane.points.iter_mut().find(|p| p.beat == 0.0) {
+                anchor.value = clamped as f64;
+            } else {
+                lane.points.insert(
+                    0,
+                    AutomationPoint {
+                        beat: 0.0,
+                        value: clamped as f64,
+                        curve_type: "linear".to_string(),
+                        tension: None,
+                        bezier_cp1x: None,
+                        bezier_cp1y: None,
+                        bezier_cp2x: None,
+                        bezier_cp2y: None,
+                    },
+                );
+            }
         } else {
             track.automation_lanes.push(AutomationLane {
                 param_id: param_id.clone(),

@@ -178,11 +178,11 @@ export function AboutTab() {
             <h2 style={titleStyle}>About Dream DAW</h2>
             <SettingsSection title="Build" description="Version and product identity.">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-xl)', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 'var(--font-weight-extrabold)' as unknown as number }}>
+                    <div style={{ width: 64, height: 64, borderRadius: 'var(--radius-xl)', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 'var(--font-weight-extrabold)' }}>
                         D
                     </div>
                     <div>
-                        <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>Dream DAW</div>
+                        <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'var(--font-weight-bold)' }}>Dream DAW</div>
                         <div style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-tertiary)' }}>Version {__APP_VERSION__}</div>
                         <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>© 2025-2026 Dream DAW Team</div>
                     </div>
@@ -193,7 +193,7 @@ export function AboutTab() {
                 {VERSION_HISTORY.map((entry) => (
                     <div key={entry.version} style={{ marginBottom: 16 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                            <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-accent-primary)' }}>{entry.version}</span>
+                            <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-accent-primary)' }}>{entry.version}</span>
                             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>— {entry.date}</span>
                         </div>
                         <ul style={{ margin: 0, paddingLeft: 16, fontSize: 'var(--font-size-sm)', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>

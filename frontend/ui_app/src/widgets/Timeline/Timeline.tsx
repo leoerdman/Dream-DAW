@@ -11,6 +11,7 @@ import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
+import { snapTimelineX } from './lib/pixelSnap';
 import { AutomationOverlay } from './AutomationOverlay';
 import { TimelineMasterLane } from './TimelineMasterLane';
 import { useTimelineDnD } from './model/useTimelineDnD';
@@ -63,7 +64,6 @@ const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
-function toDomLineX(rawX: number): number { return Math.round(rawX); }
 export const Timeline = (props: TimelineProps) => {
     const {
         bpm = 120,
@@ -153,9 +153,9 @@ export const Timeline = (props: TimelineProps) => {
     const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX;
     const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX;
     const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX;
-    const playheadLineX = toDomLineX(playheadX);
-    const loopStartLineX = toDomLineX(loopStartX);
-    const loopEndLineX = toDomLineX(loopEndX);
+    const playheadLineX = snapTimelineX(playheadX);
+    const loopStartLineX = snapTimelineX(loopStartX);
+    const loopEndLineX = snapTimelineX(loopEndX);
     const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
     const loopRightX = Math.max(loopStartLineX, loopEndLineX);
     const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < masterGridViewportWidth;

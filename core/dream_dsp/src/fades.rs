@@ -23,9 +23,6 @@ use std::f32::consts::PI;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Default fade length in samples at 44.1kHz = exactly 2ms.
-const DEFAULT_FADE_LENGTH: usize = 88;
-
 /// AUD-201 FIX: Maximum fade length across all supported sample rates.
 /// At 192kHz the fade length is 384 samples. Pre-allocating at this size
 /// guarantees `rebuild_in_place` never triggers a heap allocation on the RT thread.

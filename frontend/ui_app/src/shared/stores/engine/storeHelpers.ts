@@ -14,7 +14,9 @@ export interface TrackStatePatch<T> {
 
 export const PROJECT_HISTORY_WINDOW = 256;
 export const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
-export const METER_STATE_UPDATE_EVERY_TICKS = 5;
+// Keep meter updates at full telemetry rate for responsive real-time VU motion.
+// Throttling this causes visible lag/choppy meter movement in TrackInspector/Mixer.
+export const METER_STATE_UPDATE_EVERY_TICKS = 1;
 export const DEBUG_PROJECT_FETCH =
     (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
     || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);

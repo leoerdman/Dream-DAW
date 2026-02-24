@@ -181,6 +181,15 @@ impl ClipReader {
             return;
         }
 
+        // AUD-204 FIX: Guard against NaN/Inf/negative gain values.
+        // A malformed clip gain would poison every sample in the output buffer,
+        // propagating NaN through the entire track's audio chain.
+        let gain = if gain.is_finite() && gain >= 0.0 {
+            gain
+        } else {
+            1.0
+        };
+
         // AUD-10X FIX: By default, Standard warp mode previously used linear interpolation,
         // which introduced severe "bitcrusher" aliasing noise on sample rate mismatches or
         // basic time stretching. We now default to Catmull-Rom Cubic for ALL stretches.

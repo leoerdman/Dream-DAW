@@ -16,7 +16,6 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
     const setTrackPan = useEngineStore((s) => s.setTrackPan);
     const setTrackMute = useEngineStore((s) => s.setTrackMute);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
-    const meters = useEngineStore((s) => s.meters);
 
     return (
         <div
@@ -37,17 +36,12 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
             {tracksEntity.allIds.map((trackId, index) => {
                 const track = tracksEntity.byId[trackId];
                 if (!track) return null;
-                const trackMeter = meters.tracks[index];
-                const peakL = trackMeter?.[0]?.peak ?? -60;
-                const peakR = trackMeter?.[1]?.peak ?? -60;
                 return (
                     <MixerChannelStrip
                         key={trackId}
                         track={track}
                         trackIndex={index}
                         isSelected={trackId === selectedTrackId}
-                        peakDbL={peakL}
-                        peakDbR={peakR}
                         onSelect={() => onSelectTrack(trackId)}
                         onVolumeChange={(gain) => setTrackVolume(index, gain)}
                         onPanChange={(pan) => setTrackPan(index, pan)}

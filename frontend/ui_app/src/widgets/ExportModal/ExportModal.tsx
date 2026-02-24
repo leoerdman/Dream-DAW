@@ -14,28 +14,38 @@ import {
 } from './exportModalConfig';
 
 function getErrorMessage(err: unknown): string {
-    if (typeof err === 'string' && err.trim()) return err.trim();
+    let raw = '';
+    if (typeof err === 'string' && err.trim()) {
+        raw = err.trim();
+    }
     if (err instanceof Error) {
         const cause = (err as Error & { cause?: unknown }).cause;
-        if (typeof cause === 'string' && cause.trim()) return cause.trim();
+        if (!raw && typeof cause === 'string' && cause.trim()) raw = cause.trim();
         if (cause && typeof cause === 'object') {
             const causeMessage = (cause as { message?: unknown }).message;
-            if (typeof causeMessage === 'string' && causeMessage.trim()) return causeMessage.trim();
+            if (!raw && typeof causeMessage === 'string' && causeMessage.trim()) raw = causeMessage.trim();
         }
-        if (err.message?.trim()) return err.message.trim();
+        if (!raw && err.message?.trim()) raw = err.message.trim();
     }
     if (err && typeof err === 'object') {
         const candidateMessage = (err as { message?: unknown }).message;
-        if (typeof candidateMessage === 'string' && candidateMessage.trim()) return candidateMessage.trim();
+        if (!raw && typeof candidateMessage === 'string' && candidateMessage.trim()) raw = candidateMessage.trim();
     }
-    const raw = String(err);
-    if (raw.includes('runtime snapshot missing instrument slot') || raw.includes('runtime binding')) {
+    if (!raw) {
+        raw = String(err);
+    }
+    const normalized = raw.toLowerCase();
+    if (
+        normalized.includes('runtime snapshot missing instrument slot')
+        || normalized.includes('external fx runtime snapshot missing instrument slot')
+        || normalized.includes('runtime binding')
+    ) {
         return 'Export failed: one or more external plugins are not fully loaded. Re-open the track plugin(s) and try again, or bypass external plugins for this export.';
     }
-    if (raw.includes('PluginSlot not found')) {
+    if (normalized.includes('pluginslot not found')) {
         return 'Export failed: plugin chain state is out of sync. Reopen the project (or reload plugins) and retry export.';
     }
-    return raw;
+    return raw.trim();
 }
 
 export const ExportModal = ({

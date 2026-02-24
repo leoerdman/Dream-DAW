@@ -44,18 +44,37 @@ export const SessionWorkspace = ({
     const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
     const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
     const slotKey = (trackId: string, sceneIndex: number) => `${trackId}:${sceneIndex}`;
+    const validTrackIds = useMemo(() => new Set(tracks.map((track) => track.id)), [tracks]);
+    const sessionClipsSafe = useMemo(() => {
+        const next: typeof sessionClips = {};
+        for (const [key, clip] of Object.entries(sessionClips)) {
+            const sep = key.indexOf(':');
+            const trackId = sep >= 0 ? key.slice(0, sep) : key;
+            if (!validTrackIds.has(trackId)) continue;
+            next[key] = clip;
+        }
+        return next;
+    }, [sessionClips, validTrackIds]);
+    const playingSessionClipByTrackSafe = useMemo(() => {
+        const next: typeof playingSessionClipByTrack = {};
+        for (const [trackId, clipId] of Object.entries(playingSessionClipByTrack)) {
+            if (!validTrackIds.has(trackId)) continue;
+            next[trackId] = clipId;
+        }
+        return next;
+    }, [playingSessionClipByTrack, validTrackIds]);
 
     const selectedSessionClipIdSafe = useMemo(() => {
         if (!selectedSessionClipId) return null;
-        const exists = Object.values(sessionClips).some((clip) => clip.id === selectedSessionClipId);
+        const exists = Object.values(sessionClipsSafe).some((clip) => clip.id === selectedSessionClipId);
         return exists ? selectedSessionClipId : null;
-    }, [selectedSessionClipId, sessionClips]);
+    }, [selectedSessionClipId, sessionClipsSafe]);
 
     const launchScene = (sceneIndex: number) => {
         setPlayingSessionClipByTrack((prev) => {
             const next: Record<string, string | null> = { ...prev };
             for (const track of tracks) {
-                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                const clip = sessionClipsSafe[slotKey(track.id, sceneIndex)];
                 next[track.id] = clip?.id ?? null;
             }
             return next;
@@ -67,7 +86,7 @@ export const SessionWorkspace = ({
         setPlayingSessionClipByTrack((prev) => {
             const next: Record<string, string | null> = { ...prev };
             for (const track of tracks) {
-                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                const clip = sessionClipsSafe[slotKey(track.id, sceneIndex)];
                 if (clip && next[track.id] === clip.id) next[track.id] = null;
             }
             return next;
@@ -80,9 +99,9 @@ export const SessionWorkspace = ({
         for (let sceneIndex = 0; sceneIndex < SESSION_SCENE_ROWS; sceneIndex++) {
             let hasPlayingClip = false;
             for (const track of tracks) {
-                const clip = sessionClips[slotKey(track.id, sceneIndex)];
+                const clip = sessionClipsSafe[slotKey(track.id, sceneIndex)];
                 if (!clip) continue;
-                if (playingSessionClipByTrack[track.id] === clip.id) {
+                if (playingSessionClipByTrackSafe[track.id] === clip.id) {
                     hasPlayingClip = true;
                     break;
                 }
@@ -90,7 +109,7 @@ export const SessionWorkspace = ({
             if (hasPlayingClip) next.add(sceneIndex);
         }
         return next;
-    }, [isPlaying, playingSessionClipByTrack, sessionClips, tracks]);
+    }, [isPlaying, playingSessionClipByTrackSafe, sessionClipsSafe, tracks]);
 
     return (
         <div style={{
@@ -113,6 +132,7 @@ export const SessionWorkspace = ({
                             return (
                                 <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: 'var(--space-px) solid var(--color-timeline-grid-line)', display: 'flex', flexDirection: 'column' }}>
                                     <button
+                                        type="button"
                                         onClick={() => onSelectTrack(track.id)}
                                         style={{
                                             height: 28,
@@ -131,14 +151,14 @@ export const SessionWorkspace = ({
                                         {track.name}
                                     </button>
                                     {scenes.map((sceneIndex) => {
-                                        const clip = sessionClips[slotKey(track.id, sceneIndex)] ?? null;
+                                        const clip = sessionClipsSafe[slotKey(track.id, sceneIndex)] ?? null;
                                         const isSelected = clip ? selectedSessionClipIdSafe === clip.id : false;
                                         const clipText = clip
                                             ? (getContrastColor(clip.color) === 'black'
                                                 ? 'color-mix(in srgb, var(--color-text-primary) 92%, transparent)'
                                                 : 'color-mix(in srgb, var(--color-text-on-accent) 96%, transparent)')
                                             : 'var(--color-text-tertiary)';
-                                        const isPlayingClip = clip ? (playingSessionClipByTrack[track.id] === clip.id && isPlaying) : false;
+                                        const isPlayingClip = clip ? (playingSessionClipByTrackSafe[track.id] === clip.id && isPlaying) : false;
                                         return (
                                             <div
                                                 key={`${track.id}:${sceneIndex}`}
@@ -278,6 +298,7 @@ export const SessionWorkspace = ({
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                         <button
+                                            type="button"
                                             style={sessionMixerBtnStyle(track.is_mute)}
                                             onClick={() => { void setTrackMute(trackIndex, !track.is_mute); }}
                                             title={track.is_mute ? 'Unmute track' : 'Mute track'}
@@ -285,11 +306,13 @@ export const SessionWorkspace = ({
                                             <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
                                         </button>
                                         <button
+                                            type="button"
                                             style={sessionMixerBtnStyle(track.is_solo)}
                                             onClick={() => { void setTrackSolo(trackIndex, !track.is_solo); }}
                                             title="Solo"
                                         >S</button>
                                         <button
+                                            type="button"
                                             style={sessionMixerBtnStyle(track.is_armed)}
                                             onClick={() => {
                                                 void engineApi

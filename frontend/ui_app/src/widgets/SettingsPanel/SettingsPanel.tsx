@@ -209,7 +209,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             <div style={modalStyle}>
                 {/* ── Sidebar ── */}
                 <div style={sidebarStyle}>
-                    <div style={{ padding: 'var(--space-4) var(--space-3) var(--space-2)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)' as unknown as number, opacity: 0.6, letterSpacing: 'normal', textTransform: 'none' }}>
+                    <div style={{ padding: 'var(--space-4) var(--space-3) var(--space-2)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-medium)', opacity: 0.6, letterSpacing: 'normal', textTransform: 'none' }}>
                         Settings
                     </div>
                     {TABS.map(t => (

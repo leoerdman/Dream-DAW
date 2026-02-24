@@ -20,7 +20,8 @@ pub struct SetInternalPluginParamResult {
     pub sampler_cfg_for_rt: Option<SamplerConfig>,
     pub sampler_waveform: Option<u8>,
     pub sampler_waveform2: Option<u8>,
-    pub sampler_osc_mix: Option<f32>,
+    pub sampler_osc1_volume: Option<f32>,
+    pub sampler_osc2_volume: Option<f32>,
     pub sampler_detune_cents: Option<f32>,
     pub sampler_sub_level: Option<f32>,
     pub sampler_filter_cutoff: Option<f32>,
@@ -89,7 +90,8 @@ impl Command for SetInternalPluginParamCommand {
         let mut sampler_command_needed = false;
         let mut sampler_waveform = None;
         let mut sampler_waveform2 = None;
-        let mut sampler_osc_mix = None;
+        let mut sampler_osc1_volume: Option<f32> = None;
+        let mut sampler_osc2_volume: Option<f32> = None;
         let mut sampler_detune_cents = None;
         let mut sampler_sub_level = None;
         let mut sampler_filter_cutoff = None;
@@ -200,9 +202,19 @@ impl Command for SetInternalPluginParamCommand {
                 }
                 "synth.osc.mix" | "synth.oscmix" | "sampler.mix" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                    // Legacy mix compat: treat as split volumes (osc1=1-mix, osc2=mix)
                     let mix = self.value.clamp(0.0, 1.0) as f32;
                     cfg.osc_mix = mix as f64;
-                    sampler_osc_mix = Some(mix);
+                    sampler_osc1_volume = Some(1.0 - mix);
+                    sampler_osc2_volume = Some(mix);
+                }
+                "synth.osc1.volume" | "sampler.osc1volume" | "osc1volume" | "sampler.osc1vol" => {
+                    let vol = self.value.clamp(0.0, 1.0) as f32;
+                    sampler_osc1_volume = Some(vol);
+                }
+                "synth.osc2.volume" | "sampler.osc2volume" | "osc2volume" | "sampler.osc2vol" => {
+                    let vol = self.value.clamp(0.0, 1.0) as f32;
+                    sampler_osc2_volume = Some(vol);
                 }
                 "synth.detune" | "synth.detunecents" | "synth.osc2.detune" | "sampler.detune" => {
                     let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
@@ -286,7 +298,8 @@ impl Command for SetInternalPluginParamCommand {
             sampler_cfg_for_rt,
             sampler_waveform,
             sampler_waveform2,
-            sampler_osc_mix,
+            sampler_osc1_volume,
+            sampler_osc2_volume,
             sampler_detune_cents,
             sampler_sub_level,
             sampler_filter_cutoff,

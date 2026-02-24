@@ -73,11 +73,19 @@ fn set_sampler_sample_cmd(
             waveform: sampler_cfg.osc2_waveform.min(3),
         },
     )?;
+    let mix_val = sampler_cfg.osc_mix.clamp(0.0, 1.0) as f32;
     push_command(
         &handle,
-        EngineCommand::SetSamplerOscMix {
+        EngineCommand::SetSamplerOsc1Volume {
             track_index: idx,
-            mix: sampler_cfg.osc_mix.clamp(0.0, 1.0) as f32,
+            volume: 1.0 - mix_val,
+        },
+    )?;
+    push_command(
+        &handle,
+        EngineCommand::SetSamplerOsc2Volume {
+            track_index: idx,
+            volume: mix_val,
         },
     )?;
     push_command(

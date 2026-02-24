@@ -243,10 +243,16 @@ pub(super) fn drain_commands(
                     ctx.sampler_engines[idx].set_waveform2(Waveform::from_u8(waveform));
                 }
             }
-            EngineCommand::SetSamplerOscMix { track_index, mix } => {
+            EngineCommand::SetSamplerOsc1Volume { track_index, volume } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_osc_mix(mix);
+                    ctx.sampler_engines[idx].set_osc1_volume(volume);
+                }
+            }
+            EngineCommand::SetSamplerOsc2Volume { track_index, volume } => {
+                let idx = track_index as usize;
+                if idx < ctx.sampler_engines.len() {
+                    ctx.sampler_engines[idx].set_osc2_volume(volume);
                 }
             }
             EngineCommand::SetSamplerDetuneCents { track_index, cents } => {

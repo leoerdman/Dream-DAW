@@ -102,9 +102,9 @@ impl DspProcessor for AutoPanProcessor {
         let phase_offset = self.phase_offset_norm;
 
         for i in 0..len {
-            let depth = self.depth_sm.next();
-            let mix = self.mix_sm.next();
-            let rate = self.rate_sm.next();
+            let depth = self.depth_sm.next_value();
+            let mix = self.mix_sm.next_value();
+            let rate = self.rate_sm.next_value();
             let dry_l = left[i];
             let dry_r = right[i];
 

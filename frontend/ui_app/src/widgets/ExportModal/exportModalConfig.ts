@@ -1,7 +1,7 @@
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 export type ExportFormat = 'wav' | 'mp3';
-export type SampleRate = 44100 | 48000 | 96000;
+export type SampleRate = number;
 export type BitDepth = 16 | 24 | 32;
 export type ExportRange = 'full' | 'loop' | 'selected';
 
@@ -33,7 +33,9 @@ export const FORMATS: { value: ExportFormat; label: string; desc: string }[] = [
 export const SAMPLE_RATES: { value: SampleRate; label: string }[] = [
     { value: 44100, label: '44.1 kHz' },
     { value: 48000, label: '48 kHz' },
+    { value: 88200, label: '88.2 kHz' },
     { value: 96000, label: '96 kHz' },
+    { value: 192000, label: '192 kHz' },
 ];
 
 export const BIT_DEPTHS: { value: BitDepth; label: string }[] = [
@@ -84,7 +86,7 @@ export function loadExportPrefs(): ExportPrefs {
         return {
             format: (['wav', 'mp3'] as ExportFormat[]).includes(parsed.format as ExportFormat)
                 ? (parsed.format as ExportFormat) : 'wav',
-            sampleRate: ([44100, 48000, 96000] as SampleRate[]).includes(parsed.sampleRate as SampleRate)
+            sampleRate: ([44100, 48000, 88200, 96000, 192000] as SampleRate[]).includes(parsed.sampleRate as SampleRate)
                 ? (parsed.sampleRate as SampleRate) : 48000,
             bitDepth: ([16, 24, 32] as BitDepth[]).includes(parsed.bitDepth as BitDepth)
                 ? (parsed.bitDepth as BitDepth) : 24,

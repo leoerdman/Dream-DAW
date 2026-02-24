@@ -123,6 +123,11 @@ export const PluginGuiSurface = ({
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
 
     useEffect(() => {
+        const isSamplerSurface = device.effectType === 'sampler' || device.effectType === 'instrument';
+        if (!isSamplerSurface) {
+            setWaveformPeaks(null);
+            return;
+        }
         const samplePath = device.samplePath?.trim();
         if (!samplePath) {
             // BUG-80 FIX: Clear stale waveform when device/sample changes.
@@ -169,7 +174,7 @@ export const PluginGuiSurface = ({
         return () => {
             cancelled = true;
         };
-    }, [device.samplePath]);
+    }, [device.id, device.effectType, device.samplePath]);
 
     const samplerWaveformPath = useMemo(() => {
         if (!waveformPeaks || waveformPeaks.length === 0) return null;

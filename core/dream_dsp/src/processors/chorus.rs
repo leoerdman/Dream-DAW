@@ -142,10 +142,10 @@ impl DspProcessor for ChorusProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let rate = self.rate_sm.next();
-            let depth = self.depth_sm.next();
-            let mix = self.mix_sm.next();
-            let feedback = self.feedback_sm.next();
+            let rate = self.rate_sm.next_value();
+            let depth = self.depth_sm.next_value();
+            let mix = self.mix_sm.next_value();
+            let feedback = self.feedback_sm.next_value();
             let mut wet_l = 0.0f32;
             let mut wet_r = 0.0f32;
 

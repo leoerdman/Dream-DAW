@@ -362,7 +362,8 @@ fn set_internal_plugin_param_cmd(
     let sampler_cfg_for_rt = result.sampler_cfg_for_rt;
     let sampler_waveform = result.sampler_waveform;
     let sampler_waveform2 = result.sampler_waveform2;
-    let sampler_osc_mix = result.sampler_osc_mix;
+    let sampler_osc1_volume = result.sampler_osc1_volume;
+    let sampler_osc2_volume = result.sampler_osc2_volume;
     let sampler_detune_cents = result.sampler_detune_cents;
     let sampler_sub_level = result.sampler_sub_level;
     let sampler_filter_cutoff = result.sampler_filter_cutoff;
@@ -416,10 +417,16 @@ fn set_internal_plugin_param_cmd(
             waveform,
         })?;
     }
-    if let Some(mix) = sampler_osc_mix {
-        push_command(&handle, EngineCommand::SetSamplerOscMix {
+    if let Some(volume) = sampler_osc1_volume {
+        push_command(&handle, EngineCommand::SetSamplerOsc1Volume {
             track_index: track_index as u16,
-            mix,
+            volume,
+        })?;
+    }
+    if let Some(volume) = sampler_osc2_volume {
+        push_command(&handle, EngineCommand::SetSamplerOsc2Volume {
+            track_index: track_index as u16,
+            volume,
         })?;
     }
     if let Some(cents) = sampler_detune_cents {

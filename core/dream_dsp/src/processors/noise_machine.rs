@@ -235,11 +235,11 @@ impl DspProcessor for NoiseMachineProcessor {
         self.hp_freq_sm.set_target(self.hp_freq.clamp(20.0, 5000.0));
 
         for i in 0..len {
-            let vol = self.volume_sm.next();
-            let stereo = self.stereo_sm.next();
-            let pan = self.pan_sm.next();
-            let lp_freq = self.lp_freq_sm.next();
-            let hp_freq = self.hp_freq_sm.next().min(lp_freq - 1.0).max(20.0);
+            let vol = self.volume_sm.next_value();
+            let stereo = self.stereo_sm.next_value();
+            let pan = self.pan_sm.next_value();
+            let lp_freq = self.lp_freq_sm.next_value();
+            let hp_freq = self.hp_freq_sm.next_value().min(lp_freq - 1.0).max(20.0);
             // BUG-M10 FIX: Use SSOT one_pole helpers (pre-computed once per SR change)
             // instead of calling exp() per-sample (~50 cycles wasted per sample).
             let lp = crate::processors::one_pole_lp_coeff(lp_freq, self.sample_rate);

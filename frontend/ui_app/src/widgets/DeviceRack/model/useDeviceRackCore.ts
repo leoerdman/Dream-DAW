@@ -347,13 +347,14 @@ export function useDeviceRackCore(selectedTrackId: string) {
                     }
                     return '';
                 }
-                if (effectType === 'sampler') {
-                    return (
-                        selectedTrack?.sampler?.sample_path
-                        ?? (node as DeviceNodeModel).sampler_config?.sample_path
-                        ?? (selectedTrack?.instrument as DeviceNodeModel | null)?.sampler_config?.sample_path
-                        ?? ''
-                    ).trim();
+                const isSamplerNode = effectType === 'sampler'
+                    || normalizeInternalPluginId(pluginId) === 'internal://instrument/sampler';
+                if (isSamplerNode) {
+                    const slotSamplePath = ((node as DeviceNodeModel).sampler_config?.sample_path ?? '').trim();
+                    if (slotSamplePath) return slotSamplePath;
+                    // Fallback for current project snapshots where sampler sample state
+                    // is stored on track.sampler instead of instrument node payload.
+                    return (selectedTrack.sampler?.sample_path ?? '').trim();
                 }
                 return '';
             })();

@@ -1227,7 +1227,7 @@ export const setClipPitchWithDeltas = (payload: {
 
 export interface ExportSettings {
     outputPath: string;
-    sampleRate: 44100 | 48000 | 96000;
+    sampleRate: number;
     bitDepth: 16 | 24 | 32;
     range: 'full' | 'loop' | 'selected';
     normalize: boolean;

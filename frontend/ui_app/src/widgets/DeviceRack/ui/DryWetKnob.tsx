@@ -6,7 +6,7 @@
 // Uses the same usePluginKnobDrag hook for consistent gesture handling.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { usePluginKnobDrag } from '@/widgets/DeviceRack/usePluginKnobDrag';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { resolveMixParam } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
@@ -52,7 +52,10 @@ export const DryWetKnob = React.memo(function DryWetKnob({
         return Math.round((clamped - resolvedParam.min) / step) * step + resolvedParam.min;
     }, [resolvedParam.max, resolvedParam.min, resolvedParam.step]);
     const safeValue = Number.isFinite(resolvedParam.value) ? resolvedParam.value : resolvedParam.min;
-    const displayPrecision = resolvedParam.step && resolvedParam.step < 1 ? 2 : 0;
+    const step = resolvedParam.step;
+    const displayPrecision = step && step > 0 && step < 1
+        ? Math.max(0, Math.min(6, Math.ceil(Math.abs(Math.log10(step)))))
+        : 0;
     const displayFactor = 10 ** displayPrecision;
     const displayRoundedValue = Math.round(safeValue * displayFactor) / displayFactor;
     const visualValue = quantize(displayRoundedValue);
@@ -81,22 +84,41 @@ export const DryWetKnob = React.memo(function DryWetKnob({
             onGestureEnd,
         });
 
+    const wheelGestureActive = useRef(false);
+    const wheelGestureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     // Wheel support
     const handleWheel = useCallback((e: WheelEvent) => {
         if (!hasMixParam || !param) return;
         e.preventDefault();
         e.stopPropagation();
+        if (!wheelGestureActive.current) {
+            wheelGestureActive.current = true;
+            onGestureStart?.(param.name);
+        }
+        if (wheelGestureTimer.current) clearTimeout(wheelGestureTimer.current);
+        wheelGestureTimer.current = setTimeout(() => {
+            wheelGestureActive.current = false;
+            onGestureEnd?.(param.name);
+        }, 300);
         const step = param.step && param.step > 0 ? param.step : (param.max - param.min) / 160;
         const mul = e.shiftKey ? 4 : e.altKey ? 0.2 : 1;
         const delta = (e.deltaY < 0 ? 1 : -1) * step * mul;
         onChange(param.name, quantize(safeValue + delta));
-    }, [hasMixParam, onChange, param, safeValue, quantize]);
+    }, [hasMixParam, onChange, onGestureEnd, onGestureStart, param, safeValue, quantize]);
 
     useEffect(() => {
         const node = dialRef.current;
         if (!node) return;
         node.addEventListener('wheel', handleWheel, { passive: false });
-        return () => node.removeEventListener('wheel', handleWheel);
+        return () => {
+            node.removeEventListener('wheel', handleWheel);
+            if (wheelGestureTimer.current) {
+                clearTimeout(wheelGestureTimer.current);
+                wheelGestureTimer.current = null;
+            }
+            wheelGestureActive.current = false;
+        };
     }, [handleWheel, dialRef]);
 
     // Double-click to reset to 50% (or default)

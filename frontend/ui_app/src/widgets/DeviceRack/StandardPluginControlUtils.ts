@@ -4,14 +4,22 @@ const DRAG_SCALE_NORMAL_PX = 220;
 const DRAG_SCALE_SHIFT_PX = 130;
 const DRAG_SCALE_ALT_PX = 760;
 
+const resolveParamPrecision = (param: PluginParam): number => {
+    const step = param.step;
+    if (!step || step <= 0) return 0;
+    if (step >= 1) return 0;
+    const decimals = Math.ceil(Math.abs(Math.log10(step)));
+    return Math.max(0, Math.min(6, decimals));
+};
+
 export const formatPluginParamValue = (param: PluginParam): string => {
     const v = Number.isFinite(param.value) ? param.value : 0;
-    const precision = param.step && param.step < 1 ? 2 : 0;
+    const precision = resolveParamPrecision(param);
     return `${v.toFixed(precision)}${param.suffix ?? ''}`;
 };
 
 export const roundPluginParamForDisplay = (param: PluginParam, value: number): number => {
-    const precision = param.step && param.step < 1 ? 2 : 0;
+    const precision = resolveParamPrecision(param);
     const factor = 10 ** precision;
     return Math.round(value * factor) / factor;
 };

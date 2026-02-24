@@ -42,7 +42,8 @@ export function AssistantChatComposer({
                 <textarea
                     ref={inputRef}
                     className="assistant-input"
-                    placeholder=""
+                    placeholder="Ask Dream Assistant… (Ctrl+Enter to send)"
+                    aria-label="Assistant message input"
                     value={input}
                     onChange={(e) => {
                         setInput(e.target.value);

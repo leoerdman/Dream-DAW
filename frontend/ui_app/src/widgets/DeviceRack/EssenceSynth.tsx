@@ -12,7 +12,7 @@ import {
 } from './EssenceSynth.config';
 import './EssenceSynth.css';
 
-const BOTTOM_KNOB_NAMES = ['osc1wave', 'osc2wave', 'mix', 'detune', 'sub', 'cutoff', 'res', 'vol', 'attack', 'decay', 'sustain', 'release'] as const;
+const BOTTOM_KNOB_NAMES = ['osc1vol', 'osc2vol', 'detune', 'sub', 'cutoff', 'res', 'vol', 'attack', 'decay', 'sustain', 'release', 'pulsewidth'] as const;
 
 interface EssenceSynthProps {
     params: PluginParam[];
@@ -34,8 +34,9 @@ export const EssenceSynth = ({
             osc1: Math.round(v('osc1wave', 0)),
             osc2: Math.round(v('osc2wave', 0)),
             osc1Enabled: v('osc1enabled', 1) >= 0.5,
-            osc2Enabled: v('osc2enabled', 1) >= 0.5,
-            mix: v('mix', 0.35),
+            osc2Enabled: v('osc2enabled', 0) >= 0.5,
+            osc1Vol: v('osc1vol', 1.0),
+            osc2Vol: v('osc2vol', 0.7),
             detune: v('detune', 0),
             sub: v('sub', 0),
             cutoff: v('cutoff', 20000),
@@ -69,9 +70,12 @@ export const EssenceSynth = ({
         for (const [name, value] of Object.entries(values)) {
             onParamChange(name, clampToParam(name, value));
         }
-        // Presets always enable both oscillators
+        // Presets always enable OSC1; enable OSC2 only if preset uses it
         onParamChange('Osc1Enabled', 1);
         onParamChange('Osc2Enabled', 1);
+        // Apply per-osc volumes from preset
+        if (values.Osc1Vol !== undefined) onParamChange('Osc1Vol', values.Osc1Vol);
+        if (values.Osc2Vol !== undefined) onParamChange('Osc2Vol', values.Osc2Vol);
     }, [onParamChange, clampToParam]);
 
     const randomize = useCallback(() => {
@@ -80,10 +84,11 @@ export const EssenceSynth = ({
             return Math.round(raw / step) * step;
         };
         onParamChange('Osc1Enabled', 1);
-        onParamChange('Osc2Enabled', 1);
+        onParamChange('Osc2Enabled', Math.random() > 0.3 ? 1 : 0);
         onParamChange('Osc1Wave', clampToParam('Osc1Wave', Math.floor(Math.random() * 4)));
         onParamChange('Osc2Wave', clampToParam('Osc2Wave', Math.floor(Math.random() * 4)));
-        onParamChange('Mix', clampToParam('Mix', r(0.1, 0.9)));
+        onParamChange('Osc1Vol', clampToParam('Osc1Vol', r(0.5, 1.0)));
+        onParamChange('Osc2Vol', clampToParam('Osc2Vol', r(0.3, 0.9)));
         onParamChange('Detune', clampToParam('Detune', r(-18, 18, 0.1)));
         onParamChange('Sub', clampToParam('Sub', r(0, 0.5)));
         onParamChange('Cutoff', clampToParam('Cutoff', r(200, 8000, 1)));
@@ -202,14 +207,22 @@ export const EssenceSynth = ({
                             </div>
                         </div>
                     </div>
-                    {/* Blend bar */}
-                    <div className="essence__blend-bar">
-                        <div className="essence__blend-fill essence__blend-fill--1" style={{ width: `${(1 - p.mix) * 100}%` }} />
-                        <div className="essence__blend-fill essence__blend-fill--2" style={{ width: `${p.mix * 100}%` }} />
-                    </div>
-                    <div className="essence__param-row">
-                        <span className="essence__param-label">Blend</span>
-                        <span className="essence__param-value">{(p.mix * 100).toFixed(0)}%</span>
+                    {/* Per-oscillator volume bars */}
+                    <div className="essence__osc-vol-row">
+                        <div className="essence__osc-vol-block">
+                            <span className="essence__osc-vol-label essence__osc-vol-label--1">OSC 1 Vol</span>
+                            <div className="essence__vol-bar">
+                                <div className="essence__vol-fill essence__vol-fill--1" style={{ width: `${p.osc1Vol * 100}%` }} />
+                            </div>
+                            <span className="essence__param-value">{(p.osc1Vol * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="essence__osc-vol-block">
+                            <span className="essence__osc-vol-label essence__osc-vol-label--2">OSC 2 Vol</span>
+                            <div className="essence__vol-bar">
+                                <div className="essence__vol-fill essence__vol-fill--2" style={{ width: `${p.osc2Vol * 100}%` }} />
+                            </div>
+                            <span className="essence__param-value">{(p.osc2Vol * 100).toFixed(0)}%</span>
+                        </div>
                     </div>
                     <div className="essence__param-row">
                         <span className="essence__param-label">Detune</span>

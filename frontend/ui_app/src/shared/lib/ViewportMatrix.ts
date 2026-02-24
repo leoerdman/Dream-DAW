@@ -31,8 +31,6 @@ export class ViewportMatrix {
     private _onScrollYChange: ((scrollY: number) => void) | null = null;
     /** Persists across calls — tracks the last scrollY we notified about. */
     private _lastNotifiedScrollY = 0;
-    private _flushTimer: ReturnType<typeof setTimeout> | null = null;
-    private static readonly FLUSH_DEBOUNCE_MS = 150;
 
     constructor(config: ViewportConfig) {
         this._totalBeats = config.totalBeats;
@@ -198,16 +196,27 @@ export class ViewportMatrix {
     }
 
     scrollBy(deltaX: number, deltaY: number): void {
+        if (Math.abs(deltaX) < 0.0001 && Math.abs(deltaY) < 0.0001) return;
+        const prevX = this._scrollX;
+        const prevY = this._scrollY;
         this._scrollX += deltaX * SCROLL_SENSITIVITY;
         this._scrollY += deltaY * SCROLL_SENSITIVITY;
         this._clampScroll();
+        if (Math.abs(this._scrollX - prevX) < 0.01 && Math.abs(this._scrollY - prevY) < 0.01) {
+            return;
+        }
         this._markDirty();
     }
 
     scrollTo(x: number, y: number): void {
+        const prevX = this._scrollX;
+        const prevY = this._scrollY;
         this._scrollX = x;
         this._scrollY = y;
         this._clampScroll();
+        if (Math.abs(this._scrollX - prevX) < 0.01 && Math.abs(this._scrollY - prevY) < 0.01) {
+            return;
+        }
         this._markDirty();
     }
 
@@ -283,10 +292,6 @@ export class ViewportMatrix {
     }
 
     destroy(): void {
-        if (this._flushTimer) {
-            clearTimeout(this._flushTimer);
-            this._flushTimer = null;
-        }
         this._onFlush = null;
     }
 
@@ -307,14 +312,8 @@ export class ViewportMatrix {
 
     private _markDirty(): void {
         this._dirty = true;
-        this._scheduleFlush();
-    }
-
-    private _scheduleFlush(): void {
-        if (this._flushTimer) clearTimeout(this._flushTimer);
-        this._flushTimer = setTimeout(() => {
-            this._flushTimer = null;
-            this._onFlush?.(this.snapshot);
-        }, ViewportMatrix.FLUSH_DEBOUNCE_MS);
+        // Immediate flush keeps Timeline side-panels (master lane grid,
+        // automation overlay, UI mirrors) in lockstep with viewport movement.
+        this._onFlush?.(this.snapshot);
     }
 }

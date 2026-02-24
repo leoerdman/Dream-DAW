@@ -204,7 +204,7 @@ fn bounce_with_normalization() {
 }
 
 #[test]
-fn bounce_fails_fast_when_external_vst_instrument_binding_is_missing() {
+fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing() {
     let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_binding.wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
@@ -226,21 +226,17 @@ fn bounce_fails_fast_when_external_vst_instrument_binding_is_missing() {
     // No runtime external FX slots supplied for the declared VST instrument.
     let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
 
-    match result {
-        Err(BounceError::RenderError(msg)) => {
-            assert!(
-                msg.contains("External VST runtime binding is incomplete"),
-                "unexpected error message: {msg}"
-            );
-        }
-        other => panic!("expected RenderError for missing VST runtime binding, got {other:?}"),
-    }
+    assert!(
+        result.is_ok(),
+        "expected best-effort bounce success for missing VST runtime binding, got {result:?}"
+    );
+    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
 
     let _ = std::fs::remove_file(&out_path);
 }
 
 #[test]
-fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_track() {
+fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track() {
     let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_track_fx_binding.wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
@@ -260,22 +256,17 @@ fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_track() {
     let mut pool = ClipPool::new();
 
     let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
-    match result {
-        Err(BounceError::RenderError(msg)) => {
-            assert!(
-                msg.contains("External VST runtime binding is incomplete"),
-                "unexpected error message: {msg}"
-            );
-            assert!(msg.contains("scope=track"), "missing track scope in error: {msg}");
-        }
-        other => panic!("expected RenderError for missing track FX binding, got {other:?}"),
-    }
+    assert!(
+        result.is_ok(),
+        "expected best-effort bounce success for missing track FX runtime binding, got {result:?}"
+    );
+    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
 
     let _ = std::fs::remove_file(&out_path);
 }
 
 #[test]
-fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_master() {
+fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_master() {
     let out_path = std::env::temp_dir().join("dream_bounce_missing_vst_master_fx_binding.wav");
     let config = BounceConfig {
         output_path: out_path.to_str().unwrap().to_string(),
@@ -295,19 +286,11 @@ fn bounce_fails_fast_when_external_vst_fx_binding_is_missing_on_master() {
     let mut pool = ClipPool::new();
 
     let result = bouncer.bounce(&mut project, &mut pool, None, &HashMap::new(), &[], |_| {});
-    match result {
-        Err(BounceError::RenderError(msg)) => {
-            assert!(
-                msg.contains("External VST runtime binding is incomplete"),
-                "unexpected error message: {msg}"
-            );
-            assert!(
-                msg.contains("scope=master"),
-                "missing master scope in error: {msg}"
-            );
-        }
-        other => panic!("expected RenderError for missing master FX binding, got {other:?}"),
-    }
+    assert!(
+        result.is_ok(),
+        "expected best-effort bounce success for missing master FX runtime binding, got {result:?}"
+    );
+    assert!(std::fs::metadata(&out_path).is_ok(), "expected output file to be written");
 
     let _ = std::fs::remove_file(&out_path);
 }

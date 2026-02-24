@@ -34,6 +34,7 @@ export function EqBandOverlays({
     vbW,
     vbH,
 }: BandOverlaysProps): React.ReactNode {
+    const primaryEqAccent = 'var(--color-accent-primary)';
     return (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
             {bands.filter((b) => b.enabled).map((band) => {
@@ -44,7 +45,7 @@ export function EqBandOverlays({
                 const isActive = dragEqBand === band.idx || selectedEqBand === band.idx;
                 // UX tweak: points are 1.5x larger for easier grab/context-click.
                 const DOT_SIZE = isActive ? 12 : 9;
-                const bandColor = band.color;
+                const bandColor = primaryEqAccent;
                 return (
                     <div
                         key={band.idx}

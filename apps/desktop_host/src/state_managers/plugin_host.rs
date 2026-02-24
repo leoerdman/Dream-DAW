@@ -39,6 +39,7 @@ pub(crate) struct PluginHostState {
 }
 
 impl PluginHostState {
+    const DEFAULT_HOST_SAMPLE_RATE: f64 = 44_100.0;
     fn normalize_plugin_lookup_key(input: &str) -> String {
         input
             .trim()
@@ -92,10 +93,19 @@ impl PluginHostState {
         }
     }
 
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new_with_io(sample_rate: f64, buffer_size: usize) -> Self {
+        let safe_sample_rate = if sample_rate.is_finite() && sample_rate > 0.0 {
+            sample_rate
+        } else {
+            Self::DEFAULT_HOST_SAMPLE_RATE
+        };
+        let safe_buffer_size = buffer_size.max(1);
         let sandbox_config = PluginSandboxConfig::from_env();
         Self {
-            host: Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),
+            host: Arc::new(Mutex::new(PluginHost::new(
+                safe_sample_rate,
+                safe_buffer_size,
+            ))),
             loaded_by_key: Mutex::new(HashMap::new()),
             loaded_sandbox_by_key: Mutex::new(HashMap::new()),
             slot_instance_map: Arc::new(ArcSwap::from_pointee(HashMap::new())),
@@ -104,6 +114,7 @@ impl PluginHostState {
             plugin_registry: None,
         }
     }
+
 
     /// Attaches the audio thread's plugin registry to this state object.
     /// Must be called once during engine setup, before any plugins are loaded.
@@ -231,6 +242,7 @@ impl PluginHostState {
             let mut host = self.host.lock().map_err(|e| e.to_string())?;
             let _ = host.remove(instance_id);
         }
+        self.publish_registry();
 
         {
             let mut map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
@@ -446,7 +458,26 @@ impl PluginHostState {
     ) -> Result<Uuid, String> {
         self.try_enable_sandbox_if_available();
         if let Some(instance_id) = self.slot_instance_map.load().get(&slot_id).copied() {
-            return Ok(instance_id);
+            let in_process_present = self
+                .host
+                .lock()
+                .map(|host| host.snapshot_registry().contains_key(&instance_id))
+                .unwrap_or(false);
+            let sandbox_present = self
+                .loaded_sandbox_by_key
+                .lock()
+                .map(|map| map.values().any(|id| *id == instance_id))
+                .unwrap_or(false);
+            if in_process_present || sandbox_present {
+                return Ok(instance_id);
+            }
+            log::warn!(
+                "[PluginHostState] Stale slot binding detected for slot {} -> instance {} (plugin '{}'); rebinding",
+                slot_id,
+                instance_id,
+                plugin_id
+            );
+            self.unbind_slot_instance(slot_id);
         }
 
         let descriptor = self.resolve_descriptor(plugin_id)?;
@@ -466,6 +497,7 @@ impl PluginHostState {
                         .map_err(|e| e.to_string())?
                         .entry(plugin_id.to_string())
                         .or_insert(instance_id);
+                    self.publish_registry();
                     return Ok(instance_id);
                 }
                 Err(err) => {
@@ -514,6 +546,7 @@ impl PluginHostState {
             .map_err(|e| e.to_string())?
             .entry(plugin_id.to_string())
             .or_insert(instance_id);
+        self.publish_registry();
 
         Ok(instance_id)
     }
@@ -713,6 +746,7 @@ impl PluginHostState {
             )
             .map_err(|e| format!("Sandbox plugin bridge registration failed: {e}"))?;
         }
+        self.publish_registry();
 
         self.loaded_sandbox_by_key
             .lock()
@@ -738,6 +772,7 @@ impl PluginHostState {
             if let Ok(mut host) = self.host.lock() {
                 let _ = host.remove(id);
             }
+            self.publish_registry();
             let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
             supervisor.remove_instance(id);
         }

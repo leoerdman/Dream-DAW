@@ -86,8 +86,14 @@ export class CanvasClipRenderer {
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
 
-    private _editCursorPlacedMs = 0;
-    private _prevEditCursorBeat = -999;
+    // (removed: _editCursorPlacedMs / _prevEditCursorBeat — replaced by quantized blink P4)
+
+    /** Reusable buffer for visible-clip filtering (avoids per-frame allocation). */
+    private _filteredClips: TimelineClipData[] = [];
+
+    /** Cached highlight gradient (reused across clips within a frame). */
+    private _highlightGrad: CanvasGradient | null = null;
+    private _highlightGradCtx: CanvasRenderingContext2D | null = null;
 
     constructor(waveformCache: WaveformCache) {
         this._waveformCache = waveformCache;
@@ -218,6 +224,8 @@ export class CanvasClipRenderer {
         ctx.save();
         const ppb = vp.pixelsPerBeat;
         const rulerH = vp.rulerHeight;
+        const vpW = vp.viewportWidth;
+        const vpH = vp.viewportHeight;
 
         let gridStep = snapBeats;
         if (gridStep <= 0) {
@@ -231,30 +239,46 @@ export class CanvasClipRenderer {
         const startBeat = Math.floor(range.startBeat / gridStep) * gridStep;
         const endBeat = Math.ceil(range.endBeat / gridStep) * gridStep;
 
+        // ── P1: Batch subdivision lines into one path ──
+        ctx.beginPath();
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
-            const x = vp.beatsToScreenX(beat);
-            if (x < -1 || x > vp.viewportWidth + 1) continue;
-
             const barPhase = beat / beatsPerBar;
-            const isBar = Math.abs(barPhase - Math.round(barPhase)) < 1e-6;
-            ctx.strokeStyle = isBar ? theme.gridBar : theme.gridLine;
-            ctx.lineWidth = isBar ? 1 : 0.5;
-            ctx.beginPath();
-            ctx.moveTo(Math.round(x), rulerH);
-            ctx.lineTo(Math.round(x), vp.viewportHeight);
-            ctx.stroke();
+            if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
+            const x = Math.round(vp.beatsToScreenX(beat));
+            if (x < -1 || x > vpW + 1) continue;
+            ctx.moveTo(x, rulerH);
+            ctx.lineTo(x, vpH);
         }
+        ctx.strokeStyle = theme.gridLine;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
 
+        // ── P1: Batch bar lines into one path ──
+        ctx.beginPath();
+        for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
+            const barPhase = beat / beatsPerBar;
+            if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
+            const x = Math.round(vp.beatsToScreenX(beat));
+            if (x < -1 || x > vpW + 1) continue;
+            ctx.moveTo(x, rulerH);
+            ctx.lineTo(x, vpH);
+        }
+        ctx.strokeStyle = theme.gridBar;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // ── P2: Batch track dividers into one path ──
+        ctx.beginPath();
+        for (let i = 0; i <= vp.trackCount; i++) {
+            const y = Math.round(rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY);
+            if (y < rulerH - 1 || y > vpH + 1) continue;
+            ctx.moveTo(0, y);
+            ctx.lineTo(vpW, y);
+        }
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
-        for (let i = 0; i <= vp.trackCount; i++) {
-            const y = rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY;
-            if (y < rulerH - 1 || y > vp.viewportHeight + 1) continue;
-            ctx.beginPath();
-            ctx.moveTo(0, Math.round(y));
-            ctx.lineTo(vp.viewportWidth, Math.round(y));
-            ctx.stroke();
-        }
+        ctx.stroke();
+
         ctx.restore();
     }
 
@@ -388,14 +412,18 @@ export class CanvasClipRenderer {
         sampleRate: number,
     ): void {
         const bufferBeats = 2;
-        const filtered = clips.filter(c => {
+        // ── P5: Reuse pre-allocated buffer instead of filter() ──
+        const filtered = this._filteredClips;
+        filtered.length = 0;
+        for (let i = 0, len = clips.length; i < len; i++) {
+            const c = clips[i];
             const endBeat = c.startBeat + c.durationBeats;
-            if (endBeat < range.startBeat - bufferBeats) return false;
-            if (c.startBeat > range.endBeat + bufferBeats) return false;
-            if (c.trackIndex < range.startTrack - 1) return false;
-            if (c.trackIndex > range.endTrack + 1) return false;
-            return true;
-        });
+            if (endBeat < range.startBeat - bufferBeats) continue;
+            if (c.startBeat > range.endBeat + bufferBeats) continue;
+            if (c.trackIndex < range.startTrack - 1) continue;
+            if (c.trackIndex > range.endTrack + 1) continue;
+            filtered.push(c);
+        }
 
         const trackPitchRange = new Map<number, { min: number; max: number }>();
         for (const c of filtered) {
@@ -542,11 +570,18 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
 
-        const gradient = ctx.createLinearGradient(x, y + 1, x, y + 4);
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x, y + 1, w, 3);
+        // ── P3: Reuse cached highlight gradient (avoids createLinearGradient per clip) ──
+        if (!this._highlightGrad || this._highlightGradCtx !== ctx) {
+            this._highlightGrad = ctx.createLinearGradient(0, 0, 0, 3);
+            this._highlightGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+            this._highlightGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+            this._highlightGradCtx = ctx;
+        }
+        ctx.save();
+        ctx.translate(x, y + 1);
+        ctx.fillStyle = this._highlightGrad;
+        ctx.fillRect(0, 0, w, 3);
+        ctx.restore();
 
         ctx.restore();
 
@@ -817,13 +852,12 @@ export class CanvasClipRenderer {
         const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
         const cursorX = Math.round(x) + 0.5;
 
-        if (Math.abs(beat - this._prevEditCursorBeat) > 0.0001) {
-            this._editCursorPlacedMs = performance.now();
-            this._prevEditCursorBeat = beat;
-        }
 
-        const elapsed = (performance.now() - this._editCursorPlacedMs) / 1000;
-        const blink = 0.22 + 0.68 * (0.5 + 0.5 * Math.cos(elapsed * Math.PI * 0.34));
+        // ── P4: Quantized blink — matches _drawFrameNow's 500ms cycle ──
+        // Previously used continuous cos() which changed every frame,
+        // conflicting with the 500ms redraw guard and causing visual stutter.
+        const blinkOn = (Math.floor(performance.now() / 500) % 2) === 0;
+        const blink = blinkOn ? 0.9 : 0.22;
         ctx.save();
         ctx.setLineDash([]);
         ctx.globalCompositeOperation = 'screen';

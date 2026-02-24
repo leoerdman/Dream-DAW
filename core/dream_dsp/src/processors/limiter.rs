@@ -118,8 +118,8 @@ impl DspProcessor for LimiterProcessor {
         self.ceiling_sm_lin.set_target(self.ceiling_lin);
 
         for i in 0..len {
-            let threshold = self.threshold_sm_lin.next();
-            let ceiling = self.ceiling_sm_lin.next();
+            let threshold = self.threshold_sm_lin.next_value();
+            let ceiling = self.ceiling_sm_lin.next_value();
             // Write incoming sample into the lookahead delay buffer
             self.la_buf_l[self.la_pos] = left[i];
             self.la_buf_r[self.la_pos] = right[i];
@@ -232,9 +232,11 @@ impl DspProcessor for LimiterProcessor {
 
     fn reset(&mut self) {
         self.gain = 1.0;
-        self.la_buf_l = [0.0; MAX_LOOKAHEAD];
-        self.la_buf_r = [0.0; MAX_LOOKAHEAD];
-        self.la_gain = [1.0; MAX_LOOKAHEAD];
+        // BUG-L08 FIX: Only clear the active lookahead region instead of
+        // the full 1024-entry arrays. At la_samples=44, this is 23x less work.
+        self.la_buf_l[..self.la_samples].fill(0.0);
+        self.la_buf_r[..self.la_samples].fill(0.0);
+        self.la_gain[..self.la_samples].fill(1.0);
         self.la_pos = 0;
         self.threshold_sm_lin.set_instant(self.threshold_lin);
         self.ceiling_sm_lin.set_instant(self.ceiling_lin);

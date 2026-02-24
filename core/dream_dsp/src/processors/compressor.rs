@@ -183,6 +183,11 @@ impl CompressorProcessor {
             // Without this, the lookahead in ms drifts across sample rates.
             self.lookahead_samples = ((self.lookahead_ms * 0.001 * sr) as usize)
                 .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+            // BUG-H05 FIX: Reset la_filled so the lookahead buffer refills
+            // correctly at the new sample rate. Without this, la_filled
+            // retains the old value and may exceed the new lookahead_samples,
+            // reading stale entries.
+            self.la_filled = 0;
         }
     }
 
@@ -252,8 +257,8 @@ impl DspProcessor for CompressorProcessor {
             let dry_r = right[i];
             self.la_buf_l[self.la_pos] = dry_l;
             self.la_buf_r[self.la_pos] = dry_r;
-            let threshold_db = self.threshold_sm_db.next();
-            let mix = self.mix_sm.next();
+            let threshold_db = self.threshold_sm_db.next_value();
+            let mix = self.mix_sm.next_value();
             let dry_mix = 1.0 - mix;
 
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
@@ -295,6 +300,10 @@ impl DspProcessor for CompressorProcessor {
             // SSOT: Flush denormals in envelope/RMS state.
             crate::processors::flush_denormal!(self.envelope_db);
             crate::processors::flush_denormal!(self.rms_state);
+            // BUG-M17 FIX: Flush SC-HPF state denormals in the non-sidechain
+            // path too. Previously only the sidechain path flushed these.
+            crate::processors::flush_denormal!(self.sc_hp_state_l);
+            crate::processors::flush_denormal!(self.sc_hp_state_r);
 
             // Gain computation (with soft knee)
             let gain_db = self.compute_gain_reduction(self.envelope_db, threshold_db);
@@ -342,8 +351,8 @@ impl DspProcessor for CompressorProcessor {
             let dry_r = right[i];
             self.la_buf_l[self.la_pos] = dry_l;
             self.la_buf_r[self.la_pos] = dry_r;
-            let threshold_db = self.threshold_sm_db.next();
-            let mix = self.mix_sm.next();
+            let threshold_db = self.threshold_sm_db.next_value();
+            let mix = self.mix_sm.next_value();
             let dry_mix = 1.0 - mix;
 
             let sc_src_l = sidechain_left

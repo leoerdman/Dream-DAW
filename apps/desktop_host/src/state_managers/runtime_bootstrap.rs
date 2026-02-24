@@ -29,7 +29,27 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64));
-    let mut plugin_host_state = PluginHostState::new();
+
+    let app_data_dir_for_settings = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("com.dreamdaw.desktop");
+    let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
+    if let Err(e) = settings_state.save_to_user_folder() {
+        log::warn!("Failed to create initial settings file: {}", e);
+    }
+    let (host_sample_rate, host_buffer_size) = settings_state
+        .settings
+        .lock()
+        .ok()
+        .map(|s| {
+            (
+                f64::from(s.sample_rate.max(1)),
+                usize::try_from(s.buffer_size.max(1)).unwrap_or(512),
+            )
+        })
+        .unwrap_or((44_100.0, 512));
+    let mut plugin_host_state =
+        PluginHostState::new_with_io(host_sample_rate, host_buffer_size);
 
     let clip_pool_state = ClipPoolState::new();
     let bootstrap_project = dream_models::project::Project::default();
@@ -83,14 +103,6 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
     let preview_source_sr_for_engine = Arc::clone(&preview_source_sr);
     let disk_streamers_for_engine = Arc::clone(&disk_streamers);
-
-    let app_data_dir_for_settings = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.dreamdaw.desktop");
-    let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
-    if let Err(e) = settings_state.save_to_user_folder() {
-        log::warn!("Failed to create initial settings file: {}", e);
-    }
 
     let preferred_output_device = {
         let settings = settings_state.settings.lock().ok();

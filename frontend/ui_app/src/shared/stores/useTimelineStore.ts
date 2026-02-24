@@ -51,7 +51,35 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     restoreScrollLeft: null,
     restoreScrollTop: null,
 
-    setLayout: (values) => set(values),
+    setLayout: (values) => set((state) => {
+        let changed = false;
+        const next: Partial<TimelineState> = {};
+        if (values.pixelsPerBeat !== undefined && values.pixelsPerBeat !== state.pixelsPerBeat) {
+            next.pixelsPerBeat = values.pixelsPerBeat;
+            changed = true;
+        }
+        if (values.trackHeight !== undefined && values.trackHeight !== state.trackHeight) {
+            next.trackHeight = values.trackHeight;
+            changed = true;
+        }
+        if (values.canvasRect !== undefined && values.canvasRect !== state.canvasRect) {
+            next.canvasRect = values.canvasRect;
+            changed = true;
+        }
+        if (values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft) {
+            next.scrollLeft = values.scrollLeft;
+            changed = true;
+        }
+        if (values.scrollTop !== undefined && values.scrollTop !== state.scrollTop) {
+            next.scrollTop = values.scrollTop;
+            changed = true;
+        }
+        if (values.rulerHeight !== undefined && values.rulerHeight !== state.rulerHeight) {
+            next.rulerHeight = values.rulerHeight;
+            changed = true;
+        }
+        return changed ? next : state;
+    }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({
             restoreSeq: state.restoreSeq + 1,

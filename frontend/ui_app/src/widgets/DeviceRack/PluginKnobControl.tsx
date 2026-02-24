@@ -124,7 +124,14 @@ export const PluginKnob = ({
         const node = dialRef.current;
         if (!node) return;
         node.addEventListener('wheel', handleWheel, { passive: false });
-        return () => node.removeEventListener('wheel', handleWheel);
+        return () => {
+            node.removeEventListener('wheel', handleWheel);
+            if (wheelGestureTimer.current) {
+                clearTimeout(wheelGestureTimer.current);
+                wheelGestureTimer.current = null;
+            }
+            wheelGestureActive.current = false;
+        };
     }, [handleWheel, dialRef]);
 
     const onKnobDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

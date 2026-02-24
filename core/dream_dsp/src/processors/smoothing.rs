@@ -59,7 +59,7 @@ impl SmoothedValue {
     /// BUG-H17 FIX: Convergence threshold 1e-12 → 1e-6 to avoid thousands
     /// of wasted multiply-adds that produce no audible change.
     #[inline(always)]
-    pub fn next(&mut self) -> f32 {
+    pub fn next_value(&mut self) -> f32 {
         self.current = self.coeff * self.current + (1.0 - self.coeff) * self.target;
         if (self.current - self.target).abs() < 1.0e-6 {
             self.current = self.target;
@@ -71,4 +71,3 @@ impl SmoothedValue {
         self.current
     }
 }
-

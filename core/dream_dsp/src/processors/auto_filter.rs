@@ -204,9 +204,9 @@ impl DspProcessor for AutoFilterProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let zdf_res = (self.resonance_sm.next() * 0.98).clamp(0.0, 0.98);
-            let mix = self.mix_sm.next();
-            let drive = self.drive_sm.next();
+            let zdf_res = (self.resonance_sm.next_value() * 0.98).clamp(0.0, 0.98);
+            let mix = self.mix_sm.next_value();
+            let drive = self.drive_sm.next_value();
 
             // Envelope follower
             // BUG-C04 FIX: Attack path now uses smoothed attack coefficient instead

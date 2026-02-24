@@ -34,6 +34,7 @@ export const AssetBrowser = () => {
         contextMenu,
         contextMenuRef,
         collectionItems,
+        collectionLabels,
         saveCollections,
         setCollectionItems,
         setContextMenu,
@@ -83,6 +84,7 @@ export const AssetBrowser = () => {
                 saveCollections={saveCollections}
                 setCollectionItems={setCollectionItems}
                 setContextMenu={setContextMenu}
+                collectionLabels={collectionLabels}
             />
         </div>
     );

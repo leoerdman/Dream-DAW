@@ -173,11 +173,19 @@ pub fn rebuild_sampler_snapshot_from_project(
         );
         push_command_or_log!(
             handle,
-            EngineCommand::SetSamplerOscMix {
+            EngineCommand::SetSamplerOsc1Volume {
                 track_index: track_idx as u16,
-                mix,
+                volume: 1.0 - mix,
             },
-            "sampler osc mix"
+            "sampler osc1 volume"
+        );
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetSamplerOsc2Volume {
+                track_index: track_idx as u16,
+                volume: mix,
+            },
+            "sampler osc2 volume"
         );
         push_command_or_log!(
             handle,

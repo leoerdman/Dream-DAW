@@ -114,9 +114,6 @@ export function useTimelineCommandBusBindings({
                 case 'drop':
                     callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
                     break;
-                case 'scroll-top':
-                    scrollSync.setScrollY(command.value, 'timeline');
-                    break;
                 default:
                     break;
             }
@@ -155,8 +152,9 @@ export function useTimelineEngineCommandBindings({
         engine.onTrackSelect = (trackIndex) => commandBusRef.current.emit({ type: 'track-select', trackIndex });
         engine.onMarqueeSelectionStart = () => commandBusRef.current.emit({ type: 'marquee-start' });
         engine.onMarqueeSelectionChange = (marquee) => commandBusRef.current.emit({ type: 'marquee-change', marquee });
+        // Hot path: avoid command-bus object churn on every scroll tick.
         engine.onScrollTop = (scrollTop) => {
-            commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
+            scrollSync.setScrollY(scrollTop, 'timeline');
         };
 
         // SSOT: Wire delta listener for external panels (Inspector, Mixer).

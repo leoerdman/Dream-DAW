@@ -238,27 +238,46 @@ impl ReverbProcessor {
         let ratio = sample_rate / REF_SAMPLE_RATE;
         let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
 
+        // BUG-M19 FIX: Zero entries beyond the new logical size when SR
+        // decreases. Without this, old samples remain in the physical
+        // buffer and re-enter the feedback loop if SR later increases.
         for (idx, c) in self.combs_l.iter_mut().enumerate() {
             let new_size = scale(COMB_SIZES_L[idx]).min(c.buffer.len());
+            let old_size = c.buf_size;
             c.buf_size = new_size;
             c.index %= new_size;
             c.filter_store = 0.0;
+            if new_size < old_size {
+                c.buffer[new_size..old_size].fill(0.0);
+            }
         }
         for (idx, c) in self.combs_r.iter_mut().enumerate() {
             let new_size = scale(COMB_SIZES_L[idx] + COMB_SPREAD).min(c.buffer.len());
+            let old_size = c.buf_size;
             c.buf_size = new_size;
             c.index %= new_size;
             c.filter_store = 0.0;
+            if new_size < old_size {
+                c.buffer[new_size..old_size].fill(0.0);
+            }
         }
         for (idx, a) in self.allpasses_l.iter_mut().enumerate() {
             let new_size = scale(AP_SIZES[idx]).min(a.buffer.len());
+            let old_size = a.buf_size;
             a.buf_size = new_size;
             a.index %= new_size;
+            if new_size < old_size {
+                a.buffer[new_size..old_size].fill(0.0);
+            }
         }
         for (idx, a) in self.allpasses_r.iter_mut().enumerate() {
             let new_size = scale(AP_SIZES[idx] + COMB_SPREAD).min(a.buffer.len());
+            let old_size = a.buf_size;
             a.buf_size = new_size;
             a.index %= new_size;
+            if new_size < old_size {
+                a.buffer[new_size..old_size].fill(0.0);
+            }
         }
     }
 
@@ -329,17 +348,17 @@ impl DspProcessor for ReverbProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let low_damp_coeff = self.low_damp_sm.next() * 0.5;
-            let mod_depth = self.mod_depth_sm.next();
+            let low_damp_coeff = self.low_damp_sm.next_value() * 0.5;
+            let mod_depth = self.mod_depth_sm.next_value();
 
-            let wet = self.mix_sm.next();
+            let wet = self.mix_sm.next_value();
             let dry = 1.0 - wet;
-            let width = self.width_sm.next();
+            let width = self.width_sm.next_value();
             let wet1 = wet * (1.0 + width) * 0.5;
             let wet2 = wet * (1.0 - width) * 0.5;
 
             // Pre-delay
-            let predelay_ms = self.predelay_sm_ms.next();
+            let predelay_ms = self.predelay_sm_ms.next_value();
             self.predelay_samples = ((predelay_ms * 0.001 * self.sample_rate) as usize)
                 .min(MAX_PREDELAY_SAMPLES - 1);
             let pd_pos = self.predelay_pos;
@@ -363,8 +382,11 @@ impl DspProcessor for ReverbProcessor {
             self.lfo_phase += lfo_inc;
             self.lfo_phase = self.lfo_phase.fract();
 
+            // BUG-H06 FIX: Right channel gets inverted LFO for true stereo
+            // movement. Previously both channels used `(1.0 + lfo)`, producing
+            // mono pulsing instead of spatial modulation.
             let input_l_mod = input_l * (1.0 + lfo);
-            let input_r_mod = input_r * (1.0 + lfo);
+            let input_r_mod = input_r * (1.0 - lfo);
 
             // Parallel comb filters — L and R fed independently for stereo
             let mut out_l = 0.0f32;

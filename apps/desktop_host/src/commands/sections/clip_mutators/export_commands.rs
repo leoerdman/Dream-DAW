@@ -217,13 +217,10 @@ async fn export_mix_cmd(
     }
     if !unresolved_runtime_tracks.is_empty() {
         let details = unresolved_runtime_tracks.join("; ");
-        log::error!(
-            "[Export] external FX runtime snapshot missing instrument slot(s): {}",
+        log::warn!(
+            "[Export] external FX runtime snapshot missing instrument slot(s); continuing best-effort export: {}",
             details
         );
-        return Err(format!(
-            "Export aborted: runtime VST instrument binding is incomplete ({details})"
-        ));
     }
 
     // Ensure plugins are reactivated for the current export processing format.

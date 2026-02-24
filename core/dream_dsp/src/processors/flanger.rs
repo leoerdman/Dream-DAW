@@ -173,9 +173,9 @@ impl DspProcessor for FlangerProcessor {
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
 
         for i in 0..len {
-            let depth = self.depth_sm.next();
-            let feedback = self.feedback_sm.next();
-            let mix = self.mix_sm.next();
+            let depth = self.depth_sm.next_value();
+            let feedback = self.feedback_sm.next_value();
+            let mix = self.mix_sm.next_value();
             let mod_depth = base * depth;
             let phase_l = (self.lfo_phase as f32).fract();
             let phase_r = (self.lfo_phase as f32 + self.stereo_offset).fract();

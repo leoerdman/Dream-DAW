@@ -706,7 +706,15 @@ mod tests {
 
     #[test]
     fn recording_worker_writes_wav() {
-        let dir = std::env::temp_dir().join("dream_rec_test");
+        let unique = format!(
+            "dream_rec_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let dir = std::env::temp_dir().join(unique);
         let tmp_path = dir.join("test_rec.tmp.wav");
         let final_path = dir.join("test_rec.wav");
         let _ = std::fs::create_dir_all(&dir);

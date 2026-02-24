@@ -263,7 +263,17 @@ export class TimelineEngine {
     // DATA SETTERS (called by React shell)
     // ═══════════════════════════════════════════════════════════════════
 
+    // ── P6: Track last input reference to skip re-normalization on identical data ──
+    private _lastClipInput: TimelineClipData[] | null = null;
+
     setClips(clips: TimelineClipData[]): void {
+        // Fast-path: skip normalization + mapping when the exact same array reference is passed.
+        // This avoids O(2n) spread allocations on React re-renders that don't change clip data.
+        if (clips === this._lastClipInput && clips.length === this._clips.length) {
+            return;
+        }
+        this._lastClipInput = clips;
+
         const prevClips = this._clips;
         const normalizedInput = normalizeTimelineClips(clips);
         this._clips = normalizedInput.map((clip) => {

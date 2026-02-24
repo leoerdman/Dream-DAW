@@ -467,6 +467,10 @@ export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'original simpler': 'internal://instrument/sampler',
     'originalsimpler': 'internal://instrument/sampler',
     'simpler': 'internal://instrument/sampler',
+    // Legacy project/plugin IDs should resolve to the canonical EQ Eight GUI.
+    'eq': 'internal://effect/eq-eight',
+    'internal://effect/eq': 'internal://effect/eq-eight',
+    'internal://effect/eq8': 'internal://effect/eq-eight',
     'eq8': 'internal://effect/eq-eight',
     'eq eight': 'internal://effect/eq-eight',
     'eqeight': 'internal://effect/eq-eight',

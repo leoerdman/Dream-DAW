@@ -304,6 +304,13 @@ pub struct SamplerVoice {
     /// Per-voice LFO phase (free-running, 0.0..1.0).
     pub lfo_phase: f64,
 
+    /// BUG-H02 FIX: Per-voice triangle integrator state for OSC1 and OSC2.
+    /// Previously declared as local variables in `render_oscillator_voice`,
+    /// resetting to 0.0 every buffer. The leaky integrator needs continuity
+    /// across buffers for stable triangle output.
+    pub tri_state_1: f64,
+    pub tri_state_2: f64,
+
     sample_rate: f64,
 }
 
@@ -320,6 +327,8 @@ impl SamplerVoice {
             envelope: AdsrEnvelope::new(sample_rate),
             filter_state: SvfState::default(),
             lfo_phase: 0.0,
+            tri_state_1: 0.0,
+            tri_state_2: 0.0,
             sample_rate,
         }
     }
@@ -479,7 +488,9 @@ pub struct SamplerEngine {
     oscillator_enabled: bool,
     waveform: Waveform,
     waveform2: Waveform,
-    osc_mix: f32,
+    /// Independent per-oscillator volumes (0.0–1.0).
+    osc1_volume: f32,
+    osc2_volume: f32,
     detune_cents: f32,
     sub_level: f32,
 
@@ -529,7 +540,8 @@ impl SamplerEngine {
             oscillator_enabled: false,
             waveform: Waveform::Sine,
             waveform2: Waveform::Sine,
-            osc_mix: 0.35,
+            osc1_volume: 1.0,
+            osc2_volume: 0.7,
             detune_cents: 0.0,
             sub_level: 0.0,
             filter_enabled: false,
@@ -542,7 +554,7 @@ impl SamplerEngine {
             lfo_target: LfoTarget::FilterCutoff,
             pulse_width: 0.5,
             osc1_enabled: true,
-            osc2_enabled: true,
+            osc2_enabled: false,
             _sample_rate: sample_rate,
             sample_sr_ratio: 1.0,
         }
@@ -575,8 +587,12 @@ impl SamplerEngine {
         self.oscillator_enabled = true;
     }
 
-    pub fn set_osc_mix(&mut self, mix: f32) {
-        self.osc_mix = mix.clamp(0.0, 1.0);
+    pub fn set_osc1_volume(&mut self, vol: f32) {
+        self.osc1_volume = vol.clamp(0.0, 1.0);
+    }
+
+    pub fn set_osc2_volume(&mut self, vol: f32) {
+        self.osc2_volume = vol.clamp(0.0, 1.0);
     }
 
     pub fn set_detune_cents(&mut self, cents: f32) {
@@ -635,15 +651,18 @@ impl SamplerEngine {
     }
 
     /// Enable or disable oscillator 1.
+    /// BUG-M06 FIX: Correctly compute `oscillator_enabled` from the OR of both
+    /// flags instead of unconditionally setting it to `true`.
     pub fn set_osc1_enabled(&mut self, enabled: bool) {
         self.osc1_enabled = enabled;
-        self.oscillator_enabled = true;
+        self.oscillator_enabled = self.osc1_enabled || self.osc2_enabled;
     }
 
     /// Enable or disable oscillator 2.
+    /// BUG-M06 FIX: Same as osc1 — derive from actual state.
     pub fn set_osc2_enabled(&mut self, enabled: bool) {
         self.osc2_enabled = enabled;
-        self.oscillator_enabled = true;
+        self.oscillator_enabled = self.osc1_enabled || self.osc2_enabled;
     }
 
     /// Change the root note.
@@ -695,6 +714,8 @@ impl SamplerEngine {
 
         // BUG-10 FIX: Improved voice stealing — prefer releasing voices,
         // then steal the one with the lowest envelope level.
+        // BUG-M16 FIX: Use `Ordering::Greater` for NaN comparison fallback
+        // so NaN-level voices are always preferred for stealing.
         let steal = self.voices.iter_mut().min_by(|a, b| {
             // Prefer stealing releasing voices over sustained ones
             let a_releasing = a.envelope.is_releasing() as u8;
@@ -703,7 +724,7 @@ impl SamplerEngine {
                 a.envelope
                     .level
                     .partial_cmp(&b.envelope.level)
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .unwrap_or(std::cmp::Ordering::Greater)
             })
         });
 
@@ -771,7 +792,8 @@ impl SamplerEngine {
                     voice,
                     self.waveform,
                     self.waveform2,
-                    self.osc_mix,
+                    self.osc1_volume,
+                    self.osc2_volume,
                     self.detune_cents,
                     self.sub_level,
                     self.filter_enabled,
@@ -908,7 +930,8 @@ fn render_oscillator_voice(
     voice: &mut SamplerVoice,
     waveform: Waveform,
     waveform2: Waveform,
-    osc_mix: f32,
+    osc1_volume: f32,
+    osc2_volume: f32,
     detune_cents: f32,
     sub_level: f32,
     filter_enabled: bool,
@@ -928,8 +951,8 @@ fn render_oscillator_voice(
     frame_count: usize,
     master_vol: f32,
 ) {
-    let mix2 = osc_mix.clamp(0.0, 1.0);
-    let mix1 = 1.0 - mix2;
+    let vol1 = osc1_volume.clamp(0.0, 1.0);
+    let vol2 = osc2_volume.clamp(0.0, 1.0);
     // AUD-120 FIX: Use exp2 instead of powf — exp2 is a CPU intrinsic on x86/ARM,
     // while powf(x, y) calls exp(y * ln(x)), which is ~2x slower.
     let detune_ratio = (detune_cents as f64 / 1200.0).exp2();
@@ -959,9 +982,11 @@ fn render_oscillator_voice(
             *filter_coeffs_base
         };
 
-    // Per-oscillator triangle integrator state
-    let mut tri1 = 0.0_f64;
-    let mut tri2 = 0.0_f64;
+    // BUG-H02 FIX: Use per-voice persistent triangle integrator state
+    // instead of buffer-local variables. Previously these reset to 0.0
+    // every buffer call, causing DC offset clicks on triangle waveform.
+    let tri1 = &mut voice.tri_state_1;
+    let tri2 = &mut voice.tri_state_2;
 
     for i in 0..frame_count {
         let env = voice.envelope.process();
@@ -1004,18 +1029,18 @@ fn render_oscillator_voice(
             };
 
         let osc1 = if osc1_enabled {
-            oscillator_sample_blep(waveform, phase1, dt_mod, &mut tri1, pw)
+            oscillator_sample_blep(waveform, phase1, dt_mod, tri1, pw)
         } else {
             0.0
         };
         let osc2 = if osc2_enabled {
-            oscillator_sample_blep(waveform2, phase2, dt2_mod, &mut tri2, pw)
+            oscillator_sample_blep(waveform2, phase2, dt2_mod, tri2, pw)
         } else {
             0.0
         };
         let sub_osc = oscillator_sample_blep_stateless(Waveform::Square, sub_phase, dt_sub);
 
-        let mut sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;
+        let mut sample = osc1 * vol1 + osc2 * vol2 + sub_osc * sub;
 
         // ── Per-voice SVF filter (with optional LFO cutoff modulation) ─
         // DEEP-04 FIX: Use pre-computed coeffs (hoisted before the sample loop).

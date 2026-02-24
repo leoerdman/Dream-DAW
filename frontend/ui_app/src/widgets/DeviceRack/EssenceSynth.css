@@ -340,19 +340,45 @@
     white-space: nowrap;
 }
 
-/* ── Blend bar ────────────────────────────────────────────── */
+/* ── Per-Osc Volume Bars ─────────────────────────────────── */
 
-.essence__blend-bar {
+.essence__osc-vol-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    margin: var(--space-1) 0;
+}
+
+.essence__osc-vol-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0-5);
+}
+
+.essence__osc-vol-label {
+    font-size: var(--token-size-px-9);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+}
+
+.essence__osc-vol-label--1 {
+    color: var(--token-color-hex-6cbb8e);
+}
+
+.essence__osc-vol-label--2 {
+    color: var(--token-color-hex-7ab0e0);
+}
+
+.essence__vol-bar {
     width: 100%;
-    height: var(--token-size-px-3);
+    height: var(--token-size-px-5);
     border-radius: var(--space-0-5);
     background: var(--token-color-rgba-0-0-0-0d3);
     position: relative;
     overflow: hidden;
-    margin: var(--space-px) 0;
 }
 
-.essence__blend-fill {
+.essence__vol-fill {
     position: absolute;
     top: 0;
     left: 0;
@@ -361,12 +387,10 @@
     transition: width 0.1s ease;
 }
 
-.essence__blend-fill--1 {
-    background: linear-gradient(90deg, var(--token-color-rgba-92-224-166-0d6), var(--token-color-rgba-92-224-166-0d15));
+.essence__vol-fill--1 {
+    background: linear-gradient(90deg, var(--token-color-rgba-92-224-166-0d6), var(--token-color-rgba-92-224-166-0d3));
 }
 
-.essence__blend-fill--2 {
-    right: 0;
-    left: auto;
-    background: linear-gradient(270deg, var(--token-color-rgba-118-186-255-0d6), var(--token-color-rgba-118-186-255-0d15));
+.essence__vol-fill--2 {
+    background: linear-gradient(90deg, var(--token-color-rgba-118-186-255-0d6), var(--token-color-rgba-118-186-255-0d3));
 }

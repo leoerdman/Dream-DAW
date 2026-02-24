@@ -1195,7 +1195,7 @@ async function executeToolInner(
             const settings: engineApi.ExportSettings = {
                 outputPath: args.outputPath as string,
                 format: ((args.format as string) || 'wav') as 'wav' | 'mp3',
-                sampleRate: resolveSampleRate((args.sampleRate as number)) as 44100 | 48000 | 96000,
+                sampleRate: resolveSampleRate((args.sampleRate as number)),
                 bitDepth: ((args.bitDepth as number) || 24) as 16 | 24 | 32,
                 range: ((args.range as string) || 'full') as 'full' | 'loop' | 'selected',
                 normalize: (args.normalize as boolean) ?? false,

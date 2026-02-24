@@ -115,6 +115,7 @@ pub(crate) fn spawn_background_runtime_threads(
                     let clip_pool_state: tauri::State<'_, ClipPoolState> = telemetry_app.state();
                     let plugin_host_state: tauri::State<'_, PluginHostState> = telemetry_app.state();
                     let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
+                    plugin_host_state.publish_registry();
                     if let Ok(project) = pstate.project.lock() {
                         let slot_instance_map = plugin_host_state.slot_instance_snapshot();
                         clip_pool_state.rebuild_external_fx_snapshot(

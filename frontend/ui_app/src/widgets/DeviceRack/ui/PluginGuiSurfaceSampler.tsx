@@ -25,7 +25,7 @@ export function PluginGuiSurfaceSampler({
 }: PluginGuiSurfaceSamplerProps) {
     const otherSamplerParams = buildSurfaceKnobParams(device);
     const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
-    const handleDropFromBrowser = () => {
+    const commitDropFromStore = () => {
         const dragging = useDragStore.getState().draggingItem;
         const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
         if (dragging?.path && acceptance.allowed) {
@@ -34,11 +34,36 @@ export function PluginGuiSurfaceSampler({
         }
     };
 
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        const dragging = useDragStore.getState().draggingItem;
+        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+        if (!acceptance.allowed) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const directPath = e.dataTransfer.getData('text/plain').trim();
+        const dragging = useDragStore.getState().draggingItem;
+        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+        if (directPath && acceptance.allowed) {
+            onDropSample?.(directPath);
+            useDragStore.getState().endDrag();
+            return;
+        }
+        commitDropFromStore();
+    };
+
     return (
         <div
             data-no-drag
-            onMouseUpCapture={handleDropFromBrowser}
-            onMouseUp={handleDropFromBrowser}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onMouseUpCapture={commitDropFromStore}
+            onMouseUp={commitDropFromStore}
             style={{
                 display: 'grid',
                 gridTemplateRows: 'var(--token-size-px-102) auto',

@@ -178,8 +178,8 @@ impl DspProcessor for DelayProcessor {
         self.delay_r_sm.set_target(self.delay_samples_r);
 
         for i in 0..len {
-            let fb = self.feedback_sm.next();
-            let wet = self.dry_wet_sm.next();
+            let fb = self.feedback_sm.next_value();
+            let wet = self.dry_wet_sm.next_value();
             let dry = 1.0 - wet;
 
             // SSOT: Fast sine LFO from mod.rs.
@@ -188,8 +188,8 @@ impl DspProcessor for DelayProcessor {
             self.lfo_phase = self.lfo_phase.fract();
 
             let mod_offset = lfo * mod_max;
-            let base_dl = self.delay_l_sm.next();
-            let base_dr = self.delay_r_sm.next();
+            let base_dl = self.delay_l_sm.next_value();
+            let base_dr = self.delay_r_sm.next_value();
             let dl = (base_dl + mod_offset).clamp(1.0, (bs - 2) as f32);
             let dr = (base_dr - mod_offset * 0.7).clamp(1.0, (bs - 2) as f32);
 

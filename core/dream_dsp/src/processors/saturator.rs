@@ -230,11 +230,11 @@ impl DspProcessor for SaturatorProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let drive = self.drive_sm.next();
-            let cutoff = self.cutoff_sm.next();
-            let mix = self.mix_sm.next();
-            let out = self.output_sm.next();
-            let color = self.color_sm.next();
+            let drive = self.drive_sm.next_value();
+            let cutoff = self.cutoff_sm.next_value();
+            let mix = self.mix_sm.next_value();
+            let out = self.output_sm.next_value();
+            let color = self.color_sm.next_value();
             // BUG-4 FIX: Only recalculate filter coefficient when cutoff moves
             // by >1 Hz. Eliminates per-sample exp() call (44,100/sec → ~10/sec).
             if (cutoff - self.last_cutoff_applied).abs() > 1.0 {

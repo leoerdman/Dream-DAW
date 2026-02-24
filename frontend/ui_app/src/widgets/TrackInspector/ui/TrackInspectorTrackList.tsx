@@ -52,11 +52,19 @@ export function TrackInspectorTrackList({
 
     const handleWheel = useCallback((e: WheelEvent) => {
         e.preventDefault();
+        e.stopPropagation();
+        const lineHeight = Math.max(1, trackHeight);
+        const pageHeight = Math.max(lineHeight, containerRef.current?.clientHeight ?? lineHeight);
+        const normalizedDelta = e.deltaMode === 1
+            ? e.deltaY * lineHeight
+            : e.deltaMode === 2
+                ? e.deltaY * pageHeight
+                : e.deltaY;
         // Push DELTA to ViewportMatrix (the SSOT) via scrollSync.pushScrollDelta.
         // ViewportMatrix clamps and fires _onScrollYChange →
         // scrollSync.setScrollY('timeline') → our subscriber updates translateY.
-        scrollSync.pushScrollDelta(e.deltaY);
-    }, []);
+        scrollSync.pushScrollDelta(normalizedDelta);
+    }, [trackHeight]);
 
     useEffect(() => {
         const el = containerRef.current;
@@ -70,7 +78,7 @@ export function TrackInspectorTrackList({
     // bounding rect calculations. We sync it here.
     useEffect(() => {
         (logic.scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = containerRef.current;
-    });
+    }, [logic.scrollRef]);
 
     // ── Expose innerRef for direct DOM transform manipulation ──
     const innerRef = useRef<HTMLDivElement>(null);
@@ -80,7 +88,7 @@ export function TrackInspectorTrackList({
         if (innerRef.current) {
             innerRef.current.style.transform = `translateY(${-logic.virtualScrollYRef.current}px)`;
         }
-    });
+    }, [logic.innerScrollRef, logic.virtualScrollYRef]);
 
     return (
         <div

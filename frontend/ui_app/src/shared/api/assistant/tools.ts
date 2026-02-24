@@ -1171,7 +1171,7 @@ export const TOOLS = [
                 properties: {
                     outputPath: { type: 'string', description: 'Full path for the output file' },
                     format: { type: 'string', description: '"wav" or "mp3"' },
-                    sampleRate: { type: 'number', description: '44100, 48000, or 96000' },
+                    sampleRate: { type: 'number', description: 'Target sample rate in Hz (e.g. 44100, 48000, 88200, 96000, 192000)' },
                     bitDepth: { type: 'number', description: '16, 24, or 32' },
                     range: { type: 'string', description: '"full" (entire project) or "loop" (loop region only)' },
                     normalize: { type: 'boolean', description: 'Normalize to 0dBFS' },

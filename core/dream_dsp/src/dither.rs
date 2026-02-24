@@ -141,10 +141,7 @@ mod tests {
         let mut d = TpdfDitherer::new();
         for _ in 0..100_000 {
             let v = d.next_tpdf();
-            assert!(
-                v >= -1.0 && v < 1.0,
-                "TPDF value {v} out of range [-1.0, 1.0)"
-            );
+            assert!((-1.0..1.0).contains(&v), "TPDF value {v} out of range [-1.0, 1.0)");
         }
     }
 
@@ -188,10 +185,7 @@ mod tests {
         let mut d = TpdfDitherer::new();
         for _ in 0..100_000 {
             let v = d.next_uniform();
-            assert!(
-                v >= -0.5 && v < 0.5,
-                "Uniform value {v} out of range [-0.5, 0.5)"
-            );
+            assert!((-0.5..0.5).contains(&v), "Uniform value {v} out of range [-0.5, 0.5)");
         }
     }
 

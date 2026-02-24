@@ -34,6 +34,7 @@ type Props = {
 
 const EQ_BAND_COLOR_CACHE = new Map<string, string[]>();
 const EQ_BAND_COUNT = 8;
+const EQ_PRIMARY_ACCENT = 'var(--color-accent-primary)';
 
 function pickRandomBandColor(exclude?: string): string {
     const colorPool: readonly string[] = EQ_RANDOM_POINT_COLORS;
@@ -116,9 +117,7 @@ export function PluginGuiSurfaceEq({
     const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
     const activeBand = bands[activeBandIdx];
     const enabledBands = bands.filter(b => b.enabled);
-    const curveColor = activeBand?.enabled
-        ? activeBand.color
-        : (enabledBands[0]?.color ?? EQ_BAND_COLORS[2]);
+    const curveColor = EQ_PRIMARY_ACCENT;
     const activeFilterOnly = activeBand ? isFilterOnlyType(activeBand.filterType) : false;
     const { handleMouseDown, handleDoubleClick, handleContextMenu } = useEqSurfaceHandlers({
         eqSurfaceRef,

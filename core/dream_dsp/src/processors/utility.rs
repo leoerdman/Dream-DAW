@@ -103,9 +103,9 @@ impl DspProcessor for UtilityProcessor {
             self.current_gain = coeff * self.current_gain + (1.0 - coeff) * self.target_gain;
             // BUG-H20 FIX: Flush denormals in gain smoothing state.
             crate::processors::flush_denormal!(self.current_gain);
-            let pan = self.pan_sm.next();
-            let width = self.width_sm.next();
-            let mono_mix = self.mono_sm.next().clamp(0.0, 1.0);
+            let pan = self.pan_sm.next_value();
+            let width = self.width_sm.next_value();
+            let mono_mix = self.mono_sm.next_value().clamp(0.0, 1.0);
 
             let mut l = left[i] * self.current_gain;
             let mut r = right[i] * self.current_gain;

@@ -62,7 +62,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipMoved') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = { ...clip, trackIndex: delta.data.new_track_index, startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate) };
         upsertClip(state, next);
         state.changed = true;
@@ -71,7 +71,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipResized') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             startBeat: frameToBeat(delta.data.new_position, env.bpm, env.sampleRate),
@@ -86,7 +86,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipDuplicated') {
         if (!isValidClipId(delta.data.new_clip_id)) return true;
         const sourceClip = resolveClip(state, delta.data.source_clip_id);
-        if (!sourceClip) return true;
+        if (!sourceClip) return false;
         const nextClip: TimelineClip = {
             ...sourceClip,
             id: delta.data.new_clip_id,
@@ -100,7 +100,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'ClipSplit') {
         if (!isValidClipId(delta.data.right_id)) return true;
         const clip = resolveClip(state, delta.data.original_clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const splitBeat = frameToBeat(delta.data.split_frame, env.bpm, env.sampleRate);
         const clipEnd = clip.startBeat + clip.durationBeats;
         const leftDuration = splitBeat - clip.startBeat;
@@ -174,7 +174,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipMuteChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = { ...clip, muted: delta.data.muted };
         upsertClip(state, next);
         state.changed = true;
@@ -183,7 +183,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'MidiClipNotesReplaced') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip || clip.type !== 'midi') return true;
+        if (!clip || clip.type !== 'midi') return false;
         const next = {
             ...clip,
             midiNotes: delta.data.notes.map((n) => ({
@@ -200,7 +200,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipSourceOffsetChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = { ...clip, sourceOffset: delta.data.source_offset };
         upsertClip(state, next);
         state.changed = true;
@@ -209,7 +209,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipFadesChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             fadeIn: delta.data.fade_in_frames,
@@ -222,7 +222,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipWarpChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             isWarped: delta.data.is_warped,
@@ -236,7 +236,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipPitchChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             pitchShiftSemitones: delta.data.pitch_shift_semitones,
@@ -248,7 +248,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipColorChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             color: delta.data.color ?? clip.color,
@@ -260,7 +260,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
     if (delta.kind === 'ClipFilePathChanged') {
         const clip = resolveClip(state, delta.data.clip_id);
-        if (!clip) return true;
+        if (!clip) return false;
         const next = {
             ...clip,
             filePath: delta.data.file_path,

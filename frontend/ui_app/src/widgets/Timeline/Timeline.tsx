@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
@@ -11,6 +11,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { isTrackActive } from '@/shared/utils/routing';
+import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
 import { AutomationOverlay } from './AutomationOverlay';
 import { useTimelineDnD } from './model/useTimelineDnD';
 import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from './model/useTimelineCommandBindings';
@@ -109,6 +110,7 @@ export const Timeline = (props: TimelineProps) => {
     const restorePixelsPerBeat = useTimelineStore((s) => s.restorePixelsPerBeat);
     const restoreScrollLeft = useTimelineStore((s) => s.restoreScrollLeft);
     const restoreScrollTop = useTimelineStore((s) => s.restoreScrollTop);
+    const timelineScrollTop = useTimelineStore((s) => (props.automationVisible ? s.scrollTop : 0));
     const setTimelineLayout = useTimelineStore((s) => s.setLayout);
     const clearViewportRestore = useTimelineStore((s) => s.clearViewportRestore);
     const snapBeatsValue = useMemo(
@@ -132,22 +134,36 @@ export const Timeline = (props: TimelineProps) => {
     };
 
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
-    const masterGridStepBeats = useMemo(() => {
-        if (snapBeatsValue > 0) return snapBeatsValue;
-        // Keep master lane grid behavior identical to CanvasClipRenderer._drawGrid.
-        if (pixelsPerBeat < 8) return beatsPerBar * 4;
-        if (pixelsPerBeat < 15) return beatsPerBar;
-        if (pixelsPerBeat < 40) return beatsPerBar;
-        if (pixelsPerBeat < 80) return 1;
-        return 0.5;
-    }, [snapBeatsValue, pixelsPerBeat, beatsPerBar]);
-    const masterGridStepPx = Math.max(1, masterGridStepBeats * pixelsPerBeat);
-    const masterBarStepPx = Math.max(1, beatsPerBar * pixelsPerBeat);
-    const masterGridOffsetPx = -(viewportState.scrollX ?? 0);
+    const [arrangementWidth, setArrangementWidth] = useState(800);
+    const effectivePixelsPerBeat = viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat;
+    const effectiveSnapBeatsValue = useMemo(
+        () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat),
+        [gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat],
+    );
+    const masterLaneGridStyle = useMemo(
+        () => buildMasterLaneGridStyle(),
+        [],
+    );
+    const masterGridViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
+    const masterLaneGridLines = useMemo(
+        () => buildMasterLaneGridLines(
+            effectivePixelsPerBeat,
+            beatsPerBar,
+            effectiveSnapBeatsValue,
+            viewportState.scrollX,
+            masterGridViewportWidth,
+        ),
+        [
+            beatsPerBar,
+            effectivePixelsPerBeat,
+            effectiveSnapBeatsValue,
+            masterGridViewportWidth,
+            viewportState.scrollX,
+        ],
+    );
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
-    propsRef.current = props;
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
 
     const callbacksRef = useRef({
@@ -166,27 +182,8 @@ export const Timeline = (props: TimelineProps) => {
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
     });
-    callbacksRef.current = {
-        onPlayheadChange,
-        onEditCursorChange,
-        onClipSelect,
-        onClipSelectionChange,
-        onClipMove,
-        onClipResize,
-        onClipFades,
-        onDropBrowserItem,
-        onClipFadeCurves,
-        onDoubleClickTrack,
-        onOpenMidiClip,
-        onTrackSelect,
-        onMarqueeSelectionStart,
-        onMarqueeSelectionChange,
-    };
-
     const selectedClipIdsRef = useRef(selectedClipIds);
-    selectedClipIdsRef.current = selectedClipIds;
     const trackIdsRef = useRef(trackIds);
-    trackIdsRef.current = trackIds;
 
     useTimelineCommandBusBindings({
         commandBusRef,
@@ -214,16 +211,70 @@ export const Timeline = (props: TimelineProps) => {
         };
     }, []);
 
-    const throttledLoopCommitRef = useRef(
-        throttle(() => {
+    const throttledLoopCommitRef = useRef<ReturnType<typeof throttle> | null>(null);
+
+    useEffect(() => {
+        propsRef.current = props;
+    }, [props]);
+
+    useEffect(() => {
+        callbacksRef.current = {
+            onPlayheadChange,
+            onEditCursorChange,
+            onClipSelect,
+            onClipSelectionChange,
+            onClipMove,
+            onClipResize,
+            onClipFades,
+            onDropBrowserItem,
+            onClipFadeCurves,
+            onDoubleClickTrack,
+            onOpenMidiClip,
+            onTrackSelect,
+            onMarqueeSelectionStart,
+            onMarqueeSelectionChange,
+        };
+    }, [
+        onPlayheadChange,
+        onEditCursorChange,
+        onClipSelect,
+        onClipSelectionChange,
+        onClipMove,
+        onClipResize,
+        onClipFades,
+        onDropBrowserItem,
+        onClipFadeCurves,
+        onDoubleClickTrack,
+        onOpenMidiClip,
+        onTrackSelect,
+        onMarqueeSelectionStart,
+        onMarqueeSelectionChange,
+    ]);
+
+    useEffect(() => {
+        selectedClipIdsRef.current = selectedClipIds;
+    }, [selectedClipIds]);
+
+    useEffect(() => {
+        trackIdsRef.current = trackIds;
+    }, [trackIds]);
+
+    useEffect(() => {
+        const throttled = throttle(() => {
             const pending = pendingLoopRef.current;
             if (!pending) return;
             commitLoopRef.current(pending);
-        }, 33, { leading: true, trailing: true }),
-    );
+        }, 33, { leading: true, trailing: true });
+        throttledLoopCommitRef.current = throttled;
+        return () => {
+            throttled.cancel();
+            throttledLoopCommitRef.current = null;
+        };
+    }, []);
 
     useEffect(() => {
         const throttledLoopCommit = throttledLoopCommitRef.current;
+        if (!throttledLoopCommit) return;
         const flush = () => {
             throttledLoopCommit.flush();
             const pending = pendingLoopRef.current;
@@ -236,8 +287,20 @@ export const Timeline = (props: TimelineProps) => {
         return () => {
             window.removeEventListener('mouseup', flush, true);
             window.removeEventListener('touchend', flush, true);
-            throttledLoopCommit.cancel();
         };
+    }, []);
+
+    useEffect(() => {
+        const node = arrangementRef.current;
+        if (!node) return;
+        const observer = new ResizeObserver((entries) => {
+            const width = entries[0]?.contentRect.width;
+            if (width && Number.isFinite(width)) {
+                setArrangementWidth(Math.max(1, Math.round(width)));
+            }
+        });
+        observer.observe(node);
+        return () => observer.disconnect();
     }, []);
 
     const tracksEntity = useEngineStore((s) => s.tracks);
@@ -395,7 +458,7 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
         engine.onLoopChange = (loop) => {
             pendingLoopRef.current = loop;
-            throttledLoopCommitRef.current();
+            throttledLoopCommitRef.current?.();
         };
     }, [engineRef]);
 
@@ -460,8 +523,8 @@ export const Timeline = (props: TimelineProps) => {
                         trackCount={trackCount}
                         trackHeight={trackHeight}
                         trackHeights={trackHeights}
-                        scrollTop={useTimelineStore.getState().scrollTop ?? 0}
-                        width={arrangementRef.current?.clientWidth ?? 800}
+                        scrollTop={timelineScrollTop}
+                        width={arrangementWidth}
                         bpm={bpm}
                     />
                 )}
@@ -473,26 +536,49 @@ export const Timeline = (props: TimelineProps) => {
                     flexShrink: 0,
                     borderTop: 'none',
                     boxShadow: 'inset 0 var(--space-px) 0 var(--color-border-subtle)',
-                    backgroundColor: 'var(--color-timeline-track-default, var(--surface-1))',
-                    backgroundImage: `
-                        repeating-linear-gradient(
-                            to right,
-                            var(--color-timeline-grid-bar, rgba(74, 158, 255, 0.18)) 0 1px,
-                            transparent 1px ${masterBarStepPx}px
-                        ),
-                        repeating-linear-gradient(
-                            to right,
-                            var(--color-timeline-grid-line, rgba(255, 255, 255, 0.06)) 0 1px,
-                            transparent 1px ${masterGridStepPx}px
-                        )
-                    `,
-                    backgroundSize: `${masterBarStepPx}px 100%, ${masterGridStepPx}px 100%`,
-                    backgroundPosition: `${masterGridOffsetPx}px 0, ${masterGridOffsetPx}px 0`,
+                    ...masterLaneGridStyle,
                     pointerEvents: 'none',
                     position: 'relative',
                     zIndex: 'var(--z-local)' as unknown as number,
                 }}
-            />
+            >
+                <svg
+                    width="100%"
+                    height="100%"
+                    viewBox={`0 0 ${masterGridViewportWidth} ${Math.max(1, trackHeight)}`}
+                    preserveAspectRatio="none"
+                    style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+                >
+                    <g>
+                        {masterLaneGridLines.subLines.map((x) => (
+                            <line
+                                key={`master-sub-${x}`}
+                                x1={x}
+                                y1={0}
+                                x2={x}
+                                y2={trackHeight}
+                                stroke="var(--color-timeline-grid-line)"
+                                strokeWidth={1}
+                                opacity={0.42}
+                            />
+                        ))}
+                    </g>
+                    <g>
+                        {masterLaneGridLines.barLines.map((x) => (
+                            <line
+                                key={`master-bar-${x}`}
+                                x1={x}
+                                y1={0}
+                                x2={x}
+                                y2={trackHeight}
+                                stroke="var(--color-timeline-grid-bar)"
+                                strokeWidth={1}
+                                opacity={0.95}
+                            />
+                        ))}
+                    </g>
+                </svg>
+            </div>
         </div>
     );
 };

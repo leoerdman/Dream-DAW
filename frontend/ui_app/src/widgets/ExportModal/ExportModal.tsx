@@ -27,7 +27,14 @@ function getErrorMessage(err: unknown): string {
         const candidateMessage = (err as { message?: unknown }).message;
         if (typeof candidateMessage === 'string' && candidateMessage.trim()) return candidateMessage.trim();
     }
-    return String(err);
+    const raw = String(err);
+    if (raw.includes('runtime snapshot missing instrument slot') || raw.includes('runtime binding')) {
+        return 'Export failed: one or more external plugins are not fully loaded. Re-open the track plugin(s) and try again, or bypass external plugins for this export.';
+    }
+    if (raw.includes('PluginSlot not found')) {
+        return 'Export failed: plugin chain state is out of sync. Reopen the project (or reload plugins) and retry export.';
+    }
+    return raw;
 }
 
 export const ExportModal = ({

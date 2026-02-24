@@ -169,12 +169,12 @@ impl DspProcessor for DistortionProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let drive = self.drive_sm.next();
-            let tone = self.tone_sm.next();
-            let mix = self.mix_sm.next();
-            let out = self.output_sm.next();
-            let tightness = self.tightness_sm.next();
-            let bias = self.bias_sm.next();
+            let drive = self.drive_sm.next_value();
+            let tone = self.tone_sm.next_value();
+            let mix = self.mix_sm.next_value();
+            let out = self.output_sm.next_value();
+            let tightness = self.tightness_sm.next_value();
+            let bias = self.bias_sm.next_value();
 
             // BUG-5 FIX: Only recalculate coefficients when smoothed freq
             // moves by >1 Hz. Eliminates 2× exp() per sample.

@@ -43,6 +43,7 @@ export function useDawShellGlobalShortcuts(args: {
                 return;
             }
 
+            // Export shortcut (Cmd/Ctrl+Shift+R).
             if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyR') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -50,6 +51,7 @@ export function useDawShellGlobalShortcuts(args: {
                 return;
             }
 
+            // Reload shortcut uses Cmd/Ctrl+Alt+R to avoid conflicts with export (Cmd/Ctrl+Shift+R).
             if (isMod(e) && !e.shiftKey && e.altKey && e.code === 'KeyR') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -57,6 +59,7 @@ export function useDawShellGlobalShortcuts(args: {
                 return;
             }
 
+            // Backward-compatible export shortcut.
             if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyE') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -86,7 +89,13 @@ export function useDawShellGlobalShortcuts(args: {
         };
 
         window.addEventListener('keydown', handler, { capture: true });
-        return () => window.removeEventListener('keydown', handler, { capture: true } as EventListenerOptions);
+        document.addEventListener('keydown', handler, { capture: true });
+        return () => {
+            window.removeEventListener('keydown', handler, { capture: true } as EventListenerOptions);
+            document.removeEventListener('keydown', handler, {
+                capture: true,
+            } as EventListenerOptions);
+        };
     }, [setBottomPanelModeForActiveTrack, setSettingsOpen, setExportOpen, setMainViewMode]);
 }
 

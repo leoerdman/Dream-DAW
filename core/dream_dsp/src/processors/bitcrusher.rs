@@ -138,7 +138,7 @@ impl DspProcessor for BitcrusherProcessor {
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
-            let mix = self.mix_sm.next();
+            let mix = self.mix_sm.next_value();
 
             // Pre-filter
             self.pre_state_l += self.pre_coeff * (dry_l - self.pre_state_l);

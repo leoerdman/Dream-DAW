@@ -150,9 +150,9 @@ impl DspProcessor for GateProcessor {
         self.range_sm_lin.set_target(self.range_lin);
 
         for i in 0..len {
-            let thresh_open = self.threshold_sm_db.next();
+            let thresh_open = self.threshold_sm_db.next_value();
             let thresh_close = thresh_open - self.hysteresis;
-            let range = self.range_sm_lin.next();
+            let range = self.range_sm_lin.next_value();
             // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
                 self.sc_state_l = self.sc_coeff * (self.sc_state_l + left[i] - self.sc_prev_l);
@@ -247,9 +247,9 @@ impl DspProcessor for GateProcessor {
         self.range_sm_lin.set_target(self.range_lin);
 
         for i in 0..len {
-            let thresh_open = self.threshold_sm_db.next();
+            let thresh_open = self.threshold_sm_db.next_value();
             let thresh_close = thresh_open - self.hysteresis;
-            let range = self.range_sm_lin.next();
+            let range = self.range_sm_lin.next_value();
             let sc_in_l = sidechain_left
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(left[i]);

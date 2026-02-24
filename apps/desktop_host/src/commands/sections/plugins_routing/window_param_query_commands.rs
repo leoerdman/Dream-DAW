@@ -58,7 +58,10 @@ fn get_external_plugin_params(
         return Ok(fallback_external_param_block(metadata_count));
     };
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let mut host = match plugin_host_state.host.try_lock() {
+        Ok(host) => host,
+        Err(_) => return Ok(fallback_external_param_block(metadata_count)),
+    };
     let Some(instance) = host.get_mut(instance_id) else {
         log::warn!(
             "[PluginParams] Missing instance for active plugin key '{}'; using fallback params",
@@ -67,7 +70,11 @@ fn get_external_plugin_params(
         return Ok(fallback_external_param_block(metadata_count));
     };
 
-    let host_count = instance.lock().parameter_count() as usize;
+    let Some(instance_guard) = instance.try_lock() else {
+        return Ok(fallback_external_param_block(metadata_count));
+    };
+
+    let host_count = instance_guard.parameter_count() as usize;
     let count = if host_count > 0 {
         host_count
     } else if metadata_count > 0 {
@@ -79,8 +86,7 @@ fn get_external_plugin_params(
 
     let mut out = Vec::with_capacity(count);
     for idx in 0..count {
-        let value = instance
-            .lock()
+        let value = instance_guard
             .get_parameter(idx as u32)
             .unwrap_or(0.5)
             .clamp(0.0, 1.0);
@@ -153,32 +159,40 @@ fn get_external_plugin_params_for_slot(
         }
     }
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let Some(instance) = host.get_mut(instance_id) else {
-        return Ok(fallback_external_param_block(metadata_count));
-    };
-    let count_hint = instance.lock().parameter_count().max(metadata_count as u32);
-    let count = (if count_hint > 0 { count_hint } else { 16 }).min(128);
+    let params = {
+        let mut host = match plugin_host_state.host.try_lock() {
+            Ok(host) => host,
+            Err(_) => return Ok(fallback_external_param_block(metadata_count)),
+        };
+        let Some(instance) = host.get_mut(instance_id) else {
+            return Ok(fallback_external_param_block(metadata_count));
+        };
+        let Some(instance_guard) = instance.try_lock() else {
+            return Ok(fallback_external_param_block(metadata_count));
+        };
+        let count_hint = instance_guard.parameter_count().max(metadata_count as u32);
+        let count = (if count_hint > 0 { count_hint } else { 16 }).min(128);
 
-    let mut params = Vec::with_capacity(count as usize);
-    for idx in 0..count {
-        let value = instance.lock().get_parameter(idx).unwrap_or(0.5);
-        let fallback_name = format!("Param {}", idx + 1);
-        let name = lane_name_hints
-            .get(&idx)
-            .cloned()
-            .unwrap_or(fallback_name);
-        params.push(ExternalPluginParamInfo {
-            index: idx,
-            name,
-            min: 0.0,
-            max: 1.0,
-            step: 0.001,
-            default_value: Some(value),
-            value,
-        });
-    }
-    drop(host);
+        let mut params = Vec::with_capacity(count as usize);
+        for idx in 0..count {
+            let value = instance_guard.get_parameter(idx).unwrap_or(0.5);
+            let fallback_name = format!("Param {}", idx + 1);
+            let name = lane_name_hints
+                .get(&idx)
+                .cloned()
+                .unwrap_or(fallback_name);
+            params.push(ExternalPluginParamInfo {
+                index: idx,
+                name,
+                min: 0.0,
+                max: 1.0,
+                step: 0.001,
+                default_value: Some(value),
+                value,
+            });
+        }
+        params
+    };
 
     sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
     Ok(params)

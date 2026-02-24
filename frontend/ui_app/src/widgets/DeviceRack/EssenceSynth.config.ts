@@ -28,31 +28,31 @@ export const PRESETS = [
 
 export const PRESET_VALUES: Record<string, Record<string, number>> = {
     init: {
-        Osc1Wave: 0, Osc2Wave: 2, Mix: 0.35, Detune: 0, Sub: 0,
+        Osc1Wave: 0, Osc2Wave: 2, Osc1Vol: 1.0, Osc2Vol: 0.0, Detune: 0, Sub: 0,
         Cutoff: 20000, Res: 0, FiltType: 0, Vol: 1,
         Attack: 0.01, Decay: 0.1, Sustain: 1, Release: 0.05,
         LfoRate: 1, LfoDepth: 0, LfoTarget: 0, PulseWidth: 0.5,
     },
     bass: {
-        Osc1Wave: 2, Osc2Wave: 3, Mix: 0.58, Detune: -4.8, Sub: 0.42,
+        Osc1Wave: 2, Osc2Wave: 3, Osc1Vol: 0.9, Osc2Vol: 0.75, Detune: -4.8, Sub: 0.42,
         Cutoff: 980, Res: 0.26, FiltType: 0, Vol: 1.18,
         Attack: 0.004, Decay: 0.2, Sustain: 0.62, Release: 0.16,
         LfoRate: 0.8, LfoDepth: 0.15, LfoTarget: 0, PulseWidth: 0.5,
     },
     lead: {
-        Osc1Wave: 3, Osc2Wave: 2, Mix: 0.45, Detune: 8.5, Sub: 0.12,
+        Osc1Wave: 3, Osc2Wave: 2, Osc1Vol: 0.85, Osc2Vol: 0.65, Detune: 8.5, Sub: 0.12,
         Cutoff: 5200, Res: 0.34, FiltType: 1, Vol: 1.05,
         Attack: 0.006, Decay: 0.22, Sustain: 0.7, Release: 0.28,
         LfoRate: 4.5, LfoDepth: 0.1, LfoTarget: 1, PulseWidth: 0.5,
     },
     pad: {
-        Osc1Wave: 1, Osc2Wave: 0, Mix: 0.63, Detune: 13.2, Sub: 0.18,
+        Osc1Wave: 1, Osc2Wave: 0, Osc1Vol: 0.7, Osc2Vol: 0.8, Detune: 13.2, Sub: 0.18,
         Cutoff: 2600, Res: 0.2, FiltType: 0, Vol: 0.92,
         Attack: 0.42, Decay: 0.72, Sustain: 0.84, Release: 1.6,
         LfoRate: 0.3, LfoDepth: 0.2, LfoTarget: 0, PulseWidth: 0.5,
     },
     pluck: {
-        Osc1Wave: 2, Osc2Wave: 3, Mix: 0.2, Detune: 2.4, Sub: 0.06,
+        Osc1Wave: 2, Osc2Wave: 3, Osc1Vol: 1.0, Osc2Vol: 0.4, Detune: 2.4, Sub: 0.06,
         Cutoff: 1800, Res: 0.62, FiltType: 0, Vol: 1.08,
         Attack: 0.001, Decay: 0.09, Sustain: 0.18, Release: 0.14,
         LfoRate: 1, LfoDepth: 0, LfoTarget: 0, PulseWidth: 0.5,

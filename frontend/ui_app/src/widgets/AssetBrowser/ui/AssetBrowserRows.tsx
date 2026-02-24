@@ -28,7 +28,6 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     item,
     absIdx,
     ROW_HEIGHT,
-    HEADER_HEIGHT: _HEADER_HEIGHT,
     isSelected,
     debouncedQuery,
     showTypeColumn,
@@ -45,7 +44,6 @@ export const AssetListItemRow = memo(function AssetListItemRow({
 }: RowBaseProps & {
     absIdx: number;
     ROW_HEIGHT: number;
-    HEADER_HEIGHT: number;
     navigateInto: (path: string) => void;
     onItemEnter?: () => void;
 }) {

@@ -185,6 +185,7 @@ fn get_rt_debug_snapshot(
         plugin_host_lock_miss_total: snap.plugin_host_lock_miss_total,
         queue_full_reject_total: snap.queue_full_reject_total,
         deferred_topology_len_last: snap.deferred_topology_len_last,
+        topology_overflow_total: snap.topology_overflow_total,
     })
 }
 

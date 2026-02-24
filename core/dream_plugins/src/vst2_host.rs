@@ -39,6 +39,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 // use thread-local storage to provide sample rate, block size, etc.
 
 const PARAM_RING_SIZE: usize = 1024;
+const DEFAULT_HOST_SAMPLE_RATE: f64 = 48_000.0;
+const DEFAULT_HOST_BLOCK_SIZE: i32 = 512;
 
 struct ParamEditEntry {
     param_id: AtomicU32,
@@ -120,11 +122,11 @@ pub fn take_plugin_state_dirty() -> bool {
 }
 
 thread_local! {
-    static HOST_SAMPLE_RATE: std::cell::Cell<f64> = const { std::cell::Cell::new(44100.0) };
-    static HOST_BLOCK_SIZE: std::cell::Cell<i32> = const { std::cell::Cell::new(1024) };
+    static HOST_SAMPLE_RATE: std::cell::Cell<f64> = const { std::cell::Cell::new(DEFAULT_HOST_SAMPLE_RATE) };
+    static HOST_BLOCK_SIZE: std::cell::Cell<i32> = const { std::cell::Cell::new(DEFAULT_HOST_BLOCK_SIZE) };
     static HOST_TIME_INFO: std::cell::RefCell<VstTimeInfo> = const { std::cell::RefCell::new(VstTimeInfo {
         sample_pos: 0.0,
-        sample_rate: 44100.0,
+        sample_rate: DEFAULT_HOST_SAMPLE_RATE,
         nano_seconds: 0.0,
         ppq_pos: 0.0,
         tempo: 120.0,
@@ -362,8 +364,18 @@ impl Vst2Instance {
         };
 
         // 4. Set up thread-local host state before calling VSTPluginMain
-        HOST_SAMPLE_RATE.with(|sr| sr.set(44100.0));
-        HOST_BLOCK_SIZE.with(|bs| bs.set(1024));
+        // Preserve last negotiated host IO values. Some plugins query host
+        // timing during/after `VSTPluginMain` and should not see hard resets.
+        HOST_SAMPLE_RATE.with(|sr| {
+            if !sr.get().is_finite() || sr.get() <= 0.0 {
+                sr.set(DEFAULT_HOST_SAMPLE_RATE);
+            }
+        });
+        HOST_BLOCK_SIZE.with(|bs| {
+            if bs.get() <= 0 {
+                bs.set(DEFAULT_HOST_BLOCK_SIZE);
+            }
+        });
 
         // 5. Call VSTPluginMain with our audioMasterCallback
         let effect = unsafe { entry_fn(audio_master_callback) };
@@ -472,8 +484,8 @@ impl Vst2Instance {
             effect,
             _library: library,
             active: false,
-            sample_rate: 44100.0,
-            max_buffer_size: 1024,
+            sample_rate: DEFAULT_HOST_SAMPLE_RATE,
+            max_buffer_size: DEFAULT_HOST_BLOCK_SIZE as usize,
             midi_events_buffer: Vec::with_capacity(max_midi),
             vst_events_buffer,
             max_midi_events: max_midi,

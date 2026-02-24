@@ -147,7 +147,7 @@ impl DspProcessor for EqProcessor {
         // Output gain
         self.output_gain_sm.set_target(self.output_gain_lin.max(0.0));
         for i in 0..len {
-            let g = self.output_gain_sm.next();
+            let g = self.output_gain_sm.next_value();
             left_buf[i] *= g;
             right_buf[i] *= g;
         }

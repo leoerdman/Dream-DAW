@@ -45,6 +45,7 @@ struct RtDebugSnapshotPayload {
     plugin_host_lock_miss_total: u64,
     queue_full_reject_total: u64,
     deferred_topology_len_last: u64,
+    topology_overflow_total: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

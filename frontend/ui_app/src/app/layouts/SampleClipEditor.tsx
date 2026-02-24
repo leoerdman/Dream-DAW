@@ -25,6 +25,7 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
+    const beatsPerBar = useGridStore((s) => Math.max(1, Math.round(s.fixedNumerator || 4)));
 
     const [zoomX, setZoomX] = useState(1);
     const [zoomY, setZoomY] = useState(1);
@@ -49,8 +50,6 @@ export const SampleClipEditor = ({ clip }: { clip: TimelineClip }) => {
     }, [clip.id, clip.isWarped, clip.warpMode, clip.warpBaseBpm, clip.pitchShiftSemitones, bpm]);
 
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
-    // TODO(#9): Expose project timeSignature from engine store. Until then, default to 4/4.
-    const beatsPerBar = 4;
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
     const pxPerBeat = 82 * zoomX;

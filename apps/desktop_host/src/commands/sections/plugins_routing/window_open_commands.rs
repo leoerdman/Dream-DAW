@@ -17,8 +17,16 @@ fn bind_instance_to_slot_states(
 ) {
     let bound = plugin_host_state.slot_instance_snapshot();
     for slot in slot_states {
-        if bound.contains_key(&slot.slot_id) {
-            continue;
+        if let Some(existing) = bound.get(&slot.slot_id) {
+            if *existing == instance_id {
+                continue;
+            }
+            log::warn!(
+                "[IPC] Rebinding plugin slot {} from instance {} to {}",
+                slot.slot_id,
+                existing,
+                instance_id
+            );
         }
         plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
     }
@@ -29,12 +37,23 @@ fn open_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     plugin_host_state.try_enable_sandbox_if_available();
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
 
     if plugin_host_state.open_sandbox_editor(&plugin_id)? {
+        if let Some(instance_id) = plugin_host_state
+            .loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(&plugin_id)
+            .copied()
+        {
+            bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
+            sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+        }
         log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
         return Ok(());
     }
@@ -47,6 +66,7 @@ fn open_plugin_window(
         .copied()
     {
         bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
+        sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
         let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         app.run_on_main_thread(move || {
@@ -69,6 +89,8 @@ fn open_plugin_window(
     if plugin_host_state.sandbox_enabled().unwrap_or(false) {
         match plugin_host_state.open_in_sandbox(&plugin_id, descriptor.clone()) {
             Ok(instance_id) => {
+                bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
+                sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
                 log::info!(
                     "[IPC] open_plugin_window({plugin_id}) -> sandbox instance {} ({})",
                     instance_id,
@@ -146,6 +168,7 @@ fn open_plugin_window(
             .map_err(|e| e.to_string())?
             .insert(plugin_id.clone(), loaded);
         bind_instance_to_slot_states(&slot_states, loaded, &plugin_host_state);
+        sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
 
         loaded
     };
@@ -243,6 +266,7 @@ fn open_plugin_window_for_slot(
     let instance_id =
         plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
+    plugin_host_state.publish_registry();
 
     // Restore per-slot saved state (preset, knob positions, etc.)
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {

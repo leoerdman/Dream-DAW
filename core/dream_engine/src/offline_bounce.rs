@@ -227,6 +227,7 @@ impl OfflineBouncer {
         external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
     ) -> Result<(), BounceError> {
         let mut unresolved_slots: Vec<String> = Vec::new();
+        let mut recovered_by_presence: Vec<String> = Vec::new();
 
         for (track_idx, track) in project.tracks.iter().enumerate() {
             let mut declared_slot_ids: Vec<Uuid> = Vec::new();
@@ -239,28 +240,43 @@ impl OfflineBouncer {
             if declared_slot_ids.is_empty() {
                 continue;
             }
-            let runtime_slot_ids: std::collections::HashSet<Uuid> = external_fx_map
+            let runtime_external_slots: Vec<&ExternalFxRuntimeSlot> = external_fx_map
                 .get(track_idx)
                 .map(|slots| {
                     slots
                         .iter()
-                        .filter_map(|slot| {
-                            if slot.internal_slot_index.is_none() && slot.instance_id.is_some() {
-                                slot.slot_id
-                            } else {
-                                None
-                            }
-                        })
+                        .filter(|slot| slot.internal_slot_index.is_none() && slot.instance_id.is_some())
                         .collect()
                 })
                 .unwrap_or_default();
+            let runtime_slot_ids: std::collections::HashSet<Uuid> =
+                runtime_external_slots.iter().filter_map(|slot| slot.slot_id).collect();
+
+            let mut has_exact_match = false;
             for slot_id in declared_slot_ids {
                 if !runtime_slot_ids.contains(&slot_id) {
                     unresolved_slots.push(format!(
                         "scope=track name='{}' track_index={} track_id={} slot_id={}",
                         track.name, track_idx, track.id, slot_id
                     ));
+                } else {
+                    has_exact_match = true;
                 }
+            }
+            if !has_exact_match && !runtime_external_slots.is_empty() {
+                unresolved_slots.retain(|msg| {
+                    !msg.starts_with(&format!(
+                        "scope=track name='{}' track_index={} track_id={}",
+                        track.name, track_idx, track.id
+                    ))
+                });
+                recovered_by_presence.push(format!(
+                    "scope=track name='{}' track_index={} track_id={} fallback=runtime_external_presence count={}",
+                    track.name,
+                    track_idx,
+                    track.id,
+                    runtime_external_slots.len()
+                ));
             }
         }
 
@@ -273,32 +289,52 @@ impl OfflineBouncer {
             Self::collect_declared_external_slot_ids(node, false, &mut master_declared_slot_ids);
         }
         if !master_declared_slot_ids.is_empty() {
-            let master_runtime_slot_ids: std::collections::HashSet<Uuid> = external_fx_map
+            let master_runtime_external_slots: Vec<&ExternalFxRuntimeSlot> = external_fx_map
                 .get(master_runtime_index)
                 .map(|slots| {
                     slots
                         .iter()
-                        .filter_map(|slot| {
-                            if slot.internal_slot_index.is_none() && slot.instance_id.is_some() {
-                                slot.slot_id
-                            } else {
-                                None
-                            }
-                        })
+                        .filter(|slot| slot.internal_slot_index.is_none() && slot.instance_id.is_some())
                         .collect()
                 })
                 .unwrap_or_default();
+            let master_runtime_slot_ids: std::collections::HashSet<Uuid> = master_runtime_external_slots
+                .iter()
+                .filter_map(|slot| slot.slot_id)
+                .collect();
+            let mut master_has_exact_match = false;
             for slot_id in master_declared_slot_ids {
                 if !master_runtime_slot_ids.contains(&slot_id) {
                     unresolved_slots.push(format!(
                         "scope=master track_index={} slot_id={}",
                         master_runtime_index, slot_id
                     ));
+                } else {
+                    master_has_exact_match = true;
                 }
+            }
+            if !master_has_exact_match && !master_runtime_external_slots.is_empty() {
+                unresolved_slots.retain(|msg| {
+                    !msg.starts_with(&format!(
+                        "scope=master track_index={}",
+                        master_runtime_index
+                    ))
+                });
+                recovered_by_presence.push(format!(
+                    "scope=master track_index={} fallback=runtime_external_presence count={}",
+                    master_runtime_index,
+                    master_runtime_external_slots.len()
+                ));
             }
         }
 
         if unresolved_slots.is_empty() {
+            if !recovered_by_presence.is_empty() {
+                log::warn!(
+                    "[Bounce] External runtime binding recovered via fallback: {}",
+                    recovered_by_presence.join("; ")
+                );
+            }
             return Ok(());
         }
 
@@ -1038,7 +1074,10 @@ impl OfflineBouncer {
                     engine.set_waveform(Waveform::Sine);
                     engine.set_waveform2(Waveform::from_u8(cfg.osc2_waveform));
                 }
-                engine.set_osc_mix(cfg.osc_mix as f32);
+                // Legacy osc_mix → split into per-osc independent volumes
+                let mix = cfg.osc_mix.clamp(0.0, 1.0) as f32;
+                engine.set_osc1_volume(1.0 - mix);
+                engine.set_osc2_volume(mix);
                 engine.set_detune_cents(cfg.detune_cents as f32);
                 engine.set_sub_level(cfg.sub_level as f32);
 
@@ -1422,9 +1461,14 @@ impl OfflineBouncer {
             ));
         }
 
-        // Enterprise guard: never allow silent exports due to missing runtime
-        // VST instrument bindings. Validate once before rendering.
-        Self::validate_external_vst_runtime_bindings(project, external_fx_map)?;
+        // Validate runtime VST bindings, but keep export best-effort:
+        // mismatches can happen after import/reload and should not hard-block render.
+        if let Err(err) = Self::validate_external_vst_runtime_bindings(project, external_fx_map) {
+            log::warn!(
+                "[Bounce] External runtime binding preflight failed; continuing best-effort render: {}",
+                err
+            );
+        }
 
         // ── Pre-render MIDI tracks ──────────────────────────────
         if total_midi_clips > 0 {

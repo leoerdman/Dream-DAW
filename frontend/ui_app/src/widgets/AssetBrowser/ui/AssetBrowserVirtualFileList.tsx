@@ -130,6 +130,7 @@ export const VirtualFileList = memo(function VirtualFileList({
         if (!el) return;
         if (isResettingRef.current) {
             isResettingRef.current = false;
+            setScrollTop(0);
             return;
         }
         setScrollTop(el.scrollTop);
@@ -142,7 +143,6 @@ export const VirtualFileList = memo(function VirtualFileList({
             if (fileListRef.current) {
                 isResettingRef.current = true;
                 fileListRef.current.scrollTop = 0;
-                setScrollTop(0);
             }
         }
     }, [items, fileListRef]);
@@ -221,7 +221,6 @@ export const VirtualFileList = memo(function VirtualFileList({
                                 item={item}
                                 absIdx={startIdx + vi}
                                 ROW_HEIGHT={ROW_HEIGHT}
-                                HEADER_HEIGHT={24}
                                 isSelected={selectedItemId === item.id}
                                 debouncedQuery={debouncedQuery}
                                 showTypeColumn={showTypeColumn}

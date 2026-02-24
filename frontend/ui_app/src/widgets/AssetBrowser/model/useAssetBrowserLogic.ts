@@ -163,8 +163,6 @@ export function useAssetBrowserLogic() {
     }, [setPluginScanError, triggerPluginScan, updateAllSettings]);
 
     const { navigateInto, handleAddFolder, handleRemoveFolder } = useFolderTreeActions({
-        expandedFolders,
-        folderChildrenCache,
         setExpandedFolders,
         setLoadingFolders,
         setFolderChildrenCache,

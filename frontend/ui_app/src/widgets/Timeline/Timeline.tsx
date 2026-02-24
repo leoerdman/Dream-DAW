@@ -115,18 +115,6 @@ export const Timeline = (props: TimelineProps) => {
         () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat),
         [gridDivision, beatsPerBar, gridTriplet, pixelsPerBeat],
     );
-    const masterGridStepBeats = useMemo(() => {
-        if (snapBeatsValue > 0) return snapBeatsValue;
-        // Keep master lane grid behavior identical to CanvasClipRenderer._drawGrid.
-        if (pixelsPerBeat < 8) return beatsPerBar * 4;
-        if (pixelsPerBeat < 15) return beatsPerBar;
-        if (pixelsPerBeat < 40) return beatsPerBar;
-        if (pixelsPerBeat < 80) return 1;
-        return 0.5;
-    }, [snapBeatsValue, pixelsPerBeat, beatsPerBar]);
-    const masterGridStepPx = Math.max(1, masterGridStepBeats * pixelsPerBeat);
-    const masterBarStepPx = Math.max(1, beatsPerBar * pixelsPerBeat);
-    const masterGridOffsetPx = -(viewportState.scrollX ?? 0);
 
     const engineConfig: UseTimelineEngineConfig = {
         beatsPerBar,
@@ -144,6 +132,18 @@ export const Timeline = (props: TimelineProps) => {
     };
 
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
+    const masterGridStepBeats = useMemo(() => {
+        if (snapBeatsValue > 0) return snapBeatsValue;
+        // Keep master lane grid behavior identical to CanvasClipRenderer._drawGrid.
+        if (pixelsPerBeat < 8) return beatsPerBar * 4;
+        if (pixelsPerBeat < 15) return beatsPerBar;
+        if (pixelsPerBeat < 40) return beatsPerBar;
+        if (pixelsPerBeat < 80) return 1;
+        return 0.5;
+    }, [snapBeatsValue, pixelsPerBeat, beatsPerBar]);
+    const masterGridStepPx = Math.max(1, masterGridStepBeats * pixelsPerBeat);
+    const masterBarStepPx = Math.max(1, beatsPerBar * pixelsPerBeat);
+    const masterGridOffsetPx = -(viewportState.scrollX ?? 0);
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);

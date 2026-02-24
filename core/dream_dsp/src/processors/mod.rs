@@ -27,13 +27,6 @@ macro_rules! flush_denormal {
 }
 pub(crate) use flush_denormal;
 
-/// SSOT: Sanitize an audio sample — clamp NaN/Inf to zero.
-/// Use at process_stereo entry point to prevent NaN propagation through the chain.
-#[inline(always)]
-pub(crate) fn sanitize_sample(x: f32) -> f32 {
-    if x.is_finite() { x } else { 0.0 }
-}
-
 #[inline]
 pub(crate) fn sanitize_sample_rate(sample_rate: f32) -> f32 {
     if sample_rate.is_finite() && sample_rate > MIN_VALID_SAMPLE_RATE {

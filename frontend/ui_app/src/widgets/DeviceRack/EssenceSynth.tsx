@@ -33,6 +33,8 @@ export const EssenceSynth = ({
         return {
             osc1: Math.round(v('osc1wave', 0)),
             osc2: Math.round(v('osc2wave', 0)),
+            osc1Enabled: v('osc1enabled', 1) >= 0.5,
+            osc2Enabled: v('osc2enabled', 1) >= 0.5,
             mix: v('mix', 0.35),
             detune: v('detune', 0),
             sub: v('sub', 0),
@@ -67,6 +69,9 @@ export const EssenceSynth = ({
         for (const [name, value] of Object.entries(values)) {
             onParamChange(name, clampToParam(name, value));
         }
+        // Presets always enable both oscillators
+        onParamChange('Osc1Enabled', 1);
+        onParamChange('Osc2Enabled', 1);
     }, [onParamChange, clampToParam]);
 
     const randomize = useCallback(() => {
@@ -74,6 +79,8 @@ export const EssenceSynth = ({
             const raw = min + Math.random() * (max - min);
             return Math.round(raw / step) * step;
         };
+        onParamChange('Osc1Enabled', 1);
+        onParamChange('Osc2Enabled', 1);
         onParamChange('Osc1Wave', clampToParam('Osc1Wave', Math.floor(Math.random() * 4)));
         onParamChange('Osc2Wave', clampToParam('Osc2Wave', Math.floor(Math.random() * 4)));
         onParamChange('Mix', clampToParam('Mix', r(0.1, 0.9)));
@@ -135,10 +142,18 @@ export const EssenceSynth = ({
                     <span className="essence__section-label">Oscillators</span>
                     <div className="essence__osc-row">
                         {/* OSC 1 */}
-                        <div className="essence__osc-block">
-                            <span className="essence__osc-label essence__osc-label--1">
-                                OSC 1 · {waveformLabel(p.osc1)}
-                            </span>
+                        <div className={`essence__osc-block ${!p.osc1Enabled ? 'essence__osc-block--disabled' : ''}`}>
+                            <div className="essence__osc-header">
+                                <button
+                                    type="button"
+                                    className={`essence__osc-toggle ${p.osc1Enabled ? 'essence__osc-toggle--on' : ''}`}
+                                    onClick={() => onParamChange('Osc1Enabled', p.osc1Enabled ? 0 : 1)}
+                                    title={p.osc1Enabled ? 'Disable OSC 1' : 'Enable OSC 1'}
+                                />
+                                <span className="essence__osc-label essence__osc-label--1">
+                                    OSC 1 · {waveformLabel(p.osc1)}
+                                </span>
+                            </div>
                             <svg className="essence__wave-display" viewBox="0 0 100 100" preserveAspectRatio="none">
                                 <path d={wavePath(p.osc1)} fill="none" stroke="var(--token-color-hex-64e7ad)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
@@ -149,6 +164,7 @@ export const EssenceSynth = ({
                                         type="button"
                                         className={`essence__wave-btn ${wf.idx === p.osc1 ? 'essence__wave-btn--active-1' : ''}`}
                                         onClick={() => onParamChange('Osc1Wave', wf.idx)}
+                                        disabled={!p.osc1Enabled}
                                     >
                                         {wf.label}
                                     </button>
@@ -156,10 +172,18 @@ export const EssenceSynth = ({
                             </div>
                         </div>
                         {/* OSC 2 */}
-                        <div className="essence__osc-block">
-                            <span className="essence__osc-label essence__osc-label--2">
-                                OSC 2 · {waveformLabel(p.osc2)}
-                            </span>
+                        <div className={`essence__osc-block ${!p.osc2Enabled ? 'essence__osc-block--disabled' : ''}`}>
+                            <div className="essence__osc-header">
+                                <button
+                                    type="button"
+                                    className={`essence__osc-toggle ${p.osc2Enabled ? 'essence__osc-toggle--on' : ''}`}
+                                    onClick={() => onParamChange('Osc2Enabled', p.osc2Enabled ? 0 : 1)}
+                                    title={p.osc2Enabled ? 'Disable OSC 2' : 'Enable OSC 2'}
+                                />
+                                <span className="essence__osc-label essence__osc-label--2">
+                                    OSC 2 · {waveformLabel(p.osc2)}
+                                </span>
+                            </div>
                             <svg className="essence__wave-display" viewBox="0 0 100 100" preserveAspectRatio="none">
                                 <path d={wavePath(p.osc2)} fill="none" stroke="var(--token-color-hex-8cd1ff)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
@@ -170,6 +194,7 @@ export const EssenceSynth = ({
                                         type="button"
                                         className={`essence__wave-btn ${wf.idx === p.osc2 ? 'essence__wave-btn--active-2' : ''}`}
                                         onClick={() => onParamChange('Osc2Wave', wf.idx)}
+                                        disabled={!p.osc2Enabled}
                                     >
                                         {wf.label}
                                     </button>

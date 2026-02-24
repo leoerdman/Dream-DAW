@@ -11,6 +11,7 @@ import {
     defaultParamValue,
     formatPluginParamName,
     formatPluginParamValue,
+    roundPluginParamForDisplay,
 } from './StandardPluginControlUtils';
 import { usePluginKnobDrag } from './usePluginKnobDrag';
 import type { PluginParam } from './StandardPluginControlTypes';
@@ -47,13 +48,6 @@ export const PluginKnob = ({
         const ratio = Math.log(param.max / param.min);
         return param.min * Math.exp(clampedUnit * ratio);
     }, [param.max, param.min, useLogScale]);
-    const safeValue = Number.isFinite(param.value)
-        ? param.value
-        : (Number.isFinite(param.defaultValue) ? (param.defaultValue as number) : param.min);
-    const pct = Math.max(0, Math.min(1, valueToUnit(safeValue)));
-    const angle = -135 + pct * 270;
-    const [isEditingValue, setIsEditingValue] = useState(false);
-    const [editValueText, setEditValueText] = useState('');
     const quantizeValue = useCallback((raw: number): number => {
         const clamped = Math.max(param.min, Math.min(param.max, raw));
         const step = param.step;
@@ -62,6 +56,16 @@ export const PluginKnob = ({
         const precision = Math.max(0, Math.ceil(Math.log10(1 / step)));
         return Number(snapped.toFixed(Math.min(6, precision + 1)));
     }, [param.max, param.min, param.step]);
+    const safeValue = Number.isFinite(param.value)
+        ? param.value
+        : (Number.isFinite(param.defaultValue) ? (param.defaultValue as number) : param.min);
+    const displayRoundedValue = roundPluginParamForDisplay(param, safeValue);
+    const visualValue = quantizeValue(displayRoundedValue);
+    const rawPct = valueToUnit(visualValue);
+    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
+    const angle = -135 + pct * 270;
+    const [isEditingValue, setIsEditingValue] = useState(false);
+    const [editValueText, setEditValueText] = useState('');
 
     const {
         isDragging,
@@ -149,7 +153,7 @@ export const PluginKnob = ({
     const svgSize = compact ? 30 : 38;
     const arcCircumference = 2 * Math.PI * arcRadius;
     const dashLength = (270 / 360) * arcCircumference;
-    const dashOffset = dashLength * (1 - pct);
+    const dashOffset = Math.max(0, Math.min(dashLength, dashLength * (1 - pct)));
 
     return (
         <label

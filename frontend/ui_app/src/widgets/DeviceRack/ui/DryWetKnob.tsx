@@ -44,10 +44,6 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     };
 
     const accentColor = accent ?? 'var(--color-accent-primary)';
-    const safeValue = Number.isFinite(resolvedParam.value) ? resolvedParam.value : resolvedParam.min;
-    const pct = Math.max(0, Math.min(1, (safeValue - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min)));
-    const angle = -135 + pct * 270;
-    const dashOffset = ARC_LEN * (1 - pct);
 
     const quantize = useCallback((raw: number) => {
         const clamped = Math.max(resolvedParam.min, Math.min(resolvedParam.max, raw));
@@ -55,6 +51,15 @@ export const DryWetKnob = React.memo(function DryWetKnob({
         if (!step || step <= 0) return clamped;
         return Math.round((clamped - resolvedParam.min) / step) * step + resolvedParam.min;
     }, [resolvedParam.max, resolvedParam.min, resolvedParam.step]);
+    const safeValue = Number.isFinite(resolvedParam.value) ? resolvedParam.value : resolvedParam.min;
+    const displayPrecision = resolvedParam.step && resolvedParam.step < 1 ? 2 : 0;
+    const displayFactor = 10 ** displayPrecision;
+    const displayRoundedValue = Math.round(safeValue * displayFactor) / displayFactor;
+    const visualValue = quantize(displayRoundedValue);
+    const rawPct = (visualValue - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min);
+    const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
+    const angle = -135 + pct * 270;
+    const dashOffset = Math.max(0, Math.min(ARC_LEN, ARC_LEN * (1 - pct)));
 
     const valueToUnit = useCallback((v: number) =>
         (v - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min),

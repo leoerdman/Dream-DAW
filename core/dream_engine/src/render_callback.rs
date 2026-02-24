@@ -419,11 +419,6 @@ impl RenderContext {
                 let clamped_pitch = clip.pitch_shift_semitones.clamp(-48.0, 48.0);
                 let pitch_multiplier = 2.0_f64.powf(clamped_pitch / 12.0);
 
-                // playback_rate is computed below, inside pool lookup, where we know
-                // the source sample rate for correct domain normalization.
-                // For unwarped clips, it stays at pitch_multiplier.
-                let mut playback_rate = pitch_multiplier.clamp(0.125, 8.0);
-
                 let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
                     WarpResampleMode::Standard
                 } else {
@@ -463,7 +458,7 @@ impl RenderContext {
                         // Recompute playback_rate with SR-normalized values.
                         let warp_rate = (clip_source_len_timeline / clip_timeline_len)
                             .clamp(0.125, 8.0);
-                        playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
+                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
@@ -528,7 +523,7 @@ impl RenderContext {
                     if is_warped {
                         let warp_rate = (clip_source_len_timeline_s / clip_timeline_len)
                             .clamp(0.125, 8.0);
-                        playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
+                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
 
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.

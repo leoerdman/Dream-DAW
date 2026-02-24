@@ -10,6 +10,12 @@ export const formatPluginParamValue = (param: PluginParam): string => {
     return `${v.toFixed(precision)}${param.suffix ?? ''}`;
 };
 
+export const roundPluginParamForDisplay = (param: PluginParam, value: number): number => {
+    const precision = param.step && param.step < 1 ? 2 : 0;
+    const factor = 10 ** precision;
+    return Math.round(value * factor) / factor;
+};
+
 export const formatPluginParamName = (raw: string): string => {
     const withSpaces = raw
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')

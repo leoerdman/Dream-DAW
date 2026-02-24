@@ -124,6 +124,48 @@
     display: flex;
     flex-direction: column;
     gap: var(--token-size-px-3);
+    transition: opacity 0.2s ease;
+}
+
+.essence__osc-block--disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+/* Allow toggle to be clickable even when block is disabled */
+.essence__osc-block--disabled>.essence__osc-header {
+    pointer-events: auto;
+    opacity: calc(1 / 0.35);
+    /* compensate parent opacity */
+}
+
+.essence__osc-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.essence__osc-toggle {
+    width: var(--token-size-px-9);
+    height: var(--token-size-px-9);
+    border-radius: 50%;
+    border: 1.5px solid var(--token-color-rgba-255-255-255-0d15);
+    background: var(--token-color-rgba-255-255-255-0d06);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.essence__osc-toggle:hover {
+    border-color: var(--token-color-rgba-255-255-255-0d3);
+    background: var(--token-color-rgba-255-255-255-0d12);
+}
+
+.essence__osc-toggle--on {
+    border-color: var(--token-color-hex-5ce0a6);
+    background: var(--token-color-hex-5ce0a6);
+    box-shadow: 0 0 6px var(--token-color-rgba-92-224-166-0d4, rgba(92, 224, 166, 0.4));
 }
 
 .essence__osc-label {

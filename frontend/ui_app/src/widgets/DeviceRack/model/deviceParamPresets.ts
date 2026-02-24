@@ -127,6 +127,8 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'LfoTarget', value: 0, min: 0, max: 2, suffix: '', step: 1 },
     ],
     waveSynth: [
+        { name: 'Osc1Enabled', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'Osc2Enabled', value: 1, min: 0, max: 1, suffix: '', step: 1 },
         { name: 'Osc1Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
         { name: 'Osc2Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
         { name: 'Mix', value: 0.35, min: 0, max: 1, suffix: '', step: 0.01 },

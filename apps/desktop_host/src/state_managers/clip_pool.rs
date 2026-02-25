@@ -274,6 +274,7 @@ impl ClipPoolState {
             slot_instance_map: &HashMap<Uuid, Uuid>,
             internal_slot_index: &mut usize,
             parent_bypassed: bool,
+            is_instrument: bool,
             out: &mut Vec<dream_engine::driver::ExternalFxRuntimeSlot>,
         ) {
             match node {
@@ -288,6 +289,7 @@ impl ClipPoolState {
                             internal_slot_index: Some(idx),
                             instance_id: None,
                             sidechain_track_index,
+                            is_instrument,
                         });
                     } else if !effective_bypassed
                         && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
@@ -297,6 +299,7 @@ impl ClipPoolState {
                             internal_slot_index: None,
                             instance_id: Some(instance_id),
                             sidechain_track_index,
+                            is_instrument,
                         });
                     }
                 }
@@ -310,6 +313,7 @@ impl ClipPoolState {
                                 slot_instance_map,
                                 internal_slot_index,
                                 rack_bypassed,
+                                is_instrument,
                                 out,
                             );
                         }
@@ -333,6 +337,7 @@ impl ClipPoolState {
                         slot_instance_map,
                         &mut internal_slot_index,
                         false,
+                        true,  // ← instrument slot
                         &mut slots,
                     );
                 }
@@ -343,6 +348,7 @@ impl ClipPoolState {
                         slot_instance_map,
                         &mut internal_slot_index,
                         false,
+                        false, // ← effect slot
                         &mut slots,
                     );
                 }
@@ -370,6 +376,7 @@ impl ClipPoolState {
                     slot_instance_map,
                     &mut master_internal_idx,
                     false,
+                    true,  // ← instrument slot
                     &mut master_fx_chain,
                 );
             }
@@ -380,6 +387,7 @@ impl ClipPoolState {
                     slot_instance_map,
                     &mut master_internal_idx,
                     false,
+                    false, // ← effect slot
                     &mut master_fx_chain,
                 );
             }

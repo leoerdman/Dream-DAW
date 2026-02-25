@@ -48,10 +48,13 @@ export function createTransportActions(
         },
 
         setBpm: async (bpm: number) => {
-            set((s) => ({ transport: { ...s.transport, bpm }, projectBpm: bpm }));
+            // BUG-036 FIX: Clamp BPM to valid range — was unbounded,
+            // allowing 0, negative, or 9999 values through.
+            const clamped = Math.max(20, Math.min(999, bpm));
+            set((s) => ({ transport: { ...s.transport, bpm: clamped }, projectBpm: clamped }));
             markBpmPending(500);
             try {
-                const response = await engine.setBpmWithDeltas(bpm);
+                const response = await engine.setBpmWithDeltas(clamped);
                 await get().applyProjectDeltas(response.deltas, 'setBpm');
                 set({ lastError: null });
             } catch (e) {

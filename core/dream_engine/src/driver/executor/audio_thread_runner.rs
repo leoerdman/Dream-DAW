@@ -675,11 +675,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     // - live-preview MIDI queues must process immediately
                                                     // - many synths otherwise show "DAW suspended processing"
                                                     //   and ignore incoming notes until transport starts.
-                                                    let is_instrument_slot =
-                                                        runtime_slot.internal_slot_index == Some(255);
                                                     let transport_is_playing = is_playing
                                                         || !vst3_midi_scratch.is_empty()
-                                                        || is_instrument_slot;
+                                                        || runtime_slot.is_instrument;
                                                     let transport = TransportContext {
                                                         sample_rate: sample_rate_f64,
                                                         position_samples: playhead_pos,

@@ -7,6 +7,9 @@ import { buildTrackStatePatch, toEntityState } from './storeHelpers';
 import { applyClipDelta } from './delta/clipDeltaHandlers';
 import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
+// BUG-009/010 FIX: Import reset functions for module-level state cleanup.
+import { resetTelemetryModuleState } from './actionsTelemetry';
+import { clearTrackControlCaches } from './actionsTrackProject';
 import type {
     DeltaApplyResult,
     DeltaApplyState,
@@ -93,6 +96,11 @@ export function applyProjectDeltasToState(
     const snapshotDelta = deltas.find((delta) => delta.kind === 'ProjectSnapshotReplaced');
     if (snapshotDelta && snapshotDelta.data && typeof snapshotDelta.data === 'object') {
         const project = (snapshotDelta.data as { project?: Project }).project;
+
+        // BUG-009/010 FIX: Reset module-level state that survives project reloads.
+        // Must be called before rebuilding tracks/clips from the new snapshot.
+        resetTelemetryModuleState();
+        clearTrackControlCaches();
 
         if (project && Array.isArray(project.tracks)) {
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || state.transport.bpm || 120;
@@ -190,13 +198,16 @@ export function applyProjectDeltasToState(
     const bpm = state.projectBpm || state.transport.bpm || 120;
     const sampleRate = resolveSampleRate(state.projectSampleRate, state.transport.sample_rate);
 
+    const canonicalTracksById = Object.keys(state.tracks.byId).length > 0
+        ? state.tracks.byId
+        : state.tracksById;
     const working: DeltaWorkingState = {
         timelineClips: state.timelineClips,
         clipsById: state.clipsById,
         projectTracks: state.tracks.allIds
-            .map((trackId) => state.tracks.byId[trackId] ?? state.tracksById[trackId])
+            .map((trackId) => canonicalTracksById[trackId])
             .filter((track): track is NonNullable<typeof track> => Boolean(track)),
-        tracksById: state.tracksById,
+        tracksById: canonicalTracksById,
         changed: false,
     };
     const unhandledDeltaKinds: string[] = [];

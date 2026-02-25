@@ -186,18 +186,21 @@ fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
             internal_slot_index: Some(0),
             instance_id: None,
             sidechain_track_index: None,
+            is_instrument: false,
         }],
         vec![ExternalFxRuntimeSlot {
             slot_id: None,
             internal_slot_index: Some(1),
             instance_id: None,
             sidechain_track_index: None,
+            is_instrument: false,
         }],
         vec![ExternalFxRuntimeSlot {
             slot_id: None,
             internal_slot_index: Some(2),
             instance_id: None,
             sidechain_track_index: None,
+            is_instrument: false,
         }],
     ];
 

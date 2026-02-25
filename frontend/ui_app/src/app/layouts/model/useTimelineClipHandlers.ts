@@ -164,12 +164,7 @@ export function useTimelineClipHandlers({
 
         void run()
             .then(() => {
-                console.log('[DawShell] Clip move applied', {
-                    clipId,
-                    newTrackIndex,
-                    newStartBeat,
-                    mode: moveAsGroup ? 'group' : 'single',
-                });
+                // Hot-path interaction: avoid console I/O on every drag commit.
             })
             .catch((err) => {
                 console.error('[DawShell] moveClip failed:', err);
@@ -196,7 +191,6 @@ export function useTimelineClipHandlers({
         void engineApi.resizeClipWithDeltas(clipId, newPositionFrames, newDurationFrames, allowStretch)
             .then(async (response) => {
                 await applyProjectDeltas(response.deltas, 'clip-resize');
-                console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats, allowStretch });
             })
             .catch((err) => {
                 if (isClipNotFoundError(err)) {

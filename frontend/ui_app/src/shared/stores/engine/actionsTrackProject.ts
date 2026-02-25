@@ -24,7 +24,8 @@ const throttledMasterVolumeSend = throttle((volume: number) => {
 // BUG-013 FIX: Cancel internal throttle timers before clearing maps.
 // Without this, stale timeouts fire after the map is cleared, sending
 // IPC calls for tracks that may no longer exist.
-function clearTrackControlCaches(): void {
+// BUG-010 FIX: Exported so project snapshot handler can call it on project reload.
+export function clearTrackControlCaches(): void {
     for (const fn of throttledVolumeSends.values()) fn.cancel();
     for (const fn of throttledPanSends.values()) fn.cancel();
     for (const fn of throttledSendLevelSends.values()) fn.cancel();
@@ -33,6 +34,7 @@ function clearTrackControlCaches(): void {
     throttledSendLevelSends.clear();
     pendingVolumeValues.clear();
     pendingPanValues.clear();
+    pendingMasterVolume = null;
 }
 
 function patchTrackByIndex(
@@ -43,7 +45,7 @@ function patchTrackByIndex(
     const trackId = state.tracks.allIds[trackIndex];
     if (!trackId) return state;
 
-    const sourceTrack = state.tracks.byId[trackId] ?? state.tracksById[trackId];
+    const sourceTrack = state.tracks.byId[trackId];
     if (!sourceTrack) return state;
 
     const updatedTrack = { ...sourceTrack, ...patch };
@@ -72,9 +74,15 @@ export function createTrackProjectActions(
     return {
         setTrackVolume: async (trackIndex: number, volume: number) => {
             try {
+                // BUG-011 FIX: Capture old value for rollback on IPC failure.
+                const trackId = get().tracks.allIds[trackIndex];
+                const oldVolume = trackId
+                    ? get().tracks.byId[trackId]?.volume
+                    : undefined;
+
                 set((s) => {
-                    const trackId = s.tracks.allIds[trackIndex];
-                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    const tid = s.tracks.allIds[trackIndex];
+                    const track = tid ? s.tracks.byId[tid] : null;
                     if (!track || track.volume === volume) return s;
                     return patchTrackByIndex(s, trackIndex, { volume });
                 });
@@ -86,7 +94,13 @@ export function createTrackProjectActions(
                             void engine
                                 .setTrackVolumeWithDeltas(trackIndex, nextVolume)
                                 .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackVolume'))
-                                .catch((e) => set({ lastError: String(e) }));
+                                .catch((e) => {
+                                    // BUG-011 FIX: Revert optimistic update on failure.
+                                    if (oldVolume !== undefined) {
+                                        set((s) => patchTrackByIndex(s, trackIndex, { volume: oldVolume }));
+                                    }
+                                    set({ lastError: String(e) });
+                                });
                         }, 16),
                     );
                 }
@@ -98,9 +112,15 @@ export function createTrackProjectActions(
 
         setTrackPan: async (trackIndex: number, pan: number) => {
             try {
+                // BUG-011 FIX: Capture old value for rollback on IPC failure.
+                const trackId = get().tracks.allIds[trackIndex];
+                const oldPan = trackId
+                    ? get().tracks.byId[trackId]?.pan
+                    : undefined;
+
                 set((s) => {
-                    const trackId = s.tracks.allIds[trackIndex];
-                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    const tid = s.tracks.allIds[trackIndex];
+                    const track = tid ? s.tracks.byId[tid] : null;
                     if (!track || track.pan === pan) return s;
                     return patchTrackByIndex(s, trackIndex, { pan });
                 });
@@ -112,7 +132,13 @@ export function createTrackProjectActions(
                             void engine
                                 .setTrackPanWithDeltas(trackIndex, nextPan)
                                 .then((response) => get().applyProjectDeltas(response.deltas, 'setTrackPan'))
-                                .catch((e) => set({ lastError: String(e) }));
+                                .catch((e) => {
+                                    // BUG-011 FIX: Revert optimistic update on failure.
+                                    if (oldPan !== undefined) {
+                                        set((s) => patchTrackByIndex(s, trackIndex, { pan: oldPan }));
+                                    }
+                                    set({ lastError: String(e) });
+                                });
                         }, 16),
                     );
                 }
@@ -130,7 +156,7 @@ export function createTrackProjectActions(
                 const clamped = Math.max(0, Math.min(1, value));
                 set((s) => {
                     const trackId = s.tracks.allIds[trackIndex];
-                    const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                    const track = trackId ? s.tracks.byId[trackId] : null;
                     if (!track) return s;
                     if (send === 'A' && track.send_a === clamped) return s;
                     if (send === 'B' && track.send_b === clamped) return s;
@@ -204,7 +230,7 @@ export function createTrackProjectActions(
         setTrackMute: async (trackIndex: number, muted: boolean) => {
             set((s) => {
                 const trackId = s.tracks.allIds[trackIndex];
-                const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                const track = trackId ? s.tracks.byId[trackId] : null;
                 if (!track || track.is_mute === muted) return s;
                 return patchTrackByIndex(s, trackIndex, { is_mute: muted });
             });
@@ -220,7 +246,7 @@ export function createTrackProjectActions(
         setTrackSolo: async (trackIndex: number, soloed: boolean) => {
             set((s) => {
                 const trackId = s.tracks.allIds[trackIndex];
-                const track = trackId ? (s.tracks.byId[trackId] ?? s.tracksById[trackId]) : null;
+                const track = trackId ? s.tracks.byId[trackId] : null;
                 if (!track || track.is_solo === soloed) return s;
                 return patchTrackByIndex(s, trackIndex, { is_solo: soloed });
             });

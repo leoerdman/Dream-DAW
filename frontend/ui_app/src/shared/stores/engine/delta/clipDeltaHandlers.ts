@@ -187,6 +187,9 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         const next = {
             ...clip,
             midiNotes: delta.data.notes.map((n) => ({
+                // BUG-019 FIX: Preserve note identity — previously dropped,
+                // breaking selection and editing after notes replacement.
+                id: (n as { id?: string }).id,
                 pitch: n.pitch,
                 velocity: n.velocity,
                 startBeat: n.start_beat,

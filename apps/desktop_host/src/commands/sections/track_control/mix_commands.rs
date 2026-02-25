@@ -3,7 +3,7 @@ struct TrackDeltaResponse {
     deltas: Vec<dream_models::delta::ProjectDelta>,
 }
 
-/// Sets a track's volume (linear gain 0.0–2.0).
+/// Sets a track's volume (linear gain 0.0–12.0, SSOT with ChannelStrip MAX_VOLUME).
 #[tauri::command]
 fn set_track_volume(
     track_index: u16,

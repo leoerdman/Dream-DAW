@@ -53,6 +53,7 @@ export function TimelineMasterLane({
     playheadLineX,
     regionEdit,
 }: TimelineMasterLaneProps) {
+    const lineLeft = (x: number, width: number): number => x - width / 2;
     return (
         <div
             ref={masterLaneRef}
@@ -74,7 +75,7 @@ export function TimelineMasterLane({
                     key={`master-sub-${x}`}
                     style={{
                         position: 'absolute',
-                        left: x,
+                        left: lineLeft(x, 1),
                         top: 0,
                         bottom: 0,
                         width: 1,
@@ -89,7 +90,7 @@ export function TimelineMasterLane({
                     key={`master-bar-${x}`}
                     style={{
                         position: 'absolute',
-                        left: x,
+                        left: lineLeft(x, 1),
                         top: 0,
                         bottom: 0,
                         width: 1,
@@ -116,7 +117,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: loopStartLineX,
+                            left: lineLeft(loopStartLineX, 1),
                             width: 1,
                             background: 'var(--color-timeline-loop-border)',
                             opacity: 0.9,
@@ -127,7 +128,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: loopEndLineX,
+                            left: lineLeft(loopEndLineX, 1),
                             width: 1,
                             background: 'var(--color-timeline-loop-border)',
                             opacity: 0.9,
@@ -142,7 +143,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: playheadLineX - 1,
+                            left: lineLeft(playheadLineX, 3),
                             width: 3,
                             background: 'var(--color-timeline-playhead-glow)',
                             pointerEvents: 'none',
@@ -153,7 +154,7 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: playheadLineX,
+                            left: lineLeft(playheadLineX, 1),
                             width: 1,
                             background: 'var(--color-timeline-playhead)',
                             pointerEvents: 'none',

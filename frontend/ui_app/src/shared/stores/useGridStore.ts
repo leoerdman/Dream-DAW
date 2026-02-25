@@ -31,24 +31,18 @@ export const useGridStore = create<GridStore>((set, get) => ({
     setDivision: (d: GridDivision) => {
         const nextFixed = d !== 'ADAPTIVE';
         const nextNumerator = 1;
-        const nextDenominator = d === '1/1'
-            ? 1
-            : d === '1/2'
-                ? 2
-                : d === '1/4'
-                    ? 4
-                    : d === '1/8'
-                        ? 8
-                        : d === '1/16'
-                            ? 16
-                            : d === '1/32'
-                                ? 32
-                                : get().fixedDenominator;
+        // BUG-037 FIX: Replaced 7-level nested ternary with readable lookup map.
+        const DIVISION_TO_DENOMINATOR: Record<string, number> = {
+            '1/1': 1, '1/2': 2, '1/4': 4, '1/8': 8, '1/16': 16, '1/32': 32,
+        };
+        const nextDenominator = DIVISION_TO_DENOMINATOR[d] ?? get().fixedDenominator;
         const nextTriplet = false;
         const pending = {
             numerator: nextFixed ? nextNumerator : get().fixedNumerator,
             denominator: nextFixed ? nextDenominator : get().fixedDenominator,
-            ntoles: nextTriplet ? 3 : 2,
+            // BUG-038 FIX: ntoles=1 means normal, ntoles=3 means triplet.
+            // Was ntoles=2 (duplet) when triplets off, which is wrong.
+            ntoles: nextTriplet ? 3 : 1,
             snapToGrid: get().snapEnabled,
             fixed: nextFixed,
             expiresAtMs: Date.now() + 1500,
@@ -102,7 +96,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
             pendingSync: {
                 numerator: Math.max(1, Math.round(stBefore.fixedNumerator)),
                 denominator: Math.max(1, Math.round(stBefore.fixedDenominator)),
-                ntoles: t ? 3 : 2,
+                ntoles: t ? 3 : 1,
                 snapToGrid: stBefore.snapEnabled,
                 fixed: stBefore.fixedMode,
                 expiresAtMs: Date.now() + 1500,

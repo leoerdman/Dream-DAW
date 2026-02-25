@@ -21,6 +21,7 @@ interface SplashScreenProps {
 }
 
 export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenProps) {
+    const isDev = import.meta.env.DEV
     const [status, setStatus] = useState('Initializing Audio Engine...')
     const [phase, setPhase] = useState<'visible' | 'fading' | 'done'>('visible')
     const [progress, setProgress] = useState(0)
@@ -33,7 +34,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     const finalizeSplash = useCallback((reason: string) => {
         if (cancelledRef.current || finalizedRef.current) return
         finalizedRef.current = true
-        console.log(`[Splash] finalize (${reason})`)
+        if (isDev) console.debug(`[Splash] finalize (${reason})`)
         setProgress(100)
         setPhase('fading')
         window.setTimeout(() => {
@@ -46,10 +47,10 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 setPhase('done')
             }
         }, 400)
-    }, [onComplete])
+    }, [onComplete, isDev])
 
     const dismiss = useCallback(() => {
-        console.log('[Splash] dismiss() START')
+        if (isDev) console.debug('[Splash] dismiss() START')
         finalizeSplash('dismiss-started')
 
         // BUG-001 FIX: Per-step timeout to prevent hanging on unresponsive backend
@@ -65,21 +66,24 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             try {
                 // 1. Load user settings from disk in background.
                 try {
-                    console.log('[Splash] step 1: loadSettings...')
+                    if (isDev) console.debug('[Splash] step 1: loadSettings...')
                     await withTimeout(useSettingsStore.getState().loadSettings(), 3000, 'loadSettings')
-                    console.log('[Splash] step 1: loadSettings DONE')
+                    if (isDev) console.debug('[Splash] step 1: loadSettings DONE')
                 } catch (e) {
                     console.warn('[Splash] Failed to load settings:', e)
                 }
-                if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
+                if (cancelledRef.current) {
+                    if (isDev) console.debug('[Splash] cancelled after loadSettings')
+                    return
+                }
 
                 const settings = useSettingsStore.getState().settings
-                console.log('[Splash] startupBehavior=', settings.startupBehavior)
+                if (isDev) console.debug('[Splash] startupBehavior=', settings.startupBehavior)
 
                 // 2. Start telemetry ASAP so UI is live even if project open is slow.
-                console.log('[Splash] step 2: startTelemetryLoop...')
+                if (isDev) console.debug('[Splash] step 2: startTelemetryLoop...')
                 startTelemetryLoop()
-                console.log('[Splash] step 2: startTelemetryLoop DONE')
+                if (isDev) console.debug('[Splash] step 2: startTelemetryLoop DONE')
 
                 // Intentionally skip opening the last project during splash.
                 // It can trigger expensive plugin initialization and stall startup.
@@ -87,7 +91,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 console.warn('[Splash] Unexpected startup error:', e)
             }
         })()
-    }, [startTelemetryLoop, finalizeSplash])
+    }, [startTelemetryLoop, finalizeSplash, isDev])
 
     useEffect(() => {
         // Reset cancellation flag on (re-)mount — required for React StrictMode

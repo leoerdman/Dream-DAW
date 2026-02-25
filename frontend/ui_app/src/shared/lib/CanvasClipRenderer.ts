@@ -67,6 +67,14 @@ const DROP_TARGET_BORDER = rgba(255, 255, 255, 0.6);
 const GHOST_CLIP_ALPHA = 0.45;
 const OFFLINE_STRIPE_COLOR = rgba(255, 80, 80, 0.3);
 const CLIP_LABEL_FONT = '10px Inter, -apple-system, sans-serif';
+const snapCanvasLineX = (rawX: number, lineWidthCssPx: number): number => {
+    if (!Number.isFinite(rawX)) return rawX;
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const deviceX = rawX * dpr;
+    const deviceWidth = Math.max(1, lineWidthCssPx * dpr);
+    const alignedDeviceCenter = Math.round(deviceX - deviceWidth / 2) + deviceWidth / 2;
+    return alignedDeviceCenter / dpr;
+};
 
 interface TimelineTheme {
     bg: string;
@@ -291,7 +299,7 @@ export class CanvasClipRenderer {
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) < 1e-6) continue; // skip bar lines
-            const x = Math.round(vp.beatsToScreenX(beat));
+            const x = snapCanvasLineX(vp.beatsToScreenX(beat), 0.5);
             if (x < -1 || x > vpW + 1) continue;
             ctx.moveTo(x, rulerH);
             ctx.lineTo(x, vpH);
@@ -305,7 +313,7 @@ export class CanvasClipRenderer {
         for (let beat = startBeat; beat <= endBeat; beat += gridStep) {
             const barPhase = beat / beatsPerBar;
             if (Math.abs(barPhase - Math.round(barPhase)) >= 1e-6) continue; // skip subdivisions
-            const x = Math.round(vp.beatsToScreenX(beat));
+            const x = snapCanvasLineX(vp.beatsToScreenX(beat), 1);
             if (x < -1 || x > vpW + 1) continue;
             ctx.moveTo(x, rulerH);
             ctx.lineTo(x, vpH);
@@ -373,8 +381,9 @@ export class CanvasClipRenderer {
             ctx.strokeStyle = theme.rulerText;
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(Math.round(x), rulerH - 8);
-            ctx.lineTo(Math.round(x), rulerH);
+            const tickX = snapCanvasLineX(x, 1);
+            ctx.moveTo(tickX, rulerH - 8);
+            ctx.lineTo(tickX, rulerH);
             ctx.stroke();
         }
 
@@ -873,8 +882,9 @@ export class CanvasClipRenderer {
         ctx.strokeStyle = theme.playheadGlow;
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(Math.round(x), rulerH);
-        ctx.lineTo(Math.round(x), canvasH);
+        const glowX = snapCanvasLineX(x, 4);
+        ctx.moveTo(glowX, rulerH);
+        ctx.lineTo(glowX, canvasH);
         ctx.stroke();
         ctx.restore();
 
@@ -882,8 +892,9 @@ export class CanvasClipRenderer {
         ctx.strokeStyle = theme.playhead;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(Math.round(x), rulerH);
-        ctx.lineTo(Math.round(x), canvasH);
+        const lineX = snapCanvasLineX(x, 1);
+        ctx.moveTo(lineX, rulerH);
+        ctx.lineTo(lineX, canvasH);
         ctx.stroke();
         ctx.restore();
     }
@@ -942,12 +953,14 @@ export class CanvasClipRenderer {
         ctx.strokeStyle = theme.loopBorder;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(Math.round(x1), y);
-        ctx.lineTo(Math.round(x1), y + h);
+        const startX = snapCanvasLineX(x1, 1);
+        ctx.moveTo(startX, y);
+        ctx.lineTo(startX, y + h);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(Math.round(x2), y);
-        ctx.lineTo(Math.round(x2), y + h);
+        const endX = snapCanvasLineX(x2, 1);
+        ctx.moveTo(endX, y);
+        ctx.lineTo(endX, y + h);
         ctx.stroke();
     }
 

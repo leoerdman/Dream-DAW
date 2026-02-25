@@ -430,7 +430,7 @@ body::after {
    body::after {
       animation: none !important;
    }
-   .theme-ornament-timeline::after {
+   .theme-ornament-timeline[data-legacy-timeline-ornament="on"]::after {
       animation: none !important;
    }
    .theme-studio-card,

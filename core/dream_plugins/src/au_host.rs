@@ -584,7 +584,19 @@ mod macos {
                 }
                 return Ok(());
             }
-            let frames = num_frames.min(self.max_buffer_size);
+            let mut frames = num_frames.min(self.max_buffer_size);
+            if let Some(ch) = outputs.first() {
+                frames = frames.min(ch.len());
+            }
+            if let Some(ch) = outputs.get(1) {
+                frames = frames.min(ch.len());
+            }
+            if frames == 0 {
+                for out in outputs {
+                    out.fill(0.0);
+                }
+                return Ok(());
+            }
             self.input_l = inputs
                 .first()
                 .map(|c| c.as_ptr())

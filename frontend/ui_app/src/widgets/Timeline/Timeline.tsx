@@ -24,7 +24,7 @@ const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
-const MASTER_LANE_ALIGNMENT_OFFSET_PX = 1;
+const MASTER_LANE_ALIGNMENT_OFFSET_PX = 0;
 export const Timeline = (props: TimelineProps) => {
     const {
         bpm = 120,

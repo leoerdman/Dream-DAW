@@ -239,6 +239,10 @@ pub struct ExternalFxRuntimeSlot {
     pub internal_slot_index: Option<usize>,
     pub instance_id: Option<Uuid>,
     pub sidechain_track_index: Option<usize>,
+    /// `true` when this slot originates from `track.instrument` (not `track.effects`).
+    /// Used by the audio thread to keep `transport.is_playing = true` even when the
+    /// timeline is stopped, so instruments like Serum don't gate MIDI processing.
+    pub is_instrument: bool,
 }
 
 /// Atomic snapshot of per-track external effect runtime instances.

@@ -3,13 +3,18 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // A polyphonic sample-playback instrument driven by MIDI note events.
+// Loads pre-decoded PCM audio data and pitches it according to MIDI notes.
 //
 // Architecture:
-//   - Voice Pool: 16 pre-allocated voices (zero allocation at runtime)
+//   - Voice Pool: 32 pre-allocated voices (zero allocation at runtime)
 //   - Pitch Shifting: sample rate ratio — no FFT, no rubato dependency
 //     ratio = 2^((midi_note - root_note) / 12.0)
-//   - ADSR Envelope: per-voice amplitude envelope for clean starts/stops
+//   - ADSR Envelope: per-voice amplitude envelope for click-free starts/stops
 //   - Stereo: reads from ClipAudio left/right channels
+//
+// This engine does NOT generate sound from oscillators — it only plays
+// back pre-loaded samples. For wavetable / subtractive synthesis,
+// see `EssenceSynthEngine` in `essence_synth.rs`.
 //
 // Real-Time Safety:
 //   ❌ NO heap allocations
@@ -20,7 +25,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use dream_clip_engine::pool::ClipAudio;
-use dream_dsp::svf::SvfState;
 use std::sync::Arc;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -31,74 +35,8 @@ pub const MAX_VOICES: usize = 32;
 /// Default root note: C4 (middle C).
 pub const DEFAULT_ROOT_NOTE: u8 = 60;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Waveform {
-    Sine = 0,
-    Triangle = 1,
-    Saw = 2,
-    Square = 3,
-}
-
-impl Waveform {
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            0 => Self::Sine,
-            1 => Self::Triangle,
-            2 => Self::Saw,
-            3 => Self::Square,
-            // DEEP-03 FIX: Removed log::warn — Waveform::from_u8 is called from
-            // EngineCommand processing on the RT thread. log::warn acquires a global
-            // mutex and heap-allocates, violating zero-alloc RT contract.
-            _ => Self::Sine,
-        }
-    }
-}
-
-// ── Filter Type ────────────────────────────────────────────────────────
-
-/// SVF filter mode for the synth voice filter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SynthFilterType {
-    Lowpass = 0,
-    Highpass = 1,
-    Bandpass = 2,
-    Notch = 3,
-}
-
-impl SynthFilterType {
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            1 => Self::Highpass,
-            2 => Self::Bandpass,
-            3 => Self::Notch,
-            _ => Self::Lowpass,
-        }
-    }
-}
-
-// ── LFO Target ─────────────────────────────────────────────────────────
-
-/// LFO modulation target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LfoTarget {
-    /// LFO modulates filter cutoff frequency.
-    FilterCutoff = 0,
-    /// LFO modulates oscillator pitch (vibrato).
-    Pitch = 1,
-    /// LFO modulates output volume (tremolo).
-    Volume = 2,
-}
-
-impl LfoTarget {
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            0 => Self::FilterCutoff,
-            1 => Self::Pitch,
-            2 => Self::Volume,
-            _ => Self::FilterCutoff,
-        }
-    }
-}
+// NOTE: Waveform, SynthFilterType, LfoTarget have been moved to
+// `synth_types.rs` — they belong to synth engines, not the sampler.
 
 // ── ADSR Envelope ──────────────────────────────────────────────────────
 
@@ -277,9 +215,9 @@ impl AdsrEnvelope {
 
 // ── Sampler Voice ──────────────────────────────────────────────────────
 
-/// A single sampler voice — reads from a sample with pitch shifting.
+/// A single sampler voice — reads from a pre-loaded sample with pitch shifting.
 ///
-/// Uses a fractional cursor (`f64`) for sub-sample-accurate pitch interp.
+/// Uses a fractional cursor (`f64`) for sub-sample-accurate pitch interpolation.
 /// Linear interpolation between adjacent samples for quality.
 #[derive(Debug, Clone)]
 pub struct SamplerVoice {
@@ -298,24 +236,8 @@ pub struct SamplerVoice {
     /// Playback speed ratio: 2^((note - root) / 12).
     pub pitch_ratio: f64,
 
-    /// Phase increment per sample (oscillator mode).
-    pub phase_increment: f64,
-
-    /// Per-voice ADSR envelope.
+    /// Per-voice ADSR envelope for click-free note starts/stops.
     pub envelope: AdsrEnvelope,
-
-    /// Per-voice SVF filter state (reset per note-on for consistent timbre).
-    pub filter_state: SvfState,
-
-    /// Per-voice LFO phase (free-running, 0.0..1.0).
-    pub lfo_phase: f64,
-
-    /// BUG-H02 FIX: Per-voice triangle integrator state for OSC1 and OSC2.
-    /// Previously declared as local variables in `render_oscillator_voice`,
-    /// resetting to 0.0 every buffer. The leaky integrator needs continuity
-    /// across buffers for stable triangle output.
-    pub tri_state_1: f64,
-    pub tri_state_2: f64,
 
     sample_rate: f64,
 }
@@ -329,12 +251,7 @@ impl SamplerVoice {
             velocity: 0.0,
             cursor: 0.0,
             pitch_ratio: 1.0,
-            phase_increment: 0.0,
             envelope: AdsrEnvelope::new(sample_rate),
-            filter_state: SvfState::default(),
-            lfo_phase: 0.0,
-            tri_state_1: 0.0,
-            tri_state_2: 0.0,
             sample_rate,
         }
     }
@@ -343,8 +260,6 @@ impl SamplerVoice {
     ///
     /// `sr_ratio` is `source_sample_rate / device_sample_rate` — applied to
     /// `pitch_ratio` so samples play at the correct pitch on any device.
-    /// For synth mode (oscillator), pass `1.0` (phase_increment already
-    /// accounts for device SR via `freq / sample_rate`).
     #[inline]
     pub fn trigger(&mut self, note: u8, velocity: u8, root_note: u8, sr_ratio: f64) {
         self.active = true;
@@ -356,14 +271,7 @@ impl SamplerVoice {
         // semitones sharp because each output frame is shorter in time
         // but the cursor advances by the same amount.
         self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0) * sr_ratio;
-        let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
-        self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
-        // AUDIT-S2-01: Removed log::debug! — runs on RT audio thread during note-on.
-        // The log crate acquires a global Mutex and format!() heap-allocates.
-        // Nyquist is already guarded by phase_increment clamp to 0.5 above.
         self.envelope.note_on();
-        self.filter_state.reset(); // Fresh filter state per note
-        self.lfo_phase = 0.0; // Restart LFO per note for consistent timbre
     }
 
     /// Release the note (enters ADSR release phase).
@@ -457,9 +365,7 @@ impl SamplerVoice {
         self.note = 0;
         self.velocity = 0.0;
         self.cursor = 0.0;
-        self.phase_increment = 0.0;
         self.envelope.reset();
-        self.filter_state.reset();
     }
 }
 
@@ -547,15 +453,6 @@ impl SamplerEngine {
         for voice in &mut self.voices {
             voice.envelope.set_params(&params);
         }
-    }
-
-    /// Set filter cutoff frequency in Hz (20–20000).
-    /// Used by Sample Rack pads for per-pad filtering on sample playback.
-    pub fn set_filter_cutoff(&mut self, _cutoff: f32) {
-        // NOTE: After oscillator removal, the per-voice SVF filter is gone.
-        // This method is a no-op placeholder retained for API compatibility
-        // with SampleRackPadFilterCutoff commands. A proper sample-mode filter
-        // can be added here in the future if needed.
     }
 
     /// Trigger a note-on event.

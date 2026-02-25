@@ -19,5 +19,6 @@ mod offline_bounce_types;
 pub mod recording;
 pub mod render_callback;
 pub mod sampler;
-mod sampler_osc;
+pub mod synth_types;
+mod oscillator;
 pub mod essence_synth;

@@ -1,4 +1,4 @@
-use crate::sampler::Waveform;
+use crate::synth_types::Waveform;
 
 // ── PolyBLEP Anti-Aliased Oscillators ──────────────────────────────────
 //

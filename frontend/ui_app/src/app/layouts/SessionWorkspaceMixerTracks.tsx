@@ -48,7 +48,7 @@ export function SessionWorkspaceMixerTracks({
                         gap: 4,
                         background: 'color-mix(in srgb, var(--color-bg-panel) 96%, transparent)',
                     }}>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)', textTransform: 'uppercase' }}>
                             {track.track_type}
                         </div>
                         <SessionIoRow label="Audio From" value={track.input || 'No Input'} />

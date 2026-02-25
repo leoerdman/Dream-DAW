@@ -216,6 +216,41 @@ impl PluginHostState {
             .map_err(|e| format!("cached_scan lock poisoned: {e}"))? = None;
         Ok(())
     }
+    /// Updates the PluginHost's internal audio configuration to match the
+    /// actual cpal audio device's sample rate and buffer size.
+    ///
+    /// **CRITICAL FIX:** The PluginHost is initially constructed with values
+    /// from user settings (e.g., 44100/512), but the actual audio device may
+    /// run at different values (e.g., 48000/1024). If plugins are activated
+    /// with a `max_buffer_size` smaller than the device's actual block size,
+    /// the `process()` method's buffer guard (`num_frames > max_buffer_size`)
+    /// will trigger on every call, silently falling through to passthrough —
+    /// making the plugin produce no audible effect.
+    ///
+    /// This method MUST be called after `start_audio_thread_on_device()`
+    /// returns, before any plugins are loaded, so that all future plugin
+    /// activations use the correct device parameters.
+    ///
+    /// If plugins are already loaded (e.g., from project restore), they are
+    /// reactivated with the new config via `reactivate_all()`.
+    pub(crate) fn update_audio_config(
+        &self,
+        actual_sample_rate: f64,
+        actual_buffer_size: usize,
+    ) -> Result<(), String> {
+        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let (current_sr, current_bs) = host.audio_config();
+        let sr_changed = (current_sr - actual_sample_rate).abs() > 0.001;
+        let bs_changed = current_bs != actual_buffer_size;
+        if sr_changed || bs_changed {
+            log::info!(
+                "[PluginHostState] Syncing audio config: {}Hz/{}→{}Hz/{}",
+                current_sr, current_bs, actual_sample_rate, actual_buffer_size,
+            );
+            host.reactivate_all(actual_sample_rate, actual_buffer_size);
+        }
+        Ok(())
+    }
     #[allow(dead_code)]
     pub(crate) fn reactivate_all(
         &self,

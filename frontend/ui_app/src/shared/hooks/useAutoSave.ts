@@ -21,11 +21,15 @@ export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
+        // BUG-066 FIX: Guard against overlapping auto-saves.
+        let inFlight = false;
         const tick = async () => {
             // Skip auto-save when tab is hidden (no point saving while user
             // is in another app — also avoids plugin state capture overhead).
             if (document.hidden) return;
+            if (inFlight) return; // Prevent overlapping saves
 
+            inFlight = true;
             try {
                 const result = await autoSaveIfDirty();
                 if (result.saved) {
@@ -34,6 +38,8 @@ export function useAutoSave(intervalMs: number = DEFAULT_INTERVAL_MS) {
             } catch (err) {
                 // Non-fatal: log and keep timer running
                 console.warn('[AutoSave] Failed:', err);
+            } finally {
+                inFlight = false;
             }
         };
 

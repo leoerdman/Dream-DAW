@@ -22,10 +22,7 @@ function pickRandomBandColor(exclude?: string): string {
 export function buildInitialEqBandColors(deviceId: string): string[] {
     const cached = EQ_BAND_COLOR_CACHE.get(deviceId);
     if (cached && cached.length === EQ_BAND_COUNT) return [...cached];
-    const seeded: string[] = [];
-    for (let i = 0; i < EQ_BAND_COUNT; i++) {
-        seeded.push(pickRandomBandColor(seeded[i - 1]));
-    }
+    const seeded: string[] = [...EQ_BAND_COLORS];
     EQ_BAND_COLOR_CACHE.set(deviceId, seeded);
     return seeded;
 }

@@ -20,6 +20,8 @@ export interface TransportState {
     loop_end: number;
     output_latency_frames: number;
     telemetry_timestamp_ms: number;
+    time_sig_numerator: number;
+    time_sig_denominator: number;
 }
 
 /** Per-channel meter reading — mirrors Rust `MeterReading`. */

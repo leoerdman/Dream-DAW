@@ -10,7 +10,7 @@ function patchTrack(state: DeltaWorkingState, id: string, patch: Partial<Project
 export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, env: DeltaEnv): boolean {
     void env;
     if (delta.kind === 'PluginBypassChanged') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
 
         if (track.instrument?.id === delta.data.slot_id) {
@@ -40,7 +40,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
     }
 
     if (delta.kind === 'PluginSidechainChanged') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         if (track.instrument?.id === delta.data.slot_id) {
             patchTrack(state, track.id, {
@@ -61,7 +61,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
     }
 
     if (delta.kind === 'PluginMoved') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
 
         const effects = track.effects.slice();
@@ -82,7 +82,7 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
     }
 
     if (delta.kind === 'PluginRemoved') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         if (track.instrument?.id === delta.data.slot_id) {
             patchTrack(state, track.id, { instrument: null });
@@ -93,14 +93,21 @@ export function applyPluginDelta(state: DeltaWorkingState, delta: ProjectDelta, 
     }
 
     if (delta.kind === 'PluginAdded') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
 
+        // BUG-026/027 FIX: Read is_bypassed from delta data (was hardcoded false),
+        // and preserve sidechain_source_track_id if present.
+        const deltaData = delta.data as typeof delta.data & {
+            is_bypassed?: boolean;
+            sidechain_source_track_id?: string | null;
+        };
         const added: FlatPluginSlot = {
             id: delta.data.slot_id,
             name: delta.data.plugin_name,
             plugin_id: delta.data.plugin_uid,
-            is_bypassed: false,
+            is_bypassed: deltaData.is_bypassed ?? false,
+            sidechain_source_track_id: deltaData.sidechain_source_track_id ?? null,
         };
         if (delta.data.is_instrument) {
             patchTrack(state, track.id, { instrument: added });

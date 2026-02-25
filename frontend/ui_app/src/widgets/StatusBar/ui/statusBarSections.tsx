@@ -57,7 +57,7 @@ export function HistorySection({
                         border: 'var(--space-px) solid var(--color-divider)',
                         borderRadius: 'var(--radius-md)',
                         boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
-                        zIndex: 'var(--z-tooltip)' as unknown as number,
+                        zIndex: 'var(--z-tooltip)',
                         padding: 'var(--space-1-5) var(--space-2)',
                     }}
                 >

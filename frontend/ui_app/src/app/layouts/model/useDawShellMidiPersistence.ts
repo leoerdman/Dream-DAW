@@ -73,16 +73,20 @@ export function useDawShellMidiPersistence({
         const incoming: Record<string, MidiNote[]> = {};
         for (const clip of timelineClips) {
             if (clip.type !== 'midi') continue;
+            const backendNotes = (clip.midiNotes ?? []).map((note) => ({
+                id: note.id ?? `${clip.id}-${note.pitch}-${note.startBeat}`,
+                pitch: note.pitch,
+                startBeat: note.startBeat,
+                durationBeats: note.durationBeats,
+                velocity: note.velocity,
+            }));
             if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
-                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? [];
+                // Keep local edits if they exist; otherwise never drop to empty.
+                // This prevents "empty piano roll" after snapshot/delta churn when
+                // a clip id is marked dirty but local cache has been reset.
+                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? backendNotes;
             } else {
-                incoming[clip.id] = (clip.midiNotes ?? []).map((note) => ({
-                    id: note.id ?? `${clip.id}-${note.pitch}-${note.startBeat}`,
-                    pitch: note.pitch,
-                    startBeat: note.startBeat,
-                    durationBeats: note.durationBeats,
-                    velocity: note.velocity,
-                }));
+                incoming[clip.id] = backendNotes;
             }
         }
         setMidiNotesByClip((prev) => {

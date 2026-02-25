@@ -170,6 +170,7 @@ interface PreviewSyncParams {
     previewRequestTokenRef: React.MutableRefObject<number>;
     audioDurationSecRef: React.MutableRefObject<Record<string, number>>;
     isPreviewPlayingRef: React.MutableRefObject<boolean>;
+    previewCommandQueueRef: React.MutableRefObject<Promise<void>>;
     setPreviewPeaks: React.Dispatch<React.SetStateAction<import('@/shared/api/engine').PeakPair[] | null>>;
 }
 
@@ -178,11 +179,22 @@ export function usePreviewSync({
     previewRequestTokenRef,
     audioDurationSecRef,
     isPreviewPlayingRef,
+    previewCommandQueueRef,
     setPreviewPeaks,
 }: PreviewSyncParams) {
+    const enqueuePreviewCommand = useCallback((command: () => Promise<void>) => {
+        previewCommandQueueRef.current = previewCommandQueueRef.current
+            .catch(() => undefined)
+            .then(command)
+            .catch((err) => {
+                console.warn('[AssetBrowser] preview command failed:', err);
+            });
+    }, [previewCommandQueueRef]);
+
     return useCallback((item: BrowserItem | null) => {
         const token = ++previewRequestTokenRef.current;
         if (item?.type === 'audio' && item.path) {
+            const audioPath = item.path;
             engineApi.getWaveformPeaksBinary(item.path)
                 .then((peaks) => {
                     if (previewRequestTokenRef.current !== token) return;
@@ -197,14 +209,30 @@ export function usePreviewSync({
 
             if (previewEnabled) {
                 isPreviewPlayingRef.current = true;
-                engineApi.previewAudioFile(item.path).catch((err) => console.warn('[Preview]', err));
+                enqueuePreviewCommand(async () => {
+                    await engineApi.stopPreview().catch(() => undefined);
+                    if (previewRequestTokenRef.current !== token) return;
+                    await engineApi.previewAudioFile(audioPath);
+                });
             } else {
                 isPreviewPlayingRef.current = false;
-                engineApi.stopPreview().catch((err) => console.warn('[AssetBrowser] stopPreview failed:', err));
+                enqueuePreviewCommand(async () => {
+                    await engineApi.stopPreview().catch(() => undefined);
+                });
             }
             return;
         }
-        engineApi.stopPreview().catch((err) => console.warn('[AssetBrowser] stopPreview(reset) failed:', err));
+        isPreviewPlayingRef.current = false;
+        enqueuePreviewCommand(async () => {
+            await engineApi.stopPreview().catch(() => undefined);
+        });
         if (previewRequestTokenRef.current === token) setPreviewPeaks(null);
-    }, [audioDurationSecRef, isPreviewPlayingRef, previewEnabled, previewRequestTokenRef, setPreviewPeaks]);
+    }, [
+        audioDurationSecRef,
+        enqueuePreviewCommand,
+        isPreviewPlayingRef,
+        previewEnabled,
+        previewRequestTokenRef,
+        setPreviewPeaks,
+    ]);
 }

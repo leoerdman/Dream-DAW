@@ -25,11 +25,11 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+pub use crate::offline_bounce_types::{BounceConfig, BounceError};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
-pub use crate::offline_bounce_types::{BounceConfig, BounceError};
 
 use log::info;
 

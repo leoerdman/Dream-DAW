@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { TypeIcon } from './AssetBrowserPrimitives';
 import { renderHighlightedMatch } from './AssetBrowserRowUtils';
@@ -14,11 +13,11 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
             gap: 8, padding: 'var(--space-1) var(--space-2)',
             background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
             borderBottom: 'var(--space-px) solid var(--color-divider-light)', borderTop: 'var(--space-px) solid var(--color-divider-light)',
-            position: 'sticky', top: 24, zIndex: 'var(--z-local)' as unknown as number,
+            position: 'sticky', top: 24, zIndex: 'var(--z-local)',
         }}>
             <span style={{
                 color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)',
-                fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                fontWeight: 'var(--font-weight-bold)',
                 textTransform: 'uppercase', letterSpacing: '0.04em',
             }}>{title}</span>
             <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-role-data)' }}>{count}</span>
@@ -47,10 +46,10 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                     if (item.type === 'audio' && item.path) {
                         if (isPreviewPlayingRef.current) {
                             isPreviewPlayingRef.current = false;
-                            engineApi.stopPreview().catch(() => { });
+                            syncPreviewForItem(null);
                         } else {
                             isPreviewPlayingRef.current = true;
-                            engineApi.previewAudioFile(item.path).catch(() => { });
+                            syncPreviewForItem(item);
                         }
                     }
                     return;
@@ -116,7 +115,7 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
             <TypeIcon type={item.type} item={item} />
             <span style={{
                 color: 'var(--color-text-primary)', fontSize: 'var(--font-size-base)',
-                fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                fontWeight: 'var(--font-weight-medium)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
             }}>{debouncedQuery.trim() ? renderHighlightedMatch(item.name, debouncedQuery) : item.name}</span>
             {showTypeColumn && <span style={{ minWidth: 52, maxWidth: 74, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>{typeLabel}</span>}

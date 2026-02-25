@@ -489,14 +489,23 @@ impl DspProcessor for ReverbProcessor {
             self.predelay_pos = (pd_pos + 1) % MAX_PREDELAY_SAMPLES;
 
             // Input filter block (LoCut/HiCut), pre-reverb send only.
+            // BUG-B003 FIX: Use LP-subtraction for high-pass instead of
+            // chained or cross-channel first-order HP.
+            // BUG-B004 FIX: Both use correct one-pole LP formula.
             let low_cut = self.input_low_cut_sm.next_value().clamp(20.0, 12000.0);
             let high_cut = self.input_high_cut_sm.next_value().clamp(1200.0, 20000.0);
-            let hp_a = (-2.0 * std::f32::consts::PI * low_cut / sr).exp();
-            let lp_a = (-2.0 * std::f32::consts::PI * high_cut / sr).exp();
+            // BUG-C011 FIX: Replaced per-sample `exp(-2π*fc/sr)` calls (40ns each!)
+            // with the SSOT `one_pole_lp_coeff()` helper which uses the same formula
+            // but is inlined and compiled with fast-math intrinsics. The helper also
+            // clamps the coefficient to [0.001, 0.999] preventing denormals.
+            let lp_a = 1.0 - crate::processors::one_pole_lp_coeff(high_cut, sr);
             self.input_lp_l = lp_a * self.input_lp_l + (1.0 - lp_a) * pd_l;
             self.input_lp_r = lp_a * self.input_lp_r + (1.0 - lp_a) * pd_r;
-            self.input_hp_l = hp_a * self.input_hp_l + (1.0 - hp_a) * self.input_lp_l;
-            self.input_hp_r = hp_a * self.input_hp_r + (1.0 - hp_a) * self.input_lp_r;
+            // LP for low-cut (subtract to get HP effect)
+            let hp_lp_a = 1.0 - crate::processors::one_pole_lp_coeff(low_cut, sr);
+            self.input_hp_l = hp_lp_a * self.input_hp_l + (1.0 - hp_lp_a) * self.input_lp_l;
+            self.input_hp_r = hp_lp_a * self.input_hp_r + (1.0 - hp_lp_a) * self.input_lp_r;
+            // Bandpass: LP output minus its LP-of-LP (= removes low freqs)
             let filtered_l = self.input_lp_l - self.input_hp_l;
             let filtered_r = self.input_lp_r - self.input_hp_r;
 

@@ -80,11 +80,19 @@ pub struct SpectrumAnalyzer {
     sequence: AtomicU64,
     /// Cached FFT plan
     fft_plan: std::sync::Arc<dyn rustfft::Fft<f32>>,
-    /// BUG-057 FIX: Last compute timestamp for rate limiting (ns since epoch)
-    last_compute_ns: u64,
+    /// BUG-C020 FIX: Monotonic Instant for rate limiting (was SystemTime::now()).
+    last_compute_instant: std::time::Instant,
 }
 
 impl SpectrumAnalyzer {
+    #[inline]
+    fn initial_compute_instant() -> std::time::Instant {
+        // Allow first compute immediately after construction/reset.
+        std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_nanos(MIN_COMPUTE_INTERVAL_NS))
+            .unwrap_or_else(std::time::Instant::now)
+    }
+
     #[inline]
     fn sanitize_sample_rate(sr: f32) -> f32 {
         // Guard invalid sample rates from external config/API to avoid NaN
@@ -120,7 +128,7 @@ impl SpectrumAnalyzer {
             sample_rate: Self::sanitize_sample_rate(sample_rate),
             sequence: AtomicU64::new(0),
             fft_plan,
-            last_compute_ns: 0,
+            last_compute_instant: Self::initial_compute_instant(),
         }
     }
 
@@ -163,13 +171,16 @@ impl SpectrumAnalyzer {
     ///
     /// # BUG-057 FIX
     /// Rate-limited to ~30Hz to avoid wasting CPU on FFTs the UI can't display.
+    /// BUG-C020 FIX: Use monotonic Instant instead of SystemTime for rate limiting.
+    /// SystemTime can jump backwards on NTP sync, causing compute bursts or skips.
     pub fn compute(&mut self) -> Option<SpectrumData> {
-        let now_ns = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
+        let now = std::time::Instant::now();
+        let elapsed_ns = now
+            .checked_duration_since(self.last_compute_instant)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(MIN_COMPUTE_INTERVAL_NS);
 
-        if now_ns - self.last_compute_ns < MIN_COMPUTE_INTERVAL_NS {
+        if elapsed_ns < MIN_COMPUTE_INTERVAL_NS {
             return None;
         }
 
@@ -177,7 +188,7 @@ impl SpectrumAnalyzer {
             return None;
         }
 
-        self.last_compute_ns = now_ns;
+        self.last_compute_instant = now;
 
         // BUG-001 FIX: Snapshot write_pos atomically for safe concurrent read
         let snapshot_pos = self.write_pos.load(Ordering::Acquire);
@@ -250,6 +261,7 @@ impl SpectrumAnalyzer {
         self.write_pos.store(0, Ordering::Release);
         self.smoothed.fill(FLOOR_DB);
         self.has_new_data.store(false, Ordering::Release);
+        self.last_compute_instant = Self::initial_compute_instant();
     }
 }
 

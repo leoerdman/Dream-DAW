@@ -36,7 +36,7 @@ export function DawShellStatusArea({
                         gap: 10,
                     }}
                 >
-                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-status-error)', letterSpacing: '0.02em' }}>
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-status-error)', letterSpacing: '0.02em' }}>
                         Missing media detected: {missingMediaSummary.offlineClipCount} files, {missingMediaSummary.missingPluginCount} plugins
                     </span>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -48,7 +48,7 @@ export function DawShellStatusArea({
                                 color: 'color-mix(in srgb, var(--color-status-error) 30%, var(--color-text-primary))',
                                 borderRadius: 'var(--radius-lg)',
                                 fontSize: 'var(--font-size-xs)',
-                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                                fontWeight: 'var(--font-weight-bold)',
                                 padding: 'var(--token-size-px-3) var(--space-2)',
                                 cursor: 'pointer',
                             }}

@@ -66,23 +66,25 @@ export function useTimelineEngine(
         viewportWidth: 0,
         viewportHeight: 0,
     });
+    const initialConfigRef = useRef<UseTimelineEngineConfig>(config);
 
     // ── Create engine once ────────────────────────────────────────────
     useEffect(() => {
+        const initialConfig = initialConfigRef.current;
         const engineConfig: TimelineEngineConfig = {
-            beatsPerBar: config.beatsPerBar,
-            bpm: config.bpm,
-            sampleRate: config.sampleRate,
-            snapBeats: config.snapBeats,
-            snapEnabled: config.snapEnabled,
+            beatsPerBar: initialConfig.beatsPerBar,
+            bpm: initialConfig.bpm,
+            sampleRate: initialConfig.sampleRate,
+            snapBeats: initialConfig.snapBeats,
+            snapEnabled: initialConfig.snapEnabled,
             viewport: {
-                totalBeats: config.totalBeats,
-                trackCount: config.trackCount,
-                trackHeight: config.trackHeight,
-                trackHeights: config.trackHeights,
-                rulerHeight: config.rulerHeight,
-                bottomPaddingPx: config.bottomPaddingPx,
-                initialPpb: config.initialPpb,
+                totalBeats: initialConfig.totalBeats,
+                trackCount: initialConfig.trackCount,
+                trackHeight: initialConfig.trackHeight,
+                trackHeights: initialConfig.trackHeights,
+                rulerHeight: initialConfig.rulerHeight,
+                bottomPaddingPx: initialConfig.bottomPaddingPx,
+                initialPpb: initialConfig.initialPpb,
             },
         };
 
@@ -104,7 +106,6 @@ export function useTimelineEngine(
             engine.destroy();
             engineRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Intentionally empty — engine created once
 
     // ── Sync config changes to engine ─────────────────────────────────

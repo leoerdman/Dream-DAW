@@ -7,6 +7,7 @@ import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
+import { withProjectLoad } from '@/shared/lib/projectLoadGuard';
 export function useNativeMenu(onProjectChange?: () => void) {
     const initialized = useRef(false);
     const onProjectChangeRef = useRef(onProjectChange);
@@ -54,8 +55,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+N',
         action: async () => {
             try {
-                const response = await engineApi.newProject();
-                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:new');
+                await withProjectLoad('native-menu:new', async () => {
+                    const response = await engineApi.newProject();
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:new');
+                });
                 onProjectChange?.();
                 console.log('[NativeMenu] New project created');
             } catch (err) {
@@ -71,18 +74,16 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             try {
                 const path = await engineApi.pickProjectFile();
                 if (!path) { return; }
-                const isAbleton = path.toLowerCase().endsWith('.als');
-                if (isAbleton) {
-                    const response = await engineApi.importAbletonProject(path);
-                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
-                } else {
-                    const response = await engineApi.openProject(path);
-                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
-                }
-                // Eagerly activate external VST3 plugins and restore their saved state
-                engineApi.eagerActivateExternalPlugins().catch((err) =>
-                    console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)
-                );
+                await withProjectLoad('native-menu:open', async () => {
+                    const isAbleton = path.toLowerCase().endsWith('.als');
+                    if (isAbleton) {
+                        const response = await engineApi.importAbletonProject(path);
+                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
+                    } else {
+                        const response = await engineApi.openProject(path);
+                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open');
+                    }
+                });
                 onProjectChange?.();
                 console.log('[NativeMenu] Opened project:', path);
             } catch (err) {
@@ -240,22 +241,20 @@ async function buildRecentSubmenu(
                         action: async () => {
                             try {
                                 console.warn('[NativeMenu:OpenRecent] path=', rp.path);
-                                const isAbleton = rp.path.toLowerCase().endsWith('.als');
-                                if (isAbleton) {
-                                    console.warn('[NativeMenu:OpenRecent] importing ALS...');
-                                    const response = await engineApi.importAbletonProject(rp.path);
-                                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
-                                    console.warn('[NativeMenu:OpenRecent] ALS import done, snapshot applied');
-                                } else {
-                                    console.warn('[NativeMenu:OpenRecent] opening...');
-                                    const response = await engineApi.openProject(rp.path);
-                                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
-                                    console.warn('[NativeMenu:OpenRecent] open done, snapshot applied');
-                                }
-                                // Eagerly activate external VST3 plugins and restore their saved state
-                                engineApi.eagerActivateExternalPlugins().catch((err) =>
-                                    console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)
-                                );
+                                await withProjectLoad('native-menu:open-recent', async () => {
+                                    const isAbleton = rp.path.toLowerCase().endsWith('.als');
+                                    if (isAbleton) {
+                                        console.warn('[NativeMenu:OpenRecent] importing ALS...');
+                                        const response = await engineApi.importAbletonProject(rp.path);
+                                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
+                                        console.warn('[NativeMenu:OpenRecent] ALS import done, snapshot applied');
+                                    } else {
+                                        console.warn('[NativeMenu:OpenRecent] opening...');
+                                        const response = await engineApi.openProject(rp.path);
+                                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'native-menu:open-recent');
+                                        console.warn('[NativeMenu:OpenRecent] open done, snapshot applied');
+                                    }
+                                });
                                 onProjectChange?.();
                                 console.log('[NativeMenu] Opened recent:', rp.path);
                             } catch (err) {

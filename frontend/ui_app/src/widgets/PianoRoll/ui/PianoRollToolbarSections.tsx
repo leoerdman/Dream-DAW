@@ -90,7 +90,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             })}
 
             <div style={dividerStyle} />
-            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-wide)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, marginRight: 2 }}>Grid</span>
+            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-wide)', fontWeight: 'var(--font-weight-semibold)', marginRight: 2 }}>Grid</span>
             {MIDI_GRID_PRESETS.map((preset) => (
                 <button
                     key={preset.division}
@@ -104,7 +104,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
                         fontSize: 'var(--font-size-2xs)',
                         fontFamily: 'var(--font-role-data)',
                         cursor: 'pointer',
-                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-semibold)',
                     }}
                 >
                     {preset.label}
@@ -141,7 +141,7 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             )}
 
             <div style={dividerStyle} />
-            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)' as unknown as number, fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-normal)' }}>{clipDurationLabel}</div>
+            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)', fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-normal)' }}>{clipDurationLabel}</div>
 
             <div style={dividerStyle} />
             <button onClick={duplicateSelection} style={actionBtnStyle}>Duplicate</button>
@@ -227,7 +227,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                     border: aiVariationBusy ? 'var(--space-px) solid var(--color-control-border)' : 'none',
                     borderRadius: 'var(--radius-sm)',
                     fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     cursor: !onGenerateVariation || aiVariationBusy ? 'not-allowed' : 'pointer',
                     opacity: !onGenerateVariation ? 0.6 : 1,
                     display: 'flex',

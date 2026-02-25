@@ -59,7 +59,7 @@ export function TrackRowRouting({
                         display: 'flex',
                         alignItems: 'center',
                         fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        fontWeight: 'var(--font-weight-medium)',
                         color: 'var(--color-text-tertiary)',
                         background: 'var(--color-control-bg)',
                         border: 'var(--space-px) solid var(--color-control-border)',
@@ -79,7 +79,7 @@ export function TrackRowRouting({
                         display: 'flex',
                         alignItems: 'center',
                         fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        fontWeight: 'var(--font-weight-medium)',
                         color: 'var(--color-text-secondary)',
                         background: 'var(--color-control-bg)',
                         border: 'var(--space-px) solid var(--color-control-border)',
@@ -160,7 +160,7 @@ function RoutingSelect({ arrow, value, title, options, onChange }: RoutingSelect
                         fontSize: 'var(--font-size-micro)',
                         color: 'var(--color-text-tertiary)',
                         pointerEvents: 'none',
-                        zIndex: 'var(--z-local)' as unknown as number,
+                        zIndex: 'var(--z-local)',
                     }}
                 >
                     {arrow}
@@ -175,7 +175,7 @@ function RoutingSelect({ arrow, value, title, options, onChange }: RoutingSelect
                     title={title}
                     style={{
                         fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                        fontWeight: 'var(--font-weight-medium)',
                         color: 'var(--color-text-primary)',
                         background: 'var(--color-control-bg)',
                         border: 'var(--space-px) solid var(--color-control-border)',

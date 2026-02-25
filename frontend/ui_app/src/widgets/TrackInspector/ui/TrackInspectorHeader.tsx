@@ -19,7 +19,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
             <span
                 style={{
                     fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-semibold)',
                     color: 'var(--color-text-secondary)',
                     letterSpacing: 'var(--letter-spacing-wide)',
                     textTransform: 'uppercase',
@@ -32,7 +32,7 @@ export function TrackInspectorHeader({ rulerHeight, mixerFocusMode }: TrackInspe
                     style={{
                         marginLeft: 6,
                         fontSize: 'var(--font-size-micro)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                         fontFamily: 'var(--font-role-data)',
                         color: 'var(--color-accent-primary)',
                         background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',

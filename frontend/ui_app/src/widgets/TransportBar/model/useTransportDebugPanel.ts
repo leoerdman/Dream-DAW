@@ -14,6 +14,11 @@ export function useTransportDebugPanel() {
     const [sandboxLoading, setSandboxLoading] = useState(false);
     const [sandboxError, setSandboxError] = useState<string | null>(null);
     const [sandboxRuntime, setSandboxRuntime] = useState<engineApi.PluginSandboxSnapshot | null>(null);
+    const [windowActive, setWindowActive] = useState(() =>
+        typeof document === 'undefined'
+            ? true
+            : document.visibilityState === 'visible' && document.hasFocus(),
+    );
     const pdcPanelRef = useRef<HTMLDivElement | null>(null);
     const [pdcPanelPos, setPdcPanelPos] = useState(DEFAULT_PDC_PANEL_POS);
     const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseRight: number; baseTop: number }>({
@@ -110,11 +115,26 @@ export function useTransportDebugPanel() {
     }, [pdcPanelPos]);
 
     useEffect(() => {
+        const updateWindowActivity = () => {
+            setWindowActive(document.visibilityState === 'visible' && document.hasFocus());
+        };
+        document.addEventListener('visibilitychange', updateWindowActivity);
+        window.addEventListener('focus', updateWindowActivity);
+        window.addEventListener('blur', updateWindowActivity);
+        return () => {
+            document.removeEventListener('visibilitychange', updateWindowActivity);
+            window.removeEventListener('focus', updateWindowActivity);
+            window.removeEventListener('blur', updateWindowActivity);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!pdcOpen) return;
+        if (!windowActive) return;
         refreshSnapshots();
         const id = window.setInterval(refreshSnapshots, 1500);
         return () => window.clearInterval(id);
-    }, [pdcOpen, refreshSnapshots]);
+    }, [pdcOpen, windowActive, refreshSnapshots]);
 
     useEffect(() => {
         void engineApi.setRtDebugEnabled(pdcOpen).catch((err) => {
@@ -182,4 +202,3 @@ export function useTransportDebugPanel() {
         tickWatchdog,
     };
 }
-

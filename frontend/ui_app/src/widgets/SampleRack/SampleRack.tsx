@@ -4,23 +4,22 @@ import type { SampleRackPadConfig } from '@bindings/SampleRackPadConfig';
 import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { PluginKnob } from '@/widgets/DeviceRack/StandardPluginControls';
+import { errorMessage } from '@/widgets/DeviceRack/model/deviceRackCatalog';
 import { PadWaveform } from '@/widgets/SampleRack/PadWaveform';
-
 interface SampleRackProps {
     trackId: string;
     rackConfig: SampleRackConfig;
     onParamChange?: (paramName: string, value: number) => void;
 }
-
 const PAD_NAMES = [
     'Kick', 'Snare', 'Clap', 'Sub',
     'Tom Lo', 'Tom Mid', 'CH', 'Tom Hi',
     'PH', 'OH', 'Ride', 'Crash',
     'Crash 2', 'Bell', 'Perc 1', 'Perc 2',
 ];
-
 // Pad color groups (GM drum map style)
 const PAD_COLORS: Record<number, string> = {
     0: 'var(--token-color-hex-ff5c5c)', 1: 'var(--token-color-hex-ff8c5c)', 2: 'var(--token-color-hex-ffbf5c)', 3: 'var(--token-color-hex-8c5cff)',
@@ -30,52 +29,55 @@ const PAD_COLORS: Record<number, string> = {
 };
 export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: SampleRackProps) {
     const [selectedPad, setSelectedPad] = useState<number>(0);
+    const statusError = useStatusStore((s) => s.setError);
+    const statusClear = useStatusStore((s) => s.clear);
     const draggingItem = useDragStore(s => s.draggingItem);
     const isDragging = !!draggingItem;
     const canDrop = isDragging ? canDropInZone(draggingItem!, 'sampler-surface').allowed : false;
-
+    const reportRackError = useCallback((action: string, err: unknown) => {
+        statusError(`Sample Rack: ${action}: ${errorMessage(err)}`);
+    }, [statusError]);
     const handleDropSample = useCallback(async (padIndex: number, samplePath: string) => {
         try {
             const response = await engineApi.setSampleRackPadSampleWithDeltas(trackId, padIndex, samplePath);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:drop-sample');
+            statusClear();
         } catch (err) {
-            console.error('[SampleRack] Failed to set pad sample:', err);
+            reportRackError('failed to set pad sample', err);
         }
-    }, [trackId]);
-
+    }, [trackId, reportRackError, statusClear]);
     const handleClearPad = useCallback(async (padIndex: number) => {
         try {
             const response = await engineApi.setSampleRackPadSampleWithDeltas(trackId, padIndex, '');
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'sample-rack:clear-sample');
+            statusClear();
         } catch (err) {
-            console.error('[SampleRack] Failed to clear pad:', err);
+            reportRackError('failed to clear pad', err);
         }
-    }, [trackId]);
-
+    }, [trackId, reportRackError, statusClear]);
     const pad: SampleRackPadConfig | undefined = rackConfig.pads[selectedPad];
-
     const setVolume = useCallback((v: number) => {
-        engineApi.setSampleRackPadVolumeCmd?.(trackId, selectedPad, v).catch(console.error);
-    }, [trackId, selectedPad]);
-
+        void engineApi.setSampleRackPadVolumeCmd?.(trackId, selectedPad, v)
+            ?.catch((err) => reportRackError('failed to set volume', err));
+    }, [trackId, selectedPad, reportRackError]);
     const setAdsr = useCallback((a: number, d: number, s: number, r: number) => {
-        engineApi.setSampleRackPadAdsrCmd?.(trackId, selectedPad, a, d, s, r).catch(console.error);
-    }, [trackId, selectedPad]);
-
+        void engineApi.setSampleRackPadAdsrCmd?.(trackId, selectedPad, a, d, s, r)
+            ?.catch((err) => reportRackError('failed to set ADSR', err));
+    }, [trackId, selectedPad, reportRackError]);
     const setFilterCutoff = useCallback((cutoff: number) => {
-        engineApi.setSampleRackPadFilterCutoffCmd?.(trackId, selectedPad, cutoff).catch(console.error);
-    }, [trackId, selectedPad]);
-
+        void engineApi.setSampleRackPadFilterCutoffCmd?.(trackId, selectedPad, cutoff)
+            ?.catch((err) => reportRackError('failed to set filter cutoff', err));
+    }, [trackId, selectedPad, reportRackError]);
     const toggleMute = useCallback(() => {
         if (!pad) return;
-        engineApi.setSampleRackPadMuteCmd?.(trackId, selectedPad, !pad.is_muted).catch(console.error);
-    }, [trackId, selectedPad, pad]);
-
+        void engineApi.setSampleRackPadMuteCmd?.(trackId, selectedPad, !pad.is_muted)
+            ?.catch((err) => reportRackError('failed to toggle mute', err));
+    }, [trackId, selectedPad, pad, reportRackError]);
     const toggleSolo = useCallback(() => {
         if (!pad) return;
-        engineApi.setSampleRackPadSoloCmd?.(trackId, selectedPad, !pad.is_soloed).catch(console.error);
-    }, [trackId, selectedPad, pad]);
-
+        void engineApi.setSampleRackPadSoloCmd?.(trackId, selectedPad, !pad.is_soloed)
+            ?.catch((err) => reportRackError('failed to toggle solo', err));
+    }, [trackId, selectedPad, pad, reportRackError]);
     return (
         <div style={{
             display: 'flex', height: '100%', gap: 0,
@@ -98,7 +100,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                     const hasSample = !!p?.sample_path;
                     const fileName = p?.sample_path?.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
                     const pc = PAD_COLORS[i] ?? 'var(--token-color-hex-5ce0a6)';
-
                     return (
                         <div
                             key={i}
@@ -138,7 +139,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             }}>
                                 {i + 1}
                             </span>
-
                             {/* Mute/Solo indicators */}
                             {p?.is_muted && (
                                 <span style={{
@@ -152,7 +152,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                     fontSize: 7, color: 'var(--token-color-hex-f0c430)', fontWeight: 700,
                                 }}>S</span>
                             )}
-
                             {/* Waveform or pad name */}
                             {hasSample && p?.sample_path ? (
                                 <PadWaveform samplePath={p.sample_path} />
@@ -170,7 +169,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                     );
                 })}
             </div>
-
             {/* ── RIGHT: Pad Detail Panel (Sampler UI) ── */}
             <div style={{
                 flex: 1, minWidth: 0,
@@ -233,7 +231,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 </button>
                             )}
                         </div>
-
                         {/* Knobs Grid */}
                         <div style={{
                             display: 'flex', flexWrap: 'wrap', gap: 8,
@@ -254,7 +251,6 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 compact onChange={(_, v) => setAdsr(pad.attack ?? 0.005, pad.decay ?? 0.1, pad.sustain ?? 1, v)} />
                             <PluginKnob param={{ name: 'Cutoff', value: pad.filter_cutoff ?? 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 }}
                                 compact onChange={(_, v) => setFilterCutoff(v)} />
-
                             {/* Mute/Solo */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleMute} style={{

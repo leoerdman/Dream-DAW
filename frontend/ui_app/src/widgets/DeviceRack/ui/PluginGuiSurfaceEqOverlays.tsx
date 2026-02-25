@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
     EQ_FILTER_LABELS,
     EQ_FILTER_TYPE_TO_INDEX,
@@ -161,7 +162,7 @@ export function EqBandContextMenu({
         Math.min(eqContextMenu.y, viewportH - MENU_HEIGHT - SAFE_MARGIN),
     );
 
-    return (
+    return createPortal(
         <div
             style={{
                 position: 'fixed',
@@ -212,6 +213,7 @@ export function EqBandContextMenu({
                     {label}
                 </div>
             ))}
-        </div>
+        </div>,
+        document.body,
     );
 }

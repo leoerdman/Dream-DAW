@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 type BottomPanelMode = 'rack' | 'clip' | 'mixer';
 type ImportFileFn = (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
@@ -38,46 +39,40 @@ export function useDawShellGlobalShortcuts(args: {
                 window.dispatchEvent(new CustomEvent('dream:open-export'));
             });
         };
-
         const isEditableTarget = (target: EventTarget | null): boolean => {
             const el = target as HTMLElement | null;
             if (!el) return false;
             const tag = el.tagName?.toLowerCase();
             return tag === 'input' || tag === 'textarea' || el.isContentEditable;
         };
-
         const isMod = (e: KeyboardEvent): boolean => e.metaKey || e.ctrlKey;
         const isExportShortcut = (e: KeyboardEvent): boolean => {
             if (!isMod(e) || !e.shiftKey || e.altKey) return false;
             const key = (e.key || '').toLowerCase();
             return e.code === 'KeyR' || key === 'r' || key === 'к';
         };
-
+        const isTabPress = (e: KeyboardEvent): boolean => e.code === 'Tab' || e.key === 'Tab';
         const handler = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.isComposing) return;
-
             // Ableton-like behavior: Tab shortcuts switch DAW views regardless of focused field.
-            if (e.key === 'Tab' && e.shiftKey && !isMod(e) && !e.altKey) {
+            if (isTabPress(e) && e.shiftKey && !isMod(e) && !e.altKey) {
                 e.preventDefault();
                 setBottomPanelModeForActiveTrack((prev) => {
                     return prev === 'rack' ? 'clip' : 'rack';
                 });
                 return;
             }
-
-            if (e.key === 'Tab' && !e.shiftKey && !isMod(e) && !e.altKey) {
+            if (isTabPress(e) && !e.shiftKey && !isMod(e) && !e.altKey) {
                 e.preventDefault();
                 setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
                 return;
             }
-
             if (isMod(e) && !e.shiftKey && !e.altKey && e.code === 'Comma') {
                 e.preventDefault();
                 e.stopPropagation();
                 setSettingsOpen((prev) => !prev);
                 return;
             }
-
             // Export shortcut (Cmd/Ctrl+Shift+R).
             if (isExportShortcut(e)) {
                 e.preventDefault();
@@ -85,9 +80,7 @@ export function useDawShellGlobalShortcuts(args: {
                 openExportPanel();
                 return;
             }
-
             if (isEditableTarget(e.target)) return;
-
             // Reload shortcut uses Cmd/Ctrl+Alt+R to avoid conflicts with export (Cmd/Ctrl+Shift+R).
             if (isMod(e) && !e.shiftKey && e.altKey && e.code === 'KeyR') {
                 e.preventDefault();
@@ -95,7 +88,6 @@ export function useDawShellGlobalShortcuts(args: {
                 window.location.reload();
                 return;
             }
-
             // Backward-compatible export shortcut.
             if (isMod(e) && e.shiftKey && !e.altKey && e.code === 'KeyE') {
                 e.preventDefault();
@@ -103,33 +95,25 @@ export function useDawShellGlobalShortcuts(args: {
                 openExportPanel();
                 return;
             }
-
             if (e.code === 'KeyA' && !isMod(e) && !e.altKey && !e.shiftKey) {
                 if (isEditableTarget(e.target)) return;
                 e.preventDefault();
                 useAutomationStore.getState().toggleGlobalVisible();
             }
         };
-
         window.addEventListener('keydown', handler, { capture: true });
-        document.addEventListener('keydown', handler, { capture: true });
         return () => {
             window.removeEventListener('keydown', handler, { capture: true } as EventListenerOptions);
-            document.removeEventListener('keydown', handler, {
-                capture: true,
-            } as EventListenerOptions);
         };
     }, [setBottomPanelModeForActiveTrack, setSettingsOpen, setExportOpen, setMainViewMode]);
 }
-
 export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: React.MutableRefObject<boolean>): void {
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         let cancelled = false;
-
         const setup = async () => {
             const unlistenHover = await listen('tauri://drag-over', () => {
-                if (!window.__dreamInAppDrag) {
+                if (!dreamGlobals.isInAppDrag()) {
                     // no-op
                 }
             });
@@ -159,13 +143,11 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                     importingRef.current = false;
                 }
             });
-
             const combinedUnlisten = () => {
                 unlistenHover();
                 unlistenLeave();
                 unlistenDrop();
             };
-
             if (cancelled) {
                 combinedUnlisten();
             } else {
@@ -179,7 +161,6 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
         };
     }, [importFile, importingRef]);
 }
-
 export function useSelectedTrackConsistency(args: {
     selectedTrackIds: string[];
     selectedTrackId: string;
@@ -192,7 +173,6 @@ export function useSelectedTrackConsistency(args: {
         }
     }, [selectedTrackIds, selectedTrackId, setSelectedTrackId]);
 }
-
 export function useAudioFailoverRecovery(args: {
     recoveringAudioRef: React.MutableRefObject<boolean>;
     lastAudioRecoverAtRef: React.MutableRefObject<number>;
@@ -201,25 +181,20 @@ export function useAudioFailoverRecovery(args: {
     useEffect(() => {
         let unlisten: (() => void) | null = null;
         let cancelled = false;
-
         const setup = async () => {
             const fn = await listen<{ error?: string }>('audio-stream-error', async (event) => {
                 const now = Date.now();
                 if (recoveringAudioRef.current) return;
                 if (now - lastAudioRecoverAtRef.current < 3000) return;
-
                 recoveringAudioRef.current = true;
                 lastAudioRecoverAtRef.current = now;
-
                 try {
                     const settings = await engineApi.getSettings();
                     const fallback = settings.fallbackOutputDevice || 'Default Output';
                     const resolved = await engineApi.restartAudioEngine(fallback);
-
                     if (settings.outputDevice !== resolved) {
                         await engineApi.updateSettings({ ...settings, outputDevice: resolved });
                     }
-
                     console.warn('[DawShell] Audio stream recovered via fallback:', {
                         streamError: event.payload?.error,
                         requestedFallback: fallback,
@@ -233,7 +208,6 @@ export function useAudioFailoverRecovery(args: {
             });
             if (cancelled) fn(); else unlisten = fn;
         };
-
         void setup();
         return () => {
             cancelled = true;
@@ -241,7 +215,6 @@ export function useAudioFailoverRecovery(args: {
         };
     }, [lastAudioRecoverAtRef, recoveringAudioRef]);
 }
-
 export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
     useEffect(() => {
         startTelemetryLoop();
@@ -257,19 +230,16 @@ export function useTelemetryBootstrap(startTelemetryLoop: () => void): void {
         return () => clearInterval(retryId);
     }, [startTelemetryLoop]);
 }
-
 export function useInitialLayoutSync(): void {
     useEffect(() => {
         const id = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
         return () => cancelAnimationFrame(id);
     }, []);
 }
-
 export function useAlsImportSummaryStatus(): void {
     useEffect(() => {
         let unlisten: (() => void) | null = null;
         let cancelled = false;
-
         const setup = async () => {
             const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
                 const p = event.payload;
@@ -290,7 +260,6 @@ export function useAlsImportSummaryStatus(): void {
             });
             if (cancelled) fn(); else unlisten = fn;
         };
-
         void setup();
         return () => {
             cancelled = true;

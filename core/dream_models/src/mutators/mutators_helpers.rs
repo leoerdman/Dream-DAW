@@ -39,7 +39,10 @@ pub fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f
     });
 }
 
-pub fn find_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {
+pub fn find_clip_location(
+    project: &Project,
+    clip_id: Uuid,
+) -> Result<(usize, usize), MutatorError> {
     for (track_idx, track) in project.tracks.iter().enumerate() {
         for (clip_idx, clip) in track.clips.iter().enumerate() {
             if clip.id == clip_id {
@@ -50,7 +53,10 @@ pub fn find_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, us
     Err(MutatorError::ClipNotFound(clip_id))
 }
 
-pub fn find_midi_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {
+pub fn find_midi_clip_location(
+    project: &Project,
+    clip_id: Uuid,
+) -> Result<(usize, usize), MutatorError> {
     for (track_idx, track) in project.tracks.iter().enumerate() {
         if let Some(clip_idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
             return Ok((track_idx, clip_idx));
@@ -59,7 +65,10 @@ pub fn find_midi_clip_location(project: &Project, clip_id: Uuid) -> Result<(usiz
     Err(MutatorError::ClipNotFound(clip_id))
 }
 
-pub fn find_and_remove_clip(project: &mut Project, clip_id: Uuid) -> Result<(usize, AudioClip), MutatorError> {
+pub fn find_and_remove_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+) -> Result<(usize, AudioClip), MutatorError> {
     for (track_idx, track) in project.tracks.iter_mut().enumerate() {
         if let Some(clip_idx) = track.clips.iter().position(|c| c.id == clip_id) {
             let clip = track.clips.remove(clip_idx);

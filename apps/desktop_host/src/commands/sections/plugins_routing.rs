@@ -82,24 +82,57 @@ fn get_plugin_slot_runtime_status_cmd(
 
     let slot_map = plugin_host_state.slot_instance_snapshot();
     let runtime_instance = slot_map.get(&slot.slot_id).copied();
-    let sandbox_loaded = plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .contains_key(&slot.plugin_id);
+    let (sandbox_loaded, sandbox_instance_for_key, sandbox_instance_ids) = {
+        let sandbox_map = plugin_host_state
+            .loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?;
+        (
+            sandbox_map.contains_key(&slot.plugin_id),
+            sandbox_map.get(&slot.plugin_id).copied(),
+            sandbox_map.values().copied().collect::<std::collections::HashSet<_>>(),
+        )
+    };
 
     if let Some(instance_id) = runtime_instance {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        let loaded = host.get_mut(instance_id).is_some();
-        let editor_supported = if loaded {
-            host.supports_editor(instance_id).unwrap_or(false)
-        } else {
-            false
-        };
-        let latency_frames = if loaded {
-            host.latency_samples(instance_id).ok()
-        } else {
-            None
+        let runtime_is_sandbox = sandbox_instance_for_key == Some(instance_id)
+            || sandbox_instance_ids.contains(&instance_id);
+        if runtime_is_sandbox {
+            return Ok(PluginSlotRuntimeStatus {
+                loaded: true,
+                editor_supported: true,
+                runtime: "sandbox".to_string(),
+                sidechain_ready: slot
+                    .supports_sidechain_input
+                    .unwrap_or(!slot.plugin_id.starts_with("internal://")),
+                latency_frames: Some(0),
+                message: None,
+            });
+        }
+
+        // RT-SAFETY FIX: Use try_lock() to avoid blocking the audio thread.
+        // This command fires on every track selection, competing for the host
+        // mutex with the audio callback. If we can't lock, return safe defaults
+        // — the slot map confirms the instance is bound.
+        let (loaded, editor_supported, latency_frames) = match plugin_host_state.host.try_lock() {
+            Ok(mut host) => {
+                let loaded = host.get_mut(instance_id).is_some();
+                let editor_supported = if loaded {
+                    host.supports_editor(instance_id).unwrap_or(false)
+                } else {
+                    false
+                };
+                let latency_frames = if loaded {
+                    host.latency_samples(instance_id).ok()
+                } else {
+                    None
+                };
+                (loaded, editor_supported, latency_frames)
+            }
+            Err(_) => {
+                // Host mutex is held — assume loaded since slot binding exists.
+                (true, true, Some(0))
+            }
         };
         return Ok(PluginSlotRuntimeStatus {
             loaded,
@@ -120,7 +153,7 @@ fn get_plugin_slot_runtime_status_cmd(
 
     Ok(PluginSlotRuntimeStatus {
         loaded: sandbox_loaded,
-        editor_supported: false,
+        editor_supported: sandbox_loaded,
         runtime: if sandbox_loaded {
             "sandbox".to_string()
         } else {
@@ -129,7 +162,7 @@ fn get_plugin_slot_runtime_status_cmd(
         sidechain_ready: slot.supports_sidechain_input.unwrap_or(!slot.plugin_id.starts_with("internal://")),
         latency_frames: None,
         message: if sandbox_loaded {
-            Some("Sandbox runtime active. Native plugin editor window is not available in this host path yet; use inline controls.".to_string())
+            None
         } else {
             Some("Plugin not activated yet".to_string())
         },

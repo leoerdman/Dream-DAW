@@ -12,7 +12,6 @@ interface SandboxSlotUpdateEvent {
     instanceId?: string;
     instanceIds?: string[];
 }
-
 let telemetryStarted = false;
 let telemetryUnlisten: UnlistenFn | null = null;
 let pluginSandboxUnlisten: UnlistenFn | null = null;
@@ -22,13 +21,11 @@ let pluginSandboxAutoBypassUnlisten: UnlistenFn | null = null;
 let pluginSandboxAutoRecoveredUnlisten: UnlistenFn | null = null;
 let pluginSandboxReloadedUnlisten: UnlistenFn | null = null;
 let telemetryMetersBinaryUnlisten: UnlistenFn | null = null;
-
 let bpmPendingUntil = 0;
 let meterFrameCounter = 0;
 let latestMeters: MeteringSnapshot | null = null;
 let smoothedMeters: MeteringSnapshot | null = null;
 let lastMeterTickMs = 0;
-
 export function resetTelemetryModuleState(): void {
     bpmPendingUntil = 0;
     meterFrameCounter = 0;
@@ -36,15 +33,12 @@ export function resetTelemetryModuleState(): void {
     smoothedMeters = null;
     lastMeterTickMs = 0;
 }
-
 export function markBpmPending(ms: number): void {
     bpmPendingUntil = performance.now() + ms;
 }
-
 export function readLatestMeters(fallback: MeteringSnapshot): MeteringSnapshot {
     return latestMeters ?? fallback;
 }
-
 export function createTelemetryActions(
     set: StoreApi<EngineStore>['setState'],
     get: StoreApi<EngineStore>['getState'],
@@ -54,11 +48,8 @@ export function createTelemetryActions(
         startTelemetryLoop: () => {
             if (telemetryStarted) return;
             telemetryStarted = true;
-            queueMicrotask(() => {
-                set({ telemetryRunning: true });
-            });
+            set({ telemetryRunning: true });
             let tickCounter = 0;
-
             void (async () => {
                 try {
                     telemetryUnlisten = await listen<{
@@ -78,11 +69,14 @@ export function createTelemetryActions(
                             if (tickCounter % PROJECT_HISTORY_SYNC_EVERY_TICKS === 0) {
                                 void get().syncProjectHistory();
                             }
-
                             const nextTransport = event.payload.transport;
                             const prev = get().transport;
                             const bpmProtected = performance.now() < bpmPendingUntil;
-                            const effectiveTransport = bpmProtected
+                            // BUG-B005 FIX: Only create a new object when the BPM
+                            // actually needs to be overridden. Previously spread
+                            // created a new object on every tick (~30Hz), triggering
+                            // unnecessary re-renders in all transport subscribers.
+                            const effectiveTransport = (bpmProtected && nextTransport.bpm !== prev.bpm)
                                 ? { ...nextTransport, bpm: prev.bpm }
                                 : nextTransport;
                             const transportChanged = prev.is_playing !== effectiveTransport.is_playing
@@ -91,14 +85,16 @@ export function createTelemetryActions(
                                 || prev.bpm !== effectiveTransport.bpm
                                 || prev.loop_enabled !== effectiveTransport.loop_enabled
                                 || prev.loop_start !== effectiveTransport.loop_start
-                                || prev.loop_end !== effectiveTransport.loop_end;
-
+                                || prev.loop_end !== effectiveTransport.loop_end
+                                || prev.time_sig_numerator !== effectiveTransport.time_sig_numerator
+                                || prev.time_sig_denominator !== effectiveTransport.time_sig_denominator;
                             if (transportChanged) {
                                 telemetryUpdate.transport = effectiveTransport;
+                                telemetryUpdate.timeSigNumerator = effectiveTransport.time_sig_numerator;
+                                telemetryUpdate.timeSigDenominator = effectiveTransport.time_sig_denominator;
                                 telemetryUpdate.connected = true;
                                 telemetryUpdate.lastError = null;
                             }
-
                             const perf = event.payload.performance;
                             telemetryUpdate.performance = {
                                 cpuUsage: perf.cpu_usage,
@@ -107,7 +103,6 @@ export function createTelemetryActions(
                                 processMemoryMb: perf.process_memory_mb,
                                 dspLoad: perf.dsp_load,
                             };
-
                             if (!get().connected && !telemetryUpdate.connected) {
                                 telemetryUpdate.connected = true;
                                 telemetryUpdate.lastError = null;
@@ -139,14 +134,12 @@ export function createTelemetryActions(
                             });
                         },
                     );
-
                     pluginSandboxUnlisten = await listen<PluginSandboxSnapshot>(
                         'plugin_sandbox_tick',
                         (event) => {
                             enqueuePendingStoreUpdate(set, { pluginSandbox: event.payload });
                         },
                     );
-
                     pluginSandboxCrashUnlisten = await listen<PluginCrashEvent>(
                         'plugin_sandbox_crashed',
                         (event) => {
@@ -174,7 +167,6 @@ export function createTelemetryActions(
                             });
                         },
                     );
-
                     pluginSandboxRecoveredUnlisten = await listen<PluginRecoveryEvent>(
                         'plugin_sandbox_recovered',
                         (event) => {
@@ -194,7 +186,6 @@ export function createTelemetryActions(
                             enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: null });
                         },
                     );
-
                     pluginSandboxAutoBypassUnlisten = await listen<SandboxSlotUpdateEvent>(
                         'plugin_sandbox_auto_bypass',
                         (event) => {
@@ -210,7 +201,6 @@ export function createTelemetryActions(
                             enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox });
                         },
                     );
-
                     pluginSandboxAutoRecoveredUnlisten = await listen<SandboxSlotUpdateEvent>(
                         'plugin_sandbox_auto_recovered',
                         (event) => {
@@ -227,7 +217,6 @@ export function createTelemetryActions(
                             enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: null });
                         },
                     );
-
                     pluginSandboxReloadedUnlisten = await listen<SandboxSlotUpdateEvent>(
                         'plugin_sandbox_reloaded',
                         (event) => {
@@ -252,7 +241,6 @@ export function createTelemetryActions(
                 }
             })();
         },
-
         stopTelemetryLoop: () => {
             telemetryStarted = false;
             set({ telemetryRunning: false });
@@ -273,7 +261,6 @@ export function createTelemetryActions(
             telemetryMetersBinaryUnlisten?.();
             telemetryMetersBinaryUnlisten = null;
         },
-
         reloadCrashedSandboxPlugins: async () => {
             const snapshot = get().pluginSandbox;
             if (!snapshot || !snapshot.enabled) return;

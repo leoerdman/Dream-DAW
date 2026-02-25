@@ -115,7 +115,9 @@ impl GateProcessor {
                 0.0
             };
             self.release_coeff = crate::processors::envelope_coeff(self.release_ms, sr);
-            self.hold_samples = (self.hold_ms * 0.001 * sr) as u32;
+            // BUG-C010 FIX: Use round() instead of truncation (`as u32`).
+            // At 44100Hz, hold_ms=50 → 2205.0 → truncated to 2204, losing 1 sample.
+            self.hold_samples = (self.hold_ms * 0.001 * sr).round() as u32;
             // BUG-FIX: The previous formula exp(-2πfc/fs) is a low-pass coefficient,
             // not a high-pass one. The filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])
             // requires α = 1/(1 + 2πfc/fs) for correct HP cut-off frequency.

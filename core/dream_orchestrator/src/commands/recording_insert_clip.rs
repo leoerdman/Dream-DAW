@@ -80,7 +80,11 @@ mod tests {
 
         let project = ctx.lock_project().expect("lock");
         // Verify clip went to the correct track (matched by UUID)
-        let target_track = project.tracks.iter().find(|t| t.id.to_string() == target_id).expect("target track");
+        let target_track = project
+            .tracks
+            .iter()
+            .find(|t| t.id.to_string() == target_id)
+            .expect("target track");
         let clip = target_track.clips.last().expect("clip");
         assert_eq!(clip.file_path, "/tmp/recorded.wav");
         assert_eq!(clip.position.sample_frame, 256);

@@ -10,8 +10,8 @@ interface ModalOverlayProps {
     children: ReactNode;
     /** Called when clicking the backdrop (not the panel). Pass undefined to disable. */
     onBackdropClick?: () => void;
-    /** z-index token string, e.g. 'var(--z-modal)'. Defaults to --z-modal. */
-    zIndex?: string;
+    /** z-index token string or number, e.g. 'var(--z-modal)'. Defaults to --z-modal. */
+    zIndex?: number | string;
     /** Whether to render. Controls mount/unmount. */
     open: boolean;
     /** Optional blur amount for backdrop. Defaults to token-driven value. */
@@ -20,14 +20,14 @@ interface ModalOverlayProps {
     labelId?: string;
 }
 
-const overlayStyle = (zIndex: string, blur: string): CSSProperties => ({
+const overlayStyle = (zIndex: number | string, blur: string): CSSProperties => ({
     position: 'fixed',
     inset: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     background: 'var(--color-overlay-modal)',
-    zIndex: zIndex as unknown as number,
+    zIndex,
     backdropFilter: `blur(${blur})`,
     WebkitBackdropFilter: `blur(${blur})`,
 });

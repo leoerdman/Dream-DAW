@@ -103,7 +103,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                 border: 'var(--space-px) solid var(--color-divider)',
                                 borderRadius: 'var(--radius-md)',
                                 boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
-                                zIndex: 'var(--z-tooltip)' as unknown as number,
+                                zIndex: 'var(--z-tooltip)',
                                 padding: 8,
                                 display: 'grid',
                                 gridTemplateColumns: '1fr 1fr',
@@ -201,7 +201,7 @@ export function TransportLeftSection(props: TransportLeftSectionProps) {
                                 border: 'var(--space-px) solid var(--color-divider)',
                                 borderRadius: 'var(--radius-md)',
                                 boxShadow: '0 var(--space-2) var(--token-size-px-18) var(--color-overlay-dark)',
-                                zIndex: 'var(--z-tooltip)' as unknown as number,
+                                zIndex: 'var(--z-tooltip)',
                                 padding: 'var(--space-1) 0',
                             }}
                         >

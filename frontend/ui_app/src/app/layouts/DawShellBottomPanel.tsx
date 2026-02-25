@@ -137,7 +137,7 @@ export function DawShellBottomPanel({
                         right: 0,
                         height: 8,
                         cursor: 'ns-resize',
-                        zIndex: 'var(--z-modal)' as unknown as number,
+                        zIndex: 'var(--z-modal)',
                         background: 'transparent',
                         touchAction: 'none',
                     }}

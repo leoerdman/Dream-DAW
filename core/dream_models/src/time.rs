@@ -33,6 +33,34 @@ use crate::pulse_map::PulseMap;
 /// swung 16ths (÷6), and 32nd notes (÷8).
 pub const PPQN: u32 = 960;
 
+#[inline]
+fn clamp_f64_to_i64(value: f64) -> i64 {
+    if !value.is_finite() {
+        return 0;
+    }
+    if value > i64::MAX as f64 {
+        i64::MAX
+    } else if value < i64::MIN as f64 {
+        i64::MIN
+    } else {
+        value as i64
+    }
+}
+
+#[inline]
+fn clamp_f64_to_u32(value: f64) -> u32 {
+    if !value.is_finite() {
+        return 0;
+    }
+    if value <= 0.0 {
+        0
+    } else if value >= u32::MAX as f64 {
+        u32::MAX
+    } else {
+        value as u32
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // AbsoluteTime — Sample-Accurate Clock (i64 SSOT)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -67,8 +95,12 @@ impl AbsoluteTime {
     /// Creates from seconds and sample rate (convenience for audio file import).
     #[inline]
     pub fn from_seconds(seconds: f64, sample_rate: f64) -> Self {
+        if !seconds.is_finite() || !sample_rate.is_finite() {
+            return Self::ZERO;
+        }
+        let frames = (seconds * sample_rate).round();
         Self {
-            sample_frame: (seconds * sample_rate) as i64,
+            sample_frame: clamp_f64_to_i64(frames),
         }
     }
 
@@ -102,14 +134,14 @@ impl AbsoluteTime {
     #[inline]
     pub const fn advanced(self, samples: i64) -> Self {
         Self {
-            sample_frame: self.sample_frame + samples,
+            sample_frame: self.sample_frame.saturating_add(samples),
         }
     }
 
     /// Returns the distance in samples from `self` to `other`.
     #[inline]
     pub const fn distance_to(self, other: Self) -> i64 {
-        other.sample_frame - self.sample_frame
+        other.sample_frame.saturating_sub(self.sample_frame)
     }
 }
 
@@ -125,7 +157,7 @@ impl std::ops::Add<i64> for AbsoluteTime {
     type Output = Self;
     #[inline]
     fn add(self, rhs: i64) -> Self {
-        Self::new(self.sample_frame + rhs)
+        Self::new(self.sample_frame.saturating_add(rhs))
     }
 }
 
@@ -133,7 +165,7 @@ impl std::ops::Sub<i64> for AbsoluteTime {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: i64) -> Self {
-        Self::new(self.sample_frame - rhs)
+        Self::new(self.sample_frame.saturating_sub(rhs))
     }
 }
 
@@ -141,21 +173,21 @@ impl std::ops::Sub for AbsoluteTime {
     type Output = i64;
     #[inline]
     fn sub(self, rhs: Self) -> i64 {
-        self.sample_frame - rhs.sample_frame
+        self.sample_frame.saturating_sub(rhs.sample_frame)
     }
 }
 
 impl std::ops::AddAssign<i64> for AbsoluteTime {
     #[inline]
     fn add_assign(&mut self, rhs: i64) {
-        self.sample_frame += rhs;
+        self.sample_frame = self.sample_frame.saturating_add(rhs);
     }
 }
 
 impl std::ops::SubAssign<i64> for AbsoluteTime {
     #[inline]
     fn sub_assign(&mut self, rhs: i64) {
-        self.sample_frame -= rhs;
+        self.sample_frame = self.sample_frame.saturating_sub(rhs);
     }
 }
 
@@ -215,7 +247,7 @@ impl TimePosition {
     #[inline]
     pub fn to_samples(self, bpm: f64, sample_rate: f64) -> i64 {
         let seconds = self.to_seconds(bpm);
-        (seconds * sample_rate).round() as i64
+        clamp_f64_to_i64((seconds * sample_rate).round())
     }
 
     /// Creates from sample count at a given BPM and sample rate.
@@ -240,18 +272,18 @@ impl TimePosition {
     pub fn formatted(self, beats_per_bar: u32) -> String {
         let total_beats = self.beats.max(0.0);
         let bpb = beats_per_bar.max(1) as f64;
-        let bar = (total_beats / bpb) as u32 + 1;
-        let beat = (total_beats % bpb) as u32 + 1;
-        let tick = ((total_beats - total_beats.floor()) * PPQN as f64) as u32;
+        let bar = clamp_f64_to_u32((total_beats / bpb).floor()).saturating_add(1);
+        let beat = clamp_f64_to_u32((total_beats % bpb).floor()).saturating_add(1);
+        let tick = clamp_f64_to_u32(((total_beats - total_beats.floor()) * PPQN as f64).floor());
         format!("{bar}.{beat}.{tick:03}")
     }
 
     /// Formats as `MM:SS.mmm` (e.g., `01:23.456`).
     pub fn formatted_time(self, bpm: f64) -> String {
         let total_seconds = self.to_seconds(bpm).max(0.0);
-        let minutes = (total_seconds / 60.0) as u32;
-        let seconds = (total_seconds % 60.0) as u32;
-        let millis = ((total_seconds - total_seconds.floor()) * 1000.0) as u32;
+        let minutes = clamp_f64_to_u32((total_seconds / 60.0).floor());
+        let seconds = clamp_f64_to_u32((total_seconds % 60.0).floor());
+        let millis = clamp_f64_to_u32(((total_seconds - total_seconds.floor()) * 1000.0).floor());
         format!("{minutes}:{seconds:02}.{millis:03}")
     }
 }

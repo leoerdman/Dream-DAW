@@ -16,8 +16,6 @@ interface TimelineMasterLaneProps {
     loopRightX: number;
     loopStartLineX: number;
     loopEndLineX: number;
-    playheadVisible: boolean;
-    playheadLineX: number;
     regionEdit: {
         trackHeight: number;
         regionA: TimelineRegion;
@@ -49,8 +47,6 @@ export function TimelineMasterLane({
     loopRightX,
     loopStartLineX,
     loopEndLineX,
-    playheadVisible,
-    playheadLineX,
     regionEdit,
 }: TimelineMasterLaneProps) {
     const lineLeft = (x: number, width: number): number => x - width / 2;
@@ -67,7 +63,7 @@ export function TimelineMasterLane({
                 ...masterLaneGridStyle,
                 pointerEvents: 'none',
                 position: 'relative',
-                zIndex: 'var(--z-timeline-overlays)' as unknown as number,
+                zIndex: 'var(--z-timeline-overlays)',
             }}
         >
             {masterLaneGridLines.subLines.map((x) => (
@@ -136,34 +132,30 @@ export function TimelineMasterLane({
                     />
                 </>
             )}
-            {playheadVisible && (
-                <>
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            bottom: 0,
-                            left: `calc(var(--master-playhead-x, ${playheadLineX}px) - 1.5px)`,
-                            width: 3,
-                            background: 'var(--color-timeline-playhead-glow)',
-                            pointerEvents: 'none',
-                            opacity: `var(--master-playhead-visible, ${playheadVisible ? 1 : 0})`,
-                        }}
-                    />
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: 0,
-                            bottom: 0,
-                            left: `calc(var(--master-playhead-x, ${playheadLineX}px) - 0.5px)`,
-                            width: 1,
-                            background: 'var(--color-timeline-playhead)',
-                            pointerEvents: 'none',
-                            opacity: `var(--master-playhead-visible, ${playheadVisible ? 1 : 0})`,
-                        }}
-                    />
-                </>
-            )}
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 'calc(var(--master-playhead-x, 0px) - 1.5px)',
+                    width: 3,
+                    background: 'var(--color-timeline-playhead-glow)',
+                    pointerEvents: 'none',
+                    opacity: 'var(--master-playhead-visible, 0)',
+                }}
+            />
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 'calc(var(--master-playhead-x, 0px) - 0.5px)',
+                    width: 1,
+                    background: 'var(--color-timeline-playhead)',
+                    pointerEvents: 'none',
+                    opacity: 'var(--master-playhead-visible, 0)',
+                }}
+            />
             <TimelineRegionOverlay
                 trackHeight={regionEdit.trackHeight}
                 regionA={regionEdit.regionA}

@@ -1,723 +1,42 @@
-export type PluginFormat = 'INT' | 'VST2' | 'VST3' | 'AU';
-export type PluginCategory = 'instrument' | 'effect' | 'midi-fx';
-export type DeviceEffectType =
-    | 'eq'
-    | 'compressor'
-    | 'delay'
-    | 'reverb'
-    | 'chorus'
-    | 'utility'
-    | 'limiter'
-    | 'gate'
-    | 'autoFilter'
-    | 'autoPan'
-    | 'phaser'
-    | 'flanger'
-    | 'distortion'
-    | 'bitcrusher'
-    | 'noiseMachine'
-    | 'analyzer'
-    | 'spectrum'
-    | 'midiPitch'
-    | 'midiScale'
-    | 'midiChord'
-    | 'midiNoteLength'
-    | 'midiCcControl'
-    | 'midiExpressionControl'
-    | 'midiArpeggiator'
-    | 'midiVelocity'
-    | 'midiRandom'
-    | 'vst'
-    | 'instrument'
-    | 'sampler'
-    | 'sample_rack'
-    | 'saturator'
-    | 'waveSynth'
-    | 'rack';
-export interface PluginManifestEntry {
-    id: string;
-    name: string;
-    category: PluginCategory;
-    effectType: DeviceEffectType;
-    format: PluginFormat;
-    hasEditor: boolean;
-    cardWidth: number;
-    supportsSettings: boolean;
-    supportsSidechain: boolean;
-}
+import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';
+import { INTERNAL_PLUGINS_PART_1 } from '@/shared/config/pluginManifest.internal.part1';
+import { INTERNAL_PLUGINS_PART_2 } from '@/shared/config/pluginManifest.internal.part2';
+import { INTERNAL_PLUGINS_PART_3 } from '@/shared/config/pluginManifest.internal.part3';
+import type {
+    DeviceEffectType,
+    PluginCategory,
+    PluginFormat,
+    PluginManifestEntry,
+    ResolvedPlugin,
+} from '@/shared/config/pluginManifest.types';
+
+export type {
+    DeviceEffectType,
+    PluginCategory,
+    PluginFormat,
+    PluginManifestEntry,
+    ResolvedPlugin,
+} from '@/shared/config/pluginManifest.types';
+
 const INTERNAL_PLUGINS: PluginManifestEntry[] = [
-    {
-        id: 'internal://instrument/wave-synth',
-        name: 'Wave Synth',
-        category: 'instrument',
-        effectType: 'waveSynth',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 980,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://instrument/sampler',
-        name: 'Sampler',
-        category: 'instrument',
-        effectType: 'sampler',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 720,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://instrument/sample-rack',
-        name: 'Sample Rack',
-        category: 'instrument',
-        effectType: 'sample_rack',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 720,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/eq-eight',
-        name: 'EQ Eight',
-        category: 'effect',
-        effectType: 'eq',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 860,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/channel-eq',
-        name: 'Channel EQ',
-        category: 'effect',
-        effectType: 'eq',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 860,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/eq-three',
-        name: 'EQ Three',
-        category: 'effect',
-        effectType: 'eq',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 860,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/compressor',
-        name: 'Compressor',
-        category: 'effect',
-        effectType: 'compressor',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: true,
-    },
-    {
-        id: 'internal://effect/glue-compressor',
-        name: 'Glue Compressor',
-        category: 'effect',
-        effectType: 'compressor',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: true,
-    },
-    {
-        id: 'internal://effect/multiband-dynamics',
-        name: 'Multiband Dynamics',
-        category: 'effect',
-        effectType: 'compressor',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: true,
-    },
-    {
-        id: 'internal://effect/transient-shaper',
-        name: 'Transient Shaper',
-        category: 'effect',
-        effectType: 'compressor',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/limiter',
-        name: 'Limiter',
-        category: 'effect',
-        effectType: 'limiter',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/gate',
-        name: 'Gate',
-        category: 'effect',
-        effectType: 'gate',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 340,
-        supportsSettings: true,
-        supportsSidechain: true,
-    },
-    {
-        id: 'internal://effect/delay',
-        name: 'Delay',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/simple-delay',
-        name: 'Simple Delay',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/filter-delay',
-        name: 'Filter Delay',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/echo',
-        name: 'Echo',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/grain-delay',
-        name: 'Grain Delay',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/beat-repeat',
-        name: 'Beat Repeat',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/looper',
-        name: 'Looper',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/spectral-time',
-        name: 'Spectral Time',
-        category: 'effect',
-        effectType: 'delay',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/reverb',
-        name: 'Reverb',
-        category: 'effect',
-        effectType: 'reverb',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/hybrid-reverb',
-        name: 'Hybrid Reverb',
-        category: 'effect',
-        effectType: 'reverb',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/corpus',
-        name: 'Corpus',
-        category: 'effect',
-        effectType: 'reverb',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/resonators',
-        name: 'Resonators',
-        category: 'effect',
-        effectType: 'reverb',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/spectral-resonator',
-        name: 'Spectral Resonator',
-        category: 'effect',
-        effectType: 'reverb',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/chorus',
-        name: 'Chorus',
-        category: 'effect',
-        effectType: 'chorus',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/auto-filter',
-        name: 'Auto Filter',
-        category: 'effect',
-        effectType: 'autoFilter',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/vocoder',
-        name: 'Vocoder',
-        category: 'effect',
-        effectType: 'autoFilter',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/auto-pan',
-        name: 'Auto Pan',
-        category: 'effect',
-        effectType: 'autoPan',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/phaser',
-        name: 'Phaser',
-        category: 'effect',
-        effectType: 'phaser',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/phaser-flanger',
-        name: 'Phaser-Flanger',
-        category: 'effect',
-        effectType: 'phaser',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/flanger',
-        name: 'Flanger',
-        category: 'effect',
-        effectType: 'flanger',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/saturator',
-        name: 'Saturator',
-        category: 'effect',
-        effectType: 'saturator',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/drum-buss',
-        name: 'Drum Buss',
-        category: 'effect',
-        effectType: 'saturator',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/dynamic-tube',
-        name: 'Dynamic Tube',
-        category: 'effect',
-        effectType: 'saturator',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/distortion',
-        name: 'Distortion',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/amp',
-        name: 'Amp',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/cabinet',
-        name: 'Cabinet',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/overdrive',
-        name: 'Overdrive',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/pedal',
-        name: 'Pedal',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/roar',
-        name: 'Roar',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/erosion',
-        name: 'Erosion',
-        category: 'effect',
-        effectType: 'distortion',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/bitcrusher',
-        name: 'Bitcrusher',
-        category: 'effect',
-        effectType: 'bitcrusher',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/utility',
-        name: 'Utility',
-        category: 'effect',
-        effectType: 'utility',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/tuner',
-        name: 'Tuner',
-        category: 'effect',
-        effectType: 'utility',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/auto-shift',
-        name: 'Auto Shift',
-        category: 'effect',
-        effectType: 'utility',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/shifter',
-        name: 'Shifter',
-        category: 'effect',
-        effectType: 'utility',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/external-audio-effect',
-        name: 'External Audio Effect',
-        category: 'effect',
-        effectType: 'utility',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 360,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/noise-machine',
-        name: 'Noise Machine',
-        category: 'effect',
-        effectType: 'noiseMachine',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/spectrum',
-        name: 'Spectrum',
-        category: 'effect',
-        effectType: 'spectrum',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://effect/analyzer',
-        name: 'Analyzer',
-        category: 'effect',
-        effectType: 'analyzer',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 520,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/pitch',
-        name: 'MIDI Pitch',
-        category: 'midi-fx',
-        effectType: 'midiPitch',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/scale',
-        name: 'MIDI Scale',
-        category: 'midi-fx',
-        effectType: 'midiScale',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/chord',
-        name: 'Chord',
-        category: 'midi-fx',
-        effectType: 'midiChord',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/velocity',
-        name: 'MIDI Velocity',
-        category: 'midi-fx',
-        effectType: 'midiVelocity',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/note-length',
-        name: 'Note Length',
-        category: 'midi-fx',
-        effectType: 'midiNoteLength',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/cc-control',
-        name: 'CC Control',
-        category: 'midi-fx',
-        effectType: 'midiCcControl',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/expression-control',
-        name: 'Expression Control',
-        category: 'midi-fx',
-        effectType: 'midiExpressionControl',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/random',
-        name: 'MIDI Random',
-        category: 'midi-fx',
-        effectType: 'midiRandom',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
-    {
-        id: 'internal://midi-fx/arpeggiator',
-        name: 'Arpeggiator',
-        category: 'midi-fx',
-        effectType: 'midiArpeggiator',
-        format: 'INT',
-        hasEditor: false,
-        cardWidth: 320,
-        supportsSettings: true,
-        supportsSidechain: false,
-    },
+    ...INTERNAL_PLUGINS_PART_1,
+    ...INTERNAL_PLUGINS_PART_2,
+    ...INTERNAL_PLUGINS_PART_3,
 ];
+
 const INTERNAL_INDEX = new Map<string, PluginManifestEntry>();
 for (const entry of INTERNAL_PLUGINS) {
     INTERNAL_INDEX.set(entry.id, entry);
 }
+
 function detectFormat(pluginId: string): PluginFormat {
     const lower = pluginId.toLowerCase();
     if (lower.includes('.vst3') || lower.includes('vst3')) return 'VST3';
     if (lower.includes('.vst') || lower.includes('vst2')) return 'VST2';
     if (lower.includes('.component') || lower.includes('audiounit')) return 'AU';
-    return 'VST3'; // default for unknown external
+    return 'VST3';
 }
+
 function detectExternalEffectType(name: string, isInstrument: boolean): DeviceEffectType {
     if (isInstrument) return 'instrument';
     const n = name.toLowerCase();
@@ -745,6 +64,7 @@ function detectExternalEffectType(name: string, isInstrument: boolean): DeviceEf
     if (n.includes('expression control')) return 'midiExpressionControl';
     return 'vst';
 }
+
 const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     waveSynth: 560,
     sampler: 520,
@@ -779,16 +99,7 @@ const EFFECT_TYPE_DEFAULT_WIDTHS: Partial<Record<DeviceEffectType, number>> = {
     vst: 160,
     rack: 720,
 };
-export interface ResolvedPlugin {
-    effectType: DeviceEffectType;
-    format: PluginFormat;
-    hasEditor: boolean;
-    cardWidth: number;
-    supportsSettings: boolean;
-    supportsSidechain: boolean;
-    category: PluginCategory;
-    displayName: string;
-}
+
 export function resolvePlugin(
     pluginId: string,
     name: string,
@@ -809,26 +120,30 @@ export function resolvePlugin(
             displayName: internal.name,
         };
     }
+
     const format = source === 'internal' ? 'INT' as PluginFormat : detectFormat(pluginId);
     const isVstFormat = format === 'VST2' || format === 'VST3' || format === 'AU';
     const effectType = detectExternalEffectType(name, isInstrumentSlot);
     const category: PluginCategory = isInstrumentSlot ? 'instrument' : 'effect';
     const cardWidth = isVstFormat ? 200 : (EFFECT_TYPE_DEFAULT_WIDTHS[effectType] ?? 200);
+
     return {
         effectType,
         format,
-        hasEditor: isVstFormat, // All external VSTs have native editors
+        hasEditor: isVstFormat,
         cardWidth,
-        supportsSettings: true, // All plugins support settings panel
+        supportsSettings: true,
         supportsSidechain: effectType === 'compressor' || effectType === 'gate',
         category,
         displayName: name,
     };
 }
+
 export function getEffectTypeByPluginId(pluginId: string): DeviceEffectType | undefined {
     const normalizedInternalId = normalizeInternalPluginId(pluginId);
     return INTERNAL_INDEX.get(normalizedInternalId)?.effectType ?? INTERNAL_INDEX.get(pluginId)?.effectType;
 }
+
 export function formatBadgeColor(format: PluginFormat): string {
     switch (format) {
         case 'VST3': return 'var(--token-color-hex-2ecc71)';
@@ -837,4 +152,3 @@ export function formatBadgeColor(format: PluginFormat): string {
         case 'INT': return 'var(--color-text-tertiary)';
     }
 }
-import { normalizeInternalPluginId } from '@/shared/lib/internalPlugins';

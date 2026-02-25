@@ -13,7 +13,7 @@
 
 use std::ffi::{c_char, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use log::info;
 
@@ -636,14 +636,14 @@ const PARAM_RING_SIZE: usize = 1024;
 
 struct ParamEditEntry {
     param_id: AtomicU32,
-    value_bits: AtomicUsize,
+    value_bits: AtomicU64,
 }
 
 impl ParamEditEntry {
     const fn new() -> Self {
         Self {
             param_id: AtomicU32::new(0),
-            value_bits: AtomicUsize::new(0),
+            value_bits: AtomicU64::new(0),
         }
     }
 }
@@ -673,7 +673,7 @@ impl ParamEditRing {
             .store(param_id, Ordering::Relaxed);
         self.entries[head]
             .value_bits
-            .store(value.to_bits() as usize, Ordering::Relaxed);
+            .store(value.to_bits(), Ordering::Relaxed);
         self.head.store(next, Ordering::Release);
     }
 
@@ -687,7 +687,7 @@ impl ParamEditRing {
             }
             let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
             let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
-            f(pid, f64::from_bits(vbits as u64));
+            f(pid, f64::from_bits(vbits));
             self.tail
                 .store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
             count += 1;

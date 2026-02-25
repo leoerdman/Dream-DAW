@@ -60,6 +60,10 @@ export const seekToBeat = (beat: number) =>
 export const setBpm = (bpm: number) => invoke<void>('set_bpm', { bpm });
 export const setBpmWithDeltas = (bpm: number) =>
     invoke<DeltaMutationResponse>('set_bpm_with_deltas', { bpm });
+export const setTimeSignature = (numerator: number, denominator: number) =>
+    invoke<void>('set_time_signature', { numerator, denominator });
+export const setTimeSignatureWithDeltas = (numerator: number, denominator: number) =>
+    invoke<DeltaMutationResponse>('set_time_signature_with_deltas', { numerator, denominator });
 export const setLoop = (enabled: boolean, startFrames: number, endFrames: number) =>
     invoke<void>('set_loop', { enabled, startFrames, endFrames });
 export const setLoopWithDeltas = (enabled: boolean, startFrames: number, endFrames: number) =>
@@ -307,8 +311,6 @@ export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number 
         limit: options?.limit,
         sinceSeq: options?.sinceSeq,
     });
-export const getProjectSnapshotDelta = () =>
-    invoke<DeltaMutationResponse>('get_project_snapshot_delta');
 export const getPdcDebugSnapshot = () =>
     invoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
 export const getRtDebugSnapshot = () =>

@@ -17,6 +17,7 @@
 
 use crate::scheduler::LoopRegion;
 use dream_models::midi::MidiClip;
+use num_traits::ToPrimitive;
 
 /// A MIDI note event scheduled for the current buffer.
 ///
@@ -49,12 +50,29 @@ pub struct MidiScheduler;
 
 impl MidiScheduler {
     #[inline]
+    fn i64_nonneg_to_usize(value: i64) -> usize {
+        usize::try_from(value.max(0)).unwrap_or(usize::MAX)
+    }
+
+    #[inline]
+    fn velocity_with_fades(raw_velocity: u8, fade_gain: f64) -> u8 {
+        let scaled = (f64::from(raw_velocity) * fade_gain)
+            .round()
+            .clamp(0.0, 127.0);
+        scaled.to_u8().unwrap_or(127)
+    }
+
+    #[inline]
     fn note_uid(clip: &MidiClip, note: &dream_models::midi::MidiNote) -> u64 {
         let clip_u128 = clip.id.as_u128();
-        let mut x = (clip_u128 as u64) ^ ((clip_u128 >> 64) as u64);
-        x ^= (note.pitch as u64) << 56;
-        x ^= (note.start_frame as u64).rotate_left(17);
-        x ^= (note.duration_frames as u64).rotate_left(41);
+        let clip_lo = u64::try_from(clip_u128 & u128::from(u64::MAX)).unwrap_or(u64::MAX);
+        let clip_hi = u64::try_from(clip_u128 >> 64).unwrap_or(0);
+        let mut x = clip_lo ^ clip_hi;
+        x ^= u64::from(note.pitch) << 56;
+        let start = u64::try_from(note.start_frame).unwrap_or(0);
+        let duration = u64::try_from(note.duration_frames).unwrap_or(0);
+        x ^= start.rotate_left(17);
+        x ^= duration.rotate_left(41);
         // splitmix64 finalizer
         x ^= x >> 30;
         x = x.wrapping_mul(0xbf58476d1ce4e5b9);
@@ -115,7 +133,8 @@ impl MidiScheduler {
         out.clear();
         // BUG-021 FIX: saturating_add prevents i64 overflow in long sessions
         // (matching ClipScheduler::fill_active which already has this guard).
-        let buffer_end = playhead_pos.saturating_add(frame_count as i64);
+        let frame_count_i64 = i64::try_from(frame_count).unwrap_or(i64::MAX);
+        let buffer_end = playhead_pos.saturating_add(frame_count_i64);
 
         for clip in clips {
             // Skip muted clips — they remain visible but produce no MIDI output.
@@ -140,13 +159,13 @@ impl MidiScheduler {
                 }
 
                 let onset = if note_abs_start >= playhead_pos {
-                    (note_abs_start - playhead_pos) as usize
+                    Self::i64_nonneg_to_usize(note_abs_start - playhead_pos)
                 } else {
                     0
                 };
 
                 let offset_end = if note_abs_end <= buffer_end {
-                    (note_abs_end - playhead_pos) as usize
+                    Self::i64_nonneg_to_usize(note_abs_end - playhead_pos)
                 } else {
                     frame_count
                 };
@@ -154,10 +173,10 @@ impl MidiScheduler {
                 let is_note_on = note_abs_start >= playhead_pos && note_abs_start < buffer_end;
                 let is_note_off = note_abs_end > playhead_pos && note_abs_end <= buffer_end;
 
-                let clip_fade_in = clip.fade_in_frames.max(0) as f64;
-                let clip_fade_out = clip.fade_out_frames.max(0) as f64;
-                let clip_len = clip.duration.sample_frame.max(1) as f64;
-                let note_pos_in_clip = note.start_frame.max(0) as f64;
+                let clip_fade_in = clip.fade_in_frames.max(0).to_f64().unwrap_or(0.0);
+                let clip_fade_out = clip.fade_out_frames.max(0).to_f64().unwrap_or(0.0);
+                let clip_len = clip.duration.sample_frame.max(1).to_f64().unwrap_or(1.0);
+                let note_pos_in_clip = note.start_frame.max(0).to_f64().unwrap_or(0.0);
                 let fade_in_gain = if clip_fade_in > 0.0 {
                     (note_pos_in_clip / clip_fade_in).clamp(0.0, 1.0)
                 } else {
@@ -169,9 +188,8 @@ impl MidiScheduler {
                 } else {
                     1.0
                 };
-                let velocity_scaled = ((note.velocity as f64) * fade_in_gain.min(fade_out_gain))
-                    .round()
-                    .clamp(0.0, 127.0) as u8;
+                let velocity_scaled =
+                    Self::velocity_with_fades(note.velocity, fade_in_gain.min(fade_out_gain));
 
                 // AUD-208 FIX: Per MIDI 1.0 spec, velocity-0 note-on is note-off
                 // (Running Status optimization). Some MIDI files/controllers use this.
@@ -242,7 +260,8 @@ impl MidiScheduler {
             }
         };
 
-        let buffer_end = playhead_pos.saturating_add(frame_count as i64);
+        let frame_count_i64 = i64::try_from(frame_count).unwrap_or(i64::MAX);
+        let buffer_end = playhead_pos.saturating_add(frame_count_i64);
         // If the cursor is already at or past the loop end, play freely
         // without wrapping — the user has seeked outside the loop region.
         // Without this guard, the scheduler would erroneously wrap back
@@ -259,7 +278,7 @@ impl MidiScheduler {
         let mut current_buffer_offset = 0;
 
         while frames_remaining > 0 {
-            let frames_to_end = (lr.end - current_playhead).max(0) as usize;
+            let frames_to_end = Self::i64_nonneg_to_usize(lr.end - current_playhead);
             let chunk_frames = frames_remaining.min(frames_to_end);
 
             // STAGE3-02 FIX: Same infinite loop guard as scheduler.rs STAGE3-01.
@@ -293,7 +312,7 @@ impl MidiScheduler {
                         let note_abs_start = clip_start + note.start_frame;
                         let note_abs_end = clip_start + note.end_frame();
                         if note_abs_start < lr.end && note_abs_end > lr.end {
-                            let p = note.pitch as usize;
+                            let p = usize::from(note.pitch);
                             if !forced_off_by_pitch[p] {
                                 forced_off_by_pitch[p] = true;
                                 out.push(ScheduledNote {

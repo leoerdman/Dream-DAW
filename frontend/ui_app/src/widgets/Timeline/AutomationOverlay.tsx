@@ -121,7 +121,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 height: '100%',
                 pointerEvents: 'none',
                 overflow: 'hidden',
-                zIndex: 'var(--z-timeline-overlays)' as unknown as number,
+                zIndex: 'var(--z-timeline-overlays)',
             }}
         >
             {trackLanes.map(({ trackIndex, lanes: tLanes }) => {
@@ -155,10 +155,10 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                     top: 2,
                                     left: 8,
                                     fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                                    fontWeight: 'var(--font-weight-semibold)',
                                     color: lane.color,
                                     opacity: 0.8,
-                                    zIndex: 'var(--z-local)' as unknown as number,
+                                    zIndex: 'var(--z-local)',
                                     pointerEvents: 'none',
                                     textShadow: 'var(--text-shadow-dark)',
                                 }}

@@ -25,24 +25,26 @@ export function TimelineRegionOverlay({
     regionBEndLineX,
     beginRegionDrag,
 }: TimelineRegionOverlayProps) {
+    const lineColorA = 'color-mix(in srgb, var(--color-timeline-playhead) 78%, transparent)';
+    const lineColorB = 'color-mix(in srgb, var(--color-timeline-playhead) 56%, transparent)';
     return (
         <>
             {regionALineX != null && (
                 <>
-                    {regionAEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionAEndLineX, width: 1, background: 'var(--color-status-info)', opacity: 0.65, pointerEvents: 'none' }} />}
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionALineX, width: 1, background: 'var(--color-status-info)', opacity: 0.95, pointerEvents: 'none' }} />
-                    <button onMouseDown={(e) => beginRegionDrag('A', 'move', e)} style={{ position: 'absolute', left: regionALineX - 10, top: 2, width: 20, height: 14, borderRadius: 3, border: '1px solid color-mix(in srgb, var(--color-status-info) 75%, #000)', background: 'color-mix(in srgb, var(--color-status-info) 22%, var(--color-bg-elevated))', color: 'var(--color-text-primary)', fontSize: 10, lineHeight: '12px', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region A">A</button>
-                    <button onMouseDown={(e) => beginRegionDrag('A', 'resize-start', e)} style={{ position: 'absolute', left: regionALineX - 3, top: trackHeight - 13, width: 6, height: 10, borderRadius: 2, border: 'none', background: 'var(--color-status-info)', opacity: 0.9, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region A start" />
-                    {regionAEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('A', 'resize-end', e)} style={{ position: 'absolute', left: regionAEndLineX - 3, top: trackHeight - 13, width: 6, height: 10, borderRadius: 2, border: 'none', background: 'var(--color-status-info)', opacity: 0.9, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region A end" />}
+                    {regionAEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionAEndLineX, width: 1, background: lineColorA, opacity: 0.7, pointerEvents: 'none' }} />}
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionALineX, width: 1, background: lineColorA, opacity: 0.96, pointerEvents: 'none' }} />
+                    <button onMouseDown={(e) => beginRegionDrag('A', 'move', e)} style={{ position: 'absolute', left: regionALineX - 7, top: 2, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region" />
+                    <button onMouseDown={(e) => beginRegionDrag('A', 'resize-start', e)} style={{ position: 'absolute', left: regionALineX - 2, top: trackHeight - 12, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorA, opacity: 0.95, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region start" />
+                    {regionAEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('A', 'resize-end', e)} style={{ position: 'absolute', left: regionAEndLineX - 2, top: trackHeight - 12, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorA, opacity: 0.95, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region end" />}
                 </>
             )}
             {regionBLineX != null && (
                 <>
-                    {regionBEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBEndLineX, width: 1, background: 'var(--color-status-warning)', opacity: 0.65, pointerEvents: 'none' }} />}
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBLineX, width: 1, background: 'var(--color-status-warning)', opacity: 0.95, pointerEvents: 'none' }} />
-                    <button onMouseDown={(e) => beginRegionDrag('B', 'move', e)} style={{ position: 'absolute', left: regionBLineX - 10, top: 18, width: 20, height: 14, borderRadius: 3, border: '1px solid color-mix(in srgb, var(--color-status-warning) 75%, #000)', background: 'color-mix(in srgb, var(--color-status-warning) 24%, var(--color-bg-elevated))', color: 'var(--color-text-primary)', fontSize: 10, lineHeight: '12px', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region B">B</button>
-                    <button onMouseDown={(e) => beginRegionDrag('B', 'resize-start', e)} style={{ position: 'absolute', left: regionBLineX - 3, top: trackHeight - 25, width: 6, height: 10, borderRadius: 2, border: 'none', background: 'var(--color-status-warning)', opacity: 0.9, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region B start" />
-                    {regionBEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('B', 'resize-end', e)} style={{ position: 'absolute', left: regionBEndLineX - 3, top: trackHeight - 25, width: 6, height: 10, borderRadius: 2, border: 'none', background: 'var(--color-status-warning)', opacity: 0.9, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region B end" />}
+                    {regionBEndLineX != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBEndLineX, width: 1, background: lineColorB, opacity: 0.65, pointerEvents: 'none' }} />}
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: regionBLineX, width: 1, background: lineColorB, opacity: 0.92, pointerEvents: 'none' }} />
+                    <button onMouseDown={(e) => beginRegionDrag('B', 'move', e)} style={{ position: 'absolute', left: regionBLineX - 7, top: 18, width: 14, height: 12, borderRadius: 2, border: 'var(--space-px) solid color-mix(in srgb, var(--color-border-subtle) 84%, transparent)', background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)', cursor: 'ew-resize', pointerEvents: 'all' }} title="Drag Region" />
+                    <button onMouseDown={(e) => beginRegionDrag('B', 'resize-start', e)} style={{ position: 'absolute', left: regionBLineX - 2, top: trackHeight - 24, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorB, opacity: 0.92, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region start" />
+                    {regionBEndLineX != null && <button onMouseDown={(e) => beginRegionDrag('B', 'resize-end', e)} style={{ position: 'absolute', left: regionBEndLineX - 2, top: trackHeight - 24, width: 4, height: 10, borderRadius: 1, border: 'none', background: lineColorB, opacity: 0.92, cursor: 'ew-resize', pointerEvents: 'all' }} title="Resize Region end" />}
                 </>
             )}
         </>

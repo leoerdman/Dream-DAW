@@ -24,7 +24,7 @@ function patchSampleRackPad(
     padIndex: number,
     patch: Record<string, unknown>,
 ): boolean {
-    const track = state.tracksById[trackId];
+    const track = state.tracks.byId[trackId];
     if (!track || !track.sample_rack || !Array.isArray(track.sample_rack.pads)) return false;
     if (padIndex < 0 || padIndex >= track.sample_rack.pads.length) return false;
     const nextPads = track.sample_rack.pads.slice();
@@ -71,7 +71,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackSamplerSampleChanged') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         patchTrack(state, delta.data.track_id, {
             sampler: {
@@ -146,7 +146,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'AutomationPointsChanged') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         const lanePoints = delta.data.points.map((point) => ({
             beat: point.beat,
@@ -258,7 +258,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
     }
 
     if (delta.kind === 'TrackParentChanged') {
-        const track = state.tracksById[delta.data.track_id];
+        const track = state.tracks.byId[delta.data.track_id];
         if (!track) return true;
         patchTrack(state, delta.data.track_id, {
             parent_track_id: delta.data.parent_track_id,

@@ -4,13 +4,9 @@ import type { KeyboardShortcutsConfig, KeyboardShortcutRuntimeContext } from './
 import type { ShortcutActionId } from '@/shared/lib/shortcutBindings';
 import { DEFAULT_SHORTCUT_BINDINGS, isShortcutMatch } from '@/shared/lib/shortcutBindings';
 import { useShortcutStore } from '@/shared/stores/useShortcutStore';
+import { isMacDesktopPlatform } from '@/shared/lib/platform';
 
-const isMac = (() => {
-    if (typeof navigator === 'undefined') return false;
-    const uad = (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData;
-    if (uad?.platform) return uad.platform === 'macOS';
-    return /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent);
-})();
+const isMac = isMacDesktopPlatform();
 
 export function isModKey(e: KeyboardEvent): boolean {
     return isMac ? e.metaKey : e.ctrlKey;

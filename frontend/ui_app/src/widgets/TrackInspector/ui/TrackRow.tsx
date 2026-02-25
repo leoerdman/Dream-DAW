@@ -214,7 +214,7 @@ export const TrackRow = ({
                         position: 'absolute',
                         inset: 0,
                         pointerEvents: 'none',
-                        zIndex: 'var(--z-local-raised)' as unknown as number,
+                        zIndex: 'var(--z-local-raised)',
                         boxShadow:
                             'inset 0 0 0 var(--space-0-5) color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 var(--space-4) color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
                     }}

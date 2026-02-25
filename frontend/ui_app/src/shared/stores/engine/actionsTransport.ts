@@ -8,7 +8,7 @@ export function createTransportActions(
     markBpmPending: (ms: number) => void,
 ): Pick<
     EngineStore,
-    'togglePlay' | 'play' | 'stop' | 'setBpm' | 'seekSeconds' | 'seekToBeat' | 'setLoop' | 'setFrequency' | 'expandWindow'
+    'togglePlay' | 'play' | 'stop' | 'setBpm' | 'setTimeSignature' | 'seekSeconds' | 'seekToBeat' | 'setLoop' | 'setFrequency' | 'expandWindow'
 > {
     return {
         togglePlay: async () => {
@@ -56,6 +56,27 @@ export function createTransportActions(
             try {
                 const response = await engine.setBpmWithDeltas(clamped);
                 await get().applyProjectDeltas(response.deltas, 'setBpm');
+                set({ lastError: null });
+            } catch (e) {
+                set({ lastError: String(e) });
+            }
+        },
+
+        setTimeSignature: async (numerator: number, denominator: number) => {
+            const clampedNumerator = Math.max(1, Math.min(32, Math.round(numerator)));
+            const clampedDenominator = Math.max(1, Math.min(32, Math.round(denominator)));
+            set((s) => ({
+                timeSigNumerator: clampedNumerator,
+                timeSigDenominator: clampedDenominator,
+                transport: {
+                    ...s.transport,
+                    time_sig_numerator: clampedNumerator,
+                    time_sig_denominator: clampedDenominator,
+                },
+            }));
+            try {
+                const response = await engine.setTimeSignatureWithDeltas(clampedNumerator, clampedDenominator);
+                await get().applyProjectDeltas(response.deltas, 'setTimeSignature');
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

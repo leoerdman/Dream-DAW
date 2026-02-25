@@ -111,16 +111,14 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                             logic.setPreviewEnabled(next);
                             if (!next) {
                                 logic.setPreviewPlaying(false);
-                                logic.engineApi.stopPreview().catch((err) => {
-                                    console.warn('[AssetBrowser] stopPreview(toggle) failed:', err);
-                                });
+                                logic.syncPreviewForItem(null);
                                 return;
                             }
                             const selected = logic.items.find((i) => i.id === logic.selectedItemId);
                             if (selected?.type === 'audio' && selected.path) {
-                                logic.setPreviewPlaying(true);
-                                logic.engineApi.previewAudioFile(selected.path).catch((err) => {
-                                    console.warn('[AssetBrowser] previewAudioFile(toggle) failed:', err);
+                                window.requestAnimationFrame(() => {
+                                    logic.setPreviewPlaying(true);
+                                    logic.syncPreviewForItem(selected);
                                 });
                             }
                         }}
@@ -167,7 +165,7 @@ const pluginActionButtonStyle: React.CSSProperties = {
     padding: 'var(--token-size-px-3) var(--token-size-px-7)',
     fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
-    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+    fontWeight: 'var(--font-weight-semibold)',
     whiteSpace: 'nowrap',
 };
 
@@ -215,7 +213,7 @@ const letterAnchorButtonStyle: React.CSSProperties = {
     borderRadius: 'var(--radius-md)',
     border: 'var(--space-px) solid var(--color-divider)',
     fontSize: 'var(--font-size-2xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    fontWeight: 'var(--font-weight-bold)',
     fontFamily: 'var(--font-role-data)',
     cursor: 'pointer',
     padding: 0,

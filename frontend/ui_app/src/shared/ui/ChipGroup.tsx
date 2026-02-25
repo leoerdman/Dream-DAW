@@ -28,7 +28,7 @@ const chipGroupStyle: CSSProperties = {
 
 const chipBase: CSSProperties = {
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-medium)' as unknown as number,
+    fontWeight: 'var(--font-weight-medium)',
     padding: 'var(--space-0-5) var(--space-2)',
     borderRadius: 'var(--radius-full)',
     cursor: 'pointer',
@@ -46,7 +46,7 @@ const getChipStyle = (active: boolean, disabled: boolean, variant: 'outlined' | 
             background: 'var(--color-bg-tertiary)',
             color: 'var(--color-text-tertiary)',
             cursor: 'not-allowed',
-            opacity: 'var(--opacity-disabled)' as unknown as number,
+            opacity: 'var(--opacity-disabled)',
         };
     }
     if (active) {

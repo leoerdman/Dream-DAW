@@ -136,7 +136,7 @@ export function TrackRowHeader({
                             onClick={(e) => e.stopPropagation()}
                             style={{
                                 fontSize: 'var(--font-size-xs)',
-                                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                                fontWeight: 'var(--font-weight-semibold)',
                                 background:
                                     headerContrast === 'black'
                                         ? 'var(--token-color-rgba-255-255-255-0d42)'

@@ -90,7 +90,7 @@ export const PluginWindow = memo(function PluginWindow({
                 top: position.y,
                 width: Math.max(MIN_WIDTH, width),
                 height: Math.max(MIN_HEIGHT, height),
-                zIndex: 'var(--z-modal)' as unknown as number,
+                zIndex: 'var(--z-modal)',
                 display: 'flex',
                 flexDirection: 'column',
                 background: 'var(--color-bg-elevated)',
@@ -127,7 +127,7 @@ export const PluginWindow = memo(function PluginWindow({
                 <span style={{
                     flex: 1,
                     fontSize: 'var(--font-size-sm)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-semibold)',
                     color: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -249,7 +249,7 @@ export const PluginWindow = memo(function PluginWindow({
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: 'var(--font-size-2xs)',
-                                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                                        fontWeight: 'var(--font-weight-semibold)',
                                         color: 'var(--color-text-secondary)',
                                     }}>
                                         0.55

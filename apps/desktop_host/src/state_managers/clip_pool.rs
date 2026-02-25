@@ -337,7 +337,7 @@ impl ClipPoolState {
                         slot_instance_map,
                         &mut internal_slot_index,
                         false,
-                        true,  // ← instrument slot
+                        true, // ← instrument slot
                         &mut slots,
                     );
                 }
@@ -376,7 +376,7 @@ impl ClipPoolState {
                     slot_instance_map,
                     &mut master_internal_idx,
                     false,
-                    true,  // ← instrument slot
+                    true, // ← instrument slot
                     &mut master_fx_chain,
                 );
             }
@@ -534,7 +534,10 @@ impl ClipPoolState {
                     let insert_result = match self.pool.lock() {
                         Ok(mut pool) => pool.insert(clip_audio),
                         Err(e) => {
-                            log::error!("[ClipPool] lock failed during insert for '{}': {e}", source_path);
+                            log::error!(
+                                "[ClipPool] lock failed during insert for '{}': {e}",
+                                source_path
+                            );
                             Err("pool lock failed".to_string())
                         }
                     };
@@ -555,7 +558,9 @@ impl ClipPoolState {
 
         for worker in workers {
             if let Err(join_err) = worker.join() {
-                log::warn!("[ClipPool] worker thread panicked during project clip decode: {join_err:?}");
+                log::warn!(
+                    "[ClipPool] worker thread panicked during project clip decode: {join_err:?}"
+                );
             }
         }
 

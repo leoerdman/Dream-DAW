@@ -28,6 +28,7 @@ export function DeviceSlot({
     const canReorderThisDevice = effectIdSet.has(device.id);
     return (
         <div
+            data-device-id={device.id}
             onDragOver={(e) => {
                 const draggedId = e.dataTransfer.getData('application/x-dream-device-id')
                     || e.dataTransfer.getData('text/plain');

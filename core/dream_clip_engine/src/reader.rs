@@ -23,6 +23,15 @@ pub enum WarpResampleMode {
 
 impl ClipReader {
     #[inline(always)]
+    fn safe_floor_index(value: f64, max_index: usize) -> Option<usize> {
+        if !value.is_finite() {
+            return None;
+        }
+        let bounded = value.floor().clamp(0.0, max_index as f64);
+        Some(bounded as usize)
+    }
+
+    #[inline(always)]
     fn sample_linear(source: &[f32], pos: f64) -> f32 {
         if source.is_empty() {
             return 0.0;
@@ -31,7 +40,9 @@ impl ClipReader {
         if !(0.0..=last).contains(&pos) {
             return 0.0;
         }
-        let i0 = pos.floor() as usize;
+        let Some(i0) = Self::safe_floor_index(pos, source.len() - 1) else {
+            return 0.0;
+        };
         let i1 = (i0 + 1).min(source.len() - 1);
         let frac = (pos - i0 as f64) as f32;
         source[i0] * (1.0 - frac) + source[i1] * frac
@@ -50,7 +61,10 @@ impl ClipReader {
             return Self::sample_linear(source, pos);
         }
 
-        let idx = pos.floor() as isize;
+        let Some(idx_usize) = Self::safe_floor_index(pos, source.len() - 1) else {
+            return 0.0;
+        };
+        let idx = isize::try_from(idx_usize).unwrap_or(isize::MAX);
         let t = (pos - idx as f64) as f32;
         let max = (source.len() - 1) as isize;
 

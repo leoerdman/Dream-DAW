@@ -33,7 +33,7 @@ export const pluginPanelTitleStyle: React.CSSProperties = {
     color: 'var(--plugin-title-color)',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    fontWeight: 'var(--font-weight-bold)',
 };
 
 export const pluginPanelMetaStyle: React.CSSProperties = {

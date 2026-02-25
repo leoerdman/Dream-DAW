@@ -32,9 +32,9 @@ interface StatusBarProps {
 }
 
 export const StatusBar = ({
-    projectEnd = '48.1.00',
-    duration = '2:28.430',
-    timeSigNum = 4, // BUG-32 FIX
+    projectEnd,
+    duration,
+    timeSigNum,
     panelMode,
     onPanelModeChange,
     panelInfo,
@@ -52,6 +52,9 @@ export const StatusBar = ({
     // Live engine data
     const {
         positionBeats,
+        bpm,
+        timeSigNumerator,
+        timelineClips,
         latestHistory,
         projectHistory,
     } = useStatusEngineSlice();
@@ -64,13 +67,29 @@ export const StatusBar = ({
     const [historyOpen, setHistoryOpen] = useState(false);
     const historyRef = useRef<HTMLDivElement | null>(null);
 
-    // BUG-32 FIX: Use prop timeSigNum instead of hardcoded 4.
+    const effectiveTimeSigNum = timeSigNum ?? timeSigNumerator ?? 4;
+    // BUG-32 FIX: Use store/project time signature instead of hardcoded 4.
     const totalBeats = positionBeats;
-    const beatsPerBar = Math.max(1, timeSigNum);
+    const beatsPerBar = Math.max(1, effectiveTimeSigNum);
     const bar = Math.floor(totalBeats / beatsPerBar) + 1;
     const beat = Math.floor(totalBeats % beatsPerBar) + 1;
     const sub = Math.floor((totalBeats % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
+    const computedRange = useMemo(() => {
+        let endBeat = 0;
+        for (const clip of timelineClips) {
+            endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
+        }
+        const beatsPerBarComputed = Math.max(1, effectiveTimeSigNum);
+        const endBar = Math.max(1, Math.ceil(endBeat / beatsPerBarComputed));
+        const durationSeconds = endBeat > 0 ? (endBeat / Math.max(1, bpm)) * 60 : 0;
+        return {
+            projectEndText: `${endBar}.1.00`,
+            durationText: formatDuration(durationSeconds),
+        };
+    }, [timelineClips, effectiveTimeSigNum, bpm]);
+    const projectEndText = projectEnd ?? computedRange.projectEndText;
+    const durationText = duration ?? computedRange.durationText;
     useEffect(() => {
         if (!historyOpen) return;
         const onDown = (e: MouseEvent) => {
@@ -166,12 +185,12 @@ export const StatusBar = ({
 
                             <StatusGroup>
                                 <StatusLabel>End:</StatusLabel>
-                                <StatusValue>{projectEnd}</StatusValue>
+                                <StatusValue>{projectEndText}</StatusValue>
                             </StatusGroup>
 
                             <StatusGroup>
                                 <StatusLabel>Length:</StatusLabel>
-                                <StatusValue>{duration}</StatusValue>
+                                <StatusValue>{durationText}</StatusValue>
                             </StatusGroup>
                             <HistorySection
                                 latestHistory={latestHistory}
@@ -191,3 +210,11 @@ export const StatusBar = ({
         </div>
     );
 };
+
+function formatDuration(totalSeconds: number): string {
+    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0:00.000';
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = Math.floor(totalSeconds % 60);
+    const millis = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
+}

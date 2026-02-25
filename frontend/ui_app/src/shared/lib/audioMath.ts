@@ -18,7 +18,9 @@
  * to minimize floating-point error (single multiply before rounding).
  */
 export function beatToFrame(beat: number, bpm: number, sampleRate: number): number {
-    return Math.round((beat * 60 * sampleRate) / bpm);
+    const safeBpm = Math.max(1, bpm || 120);
+    const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
+    return Math.round((beat * 60 * safeSr) / safeBpm);
 }
 
 /**
@@ -27,21 +29,25 @@ export function beatToFrame(beat: number, bpm: number, sampleRate: number): numb
  * Inverse of `beatToFrame`. Returns a floating-point beat value.
  */
 export function frameToBeat(frame: number, bpm: number, sampleRate: number): number {
-    return (frame * bpm) / (60 * sampleRate);
+    const safeBpm = Math.max(1, bpm || 120);
+    const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
+    return (frame * safeBpm) / (60 * safeSr);
 }
 
 /**
  * Convert seconds to beats.
  */
 export function secondsToBeat(seconds: number, bpm: number): number {
-    return seconds * (bpm / 60);
+    const safeBpm = Math.max(1, bpm || 120);
+    return seconds * (safeBpm / 60);
 }
 
 /**
  * Convert beats to seconds.
  */
 export function beatToSeconds(beat: number, bpm: number): number {
-    return (beat * 60) / bpm;
+    const safeBpm = Math.max(1, bpm || 120);
+    return (beat * 60) / safeBpm;
 }
 
 /**
@@ -51,7 +57,9 @@ export function beatToSeconds(beat: number, bpm: number): number {
  * when the value represents a duration rather than a position.
  */
 export function beatDurationToFrames(durationBeats: number, bpm: number, sampleRate: number): number {
-    return Math.round((durationBeats * 60 * sampleRate) / bpm);
+    const safeBpm = Math.max(1, bpm || 120);
+    const safeSr = Math.max(1, sampleRate || DEFAULT_SAMPLE_RATE);
+    return Math.round((durationBeats * 60 * safeSr) / safeBpm);
 }
 
 /**

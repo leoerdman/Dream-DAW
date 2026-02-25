@@ -22,6 +22,8 @@ export interface DeltaApplyState {
 export interface SnapshotProjectMeta {
     bpm: number;
     sampleRate: number;
+    timeSigNumerator: number;
+    timeSigDenominator: number;
     keySigEnabled: boolean;
     keySigTonic: string;
     keySigMode: string;
@@ -55,7 +57,7 @@ export interface DeltaWorkingState {
     timelineClips: TimelineClip[];
     clipsById: Record<string, TimelineClip>;
     projectTracks: ProjectTrack[];
-    tracksById: Record<string, ProjectTrack>;
+    tracks: EntityState<ProjectTrack>;
     changed: boolean;
 }
 

@@ -58,6 +58,9 @@ export function patchSandboxInstancesById(
     patch: (inst: engine.PluginSandboxRuntimeInfo) => engine.PluginSandboxRuntimeInfo,
 ): PluginSandboxSnapshot | null {
     if (!snapshot || ids.size === 0) return snapshot;
+    // BUG-036 FIX: Short-circuit if no instances match the requested IDs.
+    const hasMatch = snapshot.instances.some((inst) => ids.has(inst.plugin_instance_id));
+    if (!hasMatch) return snapshot;
     return {
         ...snapshot,
         instances: snapshot.instances.map((inst) =>
@@ -66,11 +69,17 @@ export function patchSandboxInstancesById(
     };
 }
 
+// BUG-033 FIX: Use for-loop instead of Object.fromEntries + double .map()
+// for O(N) allocation instead of O(2N) intermediate array entries.
 export function toEntityState<T extends { id: string }>(items: T[]): EntityState<T> {
-    return {
-        byId: Object.fromEntries(items.map((item) => [item.id, item])),
-        allIds: items.map((item) => item.id),
-    };
+    const byId: Record<string, T> = {};
+    const allIds: string[] = new Array(items.length);
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        byId[item.id] = item;
+        allIds[i] = item.id;
+    }
+    return { byId, allIds };
 }
 
 export function materializeByIds<T>(allIds: string[], byId: Record<string, T>): T[] {

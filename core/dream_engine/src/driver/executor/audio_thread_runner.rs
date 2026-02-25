@@ -669,15 +669,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             .then_with(|| a.data[0].cmp(&b.data[0]))
                                                     });
 
-                                                    // Some instruments (e.g. Serum) gate MIDI/audio updates when
-                                                    // host transport is reported as stopped.
-                                                    // Keep instrument slots "active" even when timeline is stopped:
-                                                    // - live-preview MIDI queues must process immediately
-                                                    // - many synths otherwise show "DAW suspended processing"
-                                                    //   and ignore incoming notes until transport starts.
-                                                    let transport_is_playing = is_playing
-                                                        || !vst3_midi_scratch.is_empty()
-                                                        || runtime_slot.is_instrument;
+                                                    // VST3 SPEC FIX: Always report is_playing = true when
+                                                    // calling process(). If we are routing audio through a
+                                                    // plugin, it MUST be told the host is in an active state.
+                                                    //
+                                                    // The previous logic only kept instruments + MIDI-active
+                                                    // tracks alive:
+                                                    //   is_playing || !midi.is_empty() || is_instrument
+                                                    //
+                                                    // This caused EFFECT plugins (FabFilter Pro-Q 4, etc.) to
+                                                    // receive is_playing=false when the timeline was stopped,
+                                                    // making them enter suspended/bypass mode. Serum also showed
+                                                    // "DAW suspended processing" because even instruments could
+                                                    // miss the flag when MIDI scratch was empty between notes.
+                                                    let transport_is_playing = true;
                                                     let transport = TransportContext {
                                                         sample_rate: sample_rate_f64,
                                                         position_samples: playhead_pos,

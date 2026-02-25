@@ -138,6 +138,58 @@ impl Vst3Instance {
             component_data.len(),
             controller_data.len()
         );
+
+        // ── VST3 SPEC: Reactivate processing after state restore ──────────
+        // Many plugins (Serum, Kontakt, etc.) internally suspend processing after
+        // IComponent::setState() and wait for the host to re-run the activation
+        // sequence. Without this, plugins show "DAW suspended processing" even
+        // though they were activated before the state restore.
+        //
+        // Per VST3 SDK docs ("Restoring state"):
+        //   setProcessing(false) → setActive(false) → setState() →
+        //   setActive(true)  → setupProcessing() → setProcessing(true)
+        //
+        // Since setState() already happened above, we run the tail of the sequence.
+        if self.processor_ptr != 0 && self.com_initialized {
+            let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer is valid during active plugin lifetime.
+            unsafe {
+                let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
+            }
+
+            if self.component_ptr != 0 {
+                let comp = self.component_ptr as *mut IComponent;
+                // SAFETY: component pointer is valid during active plugin lifetime.
+                unsafe {
+                    let _ = ((*(*comp).vtbl).set_active)(comp, 0);
+                    let _ = ((*(*comp).vtbl).set_active)(comp, 1);
+                }
+            }
+
+            let setup = ProcessSetup {
+                process_mode: K_REALTIME,
+                symbolic_sample_size: K_SAMPLE32,
+                max_samples_per_block: self.max_buffer_size as i32,
+                sample_rate: self.sample_rate,
+            };
+            // SAFETY: processor pointer is valid and setup is initialized POD.
+            let setup_res = unsafe { ((*(*processor).vtbl).setup_processing)(processor, &setup) };
+            if setup_res == K_RESULT_OK {
+                // SAFETY: processor pointer is valid.
+                let _ = unsafe { ((*(*processor).vtbl).set_processing)(processor, 1) };
+                info!(
+                    "[VST3] Reactivated processing after state restore for '{}'",
+                    self.descriptor.name
+                );
+            } else {
+                self.com_initialized = false;
+                info!(
+                    "[VST3] WARNING: setupProcessing failed after state restore for '{}' (status={})",
+                    self.descriptor.name, setup_res
+                );
+            }
+        }
+
         Ok(())
     }
 

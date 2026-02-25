@@ -41,7 +41,10 @@ export const TransportBar = ({
         enginePlay,
         engineStop,
         engineSetBpm,
+        engineSetTimeSignature,
         engineSetLoop,
+        timeSigNumerator,
+        timeSigDenominator,
         trackCount,
         armedTrackIndex,
         telemetryRunning,
@@ -69,8 +72,8 @@ export const TransportBar = ({
         });
         return () => cancelAnimationFrame(rafId);
     }, [bpm, bpmEditing]);
-    const [timeSigIndex, setTimeSigIndex] = useState(0);
-    const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
+    const timeSigNum = Math.max(1, Math.min(32, Math.round(timeSigNumerator || 4)));
+    const timeSigDen = Math.max(1, Math.min(32, Math.round(timeSigDenominator || 4)));
     const [keyMenuOpen, setKeyMenuOpen] = useState(false);
     const keyMenuRef = useRef<HTMLDivElement | null>(null);
     const [gridOpen, setGridOpen] = useState(false);
@@ -154,7 +157,14 @@ export const TransportBar = ({
             .setKeySignatureWithDeltas(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode])
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'transport:key-enabled'));
     }, [keyEnabled, keyTonic, keyMode]);
-    const cycleTimeSignature = useCallback(() => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length), []);
+    const cycleTimeSignature = useCallback(() => {
+        const currentIndex = TIME_SIGNATURES.findIndex(([n, d]) => n === timeSigNum && d === timeSigDen);
+        const nextIndex = currentIndex >= 0
+            ? (currentIndex + 1) % TIME_SIGNATURES.length
+            : 0;
+        const [nextNum, nextDen] = TIME_SIGNATURES[nextIndex] ?? [4, 4];
+        void engineSetTimeSignature(nextNum, nextDen);
+    }, [engineSetTimeSignature, timeSigNum, timeSigDen]);
     // BUG-11 FIX: Replaced 2 inline click-outside effects with shared useClickOutside hook.
     const closeKeyMenu = useCallback(() => setKeyMenuOpen(false), []);
     const closeGridMenu = useCallback(() => setGridOpen(false), []);

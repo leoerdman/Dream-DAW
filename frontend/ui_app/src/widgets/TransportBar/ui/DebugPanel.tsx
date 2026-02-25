@@ -77,7 +77,7 @@ export function DebugPanel({
                 borderRadius: 'var(--radius-xl)',
                 boxShadow: '0 var(--space-4) var(--token-size-px-42) var(--color-overlay-dark)',
                 backdropFilter: 'blur(var(--space-2))',
-                zIndex: 'var(--z-tooltip)' as unknown as number,
+                zIndex: 'var(--z-tooltip)',
                 overflow: 'hidden',
             }}
         >
@@ -93,7 +93,7 @@ export function DebugPanel({
                     userSelect: 'none',
                 }}
             >
-                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>
+                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>
                     Debug Panel
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -214,10 +214,10 @@ const miniButtonStyle: CSSProperties = {
 const sectionHeaderStyle: CSSProperties = {
     position: 'sticky',
     top: 0,
-    zIndex: 'var(--z-local)' as unknown as number,
+    zIndex: 'var(--z-local)',
     padding: 'var(--space-1-5) var(--space-2)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    fontWeight: 'var(--font-weight-bold)',
     color: 'var(--color-text-primary)',
     background: 'color-mix(in srgb, var(--color-bg-panel) 92%, var(--token-color-hex-000000) 8%)',
     borderBottom: 'var(--space-px) solid var(--color-divider)',
@@ -242,6 +242,6 @@ const debugTabBtnStyle = (active: boolean): CSSProperties => ({
         : 'transparent',
     color: active ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    fontWeight: 'var(--font-weight-bold)',
     cursor: 'pointer',
 });

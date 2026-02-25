@@ -176,7 +176,8 @@ impl DeviceChain {
             let mut dummy_l = [0.0f32; 1];
             let mut dummy_r = [0.0f32; 1];
             for slot in &mut self.slots {
-                slot.processor.process_stereo(&mut dummy_l, &mut dummy_r, sample_rate);
+                slot.processor
+                    .process_stereo(&mut dummy_l, &mut dummy_r, sample_rate);
             }
         }
     }

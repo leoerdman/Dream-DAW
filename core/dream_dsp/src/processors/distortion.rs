@@ -156,6 +156,11 @@ impl DspProcessor for DistortionProcessor {
             self.bias_sm.set_sample_rate(sr);
             // AUD-217 FIX: Recalculate cab LP coefficient on SR change.
             self.cached_cab_c = crate::processors::one_pole_lp_coeff(4500.0, sr);
+            // BUG-C009 FIX: Also recalculate HP and tone coefficients on SR change.
+            // Previously only cab was recalculated, causing wrong HP cutoff and
+            // tone EQ response after sample rate transitions.
+            self.cached_hp_c = crate::processors::one_pole_hp_coeff(self.cached_hp_freq, sr);
+            self.cached_tone_c = crate::processors::one_pole_lp_coeff(self.cached_tone_freq, sr);
         }
         let len = left.len().min(right.len());
         let mode = self.mode;

@@ -253,7 +253,10 @@ impl SharedAudioBufferRegion {
     /// Returns the number of events actually written.
     pub fn write_midi_events(&mut self, events: &[InlineMidiEvent]) -> usize {
         let count = events.len().min(MAX_INLINE_MIDI_EVENTS);
-        self.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, count as u32);
+        self.write_u32_raw(
+            HEADER_MIDI_COUNT_OFFSET,
+            u32::try_from(count).unwrap_or(u32::MAX),
+        );
         let bytes: &[u8] = bytemuck::cast_slice(&events[..count]);
         let end = HEADER_MIDI_DATA_OFFSET + bytes.len();
         if end <= self.mmap.len() {

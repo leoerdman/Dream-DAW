@@ -1,3 +1,4 @@
+use num_traits::ToPrimitive;
 use std::collections::VecDeque;
 use std::path::Path;
 
@@ -56,6 +57,21 @@ pub struct StreamingWindow {
 }
 
 impl StreamingWindow {
+    #[inline]
+    fn usize_to_i64(value: usize) -> i64 {
+        i64::try_from(value).unwrap_or(i64::MAX)
+    }
+
+    #[inline]
+    fn i64_nonneg_to_usize(value: i64) -> usize {
+        usize::try_from(value.max(0)).unwrap_or(usize::MAX)
+    }
+
+    #[inline]
+    fn i64_to_f64(value: i64) -> f64 {
+        value.to_f64().unwrap_or(0.0)
+    }
+
     /// Creates a new empty streaming window.
     pub fn new(
         source_path: &str,
@@ -125,20 +141,24 @@ impl StreamingWindow {
         }
 
         let mut any_hit = false;
+        let num_frames_i64 = Self::usize_to_i64(num_frames);
 
         for chunk in &self.chunks {
-            let chunk_end = chunk.start_frame + chunk.num_frames as i64;
+            let chunk_end = chunk
+                .start_frame
+                .saturating_add(Self::usize_to_i64(chunk.num_frames));
 
             if chunk_end <= source_start {
                 continue;
             }
-            if chunk.start_frame >= source_start + num_frames as i64 {
+            if chunk.start_frame >= source_start.saturating_add(num_frames_i64) {
                 break;
             }
 
             let overlap_start = source_start.max(chunk.start_frame);
-            let overlap_end = (source_start + num_frames as i64).min(chunk_end);
-            let overlap_frames = (overlap_end - overlap_start) as usize;
+            let overlap_end = source_start.saturating_add(num_frames_i64).min(chunk_end);
+            let overlap_frames =
+                Self::i64_nonneg_to_usize(overlap_end.saturating_sub(overlap_start));
 
             if overlap_frames == 0 {
                 continue;
@@ -146,8 +166,11 @@ impl StreamingWindow {
 
             any_hit = true;
 
-            let src_offset = (overlap_start - chunk.start_frame) as usize;
-            let dst_offset = out_offset + (overlap_start - source_start) as usize;
+            let src_offset =
+                Self::i64_nonneg_to_usize(overlap_start.saturating_sub(chunk.start_frame));
+            let dst_offset = out_offset.saturating_add(Self::i64_nonneg_to_usize(
+                overlap_start.saturating_sub(source_start),
+            ));
 
             for i in 0..overlap_frames {
                 let src_idx = src_offset + i;
@@ -192,21 +215,21 @@ impl StreamingWindow {
 
         let mut any_hit = false;
         let mut chunk_idx_hint = 0;
-        let max_pos = (self.total_frames.saturating_sub(1)) as f64;
+        let max_pos = Self::i64_to_f64(self.total_frames.saturating_sub(1));
         if max_pos < 0.0 {
             return false;
         }
 
         for i in 0..write_frames {
-            let src_pos = source_start + (i as f64) * rate;
+            let src_pos = source_start + (i.to_f64().unwrap_or(0.0)) * rate;
             let out_idx = out_offset + i;
 
             if !src_pos.is_finite() {
                 continue;
             }
             let clamped = src_pos.clamp(0.0, max_pos);
-            let idx = clamped.floor() as i64;
-            let t = (clamped - idx as f64) as f32;
+            let idx = clamped.floor().to_i64().unwrap_or(0);
+            let t = (clamped - Self::i64_to_f64(idx)).to_f32().unwrap_or(0.0);
 
             let frame0 = (idx - 1).max(0);
             let frame1 = idx.max(0).min(self.total_frames.saturating_sub(1));
@@ -218,9 +241,11 @@ impl StreamingWindow {
                     return None;
                 }
                 if let Some(c) = self.chunks.get(chunk_idx_hint) {
-                    let end = c.start_frame + c.num_frames as i64;
+                    let end = c
+                        .start_frame
+                        .saturating_add(Self::usize_to_i64(c.num_frames));
                     if frame >= c.start_frame && frame < end {
-                        let i = (frame - c.start_frame) as usize;
+                        let i = Self::i64_nonneg_to_usize(frame.saturating_sub(c.start_frame));
                         return if is_right {
                             c.right.get(i).copied()
                         } else {
@@ -229,10 +254,13 @@ impl StreamingWindow {
                     }
                 }
                 for (search_idx, c) in self.chunks.iter().enumerate() {
-                    let end = c.start_frame + c.num_frames as i64;
+                    let end = c
+                        .start_frame
+                        .saturating_add(Self::usize_to_i64(c.num_frames));
                     if frame >= c.start_frame && frame < end {
                         chunk_idx_hint = search_idx;
-                        let src_idx = (frame - c.start_frame) as usize;
+                        let src_idx =
+                            Self::i64_nonneg_to_usize(frame.saturating_sub(c.start_frame));
                         return if is_right {
                             c.right.get(src_idx).copied()
                         } else {
@@ -277,11 +305,18 @@ impl StreamingWindow {
 
     /// Evicts chunks that are fully behind the given playhead position.
     pub fn evict_behind(&mut self, playhead: i64) {
-        let rewind_margin = (LOOK_AHEAD_CHUNKS * CHUNK_FRAMES / 2) as i64;
+        let rewind_margin = i64::try_from(
+            LOOK_AHEAD_CHUNKS
+                .saturating_mul(CHUNK_FRAMES)
+                .saturating_div(2),
+        )
+        .unwrap_or(i64::MAX);
         let evict_before = playhead.saturating_sub(rewind_margin);
 
         while let Some(front) = self.chunks.front() {
-            let chunk_end = front.start_frame + front.num_frames as i64;
+            let chunk_end = front
+                .start_frame
+                .saturating_add(Self::usize_to_i64(front.num_frames));
             if chunk_end <= evict_before {
                 self.chunks.pop_front();
             } else {
@@ -293,7 +328,11 @@ impl StreamingWindow {
     /// Returns the range of frames currently buffered.
     pub fn buffered_range(&self) -> Option<(i64, i64)> {
         if let (Some(first), Some(last)) = (self.chunks.front(), self.chunks.back()) {
-            Some((first.start_frame, last.start_frame + last.num_frames as i64))
+            Some((
+                first.start_frame,
+                last.start_frame
+                    .saturating_add(Self::usize_to_i64(last.num_frames)),
+            ))
         } else {
             None
         }

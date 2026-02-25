@@ -4,6 +4,7 @@ import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostC
 import { WaveformCache } from './WaveformCache';
 import { beatDurationToFrames } from './audioMath';
 import { normalizeTimelineClips } from './clipNormalization';
+import { cancelIdle, scheduleIdle, type IdleHandle } from './idleScheduler';
 import {
     CLIP_DRAG_START_THRESHOLD_PX,
     CLIP_HEADER_HEIGHT_PX,
@@ -75,10 +76,8 @@ export class TimelineEngine {
     private _boundContextMenu: (e: MouseEvent) => void;
     private _boundKeyDown: (e: KeyboardEvent) => void;
 
-    /** requestIdleCallback handle for deferred waveform redraw. */
-    private _prefetchIdleId: number = 0;
-    /** setTimeout handle for browsers without requestIdleCallback. */
-    private _prefetchTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    /** Deferred prefetch redraw handle (idle callback or fallback timeout). */
+    private _prefetchDeferredId: IdleHandle | null = null;
 
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
@@ -91,7 +90,13 @@ export class TimelineEngine {
     onDoubleClickClip?: (clipId: string, trackIndex: number) => void;
     onTrackSelect?: (trackIndex: number) => void;
     onViewportFlush?: (snapshot: ViewportSnapshot) => void;
-    onFrameDrawn?: (snapshot: { playheadBeat: number; scrollX: number; pixelsPerBeat: number; viewportWidth: number }) => void;
+    onFrameDrawn?: (snapshot: {
+        playheadBeat: number;
+        playheadX: number;
+        scrollX: number;
+        pixelsPerBeat: number;
+        viewportWidth: number;
+    }) => void;
     onScrollTop?: (scrollTop: number) => void;
     onLoopChange?: (loop: LoopRegion) => void;
     onClipBoxSelection?: (clipIds: string[]) => void;
@@ -187,16 +192,8 @@ export class TimelineEngine {
         window.removeEventListener('mouseup', this._boundMouseUp);
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
 
-        if (this._prefetchIdleId) {
-            if (typeof cancelIdleCallback === 'function') {
-                cancelIdleCallback(this._prefetchIdleId);
-            }
-            this._prefetchIdleId = 0;
-        }
-        if (this._prefetchTimeoutId !== null) {
-            clearTimeout(this._prefetchTimeoutId);
-            this._prefetchTimeoutId = null;
-        }
+        cancelIdle(this._prefetchDeferredId);
+        this._prefetchDeferredId = null;
 
         this._canvas = null;
         this._ctx = null;
@@ -422,6 +419,7 @@ export class TimelineEngine {
         );
         this.onFrameDrawn?.({
             playheadBeat: this._playheadBeat,
+            playheadX: this._viewport.beatsToScreenX(this._playheadBeat),
             scrollX: this._viewport.scrollX,
             pixelsPerBeat: this._viewport.pixelsPerBeat,
             viewportWidth: this._viewport.viewportWidth,
@@ -1707,19 +1705,11 @@ export class TimelineEngine {
             const samplesPerPixel = ppb > 0 ? (samplesPerBeat / ppb) : 1024;
 
             this._waveformCache.prefetch(clipIds, samplesPerPixel);
-            if (typeof requestIdleCallback === 'function') {
-                if (this._prefetchIdleId) cancelIdleCallback(this._prefetchIdleId);
-                this._prefetchIdleId = requestIdleCallback(() => {
-                    this._prefetchIdleId = 0;
-                    this._requestRedraw();
-                }, { timeout: 150 });
-            } else {
-                if (this._prefetchTimeoutId !== null) clearTimeout(this._prefetchTimeoutId);
-                this._prefetchTimeoutId = setTimeout(() => {
-                    this._prefetchTimeoutId = null;
-                    this._requestRedraw();
-                }, 200);
-            }
+            cancelIdle(this._prefetchDeferredId);
+            this._prefetchDeferredId = scheduleIdle(() => {
+                this._prefetchDeferredId = null;
+                this._requestRedraw();
+            }, { timeoutMs: 150, fallbackDelayMs: 200 });
         }
     }
 

@@ -88,7 +88,7 @@ export const SessionWorkspace = ({
                                             background: track.color,
                                             color: contrast,
                                             fontSize: 'var(--font-size-sm)',
-                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                                            fontWeight: 'var(--font-weight-bold)',
                                             textAlign: 'left',
                                             padding: '0 var(--space-2)',
                                             boxShadow: isSelectedTrack ? 'inset 0 0 0 var(--space-0-5) color-mix(in srgb, var(--color-accent-primary) 64%, transparent)' : 'none',

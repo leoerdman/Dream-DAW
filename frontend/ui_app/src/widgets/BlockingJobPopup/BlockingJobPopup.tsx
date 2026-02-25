@@ -63,12 +63,24 @@ export const BlockingJobPopup = () => {
 
     // Periodic tick to auto-dismiss stale error displays.
     useEffect(() => {
-        const hasTerminal = jobs.some(
-            (j) => j.status === 'failed' || j.status === 'cancelled',
+        const hasActiveTerminalDisplay = jobs.some(
+            (j) =>
+                (j.status === 'failed' || j.status === 'cancelled') &&
+                j.finishedAtMs != null &&
+                Date.now() - j.finishedAtMs < ERROR_DISPLAY_MS,
         );
-        if (!hasTerminal) return;
+        if (!hasActiveTerminalDisplay) return;
 
-        const timer = setInterval(() => setNow(Date.now()), 500);
+        const timer = window.setInterval(() => {
+            const ts = Date.now();
+            setNow(ts);
+            // Prune stale terminal jobs so the timer can stop naturally.
+            setJobs((prev) => prev.filter((j) => {
+                if (j.status !== 'failed' && j.status !== 'cancelled') return true;
+                if (j.finishedAtMs == null) return true;
+                return ts - j.finishedAtMs < ERROR_DISPLAY_MS;
+            }));
+        }, 500);
         return () => clearInterval(timer);
     }, [jobs]);
 
@@ -116,7 +128,7 @@ export const BlockingJobPopup = () => {
             }}>
                 <div style={{
                     fontSize: 'var(--font-size-lg)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     color: isTerminal
                         ? 'var(--color-status-error)'
                         : 'var(--color-text-primary)',

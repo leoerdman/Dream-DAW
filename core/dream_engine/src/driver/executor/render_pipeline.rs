@@ -74,7 +74,7 @@ pub(super) fn process_master_runtime_fx_and_gain(
     playhead_pos: i64,
     sample_rate_f64: f64,
     bpm: f64,
-    is_playing: bool,
+    _is_playing: bool,
     time_sig_numerator: u8,
     time_sig_denominator: u8,
     master_gain_target: f32,
@@ -108,7 +108,12 @@ pub(super) fn process_master_runtime_fx_and_gain(
                         sample_rate: sample_rate_f64,
                         position_samples: playhead_pos,
                         tempo: bpm,
-                        is_playing,
+                        // VST3 SPEC FIX: Always report active state to master FX.
+                        // Same rationale as per-track fix — effects (limiters,
+                        // EQs, saturators) enter bypass/suspended mode if told
+                        // the host is stopped, silencing or corrupting the
+                        // master output.
+                        is_playing: true,
                         is_recording: false,
                         time_sig_numerator: i32::from(time_sig_numerator),
                         time_sig_denominator: i32::from(time_sig_denominator),
@@ -293,12 +298,14 @@ pub(super) fn mix_preview_audio(
                     let d_idx = f * channels;
                     if d_idx < data.len() {
                         if channels == 1 {
-                            data[d_idx] +=
-                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                            // BUG-A002 FIX: Don't soft_clip here — finalize_output_and_publish
+                            // applies it to the entire buffer. Previously only the resampled
+                            // path soft-clipped, causing inconsistent gain staging vs direct.
+                            data[d_idx] += (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
                         } else {
-                            data[d_idx] += soft_clip(p_left);
+                            data[d_idx] += p_left;
                             if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += soft_clip(p_right);
+                                data[d_idx + 1] += p_right;
                             }
                         }
                     }
@@ -306,12 +313,10 @@ pub(super) fn mix_preview_audio(
                 }
                 let new_cursor_frame = src_pos.ceil() as usize;
                 let new_cursor = (new_cursor_frame * preview_channels).min(total);
-                let _ = preview_cursor.compare_exchange(
-                    cursor,
-                    new_cursor,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                );
+                // BUG-A003 FIX: Use unconditional store instead of compare_exchange,
+                // matching the direct-path fix (BUG-005). CAS failure caused the cursor
+                // to get stuck when preview was reset externally (new file loaded).
+                preview_cursor.store(new_cursor, Ordering::Release);
             }
         }
     }
@@ -361,7 +366,10 @@ pub(super) fn finalize_output_and_publish(
         let mut peak_r = 0.0f32;
         let mut frames = 0usize;
 
-        for frame in data.chunks_exact(channels) {
+        // BUG-A001 FIX: Iterate only the active region, not the full data[] slice.
+        // cpal buffers may be larger than n*channels; the padding contains
+        // uninitialized/stale data that caused ghost peaks in master metering.
+        for frame in data[..n * channels].chunks_exact(channels) {
             let l = frame[0];
             let r = frame[1];
             sum_sq_l += (l as f64) * (l as f64);

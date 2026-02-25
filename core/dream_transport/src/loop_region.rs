@@ -69,7 +69,7 @@ impl LoopRegion {
         if sample_rate <= 0.0 {
             return 0.0;
         }
-        self.length() as f64 / sample_rate
+        self.length().to_f64().unwrap_or(0.0) / sample_rate
     }
 
     /// Returns the loop length in beats at the given BPM and sample rate.
@@ -195,3 +195,4 @@ mod tests {
         assert!(!invalid.is_valid());
     }
 }
+use num_traits::ToPrimitive;

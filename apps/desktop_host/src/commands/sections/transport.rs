@@ -22,20 +22,15 @@ fn beat_to_engine_frames(beat: f64, pulse_map: Option<&dream_models::pulse_map::
 
 #[tauri::command]
 fn play(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
-    {
-        let state = handle
-            .playback_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        push_command(&handle, EngineCommand::SetTimelineSampleRate(state.sample_rate))?;
-    }
-    push_command(&handle, EngineCommand::SetPlay(true))?;
-
+    // BUG-011 FIX: Single lock scope instead of double-lock.
     let mut state = handle
         .playback_state
         .lock()
         .map_err(|e| format!("Lock poisoned: {e}"))?;
+    push_command(&handle, EngineCommand::SetTimelineSampleRate(state.sample_rate))?;
+    push_command(&handle, EngineCommand::SetPlay(true))?;
     state.is_playing = true;
+    drop(state);
 
     log::info!("[IPC] play()");
     Ok(())
@@ -59,6 +54,7 @@ fn stop(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
 /// Toggle play/stop.
 #[tauri::command]
 fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, String> {
+    // BUG-013 FIX: Keep lock across read+write+command push to prevent TOCTOU race.
     let mut state = handle
         .playback_state
         .lock()
@@ -66,8 +62,6 @@ fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, 
 
     let new_state = !state.is_playing;
     let timeline_sample_rate = state.sample_rate;
-    state.is_playing = new_state;
-    drop(state);
 
     if new_state {
         push_command(
@@ -76,6 +70,8 @@ fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, 
         )?;
     }
     push_command(&handle, EngineCommand::SetPlay(new_state))?;
+    state.is_playing = new_state;
+    drop(state);
 
     log::info!("[IPC] toggle_playback → {}", if new_state { "play" } else { "stop" });
     Ok(new_state)
@@ -95,6 +91,8 @@ fn seek_seconds(
     seconds: f64,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
+    // BUG-016 FIX: Validate non-negative seconds at the API boundary.
+    let safe_seconds = seconds.max(0.0);
     let state = handle
         .playback_state
         .lock()
@@ -102,9 +100,9 @@ fn seek_seconds(
     let sample_rate = state.sample_rate;
     drop(state);
 
-    let frames = (seconds * sample_rate).round() as i64;
+    let frames = (safe_seconds * sample_rate).round() as i64;
     push_command(&handle, EngineCommand::Seek(frames))?;
-    log::info!("[IPC] seek_seconds({seconds}s → {frames} frames)");
+    log::info!("[IPC] seek_seconds({safe_seconds}s → {frames} frames)");
     Ok(())
 }
 
@@ -115,6 +113,8 @@ fn seek_to_beat(
     handle: tauri::State<'_, AudioEngineHandle>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
+    // BUG-017 FIX: Validate non-negative beat at the API boundary.
+    let safe_beat = beat.max(0.0);
     let state = handle
         .playback_state
         .lock()
@@ -124,12 +124,12 @@ fn seek_to_beat(
     drop(state);
 
     let frames = if let Ok(project) = project_state.project.lock() {
-        beat_to_engine_frames(beat, Some(&project.pulse_map), bpm, sample_rate)
+        beat_to_engine_frames(safe_beat, Some(&project.pulse_map), bpm, sample_rate)
     } else {
-        beat_to_engine_frames(beat, None, bpm, sample_rate)
+        beat_to_engine_frames(safe_beat, None, bpm, sample_rate)
     };
     push_command(&handle, EngineCommand::Seek(frames))?;
-    log::info!("[IPC] seek_to_beat({beat:.4} beat → {frames} frames)");
+    log::info!("[IPC] seek_to_beat({safe_beat:.4} beat → {frames} frames)");
     Ok(())
 }
 
@@ -304,6 +304,53 @@ fn set_bpm_with_deltas(
     })
 }
 
+#[tauri::command]
+fn set_time_signature(
+    numerator: u32,
+    denominator: u32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let numerator_u8 = (numerator.clamp(1, 32)) as u8;
+    let denominator_u8 = (denominator.clamp(1, 32)) as u8;
+
+    push_undo(&project_state)?;
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.time_signature = dream_models::project::TimeSignature::new(numerator_u8, denominator_u8);
+        let project_name = project.name.clone();
+        drop(project);
+        let _ = project_state.mark_dirty(&project_name, None);
+    }
+
+    push_command(
+        &handle,
+        EngineCommand::SetTimeSignature {
+            numerator: numerator_u8,
+            denominator: denominator_u8,
+        },
+    )?;
+
+    log::info!("[IPC] set_time_signature({numerator_u8}/{denominator_u8})");
+    Ok(())
+}
+
+#[tauri::command]
+fn set_time_signature_with_deltas(
+    numerator: u32,
+    denominator: u32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<TransportDeltaResponse, String> {
+    set_time_signature(numerator, denominator, handle, project_state)?;
+    Ok(TransportDeltaResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::TimeSignatureChanged {
+            numerator: numerator.clamp(1, 32),
+            denominator: denominator.clamp(1, 32),
+        }],
+    })
+}
+
 /// Sets the loop region and enables/disables looping.
 #[tauri::command]
 fn set_loop(
@@ -326,7 +373,11 @@ fn set_loop(
     };
 
     let min_gap: i64 = ((beats_per_bar * 60.0 / bpm) * sample_rate).round() as i64;
-    let has_valid_range = end_frames > start_frames && (end_frames - start_frames) >= min_gap;
+    // BUG-012 FIX: Validate start_frames >= 0 to prevent unexpected behavior
+    // from negative frame positions in the gap calculation.
+    let has_valid_range = start_frames >= 0
+        && end_frames > start_frames
+        && (end_frames - start_frames) >= min_gap;
 
     // Update shared playback_state FIRST so telemetry reads correct values immediately
     {

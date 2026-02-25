@@ -11,5 +11,6 @@ rtrb = { workspace = true }
 symphonia = { workspace = true }
 arc-swap = { workspace = true }
 crossbeam-utils = "0.8"
+num-traits = { workspace = true }
 
 dream_models = { path = "../dream_models" }

@@ -70,12 +70,12 @@ export const PluginSettingsPanel = ({
                     gap: 'var(--space-1-5)',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
-                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
                             External Plugin
                         </span>
                         <span style={{
                             fontSize: 'var(--font-size-xs)',
-                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                            fontWeight: 'var(--font-weight-bold)',
                             borderRadius: 'var(--radius-full)',
                             border: 'var(--space-px) solid var(--color-divider)',
                             padding: 'var(--space-0-5) var(--token-size-px-7)',
@@ -120,7 +120,7 @@ export const PluginSettingsPanel = ({
                     <span style={{
                         fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
                     }}>
@@ -151,7 +151,7 @@ export const PluginSettingsPanel = ({
                     <span style={{
                         fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
                     }}>
@@ -184,7 +184,7 @@ export const PluginSettingsPanel = ({
                     <span style={{
                         fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
                     }}>

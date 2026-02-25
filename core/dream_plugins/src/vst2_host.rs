@@ -31,7 +31,7 @@ use crate::format::PluginFormat;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::vst2_host_abi::*;
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 // ── Thread-Local Host State ──
 //
@@ -42,16 +42,54 @@ const PARAM_RING_SIZE: usize = 1024;
 const DEFAULT_HOST_SAMPLE_RATE: f64 = 48_000.0;
 const DEFAULT_HOST_BLOCK_SIZE: i32 = 512;
 
+#[inline]
+fn usize_to_i32_saturating(value: usize) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+#[inline]
+fn usize_to_vst_int_ptr_saturating(value: usize) -> VstIntPtr {
+    isize::try_from(value).unwrap_or(isize::MAX)
+}
+
+#[inline]
+fn f64_to_vst_int_ptr_saturating(value: f64) -> VstIntPtr {
+    if !value.is_finite() {
+        return 0;
+    }
+    if value >= isize::MAX as f64 {
+        isize::MAX
+    } else if value <= isize::MIN as f64 {
+        isize::MIN
+    } else {
+        value as isize
+    }
+}
+
+#[inline]
+fn f64_to_f32_saturating(value: f64) -> f32 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    if value >= f32::MAX as f64 {
+        f32::MAX
+    } else if value <= f32::MIN as f64 {
+        f32::MIN
+    } else {
+        value as f32
+    }
+}
+
 struct ParamEditEntry {
     param_id: AtomicU32,
-    value_bits: AtomicUsize,
+    value_bits: AtomicU64,
 }
 
 impl ParamEditEntry {
     const fn new() -> Self {
         Self {
             param_id: AtomicU32::new(0),
-            value_bits: AtomicUsize::new(0),
+            value_bits: AtomicU64::new(0),
         }
     }
 }
@@ -81,7 +119,7 @@ impl ParamEditRing {
             .store(param_id, Ordering::Relaxed);
         self.entries[head]
             .value_bits
-            .store(value.to_bits() as usize, Ordering::Relaxed);
+            .store(value.to_bits(), Ordering::Relaxed);
         self.head.store(next, Ordering::Release);
     }
 
@@ -95,7 +133,7 @@ impl ParamEditRing {
             }
             let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
             let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
-            f(pid, f64::from_bits(vbits as u64));
+            f(pid, f64::from_bits(vbits));
             self.tail
                 .store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
             count += 1;
@@ -168,13 +206,17 @@ unsafe extern "C" fn audio_master_callback(
         // BUG-VP2 FIX: Automate — parameter changed from plugin GUI
         // VST2 spec: index = param index, opt = parameter value as f32
         AUDIO_MASTER_AUTOMATE => {
-            PARAM_EDIT_RING.push(_index as u32, _opt as f64);
+            if let Ok(param_id) = u32::try_from(_index) {
+                PARAM_EDIT_RING.push(param_id, _opt as f64);
+            }
             PLUGIN_STATE_DIRTY.store(true, std::sync::atomic::Ordering::Release);
             0
         }
 
         // Return current sample rate
-        AUDIO_MASTER_GET_SAMPLE_RATE => HOST_SAMPLE_RATE.with(|sr| sr.get() as VstIntPtr),
+        AUDIO_MASTER_GET_SAMPLE_RATE => {
+            HOST_SAMPLE_RATE.with(|sr| f64_to_vst_int_ptr_saturating(sr.get()))
+        }
 
         // Return current block size
         AUDIO_MASTER_GET_BLOCK_SIZE => HOST_BLOCK_SIZE.with(|bs| bs.get() as VstIntPtr),
@@ -464,8 +506,8 @@ impl Vst2Instance {
             category,
             path.to_path_buf(),
         );
-        descriptor.audio_inputs = num_inputs as u32;
-        descriptor.audio_outputs = num_outputs as u32;
+        descriptor.audio_inputs = u32::try_from(num_inputs.max(0)).unwrap_or(0);
+        descriptor.audio_outputs = u32::try_from(num_outputs.max(0)).unwrap_or(0);
         descriptor.accepts_midi = is_synth || Self::can_do(effect, "receiveVstMidiEvent");
         descriptor.unique_id = Some(format!("0x{:08X}", unique_id));
         descriptor.version = Some(format!("{}", version));
@@ -491,8 +533,8 @@ impl Vst2Instance {
             max_midi_events: max_midi,
             transport: TransportContext::default(),
             silence_buffer: vec![0.0f32; 8192],
-            input_ptrs: Vec::with_capacity(num_inputs.max(2) as usize),
-            output_ptrs: Vec::with_capacity(num_outputs.max(2) as usize),
+            input_ptrs: Vec::with_capacity(usize::try_from(num_inputs.max(2)).unwrap_or(2)),
+            output_ptrs: Vec::with_capacity(usize::try_from(num_outputs.max(2)).unwrap_or(2)),
             dummy_output_buffers: Vec::new(),
         })
     }
@@ -651,7 +693,7 @@ impl Vst2Instance {
         for event in &midi_events[..count] {
             self.midi_events_buffer.push(VstMidiEvent {
                 event_type: K_VST_MIDI_TYPE,
-                byte_size: std::mem::size_of::<VstMidiEvent>() as i32,
+                byte_size: usize_to_i32_saturating(std::mem::size_of::<VstMidiEvent>()),
                 delta_frames: event.sample_offset,
                 flags: 0,
                 note_length: 0,
@@ -675,7 +717,7 @@ impl Vst2Instance {
         // Fill the VstEvents header
         let events_ptr = self.vst_events_buffer.as_mut_ptr() as *mut VstEvents;
         unsafe {
-            (*events_ptr).num_events = count as i32;
+            (*events_ptr).num_events = usize_to_i32_saturating(count);
             (*events_ptr).reserved = 0;
 
             // Fill event pointers
@@ -708,7 +750,7 @@ impl PluginInstance for Vst2Instance {
 
         // Update thread-local host state
         HOST_SAMPLE_RATE.with(|sr| sr.set(sample_rate));
-        HOST_BLOCK_SIZE.with(|bs| bs.set(max_buffer_size as i32));
+        HOST_BLOCK_SIZE.with(|bs| bs.set(usize_to_i32_saturating(max_buffer_size)));
 
         // Set sample rate
         self.dispatch(
@@ -716,22 +758,24 @@ impl PluginInstance for Vst2Instance {
             0,
             0,
             ptr::null_mut(),
-            sample_rate as f32,
+            f64_to_f32_saturating(sample_rate),
         );
 
         // Set block size
         self.dispatch(
             EFF_SET_BLOCK_SIZE,
             0,
-            max_buffer_size as VstIntPtr,
+            usize_to_vst_int_ptr_saturating(max_buffer_size),
             ptr::null_mut(),
             0.0,
         );
 
         // Pre-allocate scratch buffers for this block size
         // SAFETY: `self.effect` is proven non-null and lifetime-bound to `_library`.
-        let num_plugin_inputs = unsafe { (*self.effect).num_inputs } as usize;
-        let num_plugin_outputs = unsafe { (*self.effect).num_outputs } as usize;
+        let num_plugin_inputs =
+            usize::try_from(unsafe { (*self.effect).num_inputs }.max(0)).unwrap_or(0);
+        let num_plugin_outputs =
+            usize::try_from(unsafe { (*self.effect).num_outputs }.max(0)).unwrap_or(0);
 
         // Silence buffer for missing input channels
         if self.silence_buffer.len() < max_buffer_size {

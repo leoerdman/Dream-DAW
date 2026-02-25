@@ -114,7 +114,7 @@ fn get_external_plugin_params_for_slot(
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    _clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -139,14 +139,34 @@ fn get_external_plugin_params_for_slot(
     let lane_name_hints = hints.lane_name_hints;
     let metadata_count = (slot_state.external_parameter_count.unwrap_or(0).max(0) as usize)
         .max(hints.metadata_count);
+
+    // RT-SAFETY FIX: Check if instance is already bound BEFORE calling
+    // ensure_loaded_instance_for_slot. If it is, we skip state blob restore
+    // entirely — the state was already restored when the instance was first
+    // loaded or when the plugin editor was opened.
+    let was_already_bound = plugin_host_state
+        .slot_instance_map
+        .load()
+        .get(&slot_state.slot_id)
+        .is_some();
+
     let instance_id =
         plugin_host_state.ensure_loaded_instance_for_slot(slot_state.slot_id, &slot_state.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot_state.slot_id, instance_id);
 
-    // Restore saved state before reading parameters so we report the
-    // actual preset values instead of plugin defaults.
-    if slot_state.external_state_blob.is_some() || slot_state.external_preset_blob.is_some() {
-        if let Ok(mut host) = plugin_host_state.host.lock() {
+    // RT-SAFETY FIX: Only restore state blob for FRESHLY loaded instances
+    // (not already bound). Previously this ran on EVERY param query, holding
+    // host.lock() for 100ms+ while deserializing Serum/massive preset blobs.
+    // This blocked the audio thread's try_lock(), silently bypassing ALL VST3
+    // plugins on the track and causing "DAW suspended processing".
+    if !was_already_bound
+        && (slot_state.external_state_blob.is_some() || slot_state.external_preset_blob.is_some())
+    {
+        // Use try_lock to avoid blocking the audio thread. If we can't
+        // acquire the lock right now, fall back to reading default params
+        // — the state will be restored the next time the user opens the
+        // plugin editor (which uses blocking lock on purpose).
+        if let Ok(mut host) = plugin_host_state.host.try_lock() {
             let mut slot =
                 dream_models::project::PluginSlot::new(slot_state.name.clone(), slot_state.plugin_id.clone());
             slot.id = slot_state.slot_id;
@@ -194,6 +214,11 @@ fn get_external_plugin_params_for_slot(
         params
     };
 
-    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+    // RT-SAFETY FIX: Removed sync_external_fx_snapshot_from_state() from
+    // this READ-ONLY param query path. This function traverses all tracks
+    // and slots, acquiring project + host mutexes — blocking the audio thread.
+    // State sync should only happen on actual MUTATIONS (preset change,
+    // plugin load, param set), not passive UI queries.
+
     Ok(params)
 }

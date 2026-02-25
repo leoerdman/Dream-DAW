@@ -86,9 +86,10 @@ export const DeviceNode = ({
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = manifest.supportsSettings;
-    // For external plugins, prefer the backend-reported editorSupported flag
-    // (it queries the actual VST3 IEditController). Fall back to manifest.hasEditor.
-    const showUiButton = editorSupported ?? manifest.hasEditor;
+    // Always show the "eye" button for external plugin formats (VST2/VST3/AU).
+    // If native editor support is unavailable at runtime, the click handler
+    // falls back to inline controls.
+    const showUiButton = manifest.hasEditor;
     const nativeEditorOpen = isNativeEditorOpen ?? false;
     const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
 
@@ -131,6 +132,9 @@ export const DeviceNode = ({
                 document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
                     (el as HTMLElement).style.borderLeft = '';
                     (el as HTMLElement).style.borderRight = '';
+                });
+                document.querySelectorAll('.dream-device-drop-indicator-end').forEach((el) => {
+                    (el as HTMLElement).style.borderLeft = '';
                 });
             }}
             style={{

@@ -56,16 +56,16 @@ export function loadCollectionLabels(): Record<string, string> {
     try {
         const raw = safeStorage.getItem(COLLECTION_LABELS_STORAGE_KEY);
         if (!raw) return {
-            'collection-red': 'Collection',
-            'collection-yellow': 'Collection',
-            'collection-green': 'Collection',
+            'collection-red': 'Red',
+            'collection-yellow': 'Yellow',
+            'collection-green': 'Green',
         };
         return JSON.parse(raw) as Record<string, string>;
     } catch {
         return {
-            'collection-red': 'Collection',
-            'collection-yellow': 'Collection',
-            'collection-green': 'Collection',
+            'collection-red': 'Red',
+            'collection-yellow': 'Yellow',
+            'collection-green': 'Green',
         };
     }
 }
@@ -86,13 +86,13 @@ export function detectPluginSource(raw: string): PluginSource {
 
 export function isLikelyInstrumentPlugin(item: BrowserItemLike): boolean {
     const text = `${item.name} ${item.meta ?? ''} ${item.format ?? ''}`.toLowerCase();
-    return /\b(synth|serum|piano|sampler|kontakt|instrument|organ|rompler|drum\s*machine|electric\s*piano|strings|brass|woodwind|choir)\b/i.test(text);
+    return /\b(synth|serum|piano|sampler|kontakt|instrument|organ|rompler|drum\s*machine|electric\s*piano|strings|brass|woodwind|choir)\b/.test(text);
 }
 
 export function isLikelyDrumAudio(item: BrowserItemLike): boolean {
     const text = item.name.toLowerCase();
     // BUG-92 FIX: removed standalone \bhat\b which matches 'chat', 'what', 'that'
-    return /\b(kick|snare|clap|hihat|hi-hat|hi_hat|drum|perc|cymbal|tom|rim)\b/i.test(text);
+    return /\b(kick|snare|clap|hihat|hi-hat|hi_hat|drum|perc|cymbal|tom|rim)\b/.test(text);
 }
 
 export function fileTypeToItemType(ft: string): BrowserItemType {

@@ -142,6 +142,30 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let output_latency_frames = stream.output_latency_frames;
     let resolved_output_device = stream.output_device_name.clone();
 
+    // ── CRITICAL FIX: Sync PluginHost to actual device config ────────────
+    // The PluginHostState was initialized with user-settings SR/buffer_size
+    // (e.g., 44100/512), but cpal may have resolved a different device config.
+    // If plugins are activated with a buffer_size smaller than the device's
+    // actual block size, their process() guard (num_frames > max_buffer_size)
+    // silently falls through to passthrough — making VST3 FX like FabFilter
+    // Pro-Q 4 appear to do nothing, and instruments like Serum2 display
+    // "DAW suspended processing".
+    //
+    // Use the actual device sample rate, and 8192 (MAX_BUFFER_FRAMES) as the
+    // plugin buffer size so scratch buffers can handle any device block size.
+    {
+        let actual_sr = f64::from(stream.sample_rate_hz);
+        // Match the engine's MAX_BUFFER_FRAMES constant to ensure plugin
+        // scratch buffers are always large enough for any callback block.
+        const PLUGIN_MAX_BUFFER: usize = 8192;
+        if let Err(e) = plugin_host_state.update_audio_config(actual_sr, PLUGIN_MAX_BUFFER) {
+            log::warn!(
+                "[RuntimeBootstrap] Failed to sync plugin host to device config: {}",
+                e
+            );
+        }
+    }
+
     let spectrum_consumer = stream.spectrum_consumer.take();
     let spectrum_state = if let Some(consumer) = spectrum_consumer {
         SpectrumState {

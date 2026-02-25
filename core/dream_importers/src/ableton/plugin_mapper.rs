@@ -1,10 +1,10 @@
-use dream_models::midi::SamplerConfig;
-use dream_models::project::{DeviceNode, PluginSlot, Project};
-use std::path::Path;
 pub use super::plugin_mapper_external_meta::{
     ExternalPluginMeta, apply_external_plugin_meta, parse_external_plugin_meta,
 };
 use super::xml_helpers::*;
+use dream_models::midi::SamplerConfig;
+use dream_models::project::{DeviceNode, PluginSlot, Project};
+use std::path::Path;
 pub fn canonical_internal_plugin_for_import(
     plugin_id: &str,
     plugin_name: &str,
@@ -626,7 +626,9 @@ impl ExternalPluginIndex {
                 let uid_trimmed = uid.trim();
                 if !uid_trimmed.is_empty() {
                     let uid_key = uid_trimmed.to_lowercase();
-                    by_uid.entry(uid_key).or_insert_with(|| desc.path.to_string_lossy().to_string());
+                    by_uid
+                        .entry(uid_key)
+                        .or_insert_with(|| desc.path.to_string_lossy().to_string());
                     let normalized_uid = normalize_plugin_key(uid_trimmed);
                     if !normalized_uid.is_empty() {
                         by_uid

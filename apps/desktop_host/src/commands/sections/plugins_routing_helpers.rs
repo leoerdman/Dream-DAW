@@ -280,7 +280,9 @@ pub fn finalize_internal_param_update(
         drop(project);
         project_state.mark_dirty(&project_name, Some(app))?;
     } else {
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        // Always update the window title `*` marker so users see their changes
+        // are unsaved, even for intermediate gesture values (pushUndoStep=false).
+        project_state.mark_dirty_current(Some(app))?;
     }
     Ok(())
 }

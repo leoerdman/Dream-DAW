@@ -15,10 +15,10 @@ import {
 
 function getErrorMessage(err: unknown): string {
     let raw = '';
+    // BUG-035 FIX: Use if/else if chain for proper type narrowing.
     if (typeof err === 'string' && err.trim()) {
         raw = err.trim();
-    }
-    if (err instanceof Error) {
+    } else if (err instanceof Error) {
         const cause = (err as Error & { cause?: unknown }).cause;
         if (!raw && typeof cause === 'string' && cause.trim()) raw = cause.trim();
         if (cause && typeof cause === 'object') {
@@ -26,8 +26,7 @@ function getErrorMessage(err: unknown): string {
             if (!raw && typeof causeMessage === 'string' && causeMessage.trim()) raw = causeMessage.trim();
         }
         if (!raw && err.message?.trim()) raw = err.message.trim();
-    }
-    if (err && typeof err === 'object') {
+    } else if (err && typeof err === 'object') {
         const candidateMessage = (err as { message?: unknown }).message;
         if (!raw && typeof candidateMessage === 'string' && candidateMessage.trim()) raw = candidateMessage.trim();
     }
@@ -176,6 +175,8 @@ export const ExportModal = ({
     }, [exportRange, hasSelection, hasMarquee]);
 
     const handleBounce = useCallback(async () => {
+        // BUG-081 FIX: Prevent double-submit (keyboard shortcut bypass).
+        if (isSubmitting) return;
         if (!canBounce) {
             setBounceError(bounceDisabledReason ?? 'Invalid export range.');
             return;
@@ -207,9 +208,14 @@ export const ExportModal = ({
                 format,
             };
 
+            // BUG-004 FIX: Send startFrame/endFrame for BOTH 'selected' AND 'loop' ranges.
+            // Previously, only 'selected' set frames — 'loop' exported the entire project.
             if (exportRange === 'selected' && selectedRange) {
                 settings.startFrame = beatsToFrames(selectedRange.startBeat, bpm, projectSampleRate);
                 settings.endFrame = beatsToFrames(selectedRange.endBeat, bpm, projectSampleRate);
+            } else if (exportRange === 'loop' && loopEndBeat > loopStartBeat) {
+                settings.startFrame = beatsToFrames(loopStartBeat, bpm, projectSampleRate);
+                settings.endFrame = beatsToFrames(loopEndBeat, bpm, projectSampleRate);
             }
 
             await engineApi.exportMix(settings);
@@ -221,7 +227,7 @@ export const ExportModal = ({
         } finally {
             setIsSubmitting(false);
         }
-    }, [canBounce, bounceDisabledReason, exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate]);
+    }, [canBounce, bounceDisabledReason, isSubmitting, exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate, loopStartBeat, loopEndBeat]);
 
     // BUG-51 FIX: Memoize rangeOptions to avoid re-creating array every render.
     // MUST be before the early-return to satisfy Rules of Hooks (constant hook count).

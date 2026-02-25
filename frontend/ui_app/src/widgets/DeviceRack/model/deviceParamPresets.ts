@@ -9,42 +9,42 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'B0Freq', value: 30, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B0Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B0Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B0En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B0En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
         // Band 1: Low Shelf
         { name: 'B1Freq', value: 100, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B1Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B1Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B1En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B1En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 2: Peaking
         { name: 'B2Freq', value: 250, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B2Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B2Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B2En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B2En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 3: Peaking
         { name: 'B3Freq', value: 800, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B3Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B3Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B3En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B3En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 4: Peaking
         { name: 'B4Freq', value: 2500, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B4Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B4Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B4En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B4En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 5: Peaking
         { name: 'B5Freq', value: 6000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B5Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B5Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B5En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B5En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 6: High Shelf
         { name: 'B6Freq', value: 12000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B6Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B6Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B6En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B6En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
         // Band 7: High Cut (Lowpass) — disabled by default
         { name: 'B7Freq', value: 18000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'B7Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'B7Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'B7En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'B7En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
         // Output gain
         { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         // Legacy aliases (for backward compat)

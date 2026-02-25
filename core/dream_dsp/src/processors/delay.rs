@@ -167,8 +167,14 @@ impl DelayProcessor {
     /// (eliminates 2 DIV instructions per sample → ~2x faster index computation).
     #[inline]
     fn read_interp(buf: &[f32], write_pos: usize, delay: f32, buf_size: usize) -> f32 {
-        let int_d = delay as usize;
-        let frac = delay - int_d as f32;
+        let max_delay = (buf_size.saturating_sub(2)) as f32;
+        let safe_delay = if delay.is_finite() {
+            delay.clamp(1.0, max_delay)
+        } else {
+            1.0
+        };
+        let int_d = safe_delay.floor() as usize;
+        let frac = safe_delay - int_d as f32;
         let mask = buf_size - 1; // buf_size is always power-of-2 aligned
         let i0 = (write_pos + buf_size - int_d) & mask;
         let i1 = (write_pos + buf_size - int_d - 1) & mask;

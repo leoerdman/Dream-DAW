@@ -46,7 +46,7 @@ export function useTimelineClipHandlers({
 }: Args): Result {
     const isClipNotFoundError = (err: unknown): boolean => {
         const message = err instanceof Error ? err.message : String(err);
-        return /clip/i.test(message) && /not\s+found/i.test(message);
+        return /clip/i.test(message) && /(not\s+found|unknown|does\s+not\s+exist|missing)/i.test(message);
     };
 
     const pruneGhostClip = useCallback((clipId: string) => {
@@ -78,7 +78,7 @@ export function useTimelineClipHandlers({
     }, [setSelectedClipIds]);
 
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
         const sampleRate = projectSampleRate;
         const storeState = useEngineStore.getState();
         const beatsPerBar = (storeState as typeof storeState & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
@@ -88,7 +88,7 @@ export function useTimelineClipHandlers({
     }, [createMidiClip, projectBpm, projectSampleRate, transportBpm]);
 
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
         const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
@@ -160,11 +160,11 @@ export function useTimelineClipHandlers({
                 .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
                 .filter((clip): clip is TimelineClip => Boolean(clip))
                 .filter((clip) => {
-                if (!selectedSet.has(clip.id)) return false;
-                if (seen.has(clip.id)) return false;
-                seen.add(clip.id);
-                return true;
-            });
+                    if (!selectedSet.has(clip.id)) return false;
+                    if (seen.has(clip.id)) return false;
+                    seen.add(clip.id);
+                    return true;
+                });
             const moveErrors: string[] = [];
             for (const clip of selectedClips) {
                 const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
@@ -179,6 +179,10 @@ export function useTimelineClipHandlers({
                     // later clips in the same group fail validation/not-found checks.
                     await applyProjectDeltas(response.deltas, 'clip-move-group');
                 } catch (err) {
+                    if (isClipNotFoundError(err)) {
+                        pruneGhostClip(clip.id);
+                        continue;
+                    }
                     moveErrors.push(err instanceof Error ? err.message : String(err));
                 }
             }
@@ -215,7 +219,7 @@ export function useTimelineClipHandlers({
             pruneGhostClip(clipId);
             return;
         }
-        const bpm = projectBpm || transportBpm || 120;
+        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
         const sampleRate = projectSampleRate;
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
         const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate));

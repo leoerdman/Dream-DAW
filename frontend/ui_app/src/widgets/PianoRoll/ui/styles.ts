@@ -30,7 +30,7 @@ export const actionBtnStyle: React.CSSProperties = {
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-2xs)',
     fontFamily: 'var(--font-role-body)',
-    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+    fontWeight: 'var(--font-weight-semibold)',
     padding: 'var(--token-size-px-3) var(--space-2)',
     cursor: 'pointer',
 };

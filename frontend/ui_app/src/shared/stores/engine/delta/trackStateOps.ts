@@ -17,13 +17,17 @@ export function findTrackIndexById(state: DeltaWorkingState, trackId: string): n
 export function getTrackByIndex(state: DeltaWorkingState, index: number): ProjectTrack | null {
     const trackId = getTrackIdByIndex(state, index);
     if (!trackId) return null;
-    return state.tracksById[trackId] ?? null;
+    return state.tracks.byId[trackId] ?? null;
 }
 
 export function syncTrackCollections(state: DeltaWorkingState): void {
     state.projectTracks = state.projectTracks
-        .map((track) => state.tracksById[track.id] ?? track)
+        .map((track) => state.tracks.byId[track.id] ?? track)
         .filter((track): track is ProjectTrack => Boolean(track));
+    state.tracks = {
+        byId: { ...state.tracks.byId },
+        allIds: state.projectTracks.map((track) => track.id),
+    };
 }
 
 export function patchTrackById(
@@ -31,10 +35,13 @@ export function patchTrackById(
     trackId: string,
     patch: Partial<ProjectTrack>,
 ): void {
-    const current = state.tracksById[trackId];
+    const current = state.tracks.byId[trackId];
     if (!current) return;
     const next = { ...current, ...patch };
-    state.tracksById = { ...state.tracksById, [trackId]: next };
+    state.tracks = {
+        byId: { ...state.tracks.byId, [trackId]: next },
+        allIds: state.tracks.allIds,
+    };
     syncTrackCollections(state);
     state.changed = true;
 }
@@ -48,7 +55,10 @@ export function insertTrackAt(
     const insertIndex = Math.max(0, Math.min(index, nextTracks.length));
     nextTracks.splice(insertIndex, 0, track);
     state.projectTracks = nextTracks;
-    state.tracksById = { ...state.tracksById, [track.id]: track };
+    state.tracks = {
+        byId: { ...state.tracks.byId, [track.id]: track },
+        allIds: nextTracks.map((t) => t.id),
+    };
     state.changed = true;
 }
 
@@ -59,9 +69,12 @@ export function removeTrackById(
     const removeIndex = state.projectTracks.findIndex((track) => track.id === trackId);
     if (removeIndex < 0) return -1;
     state.projectTracks = state.projectTracks.filter((track) => track.id !== trackId);
-    const nextById = { ...state.tracksById };
+    const nextById = { ...state.tracks.byId };
     delete nextById[trackId];
-    state.tracksById = nextById;
+    state.tracks = {
+        byId: nextById,
+        allIds: state.projectTracks.map((track) => track.id),
+    };
     state.changed = true;
     return removeIndex;
 }
@@ -95,7 +108,7 @@ export function rebuildChildTrackIds(state: DeltaWorkingState): void {
         childrenByParent[parentId].push(track.id);
     }
 
-    const nextById: Record<string, ProjectTrack> = { ...state.tracksById };
+    const nextById: Record<string, ProjectTrack> = { ...state.tracks.byId };
     for (const track of state.projectTracks) {
         const nextChildIds = childrenByParent[track.id] ?? [];
         const current = nextById[track.id];
@@ -106,7 +119,10 @@ export function rebuildChildTrackIds(state: DeltaWorkingState): void {
         };
     }
 
-    state.tracksById = nextById;
+    state.tracks = {
+        byId: nextById,
+        allIds: state.projectTracks.map((track) => track.id),
+    };
     syncTrackCollections(state);
     state.changed = true;
 }

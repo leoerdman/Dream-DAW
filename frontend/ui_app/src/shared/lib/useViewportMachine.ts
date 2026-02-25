@@ -71,6 +71,10 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
         viewportWidth: 0,
         viewportHeight: 0,
     });
+    const initialConfigRef = useRef<UseViewportMachineConfig | null>(null);
+    if (initialConfigRef.current == null) {
+        initialConfigRef.current = config;
+    }
 
     // Stable flush callback
     const onFlush = useCallback((snapshot: ViewportSnapshot) => {
@@ -79,11 +83,13 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
 
     // Create ViewportMachine once
     useEffect(() => {
+        const initialConfig = initialConfigRef.current;
+        if (!initialConfig) return;
         const vm = new ViewportMachine({
-            totalBeats,
-            trackCount,
-            trackHeight,
-            initialPpb,
+            totalBeats: initialConfig.totalBeats,
+            trackCount: initialConfig.trackCount,
+            trackHeight: initialConfig.trackHeight,
+            initialPpb: initialConfig.initialPpb ?? 20,
             onFlush,
         });
         vmRef.current = vm;
@@ -92,9 +98,7 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
             vm.detach();
             vmRef.current = null;
         };
-        // Mount-only initialization by design; runtime updates go through updateConfig/updatePpb.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [onFlush]);
 
     // Attach to container when ref is available
     useEffect(() => {

@@ -213,8 +213,10 @@ impl PluginInstance for Vst3Instance {
             {
                 let in_bus_count = self.audio_input_bus_count.max(1);
                 let out_bus_count = self.audio_output_bus_count.max(1);
-                let mut in_arrangements = vec![K_SPEAKER_STEREO; in_bus_count as usize];
-                let mut out_arrangements = vec![K_SPEAKER_STEREO; out_bus_count as usize];
+                let in_bus_count_usize = usize::try_from(in_bus_count).unwrap_or(1);
+                let out_bus_count_usize = usize::try_from(out_bus_count).unwrap_or(1);
+                let mut in_arrangements = vec![K_SPEAKER_STEREO; in_bus_count_usize];
+                let mut out_arrangements = vec![K_SPEAKER_STEREO; out_bus_count_usize];
                 // SAFETY: processor pointer is valid and arrangement arrays are alive for call duration.
                 let _ = unsafe {
                     ((*(*processor).vtbl).set_bus_arrangements)(
@@ -230,7 +232,7 @@ impl PluginInstance for Vst3Instance {
             let setup = ProcessSetup {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
-                max_samples_per_block: max_buffer_size as i32,
+                max_samples_per_block: i32::try_from(max_buffer_size).unwrap_or(i32::MAX),
                 sample_rate,
             };
 
@@ -422,7 +424,7 @@ impl PluginInstance for Vst3Instance {
                 }
             }
             let input_bus_count = if has_sidechain_signal { 2 } else { 1 };
-            let main_bus_channels = main_channels as i32;
+            let main_bus_channels = i32::try_from(main_channels).unwrap_or(i32::MAX);
 
             let in_main_bus = AudioBusBuffers {
                 num_channels: main_bus_channels,
@@ -450,7 +452,8 @@ impl PluginInstance for Vst3Instance {
             // Fix: provide all declared output buses. Bus 0 = real output.
             // Bus 1+ = scratch buffers (discarded after process).
             // ═══════════════════════════════════════════════════════════════
-            let actual_out_bus_count = self.audio_output_bus_count.max(1) as usize;
+            let actual_out_bus_count =
+                usize::try_from(self.audio_output_bus_count.max(1)).unwrap_or(1);
 
             // RT safety: do not allocate in process(). Scratch buffers must be
             // pre-allocated during activate() for max_buffer_size.
@@ -471,7 +474,7 @@ impl PluginInstance for Vst3Instance {
             ];
 
             let out_main_bus = AudioBusBuffers {
-                num_channels: main_channels as i32,
+                num_channels: i32::try_from(main_channels).unwrap_or(i32::MAX),
                 silence_flags: 0,
                 channel_buffers32: out_ptrs.as_mut_ptr(),
             };
@@ -520,9 +523,9 @@ impl PluginInstance for Vst3Instance {
             let mut data = ProcessData {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
-                num_samples: num_frames as i32,
+                num_samples: i32::try_from(num_frames).unwrap_or(i32::MAX),
                 num_inputs: input_bus_count,
-                num_outputs: output_bus_count_for_process as i32,
+                num_outputs: i32::try_from(output_bus_count_for_process).unwrap_or(i32::MAX),
                 inputs: input_buses.as_mut_ptr(),
                 outputs: output_buses.as_mut_ptr(),
                 input_parameter_changes: input_param_ptr,
@@ -572,9 +575,9 @@ impl PluginInstance for Vst3Instance {
                 process_fn(
                     input_ptrs.as_ptr(),
                     output_ptrs.as_mut_ptr(),
-                    inputs.len() as u32,
-                    outputs.len() as u32,
-                    num_frames as u32,
+                    u32::try_from(inputs.len()).unwrap_or(u32::MAX),
+                    u32::try_from(outputs.len()).unwrap_or(u32::MAX),
+                    u32::try_from(num_frames).unwrap_or(u32::MAX),
                     self.sample_rate,
                 )
             };

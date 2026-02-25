@@ -22,7 +22,7 @@ export const VirtualListHeader = memo(function VirtualListHeader({
                 display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-0-5) var(--space-2)', background: 'var(--color-bg-header)',
                 borderBottom: 'var(--space-px) solid var(--color-divider-light)', color: 'var(--color-text-secondary)',
                 fontSize: 'var(--font-size-2xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
-                position: 'sticky', top: 0, zIndex: 'var(--z-local-raised)' as unknown as number,
+                position: 'sticky', top: 0, zIndex: 'var(--z-local-raised)',
             }}
         >
             <button

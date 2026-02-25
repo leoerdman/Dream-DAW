@@ -8,6 +8,7 @@ import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 
 interface UseBrowserDnDOrchestratorArgs {
     tracks: EntityState<ProjectTrack>;
+    selectedTrackId: string;
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
@@ -31,9 +32,12 @@ const getSelectedRackDeviceId = (): string => {
     return rackScope?.dataset?.selectedDeviceId ?? '';
 };
 
-const resolveEffectInsertIndex = (track: ProjectTrack, slot: 'instrument' | 'effect'): number | undefined => {
+const resolveEffectInsertIndex = (
+    track: ProjectTrack,
+    slot: 'instrument' | 'effect',
+    selectedTrackId: string,
+): number | undefined => {
     if (slot !== 'effect') return undefined;
-    const selectedTrackId = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
     if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
     const selectedDeviceId = getSelectedRackDeviceId();
     if (!selectedDeviceId) return undefined;
@@ -43,6 +47,7 @@ const resolveEffectInsertIndex = (track: ProjectTrack, slot: 'instrument' | 'eff
 
 export const useBrowserDnDOrchestrator = ({
     tracks,
+    selectedTrackId,
     projectBpm,
     transportBpm,
     projectSampleRate,
@@ -76,7 +81,7 @@ export const useBrowserDnDOrchestrator = ({
         const track = getTrackById(trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
-        const insertIndex = resolveEffectInsertIndex(track, slot);
+        const insertIndex = resolveEffectInsertIndex(track, slot, selectedTrackId);
         let lastErr: unknown = null;
         const attempts = buildPluginSlotAttempts(slot);
         for (const attempt of attempts) {
@@ -96,7 +101,7 @@ export const useBrowserDnDOrchestrator = ({
             }
         }
         if (lastErr) throw lastErr;
-    }, [getTrackById, applyProjectDeltas]);
+    }, [getTrackById, applyProjectDeltas, selectedTrackId]);
 
     const addDefaultDeviceToTrack = useCallback(async (trackId: string) => {
         const track = getTrackById(trackId);

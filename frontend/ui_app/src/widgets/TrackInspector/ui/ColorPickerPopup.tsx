@@ -41,11 +41,11 @@ export const ColorPickerPopup = ({
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
             background: 'var(--color-bg-elevated)', border: 'var(--space-px) solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-xl)', padding: 8, zIndex: 'var(--z-menu)' as unknown as number,
+            borderRadius: 'var(--radius-xl)', padding: 8, zIndex: 'var(--z-menu)',
             boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
         }}>
             <div style={{
-                fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)',
                 color: 'var(--color-text-secondary)',
                 textTransform: 'uppercase', letterSpacing: '0.05em',
                 marginBottom: 6, textAlign: 'center',

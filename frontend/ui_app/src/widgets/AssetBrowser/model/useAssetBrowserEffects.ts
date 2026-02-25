@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import type { UseAssetBrowserEffectsParams } from './useAssetBrowserEffects.types';
-
 export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
+    const statusError = useStatusStore((s) => s.setError);
+    const statusClear = useStatusStore((s) => s.clear);
+    const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
     const {
         leftPaneWidth,
         leftPaneWidthRef,
@@ -58,11 +61,17 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         itemRowRefs,
     } = p;
     useEffect(() => { leftPaneWidthRef.current = leftPaneWidth; }, [leftPaneWidth, leftPaneWidthRef]);
-
     useEffect(() => {
-        engineApi.getBrowserFolders().then(setUserFolders).catch((err) => console.warn('[Browser] Failed to load folders:', err));
-    }, [setUserFolders]);
-
+        engineApi.getBrowserFolders()
+            .then((folders) => {
+                setUserFolders(folders);
+                statusClear();
+            })
+            .catch((err) => {
+                console.warn('[Browser] Failed to load folders:', err);
+                statusError(`Asset Browser: failed to load folders: ${errorText(err)}`);
+            });
+    }, [setUserFolders, statusClear, statusError]);
     useEffect(() => {
         if (prevCategoryRef.current !== selectedCategoryId) {
             prevCategoryRef.current = selectedCategoryId;
@@ -73,7 +82,6 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             setPluginSourceFilter('all');
         }
     }, [selectedCategoryId, prevCategoryRef, setAudioFilter, setFormatFilter, setPluginSourceFilter, setSizeFilter, setSourceFilter]);
-
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.isComposing) return;
@@ -86,7 +94,6 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [searchRef]);
-
     useEffect(() => {
         const focusBrowserSearch = (evt: Event) => {
             const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
@@ -113,7 +120,6 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
         };
     }, [searchRef, setDebouncedQuery, setExpandedFolders, setFolderChildrenCache]);
-
     useEffect(() => {
         if (!contextMenu) return;
         const onClick = (e: MouseEvent) => {
@@ -127,21 +133,18 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             window.removeEventListener('keydown', onKey);
         };
     }, [contextMenu, contextMenuRef, setContextMenu]);
-
     useEffect(() => {
         if (selectedCategoryId !== 'currentProject') return;
         let mounted = true;
         void engineApi.getProjectStatus().then((status) => { if (mounted) setCurrentProjectFolder(status.projectFolder ?? null); }).catch(() => { if (mounted) setCurrentProjectFolder(null); });
         return () => { mounted = false; };
     }, [selectedCategoryId, setCurrentProjectFolder]);
-
     useEffect(() => {
         if (!settingsLoaded) return;
         setShowSizeColumn(settings.browserShowSizeColumn);
         setShowTypeColumn(settings.browserShowTypeColumn);
         setLeftPaneWidth(Math.max(84, Math.min(180, settings.browserLeftPaneWidth || 92)));
     }, [settingsLoaded, settings.browserShowSizeColumn, settings.browserShowTypeColumn, settings.browserLeftPaneWidth, setLeftPaneWidth, setShowSizeColumn, setShowTypeColumn]);
-
     useEffect(() => {
         if (!isSamplesCategory || scanTriggeredRef.current) return;
         let cancelled = false;
@@ -170,14 +173,15 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
                 .catch((err) => {
                     if (!cancelled && err !== 'cancelled') {
                         console.warn('[AssetBrowser] Scan failed:', err);
-                        setSampleScanError(String(err));
+                        const message = errorText(err);
+                        setSampleScanError(message);
+                        statusError(`Asset Browser: sample scan failed: ${message}`);
                         setSampleScanLoading(false);
                     }
                 });
         }, 300);
         return () => { cancelled = true; clearTimeout(timerId); };
-    }, [isSamplesCategory, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading]);
-
+    }, [isSamplesCategory, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading, statusError]);
     useEffect(() => {
         const needsPluginCatalog = selectedCategoryId === 'plugins'
             || selectedCategoryId === 'all'
@@ -198,12 +202,13 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         }).catch((err) => {
             if (cancelled) return;
             console.warn('[Browser] Plugin scan failed:', err);
-            setPluginScanError(String(err));
+            const message = errorText(err);
+            setPluginScanError(message);
+            statusError(`Asset Browser: plugin scan failed: ${message}`);
             setPluginScanLoading(false);
         });
         return () => { cancelled = true; };
-    }, [selectedCategoryId, pluginScanNonce, pluginScanned, setPluginFiles, setPluginScanError, setPluginScanLoading, setPluginScanned]);
-
+    }, [selectedCategoryId, pluginScanNonce, pluginScanned, setPluginFiles, setPluginScanError, setPluginScanLoading, setPluginScanned, statusError]);
     useEffect(() => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
         let cancelled = false;
@@ -217,12 +222,13 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         }).catch((err) => {
             if (cancelled) return;
             console.warn('[Browser] Folder scan failed:', err);
-            setFolderScanError(String(err));
+            const message = errorText(err);
+            setFolderScanError(message);
+            statusError(`Asset Browser: folder scan failed: ${message}`);
             setFolderScanLoading(false);
         });
         return () => { cancelled = true; };
-    }, [activeFolderPath, folderScanPath, setFolderItems, setFolderScanError, setFolderScanLoading, setFolderScanPath]);
-
+    }, [activeFolderPath, folderScanPath, setFolderItems, setFolderScanError, setFolderScanLoading, setFolderScanPath, statusError]);
     useEffect(() => {
         const changed = activeFolderPath !== prevActiveFolderRef.current;
         prevActiveFolderRef.current = activeFolderPath;
@@ -234,12 +240,10 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             setFolderItems([]);
         }
     }, [selectedCategoryId, activeFolderPath, prevActiveFolderRef, setExpandedFolders, setFolderChildrenCache, setFolderItems, setFolderScanPath, setLoadingFolders]);
-
     useEffect(() => {
         if (items.length === 0) { setSelectedItemId(null); return; }
         if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) setSelectedItemId(items[0].id);
     }, [items, selectedItemId, setSelectedItemId]);
-
     useEffect(() => {
         if (!columnMenuPos) return;
         const onMouseDown = (e: MouseEvent) => {
@@ -254,7 +258,6 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             window.removeEventListener('keydown', onKeyDown);
         };
     }, [columnMenuPos, columnMenuRef, setColumnMenuPos]);
-
     useEffect(() => {
         if (prevCatForPreviewRef.current !== selectedCategoryId) {
             prevCatForPreviewRef.current = selectedCategoryId;
@@ -262,7 +265,6 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             isPreviewPlayingRef.current = false;
         }
     }, [selectedCategoryId, prevCatForPreviewRef, isPreviewPlayingRef]);
-
     useEffect(() => {
         if (!selectedItemId) return;
         if (selectedCategoryId === 'plugins') {

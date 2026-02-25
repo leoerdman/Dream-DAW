@@ -145,8 +145,8 @@ export function SessionStripFader({
                             }}
                         />
                     ))}
-                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 2, height: `calc(${volNorm * 100}% - 4px)`, minHeight: volNorm > 0 ? 2 : 0, borderRadius: 'var(--radius-xs)', background: 'linear-gradient(to top, color-mix(in srgb, var(--color-accent-primary) 65%, #2da163), color-mix(in srgb, var(--color-accent-primary) 35%, #b2e36d))', opacity: 0.88, transition: dragging ? 'none' : 'height 70ms linear' }} />
-                    <div style={{ position: 'absolute', left: 1, right: 1, bottom: `calc(${volNorm * 100}% - 2px)`, height: 4, borderRadius: 'var(--radius-xs)', background: 'var(--color-text-bright)', boxShadow: '0 0 3px color-mix(in srgb, var(--color-text-bright) 45%, transparent)', transition: dragging ? 'none' : 'bottom 70ms linear' }} />
+                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 1, height: `calc(${volNorm * 100}% - 2px)`, minHeight: volNorm > 0 ? 2 : 0, borderRadius: 'var(--radius-xs)', background: 'linear-gradient(to top, color-mix(in srgb, var(--color-accent-primary) 65%, #2da163), color-mix(in srgb, var(--color-accent-primary) 35%, #b2e36d))', opacity: 0.88, transition: dragging ? 'none' : 'height 70ms linear' }} />
+                    <div style={{ position: 'absolute', left: 1, right: 1, bottom: `calc(${volNorm * 100}% - 1px)`, height: 2, borderRadius: 'var(--radius-2xs)', background: 'color-mix(in srgb, var(--color-text-bright) 94%, transparent)', boxShadow: '0 0 2px color-mix(in srgb, var(--color-text-bright) 35%, transparent)', transition: dragging ? 'none' : 'bottom 70ms linear' }} />
                 </div>
             </div>
             <input

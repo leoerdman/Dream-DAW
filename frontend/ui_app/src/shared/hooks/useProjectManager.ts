@@ -1,11 +1,3 @@
-// useProjectManager — Enterprise Project Management Hook
-// Encapsulates all project management operations:
-//   - Save / Save As / New / Open with keyboard shortcuts
-//   - Dirty state tracking with title bar indicator
-//   - Auto-backup timer (every 5 minutes)
-//   - Unsaved changes confirmation
-// Mirrors the Swift ProjectFileManager workflow in React.
-// ═══════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '../../shared/api/engine';
 import type { ProjectStatus } from '../../shared/api/engine';
@@ -13,6 +5,7 @@ import { useEngineStore } from '../../shared/stores/useEngineStore';
 import { useTimelineStore } from '../../shared/stores/useTimelineStore';
 import { applyDeltasWithSnapshotSync } from '../../shared/stores/engine/snapshotSync';
 import { dreamGlobals } from '../../shared/lib/dreamGlobals';
+import { withProjectLoad } from '../../shared/lib/projectLoadGuard';
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 export interface ProjectManagerState {
@@ -36,7 +29,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         projectFolder: null,
         isSaving: false,
     });
-    const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const syncProjectHistory = useEngineStore((s) => s.syncProjectHistory);
     const applyProjectDeltas = useEngineStore((s) => s.applyProjectDeltas);
     const syncArrangementViewport = useCallback(async () => {
@@ -68,10 +60,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             return null;
         }
     }, []);
-    // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
     const filePathRef = useRef<string | null>(null);
     filePathRef.current = state.filePath;
-    // ── Status Sync ───────────────────────────────────────────────────
     /** Fetches and syncs the project status from the backend. */
     const refreshStatus = useCallback(async () => {
         try {
@@ -88,14 +78,18 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.error('[ProjectManager] Failed to refresh status:', err);
         }
     }, []);
-    // ── Save ──────────────────────────────────────────────────────────
     /** Save to existing path, or trigger Save As if unsaved. */
     const handleSave = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-            const flush = dreamGlobals.getFlushPendingEdits();
-            if (typeof flush === 'function') {
-                await flush();
+            // BUG-052 FIX: Wrap flush in try/catch so save doesn't fail if flush errors.
+            try {
+                const flush = dreamGlobals.getFlushPendingEdits();
+                if (typeof flush === 'function') {
+                    await flush();
+                }
+            } catch (flushErr) {
+                console.warn('[ProjectManager] flushPendingEdits failed (non-fatal):', flushErr);
             }
             await syncArrangementViewport();
             // Re-read backend status at save time because project may have been
@@ -135,9 +129,14 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const handleSaveAs = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
-            const flush = dreamGlobals.getFlushPendingEdits();
-            if (typeof flush === 'function') {
-                await flush();
+            // BUG-052 FIX: Wrap flush in try/catch so Save As doesn't fail if flush errors.
+            try {
+                const flush = dreamGlobals.getFlushPendingEdits();
+                if (typeof flush === 'function') {
+                    await flush();
+                }
+            } catch (flushErr) {
+                console.warn('[ProjectManager] flushPendingEdits failed (non-fatal):', flushErr);
             }
             await syncArrangementViewport();
             const path = await pickSavePath();
@@ -152,29 +151,31 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
     }, [refreshStatus, syncProjectHistory, syncArrangementViewport, pickSavePath]);
-    // ── New Project ───────────────────────────────────────────────────
     /** New project — confirms if dirty. */
     const handleNew = useCallback(async () => {
-        if (state.isDirty) {
+        // BUG-018 FIX: Use ref for latest isDirty to avoid stale closure.
+        if (isDirtyRef.current) {
             const confirmed = window.confirm(
                 'You have unsaved changes. Create a new project anyway?'
             );
             if (!confirmed) return;
         }
         try {
-            const response = await engineApi.newProject();
-            await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:new');
+            await withProjectLoad('project-manager:new', async () => {
+                const response = await engineApi.newProject();
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:new');
+            });
             await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
         } catch (err) {
             console.error('[ProjectManager] New project failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
-    // ── Open Project ──────────────────────────────────────────────────
+    }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Open project — picks file, confirms if dirty. */
     const handleOpen = useCallback(async () => {
-        if (state.isDirty) {
+        // BUG-019 FIX: Use ref for latest isDirty to avoid stale closure.
+        if (isDirtyRef.current) {
             const confirmed = window.confirm(
                 'You have unsaved changes. Open a different project?'
             );
@@ -183,27 +184,24 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         try {
             const path = await engineApi.pickProjectFile();
             if (path) {
-                const isAbleton = path.toLowerCase().endsWith('.als');
-                if (isAbleton) {
-                    const response = await engineApi.importAbletonProject(path);
-                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
-                } else {
-                    const response = await engineApi.openProject(path);
-                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
-                }
+                await withProjectLoad('project-manager:open', async () => {
+                    const isAbleton = path.toLowerCase().endsWith('.als');
+                    if (isAbleton) {
+                        const response = await engineApi.importAbletonProject(path);
+                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
+                    } else {
+                        const response = await engineApi.openProject(path);
+                        await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'project-manager:open');
+                    }
+                });
                 await syncProjectHistory();
                 await refreshStatus();
-                // Eagerly activate external VST3 plugins and restore their saved state
-                engineApi.eagerActivateExternalPlugins().catch((err) =>
-                    console.warn('[ProjectManager] Eager plugin activation failed (non-fatal):', err)
-                );
                 onProjectLoaded?.();
             }
         } catch (err) {
             console.error('[ProjectManager] Open failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
-    // ── Backup ────────────────────────────────────────────────────────
+    }, [refreshStatus, onProjectLoaded, syncProjectHistory, applyProjectDeltas]);
     /** Manually create a backup. */
     const handleBackup = useCallback(async () => {
         try {
@@ -214,7 +212,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             console.debug('[ProjectManager] Backup skipped:', err);
         }
     }, []);
-    // ── Keyboard Shortcuts ────────────────────────────────────────────
     // NOTE: Cmd+N and Cmd+O are handled exclusively by the native macOS
     // menu (useNativeMenu) via Tauri accelerators. Registering them here
     // too would cause duplicate handlers: both would call pickProjectFile/openProject
@@ -250,7 +247,6 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
         };
     }, [handleSave, handleSaveAs]);
-    // ── Auto-Backup Timer ─────────────────────────────────────────────
     // Use refs for volatile state so the interval doesn't have to be
     // torn down and recreated every time isDirty or projectFolder changes.
     const isDirtyRef = useRef(state.isDirty);
@@ -258,15 +254,24 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     const projectFolderRef = useRef(state.projectFolder);
     projectFolderRef.current = state.projectFolder;
     useEffect(() => {
-        autoBackupRef.current = setInterval(() => {
+        let cancelled = false;
+        let timerId: ReturnType<typeof setTimeout> | null = null;
+        const runCycle = async () => {
+            if (cancelled) return;
             if (projectFolderRef.current && isDirtyRef.current) {
-                handleBackup();
+                await handleBackup();
             }
+            if (cancelled) return;
+            timerId = setTimeout(() => {
+                void runCycle();
+            }, AUTO_BACKUP_INTERVAL_MS);
+        };
+        timerId = setTimeout(() => {
+            void runCycle();
         }, AUTO_BACKUP_INTERVAL_MS);
         return () => {
-            if (autoBackupRef.current) {
-                clearInterval(autoBackupRef.current);
-            }
+            cancelled = true;
+            if (timerId) clearTimeout(timerId);
         };
     }, [handleBackup]);
     // ── Initial Status Sync ───────────────────────────────────────────

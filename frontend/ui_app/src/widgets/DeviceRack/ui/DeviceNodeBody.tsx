@@ -164,7 +164,7 @@ export function DeviceNodeBody({
                         style={{
                             fontSize: 'var(--font-size-2xs)',
                             color: 'var(--color-text-tertiary)',
-                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                            fontWeight: 'var(--font-weight-bold)',
                             letterSpacing: '0.04em',
                             textTransform: 'uppercase',
                         }}

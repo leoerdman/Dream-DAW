@@ -123,7 +123,7 @@ export const PanFader = ({
                     justifyContent: 'center',
                     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-role-data)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     color: 'var(--color-text-primary)',
                     textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',

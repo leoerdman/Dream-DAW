@@ -2,106 +2,25 @@
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
 import { getContrastColor, parseColorToRgb } from './colorUtils';
+import type { GhostClipData, LoopRegion, TimelineClipData, TimelineTheme } from './CanvasClipRenderer.types';
+import {
+    applyAlphaMultiplier,
+    CLIP_LABEL_FONT,
+    CLIP_RADIUS,
+    DROP_TARGET_BORDER,
+    DROP_TARGET_COLOR,
+    FADE_GRAB_RADIUS,
+    GHOST_CLIP_ALPHA,
+    HEADER_HEIGHT,
+    hex,
+    OFFLINE_STRIPE_COLOR,
+    rgba,
+    SELECTION_BORDER_WIDTH,
+    SELECTION_GLOW_COLOR,
+    snapCanvasLineX,
+} from './CanvasClipRenderer.constants';
 
-export interface TimelineClipData {
-    id: string;
-    name: string;
-    trackIndex: number;
-    startBeat: number;
-    durationBeats: number;
-    type: 'audio' | 'midi';
-    color: string;
-    selected?: boolean;
-    primarySelected?: boolean;
-    hovered?: boolean;
-    filePath?: string;
-    durationSamples?: number;
-    sourceOffset?: number;
-    fadeIn?: number;
-    fadeOut?: number;
-    fadeInCurve?: number;
-    fadeOutCurve?: number;
-    showFadeInCurvePoint?: boolean;
-    showFadeOutCurvePoint?: boolean;
-    isOffline?: boolean;
-    muted?: boolean;
-    trackMuted?: boolean;
-    /** Whether this clip uses warp/time-stretch mode. */
-    isWarped?: boolean;
-    /** Source file duration in samples (used for warp rate computation). */
-    warpSourceDurationFrames?: number;
-    /** Pitch shift in semitones (used for source-domain waveform mapping). */
-    pitchShiftSemitones?: number;
-    midiNotes?: Array<{
-        pitch: number;
-        startBeat: number;
-        durationBeats: number;
-        velocity: number;
-    }>;
-}
-
-export interface LoopRegion {
-    start: number;
-    end: number;
-    enabled: boolean;
-}
-
-export interface GhostClipData {
-    trackIndex: number;
-    beat: number;
-    widthBeats: number;
-    name: string;
-    type: 'audio' | 'midi';
-}
-
-const HEADER_HEIGHT = 20;
-const CLIP_RADIUS = 4;
-const FADE_GRAB_RADIUS = 3;
-const SELECTION_BORDER_WIDTH = 2;
-const rgba = (r: number, g: number, b: number, a: number): string => `rgba(${r}, ${g}, ${b}, ${a})`;
-const hex = (r: number, g: number, b: number): string =>
-    `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-const SELECTION_GLOW_COLOR = rgba(255, 255, 255, 0.9);
-const DROP_TARGET_COLOR = rgba(255, 255, 255, 0.2);
-const DROP_TARGET_BORDER = rgba(255, 255, 255, 0.6);
-const GHOST_CLIP_ALPHA = 0.45;
-const OFFLINE_STRIPE_COLOR = rgba(255, 80, 80, 0.3);
-const CLIP_LABEL_FONT = '10px Inter, -apple-system, sans-serif';
-const snapCanvasLineX = (rawX: number, lineWidthCssPx: number): number => {
-    if (!Number.isFinite(rawX)) return rawX;
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const deviceX = rawX * dpr;
-    const deviceWidth = Math.max(1, lineWidthCssPx * dpr);
-    const alignedDeviceCenter = Math.round(deviceX - deviceWidth / 2) + deviceWidth / 2;
-    return alignedDeviceCenter / dpr;
-};
-
-interface TimelineTheme {
-    bg: string;
-    rulerBg: string;
-    gridLine: string;
-    gridBar: string;
-    trackDefault: string;
-    trackSelected: string;
-    playhead: string;
-    playheadGlow: string;
-    editCursor: string;
-    loopFill: string;
-    loopBorder: string;
-    rulerText: string;
-    trackDivider: string;
-}
-
-function applyAlphaMultiplier(color: string, multiplier: number): string {
-    const m = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/i);
-    if (!m) return color;
-    const r = Number(m[1]);
-    const g = Number(m[2]);
-    const b = Number(m[3]);
-    const baseA = m[4] != null ? Number(m[4]) : 1;
-    const a = Math.max(0, Math.min(1, baseA * multiplier));
-    return rgba(r, g, b, a);
-}
+export type { GhostClipData, LoopRegion, TimelineClipData } from './CanvasClipRenderer.types';
 
 export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;

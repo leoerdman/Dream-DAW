@@ -120,7 +120,7 @@ export const VolumeFader = ({
                 {showZeroTick && (
                     <div style={{
                         position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
-                        width: 1, background: 'var(--color-divider-light)', zIndex: 'var(--z-local)' as unknown as number,
+                        width: 1, background: 'var(--color-divider-light)', zIndex: 'var(--z-local)',
                     }} />
                 )}
                 <div style={{
@@ -140,7 +140,7 @@ export const VolumeFader = ({
                     justifyContent: 'center',
                     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-role-data)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     color: 'var(--color-text-primary)',
                     textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',

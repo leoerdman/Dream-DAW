@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { scrollSync } from '@/shared/lib/useScrollSync';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 import {
     canDropTrackIntoGroup,
@@ -54,7 +55,7 @@ export function useTrackInspectorDragDrop({
         setDropInsertIndex(null);
         setGroupDropTargetId(null);
         setDraggingTrackId(null);
-        window.__dreamInAppDrag = false;
+        dreamGlobals.setInAppDrag(false);
     }, []);
 
     const commitTrackReorder = useCallback((trackId: string, visibleInsertIndex: number) => {
@@ -138,7 +139,7 @@ export function useTrackInspectorDragDrop({
 
     useEffect(() => {
         if (!draggingTrackId) return;
-        const clearInAppDrag = () => { window.__dreamInAppDrag = false; };
+        const clearInAppDrag = () => { dreamGlobals.setInAppDrag(false); };
         window.addEventListener('dragend', clearInAppDrag);
         window.addEventListener('drop', clearInAppDrag);
         return () => {
@@ -162,7 +163,7 @@ export function useTrackInspectorDragDrop({
                 draggingTrackIdRef.current = pointerDrag.trackId;
                 setDraggingTrackId(pointerDrag.trackId);
                 setPointerDrag((prev) => (prev ? { ...prev, active: true } : prev));
-                window.__dreamInAppDrag = true;
+                dreamGlobals.setInAppDrag(true);
             }
 
             const target = resolveDropTargetFromClientY(

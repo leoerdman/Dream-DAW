@@ -64,7 +64,7 @@ export function ExportModalPanel({
     onBounce,
 }: ExportModalPanelProps) {
     return (
-        <div style={{ zIndex: 'var(--z-modal-content)' as unknown as number, width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ zIndex: 'var(--z-modal-content)', width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 id="export-audio-title" style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
                 <button

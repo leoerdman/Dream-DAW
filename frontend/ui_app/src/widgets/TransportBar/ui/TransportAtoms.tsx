@@ -23,6 +23,7 @@ export const PillSection = ({ children, style }: { children: React.ReactNode; st
 export const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () => void; dimmed?: boolean }) => (
     <button
         onClick={onClick}
+        aria-label={label}
         className="btn-control"
         style={{
             height: TRANSPORT_UI.controlHeight,
@@ -72,6 +73,7 @@ export const TransportBtn = ({
         <button
             onClick={onClick}
             title={title}
+            aria-label={title}
             className={className}
             style={{
                 width: TRANSPORT_UI.controlHeight,

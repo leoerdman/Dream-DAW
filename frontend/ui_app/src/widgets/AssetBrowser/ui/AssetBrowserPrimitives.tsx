@@ -81,7 +81,7 @@ export const TypeIcon = memo(({ type, item }: { type: AssetBrowserItemLike['type
                     border: 'var(--space-px) solid var(--color-divider)',
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-micro)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     lineHeight: 'var(--token-size-px-9)',
                     textAlign: 'center',
                     fontFamily: 'var(--font-role-data)',
@@ -192,7 +192,7 @@ export const FilterPill = ({
             padding: 'var(--token-size-px-3) var(--space-1-5)',
             fontSize: 'var(--font-size-xs)',
             cursor: 'pointer',
-            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+            fontWeight: 'var(--font-weight-semibold)',
             whiteSpace: 'nowrap',
         }}
     >

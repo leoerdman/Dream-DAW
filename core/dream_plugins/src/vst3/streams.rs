@@ -77,7 +77,9 @@ pub(crate) unsafe extern "C" fn stream_read(
     }
     // SAFETY: `this` validated above and points to HostReadStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
-    let requested = num_bytes as usize;
+    let Ok(requested) = usize::try_from(num_bytes) else {
+        return K_RESULT_FALSE;
+    };
     let remaining = stream.data.len().saturating_sub(stream.pos);
     let to_copy = requested.min(remaining);
     if to_copy > 0 {
@@ -94,7 +96,7 @@ pub(crate) unsafe extern "C" fn stream_read(
     if !num_bytes_read.is_null() {
         // SAFETY: checked for null; writes exactly one i32 out-parameter.
         unsafe {
-            *num_bytes_read = to_copy as i32;
+            *num_bytes_read = i32::try_from(to_copy).unwrap_or(i32::MAX);
         }
     }
     K_RESULT_OK
@@ -126,10 +128,10 @@ pub(crate) unsafe extern "C" fn stream_seek(
     }
     // SAFETY: `this` validated above and points to HostReadStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostReadStream) };
-    let len = stream.data.len() as i64;
+    let len = i64::try_from(stream.data.len()).unwrap_or(i64::MAX);
     let base = match mode {
         K_SEEK_SET => 0_i64,
-        K_SEEK_CUR => stream.pos as i64,
+        K_SEEK_CUR => i64::try_from(stream.pos).unwrap_or(i64::MAX),
         K_SEEK_END => len,
         _ => return K_RESULT_FALSE,
     };
@@ -140,7 +142,10 @@ pub(crate) unsafe extern "C" fn stream_seek(
     if next > len {
         next = len;
     }
-    stream.pos = next as usize;
+    let Ok(next_pos) = usize::try_from(next) else {
+        return K_RESULT_FALSE;
+    };
+    stream.pos = next_pos;
     if !result.is_null() {
         // SAFETY: checked for null; writes one i64 out-parameter.
         unsafe {
@@ -158,7 +163,7 @@ unsafe extern "C" fn stream_tell(this: *mut IBStream, result: *mut i64) -> Tresu
     let stream = unsafe { &*(this as *mut HostReadStream) };
     // SAFETY: `result` validated non-null above.
     unsafe {
-        *result = stream.pos as i64;
+        *result = i64::try_from(stream.pos).unwrap_or(i64::MAX);
     }
     K_RESULT_OK
 }
@@ -272,7 +277,15 @@ unsafe extern "C" fn write_stream_write(
     // SAFETY: `this` validated above and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
     // SAFETY: `buffer` validated non-null and `count` bytes provided by caller for this call.
-    let count = num_bytes as usize;
+    let Ok(count) = usize::try_from(num_bytes) else {
+        if !num_bytes_written.is_null() {
+            // SAFETY: checked for null; writes one i32 out-parameter.
+            unsafe {
+                *num_bytes_written = 0;
+            }
+        }
+        return K_RESULT_FALSE;
+    };
     let src = unsafe { std::slice::from_raw_parts(buffer as *const u8, count) };
 
     // If writing at pos < data.len(), overwrite in place; otherwise extend.
@@ -312,16 +325,21 @@ unsafe extern "C" fn write_stream_seek(
     }
     // SAFETY: `this` validated above and points to HostWriteStream allocated by host.
     let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    let data_len_i64 = i64::try_from(stream.data.len()).unwrap_or(i64::MAX);
+    let cur_pos_i64 = i64::try_from(stream.pos).unwrap_or(i64::MAX);
     let new_pos: i64 = match mode {
         K_SEEK_SET => pos,
-        K_SEEK_CUR => stream.pos as i64 + pos,
-        K_SEEK_END => stream.data.len() as i64 + pos,
+        K_SEEK_CUR => cur_pos_i64.saturating_add(pos),
+        K_SEEK_END => data_len_i64.saturating_add(pos),
         _ => return K_RESULT_FALSE,
     };
     if new_pos < 0 {
         return K_RESULT_FALSE;
     }
-    stream.pos = new_pos as usize;
+    let Ok(next_pos) = usize::try_from(new_pos) else {
+        return K_RESULT_FALSE;
+    };
+    stream.pos = next_pos;
     if !result.is_null() {
         // SAFETY: checked for null; writes one i64 out-parameter.
         unsafe {
@@ -339,7 +357,7 @@ unsafe extern "C" fn write_stream_tell(this: *mut IBStream, result: *mut i64) ->
     let stream = unsafe { &*(this as *const HostWriteStream) };
     // SAFETY: `result` validated non-null above.
     unsafe {
-        *result = stream.pos as i64;
+        *result = i64::try_from(stream.pos).unwrap_or(i64::MAX);
     }
     K_RESULT_OK
 }

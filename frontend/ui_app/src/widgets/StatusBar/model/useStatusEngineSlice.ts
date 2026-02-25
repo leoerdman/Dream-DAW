@@ -8,6 +8,8 @@ export const useStatusEngineSlice = () =>
             isPlaying: s.transport.is_playing,
             positionBeats: s.transport.position_beats ?? 0,
             bpm: s.projectBpm || s.transport.bpm || 120,
+            timeSigNumerator: s.timeSigNumerator || s.transport.time_sig_numerator || 4,
+            timelineClips: s.timelineClips,
             connected: s.connected,
             projectSampleRate: s.projectSampleRate,
             trackCount: s.tracks.allIds.length,

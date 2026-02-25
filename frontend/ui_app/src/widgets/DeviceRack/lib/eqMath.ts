@@ -222,6 +222,7 @@ export function parseBandsFromParams(
     eqBandFilterTypes: string[],
     bandColors?: readonly string[],
 ): EqBand8[] {
+    const DEFAULT_BAND_ENABLED = [1, 0, 0, 0, 0, 0, 0, 1] as const;
     const resolvedTypes = deriveEqBandFilterTypes(params, eqBandFilterTypes);
     const bands: EqBand8[] = [];
     for (let i = 0; i < 8; i++) {
@@ -232,7 +233,7 @@ export function parseBandsFromParams(
         const freq = Number.isFinite(rawFreq) ? Math.max(20, Math.min(20000, rawFreq as number)) : DEFAULT_BAND_FREQS[i];
         const gain = Number.isFinite(rawGain) ? Math.max(-24, Math.min(24, rawGain as number)) : 0;
         const q = Number.isFinite(rawQ) ? Math.max(0.1, Math.min(18, rawQ as number)) : 0.71;
-        const en = Number.isFinite(rawEn) ? (rawEn as number) : 0;
+        const en = Number.isFinite(rawEn) ? (rawEn as number) : DEFAULT_BAND_ENABLED[i];
         bands.push({
             idx: i,
             freq,

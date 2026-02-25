@@ -47,6 +47,8 @@ pub struct TransportState {
     pub loop_end: i64,
     pub output_latency_frames: u32,
     pub telemetry_timestamp_ms: f64,
+    pub time_sig_numerator: u32,
+    pub time_sig_denominator: u32,
 }
 
 /// Track state returned to frontend.

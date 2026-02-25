@@ -160,7 +160,7 @@ pub struct HostEventList {
     vtbl: *const IEventListVtbl,
     ref_count: u32,
     count: i32,
-    events: [Vst3Event; MAX_INPUT_EVENTS],
+    events: Box<[Vst3Event]>,
 }
 
 impl HostEventList {
@@ -169,18 +169,21 @@ impl HostEventList {
             vtbl: &HOST_EVENT_LIST_VTBL,
             ref_count: 1,
             count: 0,
-            events: [Vst3Event::zeroed(); MAX_INPUT_EVENTS],
+            events: vec![Vst3Event::zeroed(); MAX_INPUT_EVENTS].into_boxed_slice(),
         }
     }
 
     pub fn from_midi_events(midi_events: &[MidiEvent]) -> Self {
         let mut list = Self::empty();
         for midi in midi_events {
-            if list.count as usize >= MAX_INPUT_EVENTS {
+            let Ok(count) = usize::try_from(list.count) else {
+                break;
+            };
+            if count >= MAX_INPUT_EVENTS {
                 break;
             }
             if let Some(vst3_event) = Vst3Event::from_midi_event(midi) {
-                list.events[list.count as usize] = vst3_event;
+                list.events[count] = vst3_event;
                 list.count += 1;
             }
         }

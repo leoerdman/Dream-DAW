@@ -1,5 +1,4 @@
 import React, { memo } from 'react';
-import * as engineApi from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { BrowserGlyph, TypeIcon } from './AssetBrowserPrimitives';
 import type { BrowserItem } from '@/widgets/AssetBrowser/model/useAssetBrowserLogic';
@@ -83,10 +82,10 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                     if (item.type === 'audio' && item.path) {
                         if (isPreviewPlayingRef.current) {
                             isPreviewPlayingRef.current = false;
-                            engineApi.stopPreview().catch(() => { });
+                            syncPreviewForItem(null);
                         } else {
                             isPreviewPlayingRef.current = true;
-                            engineApi.previewAudioFile(item.path).catch(() => { });
+                            syncPreviewForItem(item);
                         }
                     }
                     return;
@@ -179,7 +178,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             <TypeIcon type={item.type} item={item} />
             <span style={{
                 color: 'var(--color-text-primary)', fontSize: 'var(--font-size-base)',
-                fontWeight: 'var(--font-weight-medium)' as unknown as number,
+                fontWeight: 'var(--font-weight-medium)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 flex: 1, minWidth: 0,
             }}>

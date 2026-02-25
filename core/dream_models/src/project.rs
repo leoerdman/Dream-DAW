@@ -301,7 +301,8 @@ impl TimeSignature {
         // compatible with existing transport/editor semantics (e.g. 7/8 => 3 beats).
         let n = self.numerator as u16 * 4;
         let d = self.denominator as u16;
-        ((n / d) as u8).max(1)
+        let beats = n / d;
+        u8::try_from(beats).unwrap_or(u8::MAX).max(1)
     }
 
     /// Returns a display string (e.g., "4/4", "6/8").

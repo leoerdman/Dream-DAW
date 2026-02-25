@@ -3,15 +3,10 @@ import * as engine from '@/shared/api/engine';
 import { applyProjectDeltasToState, extractSnapshotProjectMeta } from '@/shared/stores/engine/applyProjectDeltas';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
-import {
-    createTransportActions,
-} from '@/shared/stores/engine/actionsTransport';
-import {
-    createTrackProjectActions,
-} from '@/shared/stores/engine/actionsTrackProject';
-import {
-    createFetchProjectAction,
-} from '@/shared/stores/engine/actionsFetchProject';
+import { createTransportActions } from '@/shared/stores/engine/actionsTransport';
+import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
+import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
+import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
 import {
     createTelemetryActions,
     markBpmPending,
@@ -28,9 +23,7 @@ import type {
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
-
 export type { ProjectTrack } from '@/shared/lib/trackAdapter';
-
 export interface EngineStore {
     telemetryRunning: boolean;
     connected: boolean;
@@ -44,6 +37,8 @@ export interface EngineStore {
     clips: EntityState<TimelineClip>;
     projectSampleRate: number;
     projectBpm: number;
+    timeSigNumerator: number;
+    timeSigDenominator: number;
     keySigEnabled: boolean;
     keySigTonic: string;
     keySigMode: string;
@@ -58,6 +53,7 @@ export interface EngineStore {
     play: () => Promise<void>;
     stop: () => Promise<void>;
     setBpm: (bpm: number) => Promise<void>;
+    setTimeSignature: (numerator: number, denominator: number) => Promise<void>;
     seekSeconds: (seconds: number) => Promise<void>;
     seekToBeat: (beat: number) => Promise<void>;
     setLoop: (enabled: boolean, startFrames: number, endFrames: number) => Promise<void>;
@@ -83,7 +79,6 @@ export interface EngineStore {
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     closeAllPluginEditors: () => Promise<void>;
 }
-
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
     position_frames: 0,
@@ -96,24 +91,22 @@ const DEFAULT_TRANSPORT: TransportState = {
     loop_end: 0,
     output_latency_frames: 0,
     telemetry_timestamp_ms: 0,
+    time_sig_numerator: 4,
+    time_sig_denominator: 4,
 };
-
 const DEFAULT_METER: engine.MeterReading = {
     rms: -160,
     peak: -160,
     clipping: false,
 };
-
 const DEFAULT_METERS: MeteringSnapshot = {
     tracks: [],
     master_left: { ...DEFAULT_METER },
     master_right: { ...DEFAULT_METER },
 };
-
 export function getMetersRef(): MeteringSnapshot {
     return readLatestMeters(useEngineStore.getState().meters);
 }
-
 function shouldApplyViewportRestore(reason: string): boolean {
     if (!reason) return false;
     return (
@@ -124,7 +117,6 @@ function shouldApplyViewportRestore(reason: string): boolean {
         || reason.includes('open-last-project')
     );
 }
-
 export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,
     connected: false,
@@ -138,6 +130,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     clips: { byId: {}, allIds: [] },
     projectSampleRate: 44100,
     projectBpm: 120,
+    timeSigNumerator: 4,
+    timeSigDenominator: 4,
     performance: { cpuUsage: 0, ramUsedMb: 0, ramTotalMb: 0, processMemoryMb: 0, dspLoad: 0 },
     keySigEnabled: false,
     keySigTonic: 'C',
@@ -148,19 +142,37 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
-
     ...createTransportActions(set, get, markBpmPending),
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),
-
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
-        if (!Array.isArray(deltas) || deltas.length === 0) return;
+        const sanitizedDeltas = sanitizeProjectDeltas(deltas);
+        if (sanitizedDeltas.length === 0) return;
+        if (sanitizedDeltas.length !== deltas.length) {
+            console.error('[engine-store] dropped malformed deltas', {
+                reason,
+                received: deltas.length,
+                accepted: sanitizedDeltas.length,
+            });
+        }
         let unhandledDeltaKinds: string[] = [];
-
-        const snapshotMeta = extractSnapshotProjectMeta(deltas, get().transport);
-
-        for (const delta of deltas) {
+        const snapshotMeta = extractSnapshotProjectMeta(sanitizedDeltas, get().transport);
+        // BUG-C017 FIX: Apply grid only ONCE from the authoritative source.
+        // Previously, ArrangementGridChanged deltas were applied here AND again
+        // from snapshotMeta, causing grid settings to flicker on full snapshots.
+        // Now: snapshot grid wins (it's more recent), then individual deltas
+        // override if present (they are newer than any snapshot).
+        if (snapshotMeta) {
+            useGridStore.getState().applyProjectGrid({
+                numerator: snapshotMeta.grid.numerator,
+                denominator: snapshotMeta.grid.denominator,
+                ntoles: snapshotMeta.grid.ntoles,
+                snapToGrid: snapshotMeta.grid.snapToGrid,
+                fixed: snapshotMeta.grid.fixed,
+            });
+        }
+        for (const delta of sanitizedDeltas) {
             if (delta.kind === 'ArrangementGridChanged') {
                 useGridStore.getState().applyProjectGrid({
                     numerator: delta.data.numerator,
@@ -171,24 +183,15 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 });
             }
         }
-        if (snapshotMeta) {
-            useGridStore.getState().applyProjectGrid({
-                numerator: snapshotMeta.grid.numerator,
-                denominator: snapshotMeta.grid.denominator,
-                ntoles: snapshotMeta.grid.ntoles,
-                snapToGrid: snapshotMeta.grid.snapToGrid,
-                fixed: snapshotMeta.grid.fixed,
-            });
-        }
-
         set((s) => {
             let nextProjectBpm = snapshotMeta?.bpm ?? s.projectBpm;
             const nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
             let nextTransport = s.transport;
+            let nextTimeSigNumerator = snapshotMeta?.timeSigNumerator ?? s.timeSigNumerator;
+            let nextTimeSigDenominator = snapshotMeta?.timeSigDenominator ?? s.timeSigDenominator;
             let nextKeySigEnabled = snapshotMeta?.keySigEnabled ?? s.keySigEnabled;
             let nextKeySigTonic = snapshotMeta?.keySigTonic ?? s.keySigTonic;
             let nextKeySigMode = snapshotMeta?.keySigMode ?? s.keySigMode;
-
             if (snapshotMeta) {
                 const loopEnd = snapshotMeta.loopEndFrames > snapshotMeta.loopStartFrames
                     ? snapshotMeta.loopEndFrames
@@ -200,10 +203,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     loop_enabled: snapshotMeta.loopEnabled,
                     loop_start: snapshotMeta.loopStartFrames,
                     loop_end: loopEnd,
+                    time_sig_numerator: snapshotMeta.timeSigNumerator,
+                    time_sig_denominator: snapshotMeta.timeSigDenominator,
                 };
             }
-
-            for (const delta of deltas) {
+            for (const delta of sanitizedDeltas) {
                 if (delta.kind === 'TempoChanged') {
                     nextProjectBpm = delta.data.bpm;
                     nextTransport = { ...nextTransport, bpm: delta.data.bpm };
@@ -218,10 +222,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     nextKeySigEnabled = delta.data.enabled;
                     nextKeySigTonic = delta.data.tonic;
                     nextKeySigMode = delta.data.mode;
+                } else if (delta.kind === 'TimeSignatureChanged') {
+                    nextTimeSigNumerator = Math.max(1, Math.min(32, delta.data.numerator));
+                    nextTimeSigDenominator = Math.max(1, Math.min(32, delta.data.denominator));
+                    nextTransport = {
+                        ...nextTransport,
+                        time_sig_numerator: nextTimeSigNumerator,
+                        time_sig_denominator: nextTimeSigDenominator,
+                    };
                 }
             }
-
-            const { nextState, unhandledDeltaKinds: nextUnhandledDeltaKinds = [] } = applyProjectDeltasToState(s, deltas, reason);
+            const { nextState, unhandledDeltaKinds: nextUnhandledDeltaKinds = [] } = applyProjectDeltasToState(s, sanitizedDeltas, reason);
             if (nextUnhandledDeltaKinds.length > 0) {
                 unhandledDeltaKinds = nextUnhandledDeltaKinds;
             }
@@ -230,6 +241,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     nextProjectBpm !== s.projectBpm
                     || nextProjectSampleRate !== s.projectSampleRate
                     || nextTransport !== s.transport
+                    || nextTimeSigNumerator !== s.timeSigNumerator
+                    || nextTimeSigDenominator !== s.timeSigDenominator
                     || nextKeySigEnabled !== s.keySigEnabled
                     || nextKeySigTonic !== s.keySigTonic
                     || nextKeySigMode !== s.keySigMode
@@ -238,6 +251,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         projectBpm: nextProjectBpm,
                         projectSampleRate: nextProjectSampleRate,
                         transport: nextTransport,
+                        timeSigNumerator: nextTimeSigNumerator,
+                        timeSigDenominator: nextTimeSigDenominator,
                         keySigEnabled: nextKeySigEnabled,
                         keySigTonic: nextKeySigTonic,
                         keySigMode: nextKeySigMode,
@@ -245,25 +260,24 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
                 return s;
             }
-
             return {
                 ...nextState,
                 projectBpm: nextProjectBpm,
                 projectSampleRate: nextProjectSampleRate,
                 transport: nextTransport,
+                timeSigNumerator: nextTimeSigNumerator,
+                timeSigDenominator: nextTimeSigDenominator,
                 keySigEnabled: nextKeySigEnabled,
                 keySigTonic: nextKeySigTonic,
                 keySigMode: nextKeySigMode,
             };
         });
-
         if (unhandledDeltaKinds.length > 0) {
             console.error('[engine-store] unhandled project deltas', {
                 reason,
                 unhandledDeltaKinds,
             });
         }
-
         if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {
             const timeline = useTimelineStore.getState();
             const requestedPixelsPerBeat = snapshotMeta.viewport.pixelsPerBeat ?? timeline.pixelsPerBeat;
@@ -277,5 +291,4 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
         }
     },
-
 }));

@@ -21,7 +21,7 @@ export const MenuItem = ({
             border: 'none',
             color: 'var(--color-text-primary)',
             fontSize: 'var(--font-size-xs)',
-            fontWeight: 'var(--font-weight-regular)' as unknown as number,
+            fontWeight: 'var(--font-weight-regular)',
             cursor: 'pointer',
             textAlign: 'left',
             transition: 'background var(--transition-fast)',

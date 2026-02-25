@@ -14,7 +14,13 @@ function decodeFromFloatArray(floats: Float32Array, trackCount: number): Meterin
     const tracks: MeteringSnapshot['tracks'] = [];
     let cursor = 0;
 
-    for (let i = 0; i < trackCount; i++) {
+    // BUG-003 FIX: Validate trackCount against available data.
+    // Each track uses 6 floats (L: rms, peak, clip  +  R: rms, peak, clip).
+    // Master uses 6 more floats. Prevent reading past the buffer.
+    const maxTracks = Math.max(0, Math.floor((floats.length - 6) / 6));
+    const safeTrackCount = Math.min(trackCount, maxTracks);
+
+    for (let i = 0; i < safeTrackCount; i++) {
         const left = {
             rms: floats[cursor++] ?? METER_FLOOR_DB,
             peak: floats[cursor++] ?? METER_FLOOR_DB,
@@ -52,11 +58,12 @@ export function decodeMetersBinaryPacket(packet: Uint8Array): MeteringSnapshot {
 
     const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
     const trackCount = view.getUint32(0, true);
-    // Fast-path: if aligned, avoid copy.
-    if (packet.byteOffset % 4 === 0) {
+    // BUG-068 FIX: Check alignment of the actual data start, not just packet start.
+    const dataByteOffset = packet.byteOffset + 4;
+    if (dataByteOffset % 4 === 0) {
         const floats = new Float32Array(
             packet.buffer,
-            packet.byteOffset + 4,
+            dataByteOffset,
             Math.floor((packet.byteLength - 4) / 4),
         );
         return decodeFromFloatArray(floats, trackCount);

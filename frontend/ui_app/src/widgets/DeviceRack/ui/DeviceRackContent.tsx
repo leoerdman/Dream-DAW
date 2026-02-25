@@ -1,4 +1,5 @@
 import { MeterStrip } from '@/shared/ui/MeterStrip';
+import * as engineApi from '@/shared/api/engine';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots';
@@ -25,6 +26,10 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
     const selectedDeviceId = selectedDeviceIds[0] ?? '';
     const pluginDragName = draggingItem?.type === 'plugin' ? draggingItem.name : '';
     const isPluginDropActive = isDropActive && draggingItem?.type === 'plugin';
+    const effectIds = (selectedTrack?.effects ?? [])
+        .map((effect) => effect?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const effectIdSet = new Set(effectIds);
 
     return (
         <div
@@ -79,6 +84,43 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                 ) : (
                     <EmptyState />
                 )}
+                {effectIds.length > 0 && (
+                    <div
+                        className="dream-device-drop-indicator-end"
+                        onDragOver={(e) => {
+                            const draggedId = e.dataTransfer.getData('application/x-dream-device-id')
+                                || e.dataTransfer.getData('text/plain');
+                            if (!draggedId || !effectIdSet.has(draggedId)) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            (e.currentTarget as HTMLElement).style.borderLeft = 'var(--token-size-px-3) solid var(--color-accent-primary)';
+                        }}
+                        onDragLeave={(e) => {
+                            (e.currentTarget as HTMLElement).style.borderLeft = '';
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            (e.currentTarget as HTMLElement).style.borderLeft = '';
+                            const draggedId = e.dataTransfer.getData('application/x-dream-device-id')
+                                || e.dataTransfer.getData('text/plain');
+                            if (!draggedId || !selectedTrack || !effectIdSet.has(draggedId)) return;
+                            const fromEffectIndex = effectIds.findIndex((id) => id === draggedId);
+                            if (fromEffectIndex < 0 || fromEffectIndex === effectIds.length - 1) return;
+                            void engineApi
+                                .moveEffectSlotWithDeltas(selectedTrack.id, draggedId, effectIds.length - 1)
+                                .then((response) => logic.applyProjectDeltas(response.deltas, 'device-rack:move-effect-slot-end'))
+                                .catch((err) => console.error('[DeviceRack] moveEffectSlot(end) failed:', err));
+                        }}
+                        style={{
+                            width: 14,
+                            minWidth: 14,
+                            borderLeft: 'var(--space-px) solid transparent',
+                            transition: 'border-color 0.1s ease',
+                            flexShrink: 0,
+                            height: rackExpanded ? 'var(--rack-row-height, 100%)' : '100%',
+                        }}
+                    />
+                )}
                 <AddDeviceButton onClick={statusClear} />
             </div>
             {isPluginDropActive && (
@@ -87,14 +129,14 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
                         position: 'absolute',
                         right: 10,
                         top: 10,
-                        zIndex: 'var(--z-header)' as unknown as number,
+                        zIndex: 'var(--z-header)',
                         border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 65%, var(--token-color-hex-ffffff22))',
                         borderRadius: 'var(--radius-lg)',
                         padding: 'var(--token-size-px-5) var(--space-2)',
                         background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',
                         color: 'var(--color-text-primary)',
                         fontSize: 'var(--font-size-xs)',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                         letterSpacing: '0.03em',
                         pointerEvents: 'none',
                         textTransform: 'uppercase',

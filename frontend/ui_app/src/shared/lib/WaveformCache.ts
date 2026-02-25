@@ -13,6 +13,8 @@ import { getPeaks } from '@/shared/api/engine';
 
 /** Maximum number of cached LOD levels before LRU eviction. */
 const MAX_CACHE_ENTRIES = 512;
+/** Per-key warn throttle interval to prevent log storms on missing assets. */
+const WARN_THROTTLE_MS = 30_000;
 
 /** Samples-per-peak at each mip level (Matches PeakCache.rs) */
 const MIP_FACTORS = [256, 1024, 4096, 16384];
@@ -41,6 +43,7 @@ interface CacheEntry {
 export class WaveformCache {
     private readonly _cache = new Map<string, CacheEntry>();
     private readonly _pending = new Map<string, Promise<Float32Array | null>>();
+    private readonly _lastWarnAtByKey = new Map<string, number>();
 
     // ── Public API ────────────────────────────────────────────────────
 
@@ -88,6 +91,7 @@ export class WaveformCache {
     clear(): void {
         this._cache.clear();
         this._pending.clear();
+        this._lastWarnAtByKey.clear();
     }
 
     get size(): number {
@@ -116,7 +120,12 @@ export class WaveformCache {
             })
             .catch((err) => {
                 this._pending.delete(cacheKey);
-                console.warn(`[WaveformCache] Failed to load peaks for clip ${clipId} lod ${lodLevel}:`, err);
+                const now = Date.now();
+                const lastWarnAt = this._lastWarnAtByKey.get(cacheKey) ?? 0;
+                if (now - lastWarnAt >= WARN_THROTTLE_MS) {
+                    this._lastWarnAtByKey.set(cacheKey, now);
+                    console.warn(`[WaveformCache] Failed to load peaks for clip ${clipId} lod ${lodLevel}:`, err);
+                }
                 return null;
             });
 

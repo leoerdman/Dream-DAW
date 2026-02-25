@@ -5,6 +5,11 @@ use uuid::Uuid;
 pub struct DeviceChain;
 
 impl DeviceChain {
+    fn runtime_slot_before(track: &Track, idx: usize) -> Option<u8> {
+        let internal_before = count_internal_effects_before(&track.effects, idx);
+        u8::try_from(internal_before).ok()
+    }
+
     /// Inserts an effect node into a track FX chain.
     ///
     /// Returns the runtime slot index for internal effects (used by engine commands),
@@ -19,7 +24,7 @@ impl DeviceChain {
             .min(track.effects.len());
 
         let runtime_slot = if is_internal_effect_node(&node) {
-            Some(count_internal_effects_before(&track.effects, idx) as u8)
+            Self::runtime_slot_before(track, idx)
         } else {
             None
         };
@@ -34,7 +39,7 @@ impl DeviceChain {
     pub fn remove_effect(track: &mut Track, slot_id: Uuid) -> Option<(DeviceNode, Option<u8>)> {
         let index = track.effects.iter().position(|n| n.id() == slot_id)?;
         let runtime_slot = if is_internal_effect_node(&track.effects[index]) {
-            Some(count_internal_effects_before(&track.effects, index) as u8)
+            Self::runtime_slot_before(track, index)
         } else {
             None
         };

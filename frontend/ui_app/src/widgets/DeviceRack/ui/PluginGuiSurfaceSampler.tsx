@@ -165,7 +165,7 @@ export function PluginGuiSurfaceSampler({
                         fontSize: 'var(--font-size-2xs)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
-                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-bold)',
                     }}
                 >
                     Sample

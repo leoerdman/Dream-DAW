@@ -4,6 +4,8 @@ import { beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import { fileTypeToItemType } from './assetBrowserUtils';
 import type { BrowserItem } from './assetBrowserSchema';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 
@@ -24,6 +26,9 @@ export function useFolderTreeActions({
     setUserFolders,
     setSelectedCategoryId,
 }: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'setUserFolders' | 'setSelectedCategoryId'>) {
+    const statusError = useStatusStore((s) => s.setError);
+    const statusClear = useStatusStore((s) => s.clear);
+
     const toggleFolderExpand = useCallback(async (path: string) => {
         // BUG-17 FIX: use functional updater to avoid stale closure
         let wasExpanded = false;
@@ -76,6 +81,7 @@ export function useFolderTreeActions({
                     setFolderChildrenCache((prev) => new Map(prev).set(path, children));
                 } catch (err) {
                     console.warn('[Browser] Tree scan failed for', path, err);
+                    statusError(`Asset Browser: failed to scan folder: ${String(err)}`);
                 } finally {
                     setLoadingFolders((prev) => {
                         const next = new Set(prev);
@@ -85,7 +91,7 @@ export function useFolderTreeActions({
                 }
             }
         }
-    }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders]);
+    }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders, statusError]);
 
     const navigateInto = useCallback((path: string) => {
         void toggleFolderExpand(path);
@@ -97,22 +103,28 @@ export function useFolderTreeActions({
                 setUserFolders(folders);
                 const newIdx = folders.length - 1;
                 if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
+                statusClear();
             })
             .catch((err) => {
                 if (!String(err).includes('Cancelled')) {
                     console.error('[Browser] Add folder failed:', err);
+                    statusError(`Asset Browser: failed to add folder: ${String(err)}`);
                 }
             });
-    }, [setSelectedCategoryId, setUserFolders]);
+    }, [setSelectedCategoryId, setUserFolders, statusClear, statusError]);
 
     const handleRemoveFolder = useCallback((path: string) => {
         engineApi.removeBrowserFolder(path)
             .then((folders) => {
                 setUserFolders(folders);
                 setSelectedCategoryId('samples');
+                statusClear();
             })
-            .catch((err) => console.error('[Browser] Remove folder failed:', err));
-    }, [setSelectedCategoryId, setUserFolders]);
+            .catch((err) => {
+                console.error('[Browser] Remove folder failed:', err);
+                statusError(`Asset Browser: failed to remove folder: ${String(err)}`);
+            });
+    }, [setSelectedCategoryId, setUserFolders, statusClear, statusError]);
 
     return { toggleFolderExpand, navigateInto, handleAddFolder, handleRemoveFolder };
 }
@@ -123,11 +135,14 @@ interface ItemEnterParams {
 }
 
 export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
+    const statusError = useStatusStore((s) => s.setError);
+    const statusClear = useStatusStore((s) => s.clear);
+
     const getTrackById = useCallback((trackId: string) => tracks.byId[trackId] ?? null, [tracks.byId]);
     const getTrackIndexById = useCallback((trackId: string) => tracks.allIds.indexOf(trackId), [tracks.allIds]);
 
     const resolveEffectInsertIndex = useCallback((track: ProjectTrack): number | undefined => {
-        const selectedTrackId = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
+        const selectedTrackId = dreamGlobals.getSelectedTrackId();
         if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
         const rackScope = typeof document !== 'undefined'
             ? document.querySelector<HTMLElement>('[data-keyboard-scope="device-rack"]')
@@ -139,9 +154,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
     }, []);
 
     const resolveSelectedTrack = useCallback(() => {
-        // BUG-44: window.__dreamSelectedTrackId is the canonical mechanism
-        // set by useArrangementTrackViewModel — kept for now until store migration
-        const selected = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
+        const selected = dreamGlobals.getSelectedTrackId();
         if (selected && selected !== 'master') {
             const selectedTrack = getTrackById(selected);
             if (selectedTrack) return selectedTrack;
@@ -183,6 +196,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
                     } catch (err) { lastErr = err; }
                 }
                 if (lastErr) throw lastErr;
+                statusClear();
                 return;
             }
             if (item.type !== 'audio') return;
@@ -194,6 +208,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
                 }
                 const response = await engineApi.setSamplerSampleWithDeltas(track.id, item.path);
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:set-sampler-sample');
+                statusClear();
                 return;
             }
             const trackIndex = getTrackIndexById(track.id);
@@ -206,10 +221,12 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             const response = await engineApi.importAudioFileWithDeltas(item.path, trackIndex, positionFrames);
             if (enterNonceRef.current !== nonce) return;
             await store.applyProjectDeltas(response.deltas, 'asset-browser:import-audio');
+            statusClear();
         } catch (err) {
             console.error('[AssetBrowser] Enter action failed:', err);
+            statusError(`Asset Browser: failed to import item: ${String(err)}`);
         }
-    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack, resolveEffectInsertIndex]);
+    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack, resolveEffectInsertIndex, statusClear, statusError]);
 
     return { handleItemEnter };
 }

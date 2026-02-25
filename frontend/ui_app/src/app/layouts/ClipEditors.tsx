@@ -30,7 +30,7 @@ const cardStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
     color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-2xl)',
-    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+    fontWeight: 'var(--font-weight-bold)',
     letterSpacing: '0.03em',
     marginBottom: 6,
 };

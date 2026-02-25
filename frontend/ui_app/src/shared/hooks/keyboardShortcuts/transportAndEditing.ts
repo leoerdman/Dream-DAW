@@ -1,7 +1,6 @@
 import * as engine from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import type { KeyboardShortcutHandlerEnv } from './types';
@@ -58,19 +57,8 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
         return true;
     }
 
-    if (!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyS') {
-        if (inPianoRoll || inDeviceRack) return true;
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-            const splitIds = await splitSelectedClipsAtCursor(ctx);
-            if (!splitIds || splitIds.length === 0) return false;
-            useStatusStore.getState().setInfo(`Split: ${splitIds.length} clip(s)`);
-        } catch (err) {
-            console.error('[Shortcuts] Split clip failed:', err);
-        }
-        return true;
-    }
+    // BUG-009 FIX: Removed duplicate hardcoded KeyS split handler.
+    // Split is handled by matchesShortcutAction('split_clips') below.
 
     if (!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyD') {
         if (inPianoRoll || inDeviceRack) return true;
@@ -86,6 +74,11 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
     }
 
     if (e.code === 'Space' && !e.repeat) {
+        // BUG-071 FIX: Don't toggle playback if user is typing in a text input.
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) {
+            return false;
+        }
         e.preventDefault();
         e.stopPropagation();
         const transportState = useEngineStore.getState().transport;

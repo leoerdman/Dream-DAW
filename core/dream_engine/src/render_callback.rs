@@ -219,16 +219,20 @@ pub fn soft_clip(sample: f32) -> f32 {
     // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5.
     // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old
     // soft_clip actually permitted destructive digital clipping for loud signals!
-    // This fast rational soft-clipper applies 0% compression below 0.8 (-1.9 dBFS)
+    // This fast rational soft-clipper applies 0% compression below THRESH
     // and C1-smoothly limits excess to form a strict, mathematical 1.0 ceiling.
-    const THRESH: f32 = 0.8;
-    const BETA: f32 = 1.0 - THRESH; // 0.2
+    //
+    // BUG-042 FIX: Raised threshold from 0.8 (-1.9 dBFS) to 0.95 (-0.45 dBFS).
+    // Professional mastering limiters target -0.3 dBFS (peaks ~0.93). The old 0.8
+    // threshold silently compressed limiter output, destroying its precision.
+    const THRESH: f32 = 0.95;
+    const BETA: f32 = 1.0 - THRESH; // 0.05
 
     if abs <= THRESH {
-        sample // 100% transparent below -1.9 dBFS
+        sample // 100% transparent below -0.45 dBFS
     } else {
         let excess = abs - THRESH;
-        // Rational curve mapping [0.8, inf) to [0.8, 1.0] with slope=1.0 at THRESH
+        // Rational curve mapping [THRESH, inf) to [THRESH, 1.0] with slope=1.0 at THRESH
         let mapped = THRESH + (BETA * excess) / (BETA + excess);
         sample.signum() * mapped
     }

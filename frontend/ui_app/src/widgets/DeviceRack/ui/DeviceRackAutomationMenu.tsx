@@ -53,7 +53,7 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                 position: 'fixed',
                 left: autoCtxMenu.x,
                 top: autoCtxMenu.y,
-                zIndex: 'var(--z-menu)' as unknown as number,
+                zIndex: 'var(--z-menu)',
                 background: 'var(--color-bg-elevated)',
                 border: 'var(--space-px) solid var(--color-divider)',
                 borderRadius: 'var(--radius-sm)',
@@ -67,7 +67,7 @@ export function DeviceRackAutomationMenu({ selectedTrackId, logic }: DeviceRackA
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-tertiary)',
                     padding: 'var(--space-1) var(--space-2)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-semibold)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                 }}

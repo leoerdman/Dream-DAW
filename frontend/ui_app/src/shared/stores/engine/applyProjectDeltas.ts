@@ -26,6 +26,17 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function resolveCanonicalTrackState(state: DeltaApplyState): {
+    byId: Record<string, DeltaApplyState['projectTracks'][number]>;
+    allIds: string[];
+} {
+    const byId = Object.keys(state.tracks.byId).length > 0 ? state.tracks.byId : state.tracksById;
+    const allIds = state.tracks.allIds.length > 0
+        ? state.tracks.allIds
+        : state.projectTracks.map((track) => track.id);
+    return { byId, allIds };
+}
+
 export function extractSnapshotProjectMeta(
     deltas: ProjectDelta[],
     transport: DeltaApplyState['transport'],
@@ -65,6 +76,8 @@ export function extractSnapshotProjectMeta(
     return {
         bpm,
         sampleRate,
+        timeSigNumerator: Math.max(1, toFiniteNumber(project.time_signature?.numerator ?? 4, 4)),
+        timeSigDenominator: Math.max(1, toFiniteNumber(project.time_signature?.denominator ?? 4, 4)),
         keySigEnabled: Boolean(project.key_sig_enabled ?? false),
         keySigTonic: String(project.key_sig_tonic ?? 'C'),
         keySigMode: String(project.key_sig_mode ?? 'Major'),
@@ -103,7 +116,7 @@ export function applyProjectDeltasToState(
         clearTrackControlCaches();
 
         if (project && Array.isArray(project.tracks)) {
-            const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || state.transport.bpm || 120;
+            const bpm = Math.max(1, project.pulse_map?.tempo_events?.[0]?.bpm ?? state.transport.bpm ?? 120);
             const sampleRate = resolveSampleRate(project.sample_rate, state.transport.sample_rate);
             const timelineClips: DeltaApplyState['timelineClips'] = [];
             const snapshotTrackIds: string[] = [];
@@ -195,19 +208,20 @@ export function applyProjectDeltasToState(
         }
     }
 
-    const bpm = state.projectBpm || state.transport.bpm || 120;
+    const bpm = Math.max(1, state.projectBpm ?? state.transport.bpm ?? 120);
     const sampleRate = resolveSampleRate(state.projectSampleRate, state.transport.sample_rate);
 
-    const canonicalTracksById = Object.keys(state.tracks.byId).length > 0
-        ? state.tracks.byId
-        : state.tracksById;
+    const canonicalTracks = resolveCanonicalTrackState(state);
     const working: DeltaWorkingState = {
         timelineClips: state.timelineClips,
         clipsById: state.clipsById,
-        projectTracks: state.tracks.allIds
-            .map((trackId) => canonicalTracksById[trackId])
+        projectTracks: canonicalTracks.allIds
+            .map((trackId) => canonicalTracks.byId[trackId])
             .filter((track): track is NonNullable<typeof track> => Boolean(track)),
-        tracksById: canonicalTracksById,
+        tracks: {
+            byId: canonicalTracks.byId,
+            allIds: canonicalTracks.allIds,
+        },
         changed: false,
     };
     const unhandledDeltaKinds: string[] = [];
@@ -239,7 +253,7 @@ export function applyProjectDeltasToState(
     const sanitizedTimelineClips = normalizeTimelineClips(working.timelineClips);
     const nextTrackState = buildTrackStatePatch(
         working.projectTracks.map((track) => track.id),
-        working.tracksById,
+        working.tracks.byId,
     );
 
     return {

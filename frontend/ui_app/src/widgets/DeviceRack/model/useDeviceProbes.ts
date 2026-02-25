@@ -2,17 +2,6 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { DeviceSlot, PluginParam } from '../model/types';
 
-/**
- * Stable key for a device chain — changes only when the actual VST slot IDs change.
- * This prevents reference-instability from triggering effects every render.
- */
-function useVstSlotKey(chain: DeviceSlot[]): string {
-    return useMemo(
-        () => chain.filter((d) => d.isVst).map((d) => d.id).join(','),
-        [chain],
-    );
-}
-
 export function useDeviceProbes(
     chain: DeviceSlot[],
     _selectedTrackId: string,
@@ -25,11 +14,14 @@ export function useDeviceProbes(
     // Refs to read current state inside effects WITHOUT adding them to dep arrays.
     // This breaks the circular dependency: effect → setState → dep change → effect.
     const capabilityRef = useRef(pluginCapability);
-    capabilityRef.current = pluginCapability;
     const externalParamsRef = useRef(externalParamsBySlotId);
-    externalParamsRef.current = externalParamsBySlotId;
+    useEffect(() => {
+        capabilityRef.current = pluginCapability;
+    }, [pluginCapability]);
+    useEffect(() => {
+        externalParamsRef.current = externalParamsBySlotId;
+    }, [externalParamsBySlotId]);
 
-    const vstSlotKey = useVstSlotKey(chain);
     const selectedTrackId = selectedTrack?.id;
 
     // ── VST capability probes ──
@@ -60,8 +52,7 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vstSlotKey, selectedTrackId]);
+    }, [chain, selectedTrackId]);
 
     // ── VST runtime status probes ──
     useEffect(() => {
@@ -93,8 +84,7 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vstSlotKey, selectedTrackId]);
+    }, [chain, selectedTrackId]);
 
     // ── External param fetch ──
     useEffect(() => {
@@ -132,28 +122,21 @@ export function useDeviceProbes(
             });
         })();
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vstSlotKey, selectedTrackId]);
+    }, [chain, selectedTrackId]);
 
-    // ── Cleanup stale external params when chain changes ──
-    useEffect(() => {
+    const visibleExternalParamsBySlotId = useMemo(() => {
         const aliveVstSlotIds = new Set(chain.filter((d) => d.isVst).map((d) => d.id));
-        setExternalParamsBySlotId((prev) => {
-            const next: Record<string, PluginParam[]> = {};
-            let changed = false;
-            for (const [slotId, params] of Object.entries(prev)) {
-                if (aliveVstSlotIds.has(slotId)) next[slotId] = params;
-                else changed = true;
-            }
-            return changed ? next : prev;
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vstSlotKey]);
+        const next: Record<string, PluginParam[]> = {};
+        for (const [slotId, params] of Object.entries(externalParamsBySlotId)) {
+            if (aliveVstSlotIds.has(slotId)) next[slotId] = params;
+        }
+        return next;
+    }, [chain, externalParamsBySlotId]);
 
     return {
         pluginCapability,
         pluginRuntimeBySlot,
         setPluginRuntimeBySlot,
-        externalParamsBySlotId,
+        externalParamsBySlotId: visibleExternalParamsBySlotId,
     };
 }

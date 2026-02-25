@@ -14,11 +14,9 @@ import { usePianoRollViewport } from './usePianoRollViewport';
 import { usePianoRollNoteMath } from './usePianoRollNoteMath';
 import { usePianoRollEditorPipeline } from './usePianoRollEditorPipeline';
 import { usePianoRollState } from './usePianoRollState';
-const isMac: boolean = (() => {
-    const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
-    if (uad?.platform) return uad.platform === 'macOS';
-    return /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent);
-})();
+import { isMacDesktopPlatform } from '@/shared/lib/platform';
+
+const isMac = isMacDesktopPlatform();
 
 export function usePianoRollLogic(props: PianoRollProps) {
     const {

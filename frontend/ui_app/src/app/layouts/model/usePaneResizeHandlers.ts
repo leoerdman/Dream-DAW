@@ -30,6 +30,7 @@ export function usePaneResizeHandlers({
         const rootRect = splitRoot.getBoundingClientRect();
         let rafId: number | null = null;
         let pendingWidth: number | null = null;
+        let finished = false;
 
         const flushWidth = () => {
             rafId = null;
@@ -47,6 +48,8 @@ export function usePaneResizeHandlers({
         };
 
         const onUp = () => {
+            if (finished) return;
+            finished = true;
             if (rafId !== null) {
                 window.cancelAnimationFrame(rafId);
                 rafId = null;
@@ -54,10 +57,24 @@ export function usePaneResizeHandlers({
             flushWidth();
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            window.removeEventListener('blur', onUp);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') {
+                onUp();
+            }
         };
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+        window.addEventListener('blur', onUp);
+        document.addEventListener('visibilitychange', onVisibilityChange);
     }, [mainSplitRef, setBrowserWidth]);
 
     const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

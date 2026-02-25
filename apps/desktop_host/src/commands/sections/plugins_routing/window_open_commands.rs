@@ -32,6 +32,27 @@ fn bind_instance_to_slot_states(
     }
 }
 
+fn load_descriptor_in_process(
+    host: &mut dream_plugins::PluginHost,
+    descriptor: &dream_plugins::PluginDescriptor,
+) -> Result<Uuid, String> {
+    match descriptor.format {
+        PluginFormat::VST3 => host
+            .load_vst3(descriptor.clone())
+            .map_err(|e| format!("Failed to load VST3 plugin '{}': {e}", descriptor.name)),
+        PluginFormat::VST2 => host
+            .load_vst2(descriptor.clone())
+            .map_err(|e| format!("Failed to load VST2 plugin '{}': {e}", descriptor.name)),
+        PluginFormat::AudioUnit => host
+            .load_au(descriptor.clone())
+            .map_err(|e| format!("Failed to load AudioUnit plugin '{}': {e}", descriptor.name)),
+        other => Err(format!(
+            "Unsupported plugin format '{}' for '{}'",
+            other, descriptor.name
+        )),
+    }
+}
+
 #[tauri::command]
 fn open_plugin_window(
     plugin_id: String,
@@ -86,7 +107,8 @@ fn open_plugin_window(
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
 
-    if plugin_host_state.sandbox_enabled().unwrap_or(false) {
+    let sandbox_eligible = descriptor.format == PluginFormat::VST3;
+    if sandbox_eligible && plugin_host_state.sandbox_enabled().unwrap_or(false) {
         match plugin_host_state.open_in_sandbox(&plugin_id, descriptor.clone()) {
             Ok(instance_id) => {
                 bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
@@ -112,7 +134,7 @@ fn open_plugin_window(
                 );
             }
         }
-    } else if !PluginHostState::allow_unsandboxed_vst3() {
+    } else if sandbox_eligible && !PluginHostState::allow_unsandboxed_vst3() {
         return Err(format!(
             "Plugin sandbox is unavailable for '{}'. In-process fallback is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
             descriptor.name
@@ -134,9 +156,7 @@ fn open_plugin_window(
         let slot_clone = slot_states.first().cloned();
 
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        let loaded = host
-            .load_vst3(descriptor.clone())
-            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+        let loaded = load_descriptor_in_process(&mut host, &descriptor)?;
         
         if let Some(slot) = slot_clone {
             let mut slot_restore =
@@ -160,7 +180,7 @@ fn open_plugin_window(
 
         // BUG-12 FIX: Insert into loaded_by_key BEFORE scheduling the editor
         // open. This prevents a second concurrent IPC call from loading a
-        // duplicate instance during the race window between load_vst3() and
+        // duplicate instance during the race window between plugin load and
         // the original map insertion (which was after editor open).
         plugin_host_state
             .loaded_by_key
@@ -203,7 +223,8 @@ fn open_plugin_window(
     }
     editor_result?;
     log::info!(
-        "[IPC] open_plugin_window({plugin_id}) -> loaded VST instance {} ({})",
+        "[IPC] open_plugin_window({plugin_id}) -> loaded {} instance {} ({})",
+        descriptor.format,
         instance_id,
         descriptor.path.display()
     );
@@ -331,41 +352,31 @@ fn open_plugin_window_for_slot(
         let editor_bridge_missing = first_err.to_ascii_lowercase().contains("editor bridge symbol")
             || first_err.to_ascii_lowercase().contains("editor is not supported")
             || first_err.to_ascii_lowercase().contains("native plugin editor bridge");
-        if editor_bridge_missing && plugin_host_state.sandbox_enabled().unwrap_or(false) {
-            match plugin_host_state.resolve_descriptor(&slot.plugin_id) {
-                Ok(descriptor) => {
-                            match plugin_host_state.open_in_sandbox(&slot.plugin_id, descriptor) {
-                                Ok(sandbox_instance_id) => {
-                                    plugin_host_state.bind_slot_instance(slot.slot_id, sandbox_instance_id);
-                                    sync_external_fx_snapshot_from_state(
-                                        &project_state,
-                                        &clip_pool_state,
-                                        &plugin_host_state,
-                                    )?;
-                                    log::info!(
-                                "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox fallback instance {}",
-                                track_id,
-                                slot_id,
-                                sandbox_instance_id
-                            );
-                            return Ok(());
-                        }
-                        Err(sandbox_err) => {
-                            log::warn!(
-                                "[IPC] open_plugin_window_for_slot sandbox fallback failed (track={}, slot={}): {}",
-                                track_id,
-                                slot_id,
-                                sandbox_err
-                            );
-                        }
-                    }
-                }
-                Err(resolve_err) => {
-                    log::warn!(
-                        "[IPC] open_plugin_window_for_slot sandbox fallback descriptor resolve failed (track={}, slot={}): {}",
+        let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+        let sandbox_eligible = descriptor.format == PluginFormat::VST3;
+        if editor_bridge_missing && sandbox_eligible && plugin_host_state.sandbox_enabled().unwrap_or(false) {
+            match plugin_host_state.open_in_sandbox(&slot.plugin_id, descriptor.clone()) {
+                Ok(sandbox_instance_id) => {
+                    plugin_host_state.bind_slot_instance(slot.slot_id, sandbox_instance_id);
+                    sync_external_fx_snapshot_from_state(
+                        &project_state,
+                        &clip_pool_state,
+                        &plugin_host_state,
+                    )?;
+                    log::info!(
+                        "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox fallback instance {}",
                         track_id,
                         slot_id,
-                        resolve_err
+                        sandbox_instance_id
+                    );
+                    return Ok(());
+                }
+                Err(sandbox_err) => {
+                    log::warn!(
+                        "[IPC] open_plugin_window_for_slot sandbox fallback failed (track={}, slot={}): {}",
+                        track_id,
+                        slot_id,
+                        sandbox_err
                     );
                 }
             }
@@ -380,14 +391,11 @@ fn open_plugin_window_for_slot(
         }
         plugin_host_state.unbind_slot_instance(slot.slot_id);
 
-        // Load the plugin in-process — this runs init_vst3_com which
-        // acquires the real COM pointers (IComponent, IAudioProcessor,
-        // IEditController) needed for the native editor.
+        // Load the plugin in-process using the resolved format loader.
         let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
         let recovered_instance = {
             let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-            host.load_vst3(descriptor)
-                .map_err(|e| format!("In-process reload failed for '{}': {e}", slot.plugin_id))?
+            load_descriptor_in_process(&mut host, &descriptor)?
         };
         plugin_host_state.bind_slot_instance(slot.slot_id, recovered_instance);
         plugin_host_state

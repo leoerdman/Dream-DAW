@@ -97,7 +97,8 @@ pub(super) fn disk_io_thread(
                     pending_retries += 1;
                     if pending_retries > 2000 {
                         log::warn!("DiskIO: dropping pending chunk after 2s of back-pressure");
-                        last_read_frame = chunk.start_frame + chunk.num_frames as i64;
+                        let num_frames_i64 = i64::try_from(chunk.num_frames).unwrap_or(i64::MAX);
+                        last_read_frame = chunk.start_frame.saturating_add(num_frames_i64);
                         pending_retries = 0;
                         continue;
                     }
@@ -108,10 +109,15 @@ pub(super) fn disk_io_thread(
             }
         }
 
-        let look_ahead_end =
-            current_playhead.saturating_add(LOOK_AHEAD_CHUNKS as i64 * CHUNK_FRAMES as i64);
+        let look_ahead_chunks_i64 = i64::try_from(LOOK_AHEAD_CHUNKS).unwrap_or(i64::MAX);
+        let chunk_frames_i64 = i64::try_from(CHUNK_FRAMES).unwrap_or(i64::MAX);
+        let lookahead_frames = look_ahead_chunks_i64.saturating_mul(chunk_frames_i64);
+        let look_ahead_end = current_playhead.saturating_add(lookahead_frames);
 
-        let jump_threshold = (CHUNK_FRAMES * LOOK_AHEAD_CHUNKS / 2) as i64;
+        let half_window = CHUNK_FRAMES
+            .saturating_mul(LOOK_AHEAD_CHUNKS)
+            .saturating_div(2);
+        let jump_threshold = i64::try_from(half_window).unwrap_or(i64::MAX);
         if (current_playhead - last_read_frame).abs() > jump_threshold && last_read_frame != 0 {
             needs_seek = true;
             last_read_frame = current_playhead;
@@ -123,7 +129,7 @@ pub(super) fn disk_io_thread(
         }
 
         if needs_seek {
-            let seek_to_frame = current_playhead.max(0) as u64;
+            let seek_to_frame = u64::try_from(current_playhead.max(0)).unwrap_or(u64::MAX);
             match format.seek(
                 SeekMode::Coarse,
                 SeekTo::TimeStamp {
@@ -132,7 +138,7 @@ pub(super) fn disk_io_thread(
                 },
             ) {
                 Ok(seeked) => {
-                    last_read_frame = seeked.actual_ts as i64;
+                    last_read_frame = i64::try_from(seeked.actual_ts).unwrap_or(i64::MAX);
                     decoder.reset();
                     log::debug!(
                         "DiskIO: seeked to frame {} (requested {})",
@@ -236,7 +242,8 @@ pub(super) fn disk_io_thread(
 
         match producer.push(chunk) {
             Ok(()) => {
-                last_read_frame = chunk_start_frame + frames_read as i64;
+                let frames_read_i64 = i64::try_from(frames_read).unwrap_or(i64::MAX);
+                last_read_frame = chunk_start_frame.saturating_add(frames_read_i64);
             }
             Err(rtrb::PushError::Full(chunk)) => {
                 pending_chunk = Some(chunk);

@@ -16,6 +16,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use super::loop_region::LoopRegion;
+use num_traits::ToPrimitive;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// AUD-238 FIX: Counter for invalid-SR rejections. Replaces `log::warn!`
@@ -41,6 +42,18 @@ pub struct Playhead {
 }
 
 impl Playhead {
+    #[inline]
+    fn floor_nonneg_to_u32(value: f64, upper: u32) -> u32 {
+        if !value.is_finite() {
+            return 0;
+        }
+        value
+            .floor()
+            .clamp(0.0, f64::from(upper))
+            .to_u32()
+            .unwrap_or(upper)
+    }
+
     /// Creates a new playhead at position 0.
     pub fn new(sample_rate: f64) -> Self {
         Self {
@@ -59,7 +72,7 @@ impl Playhead {
     /// Returns the current position in seconds.
     #[inline]
     pub fn position_seconds(&self) -> f64 {
-        self.position as f64 / self.sample_rate
+        self.position.to_f64().unwrap_or(0.0) / self.sample_rate
     }
 
     /// Returns the current position in beats, given BPM.
@@ -79,8 +92,18 @@ impl Playhead {
         // BUG-009 FIX: Guard against beats_per_bar=0 to prevent division by zero.
         let beats_per_bar = beats_per_bar.max(1);
         let total_beats = self.position_beats(bpm);
-        let bar = (total_beats / beats_per_bar as f64).floor() as u32 + 1;
-        let beat_in_bar = (total_beats % beats_per_bar as f64).floor() as u32 + 1;
+        if !total_beats.is_finite() {
+            return (1, 1, 0.0);
+        }
+        let beats_per_bar_f64 = f64::from(beats_per_bar);
+        let bar_zero_based_f64 = (total_beats / beats_per_bar_f64).floor().max(0.0);
+        let bar_zero_based = Self::floor_nonneg_to_u32(bar_zero_based_f64, u32::MAX);
+
+        let beat_zero_based_f64 = total_beats.rem_euclid(beats_per_bar_f64).floor().max(0.0);
+        let beat_zero_based = Self::floor_nonneg_to_u32(beat_zero_based_f64, beats_per_bar - 1);
+
+        let bar = bar_zero_based.saturating_add(1);
+        let beat_in_bar = beat_zero_based.saturating_add(1);
         let tick = total_beats.fract();
         (bar, beat_in_bar, tick)
     }
@@ -127,7 +150,8 @@ impl Playhead {
             return 0;
         }
 
-        let new_position = self.position + num_frames as i64;
+        let frame_delta = i64::try_from(num_frames).unwrap_or(i64::MAX);
+        let new_position = self.position.saturating_add(frame_delta);
 
         // Check loop wrap
         if let Some(region) = loop_region
@@ -137,7 +161,9 @@ impl Playhead {
         {
             // AUD-239 FIX: Use saturating_sub to prevent underflow if
             // position > end after a seek past the loop region.
-            let frames_before_wrap = (region.end.saturating_sub(self.position)).max(0) as usize;
+            let frames_before_wrap =
+                usize::try_from((region.end.saturating_sub(self.position)).max(0))
+                    .unwrap_or(usize::MAX);
             let overshoot = new_position - region.end;
             let loop_length = region.end - region.start;
 

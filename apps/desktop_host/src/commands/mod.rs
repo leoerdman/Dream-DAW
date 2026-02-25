@@ -79,6 +79,8 @@ pub(crate) fn invoke_handler()
         seek_to_beat,
         set_bpm,
         set_bpm_with_deltas,
+        set_time_signature,
+        set_time_signature_with_deltas,
         set_loop,
         set_loop_with_deltas,
         // Track Control

@@ -838,7 +838,8 @@ impl PluginSandboxSupervisor {
         }
         PluginSandboxSnapshot {
             enabled: self.enabled,
-            heartbeat_timeout_ms: self.heartbeat_timeout().as_millis() as u64,
+            heartbeat_timeout_ms: u64::try_from(self.heartbeat_timeout().as_millis())
+                .unwrap_or(u64::MAX),
             instances,
         }
     }

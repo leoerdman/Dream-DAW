@@ -39,20 +39,7 @@ fn can_open_plugin_editor(
         });
     }
 
-    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
-    if descriptor.format == PluginFormat::CLAP {
-        let reason = match descriptor.format {
-            PluginFormat::VST2 | PluginFormat::VST3 => None,
-            PluginFormat::CLAP => {
-                Some("CLAP plugin editor is not supported by this host build.".to_string())
-            }
-            PluginFormat::AudioUnit => None,
-        };
-        return Ok(PluginEditorCapability {
-            supported: false,
-            reason,
-        });
-    }
+    let _ = plugin_host_state.resolve_descriptor(&plugin_id)?;
 
     Ok(PluginEditorCapability {
         // Enterprise hardening: never instantiate an unloaded third-party plugin
@@ -60,7 +47,7 @@ fn can_open_plugin_editor(
         // which can take down the whole DAW process.
         //
         // We only do exact capability checks on already-loaded instances above.
-        // For unloaded VST3 descriptors, report optimistic support and defer the
+        // For unloaded external descriptors, report optimistic support and defer the
         // real result to open_plugin_window (where failures are surfaced safely).
         supported: true,
         reason: None,
@@ -71,7 +58,7 @@ fn can_open_plugin_editor(
 fn can_open_plugin_editor_for_slot(
     track_id: String,
     slot_id: String,
-    plugin_host_state: tauri::State<'_, PluginHostState>,
+    _plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<PluginEditorCapability, String> {
     let track_uuid =
@@ -93,28 +80,11 @@ fn can_open_plugin_editor_for_slot(
         });
     }
 
-    let instance_id =
-        match plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id) {
-            Ok(id) => id,
-            Err(err) => {
-                return Ok(PluginEditorCapability {
-                    supported: false,
-                    reason: Some(format!("Plugin runtime load failed: {err}")),
-                });
-            }
-        };
-
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let supported = host.supports_editor(instance_id).unwrap_or(false);
     Ok(PluginEditorCapability {
-        supported,
-        reason: if supported {
-            None
-        } else {
-            Some(
-                "Native plugin editor host bridge is unavailable for this runtime instance; inline controls are available."
-                    .to_string(),
-            )
-        },
+        // Never block editor-open attempts from the probe path.
+        // Real capability is established in open_plugin_window_for_slot(), which
+        // already contains sandbox fallback + error reporting.
+        supported: true,
+        reason: None,
     })
 }

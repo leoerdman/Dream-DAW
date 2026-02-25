@@ -12,6 +12,12 @@ mod macos {
     use std::ffi::{c_char, c_void};
     use std::mem::{size_of, zeroed};
 
+    use cocoa::appkit::{
+        NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSWindow,
+        NSWindowStyleMask,
+    };
+    use cocoa::base::{NO, id, nil};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
     use uuid::Uuid;
 
     use crate::descriptor::PluginDescriptor;
@@ -25,6 +31,8 @@ mod macos {
 
     const K_AUDIO_UNIT_PROPERTY_STREAM_FORMAT: u32 = 8;
     const K_AUDIO_UNIT_PROPERTY_SET_RENDER_CALLBACK: u32 = 23;
+    const K_AUDIO_UNIT_PROPERTY_COCOA_UI: u32 = 31;
+    const K_AUDIO_UNIT_SCOPE_GLOBAL: u32 = 0;
     const K_AUDIO_UNIT_SCOPE_INPUT: u32 = 1;
     const K_AUDIO_UNIT_SCOPE_OUTPUT: u32 = 2;
 
@@ -123,6 +131,12 @@ mod macos {
         input_proc_ref_con: *mut c_void,
     }
 
+    #[repr(C)]
+    struct AudioUnitCocoaViewInfo {
+        m_cocoa_au_view_bundle_location: *const c_void,
+        m_cocoa_au_view_class: [*const c_void; 1],
+    }
+
     #[link(name = "AudioToolbox", kind = "framework")]
     unsafe extern "C" {
         fn AudioComponentFindNext(
@@ -157,6 +171,37 @@ mod macos {
             in_data: *const c_void,
             in_data_size: u32,
         ) -> OSStatus;
+        fn AudioUnitGetPropertyInfo(
+            in_unit: AudioUnit,
+            in_id: u32,
+            in_scope: u32,
+            in_element: u32,
+            out_data_size: *mut u32,
+            out_writable: *mut u8,
+        ) -> OSStatus;
+        fn AudioUnitGetProperty(
+            in_unit: AudioUnit,
+            in_id: u32,
+            in_scope: u32,
+            in_element: u32,
+            out_data: *mut c_void,
+            io_data_size: *mut u32,
+        ) -> OSStatus;
+
+        // ── MIDI dispatch for AU instrument plugins (kAudioUnitType_MusicDevice) ──
+        // Sends a single MIDI event to an AudioUnit. Parameters:
+        //   in_unit: AU instance
+        //   in_status: MIDI status byte (0x90=NoteOn, 0x80=NoteOff, 0xB0=CC, etc.)
+        //   in_data1: first data byte (note number / CC number)
+        //   in_data2: second data byte (velocity / CC value)
+        //   in_offset_sample_frame: sample offset within current render buffer
+        fn MusicDeviceMIDIEvent(
+            in_unit: AudioUnit,
+            in_status: u32,
+            in_data1: u32,
+            in_data2: u32,
+            in_offset_sample_frame: u32,
+        ) -> OSStatus;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -169,6 +214,22 @@ mod macos {
         ) -> u8;
         fn CFRelease(cf: *mut c_void);
     }
+
+    unsafe extern "C" {
+        fn pthread_main_np() -> i32;
+        fn objc_getClass(name: *const c_char) -> *const c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+
+    mod ui {
+        include!("au_host_ui_macos.rs");
+    }
+    use ui::{
+        AuEditorWindow, add_subview, cocoa_view_frame, content_view_bounds,
+        create_cocoa_view_for_unit, has_cocoa_ui_property, is_main_thread, set_view_autoresize_mask,
+        set_view_frame,
+    };
 
     fn osstatus_ok(status: OSStatus, ctx: &str) -> Result<(), PluginError> {
         if status == NO_ERR {
@@ -199,10 +260,15 @@ mod macos {
         }
         let bytes = buf
             .iter()
-            .map(|c| *c as u8)
+            .map(|c| c.cast_unsigned())
             .take_while(|b| *b != 0)
             .collect::<Vec<u8>>();
         String::from_utf8(bytes).ok()
+    }
+
+    #[inline]
+    fn usize_to_u32_saturating(value: usize) -> u32 {
+        u32::try_from(value).unwrap_or(u32::MAX)
     }
 
     fn normalize_name_key(raw: &str) -> String {
@@ -355,6 +421,7 @@ mod macos {
         input_l: *const f32,
         input_r: *const f32,
         input_frames: usize,
+        editor_window: Option<AuEditorWindow>,
     }
 
     // SAFETY: this instance is transferred to and used on the audio thread.
@@ -399,6 +466,7 @@ mod macos {
                 input_l: std::ptr::null(),
                 input_r: std::ptr::null(),
                 input_frames: 0,
+                editor_window: None,
             })
         }
 
@@ -474,6 +542,7 @@ mod macos {
 
     impl Drop for AudioUnitInstance {
         fn drop(&mut self) {
+            let _ = self.close_editor();
             if !self.unit.is_null() {
                 // SAFETY: valid AudioUnit instance owned by this object.
                 let _ = unsafe { AudioUnitUninitialize(self.unit) };
@@ -511,7 +580,7 @@ mod macos {
                         K_AUDIO_UNIT_SCOPE_INPUT,
                         0,
                         (&format as *const AudioStreamBasicDescription).cast(),
-                        size_of::<AudioStreamBasicDescription>() as u32,
+                        usize_to_u32_saturating(size_of::<AudioStreamBasicDescription>()),
                     )
                 },
                 "AudioUnitSetProperty(stream_format/input)",
@@ -525,7 +594,7 @@ mod macos {
                         K_AUDIO_UNIT_SCOPE_OUTPUT,
                         0,
                         (&format as *const AudioStreamBasicDescription).cast(),
-                        size_of::<AudioStreamBasicDescription>() as u32,
+                        usize_to_u32_saturating(size_of::<AudioStreamBasicDescription>()),
                     )
                 },
                 "AudioUnitSetProperty(stream_format/output)",
@@ -544,7 +613,7 @@ mod macos {
                         K_AUDIO_UNIT_SCOPE_INPUT,
                         0,
                         (&cb as *const AURenderCallbackStruct).cast(),
-                        size_of::<AURenderCallbackStruct>() as u32,
+                        usize_to_u32_saturating(size_of::<AURenderCallbackStruct>()),
                     )
                 },
                 "AudioUnitSetProperty(render_callback)",
@@ -576,7 +645,7 @@ mod macos {
             inputs: &[&[f32]],
             outputs: &mut [&mut [f32]],
             num_frames: usize,
-            _midi_events: &[MidiEvent],
+            midi_events: &[MidiEvent],
         ) -> Result<(), PluginError> {
             if !self.is_active || self.unit.is_null() {
                 for out in outputs {
@@ -607,6 +676,27 @@ mod macos {
                 .unwrap_or(std::ptr::null());
             self.input_frames = frames;
 
+            // ── AU MIDI Dispatch ──────────────────────────────────────────────
+            // For instrument-type AudioUnits (kAudioUnitType_MusicDevice), MIDI
+            // events must be forwarded via MusicDeviceMIDIEvent() before calling
+            // AudioUnitRender(). Without this, AU instruments never receive
+            // Note On/Off events and produce no sound.
+            //
+            // For effect-type AUs (kAudioUnitType_Effect), MusicDeviceMIDIEvent
+            // returns an error which we silently ignore — effects don't process
+            // MIDI, and the call is harmless.
+            if !midi_events.is_empty() && !self.unit.is_null() {
+                for ev in midi_events {
+                    let status = ev.data[0] as u32;
+                    let data1 = ev.data[1] as u32;
+                    let data2 = ev.data[2] as u32;
+                    let offset = u32::try_from(ev.sample_offset.max(0)).unwrap_or(0);
+                    // SAFETY: unit is valid and initialized; MIDI data is bounded.
+                    let _ =
+                        unsafe { MusicDeviceMIDIEvent(self.unit, status, data1, data2, offset) };
+                }
+            }
+
             let mut out_l_ptr = outputs
                 .first_mut()
                 .map(|c| c.as_mut_ptr())
@@ -621,12 +711,16 @@ mod macos {
                 m_buffers: [
                     AudioBuffer {
                         m_number_channels: 1,
-                        m_data_byte_size: (frames * size_of::<f32>()) as u32,
+                        m_data_byte_size: usize_to_u32_saturating(
+                            frames.saturating_mul(size_of::<f32>()),
+                        ),
                         m_data: out_l_ptr.cast(),
                     },
                     AudioBuffer {
                         m_number_channels: 1,
-                        m_data_byte_size: (frames * size_of::<f32>()) as u32,
+                        m_data_byte_size: usize_to_u32_saturating(
+                            frames.saturating_mul(size_of::<f32>()),
+                        ),
                         m_data: out_r_ptr.cast(),
                     },
                 ],
@@ -644,7 +738,7 @@ mod macos {
                     &mut flags,
                     &ts,
                     0,
-                    frames as u32,
+                    usize_to_u32_saturating(frames),
                     (&mut abl as *mut AudioBufferListStereo).cast(),
                 )
             };
@@ -693,6 +787,109 @@ mod macos {
         }
 
         fn set_transport_context(&mut self, _ctx: TransportContext) {}
+
+        fn open_editor(&mut self) -> Result<(), PluginError> {
+            if self.editor_window.is_some() {
+                return Ok(());
+            }
+            if !is_main_thread() {
+                return Err(PluginError::InvalidState(
+                    "AudioUnit editor must be opened on the main thread".to_string(),
+                ));
+            }
+            if self.unit.is_null() {
+                return Err(PluginError::InvalidState(
+                    "AudioUnit instance is not initialized".to_string(),
+                ));
+            }
+
+            let cocoa_view = create_cocoa_view_for_unit(self.unit)?;
+            if cocoa_view == nil {
+                return Err(PluginError::UnsupportedFormat(
+                    "AudioUnit returned an empty Cocoa UI view".to_string(),
+                ));
+            }
+
+            // SAFETY: AppKit calls are guarded by main-thread check above.
+            unsafe {
+                let app = NSApp();
+                app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
+
+                let mut preferred_frame: NSRect = cocoa_view_frame(cocoa_view);
+                if preferred_frame.size.width < 420.0 {
+                    preferred_frame.size.width = 960.0;
+                }
+                if preferred_frame.size.height < 260.0 {
+                    preferred_frame.size.height = 640.0;
+                }
+
+                let window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
+                    NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(preferred_frame.size.width, preferred_frame.size.height),
+                    ),
+                    NSWindowStyleMask::NSTitledWindowMask
+                        | NSWindowStyleMask::NSClosableWindowMask
+                        | NSWindowStyleMask::NSMiniaturizableWindowMask
+                        | NSWindowStyleMask::NSResizableWindowMask,
+                    NSBackingStoreType::NSBackingStoreBuffered,
+                    NO,
+                );
+                if window == nil {
+                    return Err(PluginError::InvalidState(
+                        "Failed to create AudioUnit editor window".to_string(),
+                    ));
+                }
+
+                let title = NSString::alloc(nil).init_str(&self.descriptor.name);
+                window.setTitle_(title);
+                let content_view = window.contentView();
+                if content_view == nil {
+                    window.close();
+                    return Err(PluginError::InvalidState(
+                        "Failed to acquire AudioUnit editor content view".to_string(),
+                    ));
+                }
+
+                let content_bounds: NSRect = content_view_bounds(content_view);
+                set_view_frame(cocoa_view, content_bounds);
+                set_view_autoresize_mask(cocoa_view, 18usize);
+                add_subview(content_view, cocoa_view);
+                window.center();
+                window.makeKeyAndOrderFront_(nil);
+
+                self.editor_window = Some(AuEditorWindow {
+                    window: window as usize,
+                });
+            }
+
+            Ok(())
+        }
+
+        fn close_editor(&mut self) -> Result<(), PluginError> {
+            if !is_main_thread() {
+                return Err(PluginError::InvalidState(
+                    "AudioUnit editor must be closed on the main thread".to_string(),
+                ));
+            }
+            let Some(editor) = self.editor_window.take() else {
+                return Ok(());
+            };
+            // SAFETY: pointer was created by open_editor and is only consumed once here.
+            // Closing the NSWindow tears down its view hierarchy; avoid messaging a potentially
+            // stale plugin-owned NSView pointer directly.
+            unsafe {
+                let window = editor.window as id;
+                if window != nil {
+                    window.close();
+                }
+            }
+            Ok(())
+        }
+
+        fn supports_editor(&self) -> bool {
+            !self.unit.is_null() && has_cocoa_ui_property(self.unit)
+        }
     }
 }
 

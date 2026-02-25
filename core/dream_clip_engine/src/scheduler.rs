@@ -62,7 +62,8 @@ impl ClipScheduler {
         out: &mut Vec<ActiveClipInfo>,
     ) {
         // BUG-010 FIX: saturating_add prevents i64 overflow in long sessions.
-        let buffer_end = playhead_pos.saturating_add(buffer_size as i64);
+        let buffer_size_i64 = i64::try_from(buffer_size).unwrap_or(i64::MAX);
+        let buffer_end = playhead_pos.saturating_add(buffer_size_i64);
         out.clear();
 
         for (clip_index, clip) in clips.iter().enumerate() {
@@ -80,13 +81,16 @@ impl ClipScheduler {
 
             let intersect_start = playhead_pos.max(clip_start);
             let intersect_end = buffer_end.min(clip_end);
-            let frames_to_read = (intersect_end - intersect_start) as usize;
+            let frames_span = intersect_end.saturating_sub(intersect_start);
+            let Ok(frames_to_read) = usize::try_from(frames_span) else {
+                continue;
+            };
             if frames_to_read == 0 {
                 continue;
             }
 
             let buffer_offset = if clip_start > playhead_pos {
-                (clip_start - playhead_pos) as usize
+                usize::try_from(clip_start.saturating_sub(playhead_pos)).unwrap_or(usize::MAX)
             } else {
                 0
             };
@@ -124,7 +128,8 @@ impl ClipScheduler {
             }
         };
 
-        let buffer_end = playhead_pos.saturating_add(buffer_size as i64);
+        let buffer_size_i64 = i64::try_from(buffer_size).unwrap_or(i64::MAX);
+        let buffer_end = playhead_pos.saturating_add(buffer_size_i64);
         // If the entire buffer fits within the loop region (no wrap needed),
         // use standard scheduling — no split required.
         if buffer_end <= loop_region.end && playhead_pos >= loop_region.start {
@@ -149,7 +154,8 @@ impl ClipScheduler {
         let mut current_buffer_offset = 0;
 
         while frames_remaining > 0 {
-            let frames_to_end = (loop_region.end - current_playhead).max(0) as usize;
+            let frames_to_end_i64 = (loop_region.end - current_playhead).max(0);
+            let frames_to_end = usize::try_from(frames_to_end_i64).unwrap_or(usize::MAX);
             let chunk_frames = frames_remaining.min(frames_to_end);
 
             // STAGE3-01 FIX: If current_playhead is exactly at loop_region.end,

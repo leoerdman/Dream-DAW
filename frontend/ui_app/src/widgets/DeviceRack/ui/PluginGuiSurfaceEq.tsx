@@ -188,20 +188,20 @@ export function PluginGuiSurfaceEq({
                             <path d={spectrumPath} fill={`url(#specGrad-${device.id})`} opacity="0.36" />
                         )}
                         {enabledBands.length > 0 && (
-                            <>
-                                <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
-                                <path
-                                    d={curvePath}
-                                    fill="none"
-                                    stroke={`url(#eqCurveStroke-${device.id})`}
-                                    strokeWidth="2.15"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    vectorEffect="non-scaling-stroke"
-                                    shapeRendering="geometricPrecision"
-                                />
-                            </>
+                            <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
                         )}
+                        <path
+                            d={curvePath}
+                            fill="none"
+                            stroke={enabledBands.length > 0
+                                ? `url(#eqCurveStroke-${device.id})`
+                                : 'color-mix(in srgb, var(--color-accent-primary) 72%, white)'}
+                            strokeWidth="2.15"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            vectorEffect="non-scaling-stroke"
+                            shapeRendering="geometricPrecision"
+                        />
                         {enabledBands.length === 0 && (
                             <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="var(--token-color-rgba-255-255-255-0d32)" fontSize="10" fontFamily="var(--font-role-body)">
                                 Double-click to add EQ point

@@ -133,3 +133,6 @@ pub use track_topology::{
     AddedTrack, DuplicateTracksCommand, DuplicateTracksResult, MoveTrackBlockToIndexCommand,
     MoveTrackBlockToIndexResult, UngroupTrackCommand, UngroupTrackResult,
 };
+
+#[cfg(test)]
+mod plugin_virtual_scenarios;

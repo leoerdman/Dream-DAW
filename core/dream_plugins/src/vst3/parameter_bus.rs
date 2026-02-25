@@ -32,12 +32,12 @@ impl HostParamValueQueue {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct HostParameterChanges {
     vtbl: *const IParameterChangesVtbl,
     ref_count: u32,
     pub(crate) queue_count: i32,
-    queues: [HostParamValueQueue; MAX_HOST_PARAM_CHANGES],
+    queues: Box<[HostParamValueQueue]>,
 }
 
 impl HostParameterChanges {
@@ -46,7 +46,7 @@ impl HostParameterChanges {
             vtbl: &HOST_PARAMETER_CHANGES_VTBL,
             ref_count: 1,
             queue_count: 0,
-            queues: [HostParamValueQueue::empty(); MAX_HOST_PARAM_CHANGES],
+            queues: vec![HostParamValueQueue::empty(); MAX_HOST_PARAM_CHANGES].into_boxed_slice(),
         };
         for (slot, (param_id, value)) in changes.iter().take(MAX_HOST_PARAM_CHANGES).enumerate() {
             this.queues[slot].param_id = *param_id;
@@ -122,13 +122,16 @@ unsafe extern "C" fn host_param_queue_get_point(
     }
     // SAFETY: `this` is non-null and points to `HostParamValueQueue` per COM vtbl contract.
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    if index < 0 || index >= queue.point_count || (index as usize) >= MAX_POINTS_PER_QUEUE {
+    let Ok(idx) = usize::try_from(index) else {
+        return K_RESULT_FALSE;
+    };
+    if index >= queue.point_count || idx >= MAX_POINTS_PER_QUEUE {
         return K_RESULT_FALSE;
     }
     // SAFETY: output pointers are validated non-null above; writes are in-bounds scalar stores.
     unsafe {
-        *sample_offset = queue.sample_offsets[index as usize];
-        *value = queue.values[index as usize];
+        *sample_offset = queue.sample_offsets[idx];
+        *value = queue.values[idx];
     }
     K_RESULT_OK
 }
@@ -144,7 +147,9 @@ unsafe extern "C" fn host_param_queue_add_point(
     }
     // SAFETY: VST3 host passes a valid `IParamValueQueue` allocated as `HostParamValueQueue`.
     let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
-    let slot = queue.point_count as usize;
+    let Ok(slot) = usize::try_from(queue.point_count) else {
+        return K_RESULT_FALSE;
+    };
     if slot >= MAX_POINTS_PER_QUEUE {
         return K_RESULT_FALSE;
     }
@@ -154,7 +159,7 @@ unsafe extern "C" fn host_param_queue_add_point(
     if !index.is_null() {
         // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
         unsafe {
-            *index = slot as i32;
+            *index = i32::try_from(slot).unwrap_or(i32::MAX);
         }
     }
     K_RESULT_OK
@@ -212,8 +217,13 @@ unsafe extern "C" fn host_param_changes_get_parameter_data(
     }
     // SAFETY: `this` is non-null and points to `HostParameterChanges` per COM vtbl contract.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    let idx = index as usize;
-    if idx >= changes.queue_count as usize || idx >= MAX_HOST_PARAM_CHANGES {
+    let Ok(idx) = usize::try_from(index) else {
+        return ptr::null_mut();
+    };
+    let Ok(queue_count) = usize::try_from(changes.queue_count) else {
+        return ptr::null_mut();
+    };
+    if idx >= queue_count || idx >= MAX_HOST_PARAM_CHANGES {
         return ptr::null_mut();
     }
     (&mut changes.queues[idx] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
@@ -229,7 +239,10 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     }
     // SAFETY: `this` is non-null and points to `HostParameterChanges` per COM vtbl contract.
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
-    if changes.queue_count as usize >= MAX_HOST_PARAM_CHANGES {
+    let Ok(queue_count) = usize::try_from(changes.queue_count) else {
+        return ptr::null_mut();
+    };
+    if queue_count >= MAX_HOST_PARAM_CHANGES {
         if !index.is_null() {
             // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
             unsafe {
@@ -238,7 +251,7 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
         }
         return ptr::null_mut();
     }
-    let slot = changes.queue_count as usize;
+    let slot = queue_count;
     changes.queue_count += 1;
     let param_id = if id.is_null() {
         0
@@ -251,7 +264,7 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     if !index.is_null() {
         // SAFETY: `index` is non-null by guard above and points to caller-owned out-param storage.
         unsafe {
-            *index = slot as i32;
+            *index = i32::try_from(slot).unwrap_or(i32::MAX);
         }
     }
     (&mut changes.queues[slot] as *mut HostParamValueQueue).cast::<IParamValueQueue>()

@@ -184,7 +184,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             right: 0,
             bottom: 'var(--daw-status-bar-height)',
             width: 380,
-            zIndex: 'var(--z-status-popup)' as unknown as number,
+            zIndex: 'var(--z-status-popup)',
             borderLeft: 'var(--border-width-1) solid var(--color-divider)',
             background: 'color-mix(in srgb, var(--color-bg-panel) 93%, var(--color-bg-base))',
             display: 'grid',
@@ -198,7 +198,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                 justifyContent: 'space-between',
             }}>
                 <div style={{ display: 'grid', gap: 'var(--space-0-5)' }}>
-                    <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-status-error)' }}>Missing Media Manager</span>
+                    <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-status-error)' }}>Missing Media Manager</span>
                     <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
                         {missingClips.length} files offline · {missingPlugins.length} plugins missing
                     </span>
@@ -213,7 +213,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             color: 'var(--color-text-secondary)',
                             borderRadius: 'var(--radius-lg)',
                             fontSize: 'var(--font-size-sm)',
-                            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                            fontWeight: 'var(--font-weight-semibold)',
                             padding: 'var(--space-1) var(--space-2)',
                             cursor: autoResolveBusy || missingPlugins.length === 0 ? 'default' : 'pointer',
                             opacity: autoResolveBusy || missingPlugins.length === 0 ? 0.6 : 1,
@@ -228,7 +228,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                         color: 'var(--color-text-secondary)',
                         borderRadius: 'var(--radius-lg)',
                         fontSize: 'var(--font-size-sm)',
-                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                        fontWeight: 'var(--font-weight-semibold)',
                         padding: 'var(--space-1) var(--space-2)',
                         cursor: 'pointer',
                         transition: `background var(--transition-fast)`,

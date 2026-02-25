@@ -63,6 +63,7 @@ export function useAssetBrowserLogic() {
         previewRequestToken,
         audioDurationSecRef,
         isPreviewPlayingRef,
+        previewCommandQueueRef,
         setPreviewPeaks,
         fileListRef,
         searchRef,
@@ -177,6 +178,7 @@ export function useAssetBrowserLogic() {
         previewRequestTokenRef: previewRequestToken,
         audioDurationSecRef,
         isPreviewPlayingRef,
+        previewCommandQueueRef,
         setPreviewPeaks,
     });
 

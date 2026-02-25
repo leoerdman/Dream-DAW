@@ -167,7 +167,7 @@ export function MissingPluginsSection({
 }
 
 const sectionStyle: CSSProperties = { display: 'grid', gap: 'var(--space-2)' };
-const sectionTitleStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' };
+const sectionTitleStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' };
 const emptyTextStyle: CSSProperties = { fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' };
 const cardStyle: CSSProperties = {
     border: 'var(--border-width-1) solid var(--color-divider)',
@@ -187,7 +187,7 @@ const actionBtnStyle: CSSProperties = {
     background: 'var(--color-bg-panel)',
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+    fontWeight: 'var(--font-weight-semibold)',
     padding: 'var(--space-1) var(--space-2)',
     cursor: 'pointer',
     transition: 'background var(--transition-fast)',

@@ -11,6 +11,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEngineStore } from '@/shared/stores/useEngineStore'
 import { useSettingsStore } from '@/shared/stores/useSettingsStore'
+import * as engineApi from '@/shared/api/engine'
+import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync'
+import { withProjectLoad } from '@/shared/lib/projectLoadGuard'
 import './SplashScreen.css'
 
 interface SplashScreenProps {
@@ -85,8 +88,33 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 startTelemetryLoop()
                 if (isDev) console.debug('[Splash] step 2: startTelemetryLoop DONE')
 
-                // Intentionally skip opening the last project during splash.
-                // It can trigger expensive plugin initialization and stall startup.
+                // 3. Honor startup behavior: open last project on launch if selected.
+                if (settings.startupBehavior === 'last') {
+                    if (isDev) console.debug('[Splash] step 3: startupBehavior=last, loading recent...')
+                    try {
+                        const recents = await withTimeout(engineApi.getRecentProjects(), 3000, 'getRecentProjects')
+                        const latest = recents[0]
+                        if (latest?.path) {
+                            await withProjectLoad('splash:start:last-project', async () => {
+                                const isAbleton = latest.path.toLowerCase().endsWith('.als')
+                                const response = isAbleton
+                                    ? await withTimeout(engineApi.importAbletonProject(latest.path), 12000, 'importAbletonProject')
+                                    : await withTimeout(engineApi.openProject(latest.path), 12000, 'openProject')
+                                await applyDeltasWithSnapshotSync(
+                                    useEngineStore.getState().applyProjectDeltas,
+                                    response.deltas,
+                                    'splash:start:last-project',
+                                )
+                            })
+                            await withTimeout(useEngineStore.getState().syncProjectHistory(), 2000, 'syncProjectHistory')
+                            if (isDev) console.debug('[Splash] step 3: open last DONE', latest.path)
+                        } else if (isDev) {
+                            console.debug('[Splash] step 3: no recent projects, skipping')
+                        }
+                    } catch (e) {
+                        console.warn('[Splash] step 3: open last failed, continuing:', e)
+                    }
+                }
             } catch (e) {
                 console.warn('[Splash] Unexpected startup error:', e)
             }

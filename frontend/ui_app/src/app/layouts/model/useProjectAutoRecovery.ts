@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
+import { isProjectLoadInFlight, withProjectLoad } from '@/shared/lib/projectLoadGuard';
 
 // ── Auto-Recovery: Re-fetch project when frontend state is lost ────────
 // After HMR page reload or any event that resets the Zustand store,
@@ -10,10 +11,35 @@ import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync
 // automatically re-fetches the project snapshot from the backend.
 // ───────────────────────────────────────────────────────────────────────
 let recoveryInFlight = false;
+let recoveryGeneration = 0;
+let lastRecoveryAttemptAtMs = 0;
+const INITIAL_DELAY_MS = 2000;
+const RETRY_DELAY_MS = 500;
+const MAX_RETRY_WINDOW_MS = 15000;
+const RECOVERY_COOLDOWN_MS = 30000;
 
 export function useProjectAutoRecovery(): void {
     useEffect(() => {
-        const timerId = setTimeout(() => {
+        const generation = ++recoveryGeneration;
+        const startedAt = Date.now();
+        let timerId: ReturnType<typeof setTimeout> | null = null;
+        let cancelled = false;
+
+        const schedule = (delayMs: number) => {
+            if (cancelled) return;
+            timerId = setTimeout(runCheck, delayMs);
+        };
+
+        const runCheck = () => {
+            if (cancelled) return;
+            if (generation !== recoveryGeneration) return;
+            if (isProjectLoadInFlight()) {
+                if (Date.now() - startedAt < MAX_RETRY_WINDOW_MS) {
+                    schedule(RETRY_DELAY_MS);
+                }
+                return;
+            }
+
             const state = useEngineStore.getState();
             const hasNoTracks = state.tracks.allIds.length === 0;
             const isConnected = state.connected || state.telemetryRunning;
@@ -22,12 +48,14 @@ export function useProjectAutoRecovery(): void {
             const likelyDesyncedTimeline = hasTracksButNoClips && transportLooksActive;
 
             if ((!hasNoTracks && !likelyDesyncedTimeline) || !isConnected || recoveryInFlight) return;
+            if (Date.now() - lastRecoveryAttemptAtMs < RECOVERY_COOLDOWN_MS) return;
 
             recoveryInFlight = true;
+            lastRecoveryAttemptAtMs = Date.now();
             const reason = hasNoTracks ? 'no-tracks' : 'tracks-without-clips';
             console.warn(`[AutoRecovery] Backend/UI desync detected (${reason}) — re-fetching project...`);
 
-            void (async () => {
+            void withProjectLoad(`auto-recovery:${reason}`, async () => {
                 try {
                     const status = await engineApi.getProjectStatus();
                     const filePath = (status as { filePath?: string }).filePath;
@@ -50,17 +78,22 @@ export function useProjectAutoRecovery(): void {
                         console.info('[AutoRecovery] Loaded default project');
                     }
 
-                    engineApi.eagerActivateExternalPlugins().catch((err) =>
-                        console.warn('[AutoRecovery] Plugin activation (non-fatal):', err),
-                    );
                 } catch (err) {
                     console.error('[AutoRecovery] Failed to recover project state:', err);
                 } finally {
                     recoveryInFlight = false;
                 }
-            })();
-        }, 2000);
+            });
+        };
 
-        return () => clearTimeout(timerId);
+        schedule(INITIAL_DELAY_MS);
+
+        return () => {
+            cancelled = true;
+            if (generation === recoveryGeneration) {
+                recoveryGeneration += 1;
+            }
+            if (timerId) clearTimeout(timerId);
+        };
     }, []);
 }

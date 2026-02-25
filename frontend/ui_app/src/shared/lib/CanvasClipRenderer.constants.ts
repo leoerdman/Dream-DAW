@@ -1,0 +1,35 @@
+export const HEADER_HEIGHT = 20;
+export const CLIP_RADIUS = 4;
+export const FADE_GRAB_RADIUS = 3;
+export const SELECTION_BORDER_WIDTH = 2;
+
+export const rgba = (r: number, g: number, b: number, a: number): string => `rgba(${r}, ${g}, ${b}, ${a})`;
+export const hex = (r: number, g: number, b: number): string =>
+    `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
+export const SELECTION_GLOW_COLOR = rgba(255, 255, 255, 0.9);
+export const DROP_TARGET_COLOR = rgba(255, 255, 255, 0.2);
+export const DROP_TARGET_BORDER = rgba(255, 255, 255, 0.6);
+export const GHOST_CLIP_ALPHA = 0.45;
+export const OFFLINE_STRIPE_COLOR = rgba(255, 80, 80, 0.3);
+export const CLIP_LABEL_FONT = '10px Inter, -apple-system, sans-serif';
+
+export const snapCanvasLineX = (rawX: number, lineWidthCssPx: number): number => {
+    if (!Number.isFinite(rawX)) return rawX;
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const deviceX = rawX * dpr;
+    const deviceWidth = Math.max(1, lineWidthCssPx * dpr);
+    const alignedDeviceCenter = Math.round(deviceX - deviceWidth / 2) + deviceWidth / 2;
+    return alignedDeviceCenter / dpr;
+};
+
+export function applyAlphaMultiplier(color: string, multiplier: number): string {
+    const m = color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+    if (!m) return color;
+    const r = Number(m[1]);
+    const g = Number(m[2]);
+    const b = Number(m[3]);
+    const baseA = m[4] != null ? Number(m[4]) : 1;
+    const a = Math.max(0, Math.min(1, baseA * multiplier));
+    return rgba(r, g, b, a);
+}

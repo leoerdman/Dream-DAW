@@ -4,6 +4,10 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
 import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
+import { AUTO_CLEANUP_TRACK_NAME_HINTS, ARRANGEMENT_TEMPLATES } from '@/shared/api/assistant/toolExecutor.constants.arrangement';
+import { BEAT_PATTERNS, CHORD_INTERVALS, SCALE_INTERVALS } from '@/shared/api/assistant/toolExecutor.constants.music';
+import { INSTRUMENT_PRESETS, resolveEffectEntry } from '@/shared/api/assistant/toolExecutor.constants.plugins';
+import { buildSystemPromptTemplate } from '@/shared/api/assistant/toolExecutor.prompt';
 import {
     type MidiNoteLike,
     getOptionalStringField,
@@ -298,11 +302,7 @@ async function executeToolInner(
             const instrumentArg = (args.instrument as string | undefined)?.toLowerCase();
             let instrumentAssigned: string | null = null;
             if (instrumentArg && newTrackId) {
-                const INSTRUMENT_MAP: Record<string, { pluginId: string; displayName: string }> = {
-                    essence: { pluginId: 'internal://instrument/wave-synth', displayName: 'Essence' },
-                    sampler: { pluginId: 'internal://instrument/sampler', displayName: 'Sampler' },
-                };
-                const entry = INSTRUMENT_MAP[instrumentArg];
+                const entry = INSTRUMENT_PRESETS[instrumentArg];
                 if (entry) {
                     const response = await engineApi.addPluginToTrackWithDeltas(
                         newTrackId,
@@ -321,11 +321,7 @@ async function executeToolInner(
             const siTrackId = tracks[siTrackIdx]?.id;
             if (!siTrackId) return JSON.stringify({ error: `Track ${siTrackIdx} not found` });
             const siInstrument = ((args.instrument as string) || 'essence').toLowerCase();
-            const SI_MAP: Record<string, { pluginId: string; displayName: string }> = {
-                essence: { pluginId: 'internal://instrument/wave-synth', displayName: 'Essence' },
-                sampler: { pluginId: 'internal://instrument/sampler', displayName: 'Sampler' },
-            };
-            const siEntry = SI_MAP[siInstrument];
+            const siEntry = INSTRUMENT_PRESETS[siInstrument];
             if (!siEntry) return JSON.stringify({ error: `Unknown instrument: ${siInstrument}. Use "essence" or "sampler".` });
             {
                 const response = await engineApi.addPluginToTrackWithDeltas(
@@ -512,49 +508,7 @@ async function executeToolInner(
             const trackId = tracks[trackIndex]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${trackIndex} not found` });
             const effectArg = args.effectType as number | string;
-            const EFFECT_BY_ID: Record<number, { pluginId: string; displayName: string }> = {
-                [engineApi.BuiltinEffectType.Eq]: { pluginId: 'internal://effect/eq', displayName: 'EQ' },
-                [engineApi.BuiltinEffectType.Compressor]: { pluginId: 'internal://effect/compressor', displayName: 'Compressor' },
-                [engineApi.BuiltinEffectType.Delay]: { pluginId: 'internal://effect/delay', displayName: 'Delay' },
-                [engineApi.BuiltinEffectType.Reverb]: { pluginId: 'internal://effect/reverb', displayName: 'Reverb' },
-                [engineApi.BuiltinEffectType.Chorus]: { pluginId: 'internal://effect/chorus', displayName: 'Chorus' },
-                [engineApi.BuiltinEffectType.Utility]: { pluginId: 'internal://effect/utility', displayName: 'Utility' },
-                [engineApi.BuiltinEffectType.Saturator]: { pluginId: 'internal://effect/saturator', displayName: 'Saturator' },
-                [engineApi.BuiltinEffectType.Limiter]: { pluginId: 'internal://effect/limiter', displayName: 'Limiter' },
-                [engineApi.BuiltinEffectType.Gate]: { pluginId: 'internal://effect/gate', displayName: 'Gate' },
-                [engineApi.BuiltinEffectType.AutoFilter]: { pluginId: 'internal://effect/auto-filter', displayName: 'Auto Filter' },
-                [engineApi.BuiltinEffectType.Phaser]: { pluginId: 'internal://effect/phaser', displayName: 'Phaser' },
-                [engineApi.BuiltinEffectType.Flanger]: { pluginId: 'internal://effect/flanger', displayName: 'Flanger' },
-                [engineApi.BuiltinEffectType.Distortion]: { pluginId: 'internal://effect/distortion', displayName: 'Distortion' },
-                [engineApi.BuiltinEffectType.Bitcrusher]: { pluginId: 'internal://effect/bitcrusher', displayName: 'Bitcrusher' },
-                [engineApi.BuiltinEffectType.NoiseMachine]: { pluginId: 'internal://effect/noise-machine', displayName: 'Noise Machine' },
-                [engineApi.BuiltinEffectType.AutoPan]: { pluginId: 'internal://effect/auto-pan', displayName: 'Auto Pan' },
-            };
-            const EFFECT_BY_NAME: Record<string, { pluginId: string; displayName: string }> = {
-                eq: EFFECT_BY_ID[engineApi.BuiltinEffectType.Eq],
-                compressor: EFFECT_BY_ID[engineApi.BuiltinEffectType.Compressor],
-                delay: EFFECT_BY_ID[engineApi.BuiltinEffectType.Delay],
-                reverb: EFFECT_BY_ID[engineApi.BuiltinEffectType.Reverb],
-                chorus: EFFECT_BY_ID[engineApi.BuiltinEffectType.Chorus],
-                utility: EFFECT_BY_ID[engineApi.BuiltinEffectType.Utility],
-                saturator: EFFECT_BY_ID[engineApi.BuiltinEffectType.Saturator],
-                limiter: EFFECT_BY_ID[engineApi.BuiltinEffectType.Limiter],
-                gate: EFFECT_BY_ID[engineApi.BuiltinEffectType.Gate],
-                autofilter: EFFECT_BY_ID[engineApi.BuiltinEffectType.AutoFilter],
-                'auto-filter': EFFECT_BY_ID[engineApi.BuiltinEffectType.AutoFilter],
-                phaser: EFFECT_BY_ID[engineApi.BuiltinEffectType.Phaser],
-                flanger: EFFECT_BY_ID[engineApi.BuiltinEffectType.Flanger],
-                distortion: EFFECT_BY_ID[engineApi.BuiltinEffectType.Distortion],
-                bitcrusher: EFFECT_BY_ID[engineApi.BuiltinEffectType.Bitcrusher],
-                noisemachine: EFFECT_BY_ID[engineApi.BuiltinEffectType.NoiseMachine],
-                'noise-machine': EFFECT_BY_ID[engineApi.BuiltinEffectType.NoiseMachine],
-                autopan: EFFECT_BY_ID[engineApi.BuiltinEffectType.AutoPan],
-                'auto-pan': { pluginId: 'internal://effect/auto-pan', displayName: 'Auto Pan' },
-            };
-            const effect =
-                typeof effectArg === 'number'
-                    ? EFFECT_BY_ID[effectArg]
-                    : EFFECT_BY_NAME[String(effectArg).trim().toLowerCase()];
+            const effect = resolveEffectEntry(effectArg);
             if (!effect) return JSON.stringify({ error: `Unknown effectType: ${String(effectArg)}` });
             const response = await engineApi.addPluginToTrackWithDeltas(
                 trackId,
@@ -646,15 +600,7 @@ async function executeToolInner(
             const root = args.root as number;
             const quality = (args.quality as string).toLowerCase();
             const spread = (args.octaveSpread as number) || 1;
-            const INTERVALS: Record<string, number[]> = {
-                major: [0, 4, 7], minor: [0, 3, 7], dim: [0, 3, 6], aug: [0, 4, 8],
-                dom7: [0, 4, 7, 10], maj7: [0, 4, 7, 11], min7: [0, 3, 7, 10],
-                sus2: [0, 2, 7], sus4: [0, 5, 7], add9: [0, 4, 7, 14],
-                min9: [0, 3, 7, 10, 14], maj9: [0, 4, 7, 11, 14],
-                dim7: [0, 3, 6, 9], aug7: [0, 4, 8, 10],
-                m7b5: [0, 3, 6, 10], '6': [0, 4, 7, 9], m6: [0, 3, 7, 9],
-            };
-            const intervals = INTERVALS[quality] || INTERVALS.major;
+            const intervals = CHORD_INTERVALS[quality] || CHORD_INTERVALS.major;
             let pitches: number[] = [];
             for (let oct = 0; oct < spread; oct++) {
                 pitches = pitches.concat(intervals.map(i => root + i + oct * 12));
@@ -698,18 +644,12 @@ async function executeToolInner(
             const scaleType = (args.scaleType as string).toLowerCase();
             const lo = (args.lowNote as number) || 24;
             const hi = (args.highNote as number) || 108;
-            const SCALES: Record<string, number[]> = {
-                major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10],
-                dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10],
-                lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10],
-                aeolian: [0, 2, 3, 5, 7, 8, 10], locrian: [0, 1, 3, 5, 6, 8, 10],
-                pentatonic_major: [0, 2, 4, 7, 9], pentatonic_minor: [0, 3, 5, 7, 10],
-                blues: [0, 3, 5, 6, 7, 10], harmonic_minor: [0, 2, 3, 5, 7, 8, 11],
-                melodic_minor: [0, 2, 3, 5, 7, 9, 11], whole_tone: [0, 2, 4, 6, 8, 10],
-                chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-            };
-            const intervals = SCALES[scaleType];
-            if (!intervals) return JSON.stringify({ error: `Unknown scale type: "${scaleType}". Valid types: ${Object.keys(SCALES).join(', ')}` });
+            const intervals = SCALE_INTERVALS[scaleType];
+            if (!intervals) {
+                return JSON.stringify({
+                    error: `Unknown scale type: "${scaleType}". Valid types: ${Object.keys(SCALE_INTERVALS).join(', ')}`,
+                });
+            }
             const pitches: number[] = [];
             for (let n = lo; n <= hi; n++) {
                 if (intervals.includes((n - (root % 12) + 12) % 12)) pitches.push(n);
@@ -812,11 +752,7 @@ async function executeToolInner(
                 const t = tracks[i];
                 if (!t?.id) continue;
                 const name = t.name.toLowerCase();
-                if (name.includes('hat') || name.includes('hi-hat') || name.includes('hihat') ||
-                    name.includes('vocal') || name.includes('vox') || name.includes('shaker') ||
-                    name.includes('perc') || name.includes('clap') || name.includes('crash') ||
-                    name.includes('ride') || name.includes('cymbal') || name.includes('fx') ||
-                    name.includes('pad') || name.includes('syn') || name.includes('lead')) {
+                if (AUTO_CLEANUP_TRACK_NAME_HINTS.some((hint) => name.includes(hint))) {
                     try {
                         const response = await engineApi.addPluginToTrackWithDeltas(
                             t.id,
@@ -835,56 +771,7 @@ async function executeToolInner(
             const genre = (args.genre as string).toLowerCase();
             const durBars = (args.durationBars as number) || 64;
             const beatsPerBar = 4;
-            const templates: Record<string, { name: string; startBar: number; endBar: number }[]> = {
-                house: [
-                    { name: 'Intro (Kick Only)', startBar: 0, endBar: 8 },
-                    { name: 'Build-up (Add Hats + Clap)', startBar: 8, endBar: 16 },
-                    { name: 'Breakdown (Remove Kick, Add Pads)', startBar: 16, endBar: 24 },
-                    { name: 'Build-up (Riser + Filter Sweep)', startBar: 24, endBar: 28 },
-                    { name: 'DROP (Full Energy)', startBar: 28, endBar: 44 },
-                    { name: 'Breakdown 2 (Strip Back)', startBar: 44, endBar: 52 },
-                    { name: 'DROP 2 (Full + Variation)', startBar: 52, endBar: 60 },
-                    { name: 'Outro (Fade Elements)', startBar: 60, endBar: 64 },
-                ],
-                techno: [
-                    { name: 'Intro (Ambient Textures)', startBar: 0, endBar: 8 },
-                    { name: 'Build (Add Kick)', startBar: 8, endBar: 16 },
-                    { name: 'Main Loop A', startBar: 16, endBar: 32 },
-                    { name: 'Breakdown (Filter Down)', startBar: 32, endBar: 40 },
-                    { name: 'Main Loop B (Variation)', startBar: 40, endBar: 56 },
-                    { name: 'Outro (Dissolve)', startBar: 56, endBar: 64 },
-                ],
-                dnb: [
-                    { name: 'Intro', startBar: 0, endBar: 8 },
-                    { name: 'Build-up', startBar: 8, endBar: 16 },
-                    { name: 'Drop 1', startBar: 16, endBar: 32 },
-                    { name: 'Breakdown', startBar: 32, endBar: 40 },
-                    { name: 'Drop 2', startBar: 40, endBar: 56 },
-                    { name: 'Outro', startBar: 56, endBar: 64 },
-                ],
-                hiphop: [
-                    { name: 'Intro', startBar: 0, endBar: 4 },
-                    { name: 'Verse 1', startBar: 4, endBar: 20 },
-                    { name: 'Hook/Chorus', startBar: 20, endBar: 28 },
-                    { name: 'Verse 2', startBar: 28, endBar: 44 },
-                    { name: 'Hook/Chorus', startBar: 44, endBar: 52 },
-                    { name: 'Bridge', startBar: 52, endBar: 56 },
-                    { name: 'Outro', startBar: 56, endBar: 64 },
-                ],
-                pop: [
-                    { name: 'Intro', startBar: 0, endBar: 4 },
-                    { name: 'Verse 1', startBar: 4, endBar: 12 },
-                    { name: 'Pre-Chorus', startBar: 12, endBar: 16 },
-                    { name: 'Chorus', startBar: 16, endBar: 24 },
-                    { name: 'Verse 2', startBar: 24, endBar: 32 },
-                    { name: 'Pre-Chorus 2', startBar: 32, endBar: 36 },
-                    { name: 'Chorus 2', startBar: 36, endBar: 44 },
-                    { name: 'Bridge', startBar: 44, endBar: 52 },
-                    { name: 'Final Chorus', startBar: 52, endBar: 60 },
-                    { name: 'Outro', startBar: 60, endBar: 64 },
-                ],
-            };
-            const template = templates[genre] || templates.house;
+            const template = ARRANGEMENT_TEMPLATES[genre] || ARRANGEMENT_TEMPLATES.house;
             const scaleFactor = durBars / (template[template.length - 1]?.endBar || 64);
             const sections = template.map(s => ({
                 ...s,
@@ -925,85 +812,7 @@ async function executeToolInner(
             const genre = ((args.genre as string) || 'house').toLowerCase();
             const bars = Math.max(1, Math.min(64, (args.bars as number) || 4));
             const swing = Math.max(0, Math.min(0.5, (args.swing as number) || 0));
-            type NoteHit = { pitch: number; beat: number; velocity: number; dur: number };
-            const patterns: Record<string, NoteHit[]> = {
-                house: [
-                    { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
-                    { pitch: 36, beat: 1, velocity: 120, dur: 0.25 },
-                    { pitch: 36, beat: 2, velocity: 120, dur: 0.25 },
-                    { pitch: 36, beat: 3, velocity: 120, dur: 0.25 },
-                    { pitch: 37, beat: 1, velocity: 100, dur: 0.25 },
-                    { pitch: 37, beat: 3, velocity: 100, dur: 0.25 },
-                    { pitch: 42, beat: 0.5, velocity: 80, dur: 0.125 },
-                    { pitch: 42, beat: 1.5, velocity: 80, dur: 0.125 },
-                    { pitch: 42, beat: 2.5, velocity: 80, dur: 0.125 },
-                    { pitch: 42, beat: 3.5, velocity: 80, dur: 0.125 },
-                ],
-                techno: [
-                    { pitch: 36, beat: 0, velocity: 127, dur: 0.25 },
-                    { pitch: 36, beat: 1, velocity: 127, dur: 0.25 },
-                    { pitch: 36, beat: 2, velocity: 127, dur: 0.25 },
-                    { pitch: 36, beat: 3, velocity: 127, dur: 0.25 },
-                    { pitch: 37, beat: 1, velocity: 90, dur: 0.25 },
-                    { pitch: 37, beat: 3, velocity: 90, dur: 0.25 },
-                    ...Array.from({ length: 16 }, (_, i) => ({
-                        pitch: 42, beat: i * 0.25, velocity: i % 4 === 0 ? 100 : i % 2 === 0 ? 70 : 55, dur: 0.125,
-                    })),
-                ],
-                dnb: [
-                    { pitch: 36, beat: 0, velocity: 120, dur: 0.25 },
-                    { pitch: 36, beat: 2.75, velocity: 110, dur: 0.25 },
-                    { pitch: 38, beat: 1, velocity: 110, dur: 0.25 },
-                    { pitch: 38, beat: 3, velocity: 110, dur: 0.25 },
-                    ...Array.from({ length: 8 }, (_, i) => ({
-                        pitch: 42, beat: i * 0.5, velocity: i % 2 === 0 ? 90 : 65, dur: 0.125,
-                    })),
-                ],
-                hiphop: [
-                    { pitch: 36, beat: 0, velocity: 110, dur: 0.5 },
-                    { pitch: 36, beat: 2.5, velocity: 100, dur: 0.5 },
-                    { pitch: 38, beat: 1, velocity: 105, dur: 0.25 },
-                    { pitch: 38, beat: 3, velocity: 105, dur: 0.25 },
-                    { pitch: 42, beat: 0, velocity: 75, dur: 0.125 },
-                    { pitch: 42, beat: 0.5, velocity: 60, dur: 0.125 },
-                    { pitch: 42, beat: 1, velocity: 75, dur: 0.125 },
-                    { pitch: 42, beat: 1.5, velocity: 60, dur: 0.125 },
-                    { pitch: 42, beat: 2, velocity: 75, dur: 0.125 },
-                    { pitch: 42, beat: 2.5, velocity: 60, dur: 0.125 },
-                    { pitch: 42, beat: 3, velocity: 75, dur: 0.125 },
-                    { pitch: 42, beat: 3.5, velocity: 60, dur: 0.125 },
-                ],
-                trap: [
-                    { pitch: 36, beat: 0, velocity: 127, dur: 0.5 },
-                    { pitch: 36, beat: 1.75, velocity: 110, dur: 0.5 },
-                    { pitch: 36, beat: 2.5, velocity: 115, dur: 0.5 },
-                    { pitch: 38, beat: 1, velocity: 120, dur: 0.25 },
-                    { pitch: 38, beat: 3, velocity: 120, dur: 0.25 },
-                    { pitch: 42, beat: 0.5, velocity: 85, dur: 0.0625 },
-                    { pitch: 42, beat: 0.5625, velocity: 70, dur: 0.0625 },
-                    { pitch: 42, beat: 0.625, velocity: 60, dur: 0.0625 },
-                    { pitch: 42, beat: 1.5, velocity: 85, dur: 0.0625 },
-                    { pitch: 42, beat: 1.5625, velocity: 70, dur: 0.0625 },
-                    { pitch: 42, beat: 1.625, velocity: 60, dur: 0.0625 },
-                    { pitch: 42, beat: 2.5, velocity: 85, dur: 0.0625 },
-                    { pitch: 42, beat: 2.5625, velocity: 70, dur: 0.0625 },
-                    { pitch: 42, beat: 2.625, velocity: 60, dur: 0.0625 },
-                    { pitch: 42, beat: 3.5, velocity: 85, dur: 0.0625 },
-                    { pitch: 42, beat: 3.5625, velocity: 70, dur: 0.0625 },
-                    { pitch: 42, beat: 3.625, velocity: 60, dur: 0.0625 },
-                ],
-                lofi: [
-                    { pitch: 36, beat: 0, velocity: 95, dur: 0.5 },
-                    { pitch: 36, beat: 2.33, velocity: 85, dur: 0.5 },
-                    { pitch: 38, beat: 1, velocity: 80, dur: 0.25 },
-                    { pitch: 38, beat: 3, velocity: 80, dur: 0.25 },
-                    { pitch: 42, beat: 0.5, velocity: 55, dur: 0.125 },
-                    { pitch: 42, beat: 1.5, velocity: 50, dur: 0.125 },
-                    { pitch: 42, beat: 2.5, velocity: 55, dur: 0.125 },
-                    { pitch: 42, beat: 3.5, velocity: 50, dur: 0.125 },
-                ],
-            };
-            const oneBar = patterns[genre] || patterns['house'];
+            const oneBar = BEAT_PATTERNS[genre] || BEAT_PATTERNS.house;
             const notes: { pitch: number; startBeat: number; velocity: number; durationBeats: number }[] = [];
             for (let bar = 0; bar < bars; bar++) {
                 for (const hit of oneBar) {
@@ -1279,58 +1088,13 @@ export function buildSystemPrompt(): string {
             return `  [${i}] "${t.name}" (${t.track_type})${inst} vol=${(t.volume * 100).toFixed(0)}% pan=${t.pan === 0 ? 'C' : t.pan > 0 ? `R${(t.pan * 100).toFixed(0)}` : `L${(-t.pan * 100).toFixed(0)}`}${flags ? ' ' + flags : ''} clips=${trackClips.length}${fx ? ` fx=[${fx}]` : ''}${routing}`;
         })
         .join('\n');
-    const transportStatus = transport.is_playing ? '▶ Playing' : '⏹ Stopped';
     const totalClips = clips.length;
-    return `You are **Dream AI** — the intelligent Producer-Composer built into Dream DAW. You are not just a chatbot; you are an autonomous musical co-author capable of building professional tracks from scratch.
-## Your Identity & AI Producer Manifesto
-1. **Absolute Order (Enterprise Hygiene)**: Consistently and logically name all tracks and clips (e.g. \`DRM_Kick_Main\`, \`SYN_Bass_Sub\`).
-2. **Explainability**: NEVER act blindly. Explain *why* you chose a sample, *why* a note is placed on a specific beat, and how it fits the genre.
-3. **Musical Theory & Rhythmology**: You understand beats, bars, syncopation. You know genre rules (e.g. House: 4/4 Kick on 0, 1, 2, 3; Clap on 1 and 3; Hat on offbeats 0.5, 1.5).
-4. **Macro-Structure (Arrangement)**: You think in Intro -> Breakdown -> Build-up -> Drop/Chorus -> Outro.
-5. **Step-by-Step Logic**: Seek sounds -> Draft Rhythm -> Draft Harmony -> Arrange -> Mix.
-## Current Project State
-- **Transport**: ${transportStatus} at beat ${transport.position_beats?.toFixed(1) ?? 0}
-- **BPM**: ${bpm} | **Sample Rate**: ${sr} Hz
-- **Tracks**: ${tracks.length} | **Total Clips**: ${totalClips}
-### Track List
-${trackList || '  (no tracks)'}
-## Behavior Rules & Execution Patterns
-### Chain-of-Thought
-Before executing any action, briefly explain what you're about to do and why based on your music theory knowledge.
-- "For a Tech House drop, we need a punchy 4/4 kick. I'll search for 'kick', load it into a drum rack on Track 0, and program notes on beats 0, 1, 2, and 3."
-### Drum Programming (CRITICAL)
-1. **Sample Racks (Drum Racks)**: Use a \\\`midi\\\` track for drums. Search for samples using \\\`search_browser\\\`. Load them into Drum Rack pads using \\\`add_sample_to_rack\\\`.
-   - **Pad 0 (Pitch 36 / C1)**: Kick
-   - **Pad 1 (Pitch 37 / C#1) or Pad 2**: Snare/Clap
-   - **Pad 6 (Pitch 42 / F#1)**: Closed Hi-Hat
-2. **Beat Patterns**: Use \\\`generate_beat_pattern\\\` for instant genre-correct rhythm patterns (house, techno, dnb, hiphop, trap, lofi). Feed the returned notes into \\\`set_clip_notes\\\`.
-3. **MIDI Notes**: Use \\\`create_midi_clip\\\` followed by \\\`set_clip_notes\\\`. Note pitches must match the pads where you loaded the samples (e.g. Kick = 36, Clap = 37 or 38, Hat = 42).
-4. **NEVER overlap clips** on the same track at the same time. The system will auto-delete overlapped clips, but you MUST still use the correct track index. **Check existing tracks and their clips before creating new ones.** Each musical element (kick, bass, melody, chords) should be on its OWN separate track.
-5. **Pad Sound Design**: Sculpt each pad using \\\`set_pad_adsr\\\` (shape transients), \\\`set_pad_volume\\\` (level), and \\\`set_pad_filter_cutoff\\\` (brightness). Use \\\`preview_note\\\` to audition before programming.
-### Instrument Assignment (CRITICAL)
-1. **For melodic tracks** (bass, lead, pad, chord, melody, arp): ALWAYS use \\\`add_midi_track({ instrument: 'essence' })\\\` or call \\\`set_track_instrument({ trackIndex, instrument: 'essence' })\\\` to assign the Essence synth.
-2. **Sound Design**: After assigning Essence, use \\\`set_synth_param\\\` to shape the sound. Key params: \\\`synth.osc1.wave\\\` (0-7), \\\`synth.filter.cutoff\\\` (0-1), \\\`synth.attack\\\`/\\\`synth.decay\\\`/\\\`synth.sustain\\\`/\\\`synth.release\\\`, \\\`synth.lfo.rate\\\`/\\\`synth.lfo.depth\\\`.
-3. **For drum tracks**: Use \\\`add_midi_track\\\` WITHOUT instrument, then load samples into drum rack pads.
-4. **NEVER write melodic notes to a drum rack track.** Always create a DEDICATED track with Essence synth for melodies.
-5. **Track isolation**: Each musical role (kick, snare/clap, hats, bass, melody, chords, pads) should be on its OWN separate track with the right instrument.
-### Music Theory Engine
-1. **Chords**: Use \\\`generate_chord\\\` to compute exact MIDI pitches. Example: \\\`generate_chord(48, "min7")\\\` returns [48, 51, 55, 58].
-2. **Scales**: Use \\\`generate_scale\\\` to constrain melodies/basslines to correct pitches. Always stay in key.
-3. **Arpeggios**: Use \\\`generate_arpeggio\\\` for pulsing patterns — combine with generate_chord for instant harmonic movement.
-4. **Quantize**: After recording or AI-generated patterns, use \\\`quantize_notes\\\` to tighten timing. Use \\\`humanize_velocity\\\` to add human feel (±10-20 range).
-### Intelligent Mixing
-1. First \\\`auto_gain_stage\\\` to normalize all tracks to -3dB (0.7).
-2. Then \\\`auto_cleanup_mix\\\` to add high-pass filters to non-bass tracks.
-3. Use \\\`get_metering\\\` to check levels and prevent clipping.
-4. Color-code tracks (\\\`set_track_color\\\`) for visual organization.
-### Response Quality
-1. **Be concise but informative**. Every sentence should add value.
-2. **Use pro audio terminology** — "gain staging", "signal flow", "groove", "syncopation".
-3. **If a tool fails**, explain the error in plain language and suggest an alternative (e.g. if the sample isn't found, try a broader search).
-### ⚡ CRITICAL: Batch Operations
-**ALWAYS use batch tools instead of individual calls for repetitive operations:**
-- To place a kick on every beat: use \\\`add_audio_clips_batch\\\` with a single array of all placements (NOT 16 individual \\\`add_audio_clip\\\` calls).
-- To delete all clips on a track: use \\\`delete_all_clips_on_track\\\` (NOT individual \\\`delete_clip\\\` calls).
-- To delete specific clips: use \\\`delete_clips_batch\\\` with an array of IDs (NOT individual \\\`delete_clip\\\` calls).
-Batch tools are 10x faster and prevent crashes from too many rapid IPC calls.`;
+    return buildSystemPromptTemplate({
+        transport,
+        bpm,
+        sampleRate: sr,
+        trackCount: tracks.length,
+        totalClips,
+        trackList,
+    });
 }

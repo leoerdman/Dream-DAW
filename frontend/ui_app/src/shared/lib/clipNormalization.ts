@@ -18,6 +18,10 @@ export function normalizeTimelineClips<T extends TimelineClipLike>(clips: readon
             trackIndex: Number.isFinite(clip.trackIndex) ? Math.max(0, Math.trunc(clip.trackIndex)) : 0,
             durationBeats: Math.max(0.0001, clip.durationBeats),
         };
+        // BUG-010 FIX: Log warning when duplicate clip ID is detected.
+        if (byId.has(id)) {
+            console.warn(`[clipNormalization] Duplicate clip ID "${id}" — later clip overwrites earlier one.`);
+        }
         byId.set(id, normalized);
     }
     return Array.from(byId.values());

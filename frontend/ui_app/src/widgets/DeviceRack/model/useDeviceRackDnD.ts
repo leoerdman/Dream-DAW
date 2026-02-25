@@ -99,12 +99,33 @@ export function useDeviceRackDnD(
                                     : 'effect';
                     let insertIndex: number | undefined;
                     if (slot === 'effect') {
-                        const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
-                        if (selectedDeviceId && Array.isArray(targetTrack.effects)) {
-                            const selectedEffectIndex = targetTrack.effects.findIndex(
-                                (effect) => effect?.id === selectedDeviceId,
-                            );
-                            if (selectedEffectIndex >= 0) insertIndex = selectedEffectIndex + 1;
+                        const effectIds = (targetTrack.effects ?? [])
+                            .map((effect) => effect?.id)
+                            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+                        const effectIdSet = new Set(effectIds);
+                        const hoveredEl = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+                        const endZone = hoveredEl?.closest('.dream-device-drop-indicator-end');
+                        const slotZone = hoveredEl?.closest('.dream-device-drop-indicator') as HTMLElement | null;
+                        if (endZone) {
+                            insertIndex = effectIds.length;
+                        } else if (slotZone) {
+                            const slotDeviceId = slotZone.dataset.deviceId ?? '';
+                            const targetEffectIndex = effectIds.findIndex((id) => id === slotDeviceId);
+                            if (targetEffectIndex >= 0) {
+                                const rect = slotZone.getBoundingClientRect();
+                                const midX = rect.left + rect.width / 2;
+                                insertIndex = e.clientX < midX ? targetEffectIndex : targetEffectIndex + 1;
+                            }
+                        }
+                        if (insertIndex === undefined) {
+                            const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
+                            if (selectedDeviceId && effectIdSet.has(selectedDeviceId)) {
+                                const selectedEffectIndex = effectIds.findIndex((id) => id === selectedDeviceId);
+                                if (selectedEffectIndex >= 0) insertIndex = selectedEffectIndex + 1;
+                            } else {
+                                // Default to append when drop position is ambiguous.
+                                insertIndex = effectIds.length;
+                            }
                         }
                     }
 

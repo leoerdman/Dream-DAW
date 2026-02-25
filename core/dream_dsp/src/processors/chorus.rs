@@ -239,7 +239,19 @@ impl DspProcessor for ChorusProcessor {
             1 => self.depth = (value / 100.0).clamp(0.0, 1.0),
             2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             3 => self.feedback = (value / 100.0).clamp(-0.95, 0.95),
-            4 => self.num_voices = (value as usize).clamp(1, MAX_VOICES),
+            4 => {
+                let new_voices = (value as usize).clamp(1, MAX_VOICES);
+                // BUG-B015 FIX: Clear feedback state of deactivated voices.
+                // Without this, reducing voices from 3→1 then back to 3
+                // leaks stale audio from the old voice 1-2 feedback buffers.
+                if new_voices < self.num_voices {
+                    for v in new_voices..self.num_voices {
+                        self.fb_l[v] = 0.0;
+                        self.fb_r[v] = 0.0;
+                    }
+                }
+                self.num_voices = new_voices;
+            }
             5 => self.spread = (value / 100.0).clamp(0.0, 1.0),
             6 => {
                 self.hp_freq = value.clamp(20.0, 500.0);

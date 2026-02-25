@@ -118,7 +118,7 @@ const columnMenuContainerStyle = (x: number, y: number): React.CSSProperties => 
     borderRadius: 'var(--radius-xl)',
     boxShadow: 'var(--shadow-panel)',
     padding: 6,
-    zIndex: 'var(--z-drag-overlay)' as unknown as number,
+    zIndex: 'var(--z-drag-overlay)',
 });
 
 const columnMenuItemStyle: React.CSSProperties = {
@@ -151,7 +151,7 @@ const contextMenuStyle = (x: number, y: number): React.CSSProperties => ({
     border: 'var(--space-px) solid var(--color-divider)',
     borderRadius: 'var(--radius-md)',
     padding: 4,
-    zIndex: 'var(--z-drag-overlay)' as unknown as number,
+    zIndex: 'var(--z-drag-overlay)',
     minWidth: 180,
     boxShadow: '0 var(--space-2) var(--space-6) var(--color-overlay-dark)',
 });

@@ -71,12 +71,18 @@ async fn undo_with_deltas_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&project, &handle)?;
+
+    // BUG-002 FIX: Clone for delta response, then drop the project lock.
+    // Previously, the clone happened while the lock was held, blocking all IPC.
+    let snapshot_clone = project.clone();
+    drop(project);
+
     project_state.record_history("undo", "restored previous project snapshot")?;
     log::info!("[IPC] undo_with_deltas_cmd: restored previous state");
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
+            project: Box::new(snapshot_clone),
         }],
     })
 }
@@ -154,12 +160,17 @@ async fn redo_with_deltas_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&project, &handle)?;
+
+    // BUG-003 FIX: Clone for delta response, then drop the project lock.
+    let snapshot_clone = project.clone();
+    drop(project);
+
     project_state.record_history("redo", "reapplied project snapshot")?;
     log::info!("[IPC] redo_with_deltas_cmd: restored redo state");
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
-            project: Box::new(project.clone()),
+            project: Box::new(snapshot_clone),
         }],
     })
 }

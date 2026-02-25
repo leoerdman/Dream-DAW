@@ -26,6 +26,20 @@ pub mod pulse_map;
 pub mod spatial_grid;
 pub mod time;
 
+#[inline]
+fn clamp_f64_to_i64(value: f64) -> i64 {
+    if !value.is_finite() {
+        return 0;
+    }
+    if value > i64::MAX as f64 {
+        i64::MAX
+    } else if value < i64::MIN as f64 {
+        i64::MIN
+    } else {
+        value as i64
+    }
+}
+
 // ── Playback State ──────────────────────────────────────────────────────
 
 /// The current state of the audio engine's transport.
@@ -66,7 +80,7 @@ impl Default for PlaybackState {
         let sample_rate = 44100.0_f64;
         // BUG-16 FIX: Compute loop region from sample_rate, not hardcoded.
         // At 120 BPM, 1 beat = 0.5 seconds = sample_rate / 2 frames.
-        let frames_per_beat = (sample_rate / 2.0) as i64; // 120 BPM
+        let frames_per_beat = clamp_f64_to_i64((sample_rate / 2.0).round()); // 120 BPM
         Self {
             is_playing: false,
             bpm: 120.0,

@@ -68,7 +68,7 @@ export const ContextMenuPopup = ({
     const itemStyle: React.CSSProperties = {
         width: '100%', padding: 'var(--space-1-5) var(--space-3)',
         background: 'none', border: 'none',
-        color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-regular)' as unknown as number,
+        color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-regular)',
         textAlign: 'left', cursor: 'pointer', borderRadius: 'var(--radius-md)',
         display: 'flex', alignItems: 'center', gap: 8,
     };
@@ -77,7 +77,7 @@ export const ContextMenuPopup = ({
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 188,
             background: 'var(--surface-2)', border: 'var(--space-px) solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-xl)', padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
+            borderRadius: 'var(--radius-xl)', padding: 4, zIndex: 'var(--z-menu)',
             boxShadow: 'var(--shadow-panel)',
         }}>
             <button style={itemStyle} onClick={onAddAudioTrack}

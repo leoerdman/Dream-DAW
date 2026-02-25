@@ -183,6 +183,5 @@ export function useTimelineEngineCommandBindings({
             unsubDelta();
             unsubScroll();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [callbacksRef, commandBusRef, engineRef]);
 }

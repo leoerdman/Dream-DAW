@@ -14,6 +14,7 @@
  */
 
 import { create } from 'zustand';
+import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 
 export interface DragBrowserItem {
     id: string;
@@ -58,7 +59,7 @@ export const useDragStore = create<DragState>((set, get) => ({
             cursorX: cursorX ?? 0,
             cursorY: cursorY ?? 0,
         });
-        window.__dreamInAppDrag = true;
+        dreamGlobals.setInAppDrag(true);
 
         // Attach global mousemove to track cursor for ghost preview rendering
         _cleanupMouseMove?.();
@@ -101,7 +102,7 @@ export const useDragStore = create<DragState>((set, get) => ({
         _cleanupMouseMove = null;
         _cleanupSafetyMouseUp?.();
         _cleanupSafetyMouseUp = null;
-        window.__dreamInAppDrag = false;
+        dreamGlobals.setInAppDrag(false);
     },
 
     updateDraggingItem: (patch) => {

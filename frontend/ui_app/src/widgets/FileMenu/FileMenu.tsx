@@ -4,6 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { applyDeltasWithSnapshotSync } from '@/shared/stores/engine/snapshotSync';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
+import { withProjectLoad } from '@/shared/lib/projectLoadGuard';
 import { MenuItem, MenuSeparator } from './FileMenuParts';
 import { pathBasename } from './fileMenuPath';
 
@@ -61,8 +62,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const handleNew = useCallback(async () => {
         setOpen(false);
         try {
-            const response = await engineApi.newProject();
-            await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:new');
+            await withProjectLoad('file-menu:new', async () => {
+                const response = await engineApi.newProject();
+                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:new');
+            });
             await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
@@ -76,19 +79,17 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         try {
             const path = await engineApi.pickProjectFile();
             if (!path) return; // Cancelled
-            const isAbleton = path.toLowerCase().endsWith('.als');
-            if (isAbleton) {
-                const response = await engineApi.importAbletonProject(path);
-                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
-            } else {
-                const response = await engineApi.openProject(path);
-                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
-            }
+            await withProjectLoad('file-menu:open', async () => {
+                const isAbleton = path.toLowerCase().endsWith('.als');
+                if (isAbleton) {
+                    const response = await engineApi.importAbletonProject(path);
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
+                } else {
+                    const response = await engineApi.openProject(path);
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open');
+                }
+            });
             await syncProjectHistory();
-            // Eagerly activate external VST3 plugins and restore their saved state
-            engineApi.eagerActivateExternalPlugins().catch((err) =>
-                console.warn('[FileMenu] Eager plugin activation (non-fatal):', err)
-            );
             onProjectChange?.();
             console.log('[FileMenu] Opened project:', path);
         } catch (err) {
@@ -99,19 +100,17 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
         try {
-            const isAbleton = path.toLowerCase().endsWith('.als');
-            if (isAbleton) {
-                const response = await engineApi.importAbletonProject(path);
-                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
-            } else {
-                const response = await engineApi.openProject(path);
-                await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
-            }
+            await withProjectLoad('file-menu:open-recent', async () => {
+                const isAbleton = path.toLowerCase().endsWith('.als');
+                if (isAbleton) {
+                    const response = await engineApi.importAbletonProject(path);
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
+                } else {
+                    const response = await engineApi.openProject(path);
+                    await applyDeltasWithSnapshotSync(applyProjectDeltas, response.deltas, 'file-menu:open-recent');
+                }
+            });
             await syncProjectHistory();
-            // Eagerly activate external VST3 plugins and restore their saved state
-            engineApi.eagerActivateExternalPlugins().catch((err) =>
-                console.warn('[FileMenu] Eager plugin activation (non-fatal):', err)
-            );
             onProjectChange?.();
             console.log('[FileMenu] Opened recent:', path);
         } catch (err) {
@@ -168,7 +167,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                     borderRadius: 'var(--radius-xs)',
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-xs)',
-                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-semibold)',
                     padding: 'var(--space-0-5) var(--space-2)',
                     cursor: 'pointer',
                     transition: 'all var(--transition-fast)',
@@ -197,7 +196,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                         boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
                         backdropFilter: 'blur(var(--space-5))',
                         padding: 'var(--space-1) 0',
-                        zIndex: 'var(--z-menu)' as unknown as number,
+                        zIndex: 'var(--z-menu)',
                         overflow: 'visible',
                     }}
                 >
@@ -240,7 +239,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
                                     backdropFilter: 'blur(var(--space-5))',
                                     padding: 'var(--space-1) 0',
-                                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                                    zIndex: 'var(--z-drag-overlay)',
                                 }}
                             >
                                 {recentProjects.map((rp, idx) => (
@@ -267,7 +266,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     boxShadow: '0 var(--space-2) var(--space-8) var(--color-overlay-dark)',
                                     backdropFilter: 'blur(var(--space-5))',
                                     padding: 'var(--space-2) var(--space-3)',
-                                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                                    zIndex: 'var(--z-drag-overlay)',
                                 }}
                             >
                                 <span style={{

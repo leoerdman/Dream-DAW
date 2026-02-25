@@ -68,7 +68,8 @@ fn apply_recovery_ramp_to_outputs(
     if *remaining == 0 || num_frames == 0 {
         return;
     }
-    let fade_frames = (*remaining).min(num_frames as u32) as usize;
+    let num_frames_u32 = u32::try_from(num_frames).unwrap_or(u32::MAX);
+    let fade_frames = (*remaining).min(num_frames_u32) as usize;
     for i in 0..fade_frames {
         let rem = *remaining;
         let dry_gain = rem as f32 / BYPASS_RAMP_SAMPLES as f32;
@@ -224,7 +225,8 @@ impl SandboxedPluginInstance {
             let n = input.len().min(num_frames);
             let _ = self.shared_region.write_input_channel(ch, &input[..n]);
         }
-        self.shared_region.set_requested_frames(num_frames as u32);
+        self.shared_region
+            .set_requested_frames(u32::try_from(num_frames).unwrap_or(u32::MAX));
         self.request_seq = self.request_seq.wrapping_add(1);
         self.shared_region.set_request_seq(self.request_seq);
     }

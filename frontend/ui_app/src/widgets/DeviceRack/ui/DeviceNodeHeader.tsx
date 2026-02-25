@@ -196,7 +196,7 @@ export function DeviceNodeHeader({
                     writingMode: 'vertical-lr',
                     transform: 'rotate(180deg)',
                     fontSize: 'var(--font-size-micro)',
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     color: 'var(--token-color-hex-808080)',
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
@@ -213,7 +213,7 @@ export function DeviceNodeHeader({
                 style={{
                     fontSize: 'var(--font-size-micro)',
                     color: formatBadgeColor(resolvedPluginFormat),
-                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                    fontWeight: 'var(--font-weight-bold)',
                     flexShrink: 0,
                     opacity: 0.6,
                 }}

@@ -111,17 +111,13 @@ export const Timeline = (props: TimelineProps) => {
         () => buildMasterLaneGridStyle(),
         [],
     );
-    const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const playheadX = transportBeat * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const loopStartX = loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const loopEndX = loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const playheadLineX = snapTimelineX(playheadX);
     const loopStartLineX = snapTimelineX(loopStartX);
     const loopEndLineX = snapTimelineX(loopEndX);
     const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
     const loopRightX = Math.max(loopStartLineX, loopEndLineX);
     const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < effectiveViewportWidth;
-    const playheadVisible = playheadX >= -10 && playheadX <= effectiveViewportWidth + 10;
     const masterLaneGridLines = useMemo(
         () => buildMasterLaneGridLines(
             effectivePixelsPerBeat,
@@ -266,11 +262,7 @@ export const Timeline = (props: TimelineProps) => {
         engine.onFrameDrawn = (snapshot) => {
             const lane = masterLaneRef.current;
             if (!lane) return;
-            const x = snapTimelineX(
-                snapshot.playheadBeat * snapshot.pixelsPerBeat
-                - snapshot.scrollX
-                + MASTER_LANE_ALIGNMENT_OFFSET_PX,
-            );
+            const x = snapTimelineX(snapshot.playheadX + MASTER_LANE_ALIGNMENT_OFFSET_PX);
             const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
             lane.style.setProperty('--master-playhead-x', `${x}px`);
             lane.style.setProperty('--master-playhead-visible', visible);
@@ -418,7 +410,7 @@ export const Timeline = (props: TimelineProps) => {
                         width: '100%',
                         height: '100%',
                         display: 'block',
-                        zIndex: 'var(--z-timeline-canvas)' as unknown as number,
+                        zIndex: 'var(--z-timeline-canvas)',
                     }}
                 />
                 {props.automationVisible && (
@@ -453,8 +445,6 @@ export const Timeline = (props: TimelineProps) => {
                 loopRightX={loopRightX}
                 loopStartLineX={loopStartLineX}
                 loopEndLineX={loopEndLineX}
-                playheadVisible={playheadVisible}
-                playheadLineX={playheadLineX}
                 regionEdit={regionEdit}
             />
         </div>

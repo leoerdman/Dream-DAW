@@ -9,8 +9,10 @@ import {
 } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { actionBtnStyle, selectStyle } from '@/widgets/PianoRoll/ui/styles';
 import type { PianoRollToolbarProps } from '@/widgets/PianoRoll/model/pianoRollTypes';
+import { isMacDesktopPlatform } from '@/shared/lib/platform';
 
 const dividerStyle = { width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' };
+const zoomHint = isMacDesktopPlatform() ? '⌘Scroll H · Alt V' : 'CtrlScroll H · Alt V';
 
 export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
     tool,
@@ -141,7 +143,17 @@ export const PianoRollToolbarLeft = memo(function PianoRollToolbarLeft({
             )}
 
             <div style={dividerStyle} />
-            <div style={{ padding: 'var(--space-0-5) var(--space-2)', background: `${color}1a`, border: `var(--space-px) solid ${color}40`, borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-size-2xs)', color, fontWeight: 'var(--font-weight-semibold)', fontFamily: 'var(--font-role-data)', letterSpacing: 'var(--letter-spacing-normal)' }}>{clipDurationLabel}</div>
+            <div style={{
+                padding: 'var(--space-0-5) var(--space-2)',
+                background: `color-mix(in srgb, ${color} 14%, transparent)`,
+                border: `var(--space-px) solid color-mix(in srgb, ${color} 32%, transparent)`,
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 'var(--font-size-2xs)',
+                color,
+                fontWeight: 'var(--font-weight-semibold)',
+                fontFamily: 'var(--font-role-data)',
+                letterSpacing: 'var(--letter-spacing-normal)',
+            }}>{clipDurationLabel}</div>
 
             <div style={dividerStyle} />
             <button onClick={duplicateSelection} style={actionBtnStyle}>Duplicate</button>
@@ -239,7 +251,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                 <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />
                 <span style={{ marginTop: 1 }}>{aiVariationBusy ? 'Generating…' : 'AI Variation'}</span>
             </button>
-            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', opacity: 0.5, fontFamily: 'var(--font-role-data)' }}>⌘Scroll H · Alt V</span>
+            <span style={{ fontSize: 'var(--font-size-micro)', color: 'var(--color-text-tertiary)', opacity: 0.5, fontFamily: 'var(--font-role-data)' }}>{zoomHint}</span>
             {(zoomOverrideH || noteHeight !== DEFAULT_NOTE_HEIGHT) && (
                 <button
                     onClick={() => { setZoomOverrideH(null); setNoteHeight(DEFAULT_NOTE_HEIGHT); }}

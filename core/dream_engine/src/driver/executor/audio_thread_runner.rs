@@ -2,6 +2,7 @@ use super::super::*;
 use super::SharedRtDebugStats;
 use crate::essence_synth::EssenceSynthEngine;
 use cpal::traits::{DeviceTrait, StreamTrait};
+use dream_dsp::device_slot::ProcessContext;
 use log::{error, info};
 use std::time::Instant;
 
@@ -415,6 +416,16 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         graph_out_left[..n].fill(0.0);
                         graph_out_right[..n].fill(0.0);
 
+                        // Build ProcessContext once per buffer for unified device processing.
+                        let process_ctx = ProcessContext {
+                            sample_rate: sample_rate_f64 as f32,
+                            playhead_frames: render_ctx.playhead.position(),
+                            tempo: bpm,
+                            is_playing,
+                            time_sig_numerator,
+                            time_sig_denominator,
+                        };
+
                         graph_renderer.render(
                             &graph_plan,
                             &graph_dag,
@@ -466,10 +477,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                     if let Some(runtime_slots) = external_fx_map.get(track_idx) {
                                         if runtime_slots.is_empty() {
                                             if !slot.device_chain.is_empty() {
-                                                slot.device_chain.process_stereo(
+                                                slot.device_chain.process_with_context(
                                                     &mut left[..c],
                                                     &mut right[..c],
-                                                    sample_rate_f64 as f32,
+                                                    &process_ctx,
                                                 );
                                             }
                                         } else {
@@ -488,10 +499,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                             );
                                             if !has_external && !has_internal_sidechain {
                                                 if !slot.device_chain.is_empty() {
-                                                    slot.device_chain.process_stereo(
+                                                    slot.device_chain.process_with_context(
                                                         &mut left[..c],
                                                         &mut right[..c],
-                                                        sample_rate_f64 as f32,
+                                                        &process_ctx,
                                                     );
                                                 }
                                             } else {
@@ -720,10 +731,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                             }
                                         }
                                     } else if !slot.device_chain.is_empty() {
-                                        slot.device_chain.process_stereo(
+                                        slot.device_chain.process_with_context(
                                             &mut left[..c],
                                             &mut right[..c],
-                                            sample_rate_f64 as f32,
+                                            &process_ctx,
                                         );
                                     }
                                     // 3. Process Mixer Strip (Volume, Pan, Mute, Solo output gate)
@@ -811,6 +822,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             &mut master_gain_current,
                             master_gain_smooth,
                             &mut render_ctx,
+                            &process_ctx,
                         );
                         interleave_graph_output(
                             &graph_out_left,

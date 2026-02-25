@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
+import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 

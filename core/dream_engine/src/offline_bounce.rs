@@ -45,6 +45,7 @@ use dream_plugins::vst3_host::PluginInstanceArc;
 use dream_plugins::{MidiEvent, TransportContext};
 
 use dream_dsp::device_chain::InsertEffectsChain;
+use dream_dsp::device_slot::ProcessContext;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
 use crate::driver::ExternalPluginRuntimeSlot;
@@ -531,10 +532,18 @@ impl OfflineRenderer {
                     .any(|s| s.internal_slot_index.is_some() && s.sidechain_track_index.is_some());
                 if !has_external && !has_internal_sidechain {
                     if !slot.device_chain.is_empty() {
-                        slot.device_chain.process_stereo(
+                        let pctx = ProcessContext {
+                            sample_rate: ctx.sample_rate as f32,
+                            playhead_frames: ctx.playhead_pos,
+                            tempo: ctx.bpm,
+                            is_playing: true,
+                            time_sig_numerator: ctx.time_sig_numerator,
+                            time_sig_denominator: ctx.time_sig_denominator,
+                        };
+                        slot.device_chain.process_with_context(
                             &mut slot.buf_left[..c],
                             &mut slot.buf_right[..c],
-                            ctx.sample_rate as f32,
+                            &pctx,
                         );
                     }
                 } else {
@@ -616,17 +625,33 @@ impl OfflineRenderer {
                     }
                 }
             } else if !slot.device_chain.is_empty() {
-                slot.device_chain.process_stereo(
+                let pctx = ProcessContext {
+                    sample_rate: ctx.sample_rate as f32,
+                    playhead_frames: ctx.playhead_pos,
+                    tempo: ctx.bpm,
+                    is_playing: true,
+                    time_sig_numerator: ctx.time_sig_numerator,
+                    time_sig_denominator: ctx.time_sig_denominator,
+                };
+                slot.device_chain.process_with_context(
                     &mut slot.buf_left[..c],
                     &mut slot.buf_right[..c],
-                    ctx.sample_rate as f32,
+                    &pctx,
                 );
             }
         } else if !slot.device_chain.is_empty() {
-            slot.device_chain.process_stereo(
+            let pctx = ProcessContext {
+                sample_rate: ctx.sample_rate as f32,
+                playhead_frames: ctx.playhead_pos,
+                tempo: ctx.bpm,
+                is_playing: true,
+                time_sig_numerator: ctx.time_sig_numerator,
+                time_sig_denominator: ctx.time_sig_denominator,
+            };
+            slot.device_chain.process_with_context(
                 &mut slot.buf_left[..c],
                 &mut slot.buf_right[..c],
-                ctx.sample_rate as f32,
+                &pctx,
             );
         }
     }
@@ -845,10 +870,18 @@ impl OfflineRenderer {
                 let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
                 if !has_external {
                     let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                    ctx.master_device_chain.process_stereo(
+                    let pctx = ProcessContext {
+                        sample_rate: render_ctx.sample_rate as f32,
+                        playhead_frames: render_ctx.playhead.position(),
+                        tempo: ctx.bpm,
+                        is_playing: true,
+                        time_sig_numerator: ctx.time_sig_numerator,
+                        time_sig_denominator: ctx.time_sig_denominator,
+                    };
+                    ctx.master_device_chain.process_with_context(
                         &mut master_l[..frame_count],
                         &mut master_r[..frame_count],
-                        render_ctx.sample_rate as f32,
+                        &pctx,
                     );
                 } else {
                     for runtime_slot in master_slots.iter() {
@@ -902,18 +935,34 @@ impl OfflineRenderer {
                 }
             } else if !ctx.master_device_chain.is_empty() {
                 let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                ctx.master_device_chain.process_stereo(
+                let pctx = ProcessContext {
+                    sample_rate: render_ctx.sample_rate as f32,
+                    playhead_frames: render_ctx.playhead.position(),
+                    tempo: ctx.bpm,
+                    is_playing: true,
+                    time_sig_numerator: ctx.time_sig_numerator,
+                    time_sig_denominator: ctx.time_sig_denominator,
+                };
+                ctx.master_device_chain.process_with_context(
                     &mut master_l[..frame_count],
                     &mut master_r[..frame_count],
-                    render_ctx.sample_rate as f32,
+                    &pctx,
                 );
             }
         } else if !ctx.master_device_chain.is_empty() {
             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-            ctx.master_device_chain.process_stereo(
+            let pctx = ProcessContext {
+                sample_rate: render_ctx.sample_rate as f32,
+                playhead_frames: render_ctx.playhead.position(),
+                tempo: ctx.bpm,
+                is_playing: true,
+                time_sig_numerator: ctx.time_sig_numerator,
+                time_sig_denominator: ctx.time_sig_denominator,
+            };
+            ctx.master_device_chain.process_with_context(
                 &mut master_l[..frame_count],
                 &mut master_r[..frame_count],
-                render_ctx.sample_rate as f32,
+                &pctx,
             );
         }
 

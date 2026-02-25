@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import { PianoRollToolbar } from '@/widgets/PianoRoll/ui/PianoRollToolbar';
 import { PianoRollSidebarPanel } from '@/widgets/PianoRoll/ui/PianoRollSidebar';
 import { PianoKeyboard } from '@/widgets/PianoRoll/ui/PianoKeyboard';
@@ -76,6 +76,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         selectSamePitch,
         readLaneValue,
         auditionNote,
+        stopAudition,
         notes,
         color,
         onNotesChange,
@@ -88,13 +89,14 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setGridDivision,
     } = usePianoRollLogic(props);
 
-    const handleGridScroll = useCallback(() => {
-        // Scroll sync is handled in usePianoRollViewport (single render path SSOT).
-    }, []);
-
     useEffect(() => {
         requestAnimationFrame(() => {
-            editorRootRef.current?.focus({ preventScroll: true });
+            const active = document.activeElement as HTMLElement | null;
+            const editorRoot = editorRootRef.current;
+            if (!editorRoot) return;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+            if (active && editorRoot.contains(active)) return;
+            editorRoot.focus({ preventScroll: true });
         });
     }, [editorRootRef, trackIndex, clipStartBeat, clipBeats]);
 
@@ -176,6 +178,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     drumMode={drumMode}
                     noteHeight={noteHeight}
                     auditionNote={auditionNote}
+                    stopAudition={stopAudition}
                 />
 
                 <PianoRollGridViewport
@@ -205,7 +208,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     activeLane={activeLane}
                     readLaneValue={readLaneValue}
                     onLaneMouseDown={handleVelocityMouseDown}
-                    onGridScroll={handleGridScroll}
                     handleGridClick={handleGridClick}
                     handleGridDoubleClick={handleGridDoubleClick}
                     handleGridMouseDown={handleGridMouseDown}

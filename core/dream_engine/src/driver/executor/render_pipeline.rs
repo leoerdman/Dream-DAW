@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::render_callback::soft_clip;
+use dream_dsp::device_slot::ProcessContext;
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
@@ -80,6 +81,7 @@ pub(super) fn process_master_bus(
     master_gain_current: &mut f32,
     master_gain_smooth: f32,
     _render_ctx: &mut RenderContext,
+    process_ctx: &ProcessContext,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
@@ -99,10 +101,10 @@ pub(super) fn process_master_bus(
                     }
                 }
                 if !master_device_chain.is_empty() {
-                    master_device_chain.process_stereo(
+                    master_device_chain.process_with_context(
                         &mut graph_out_left[..n],
                         &mut graph_out_right[..n],
-                        sample_rate_f64 as f32,
+                        process_ctx,
                     );
                 }
             } else {
@@ -166,17 +168,17 @@ pub(super) fn process_master_bus(
                 }
             }
         } else if !master_device_chain.is_empty() {
-            master_device_chain.process_stereo(
+            master_device_chain.process_with_context(
                 &mut graph_out_left[..n],
                 &mut graph_out_right[..n],
-                sample_rate_f64 as f32,
+                process_ctx,
             );
         }
     } else if !master_device_chain.is_empty() {
-        master_device_chain.process_stereo(
+        master_device_chain.process_with_context(
             &mut graph_out_left[..n],
             &mut graph_out_right[..n],
-            sample_rate_f64 as f32,
+            process_ctx,
         );
     }
 

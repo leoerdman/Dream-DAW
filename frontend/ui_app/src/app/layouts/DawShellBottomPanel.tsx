@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
-import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
+import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import type { TimelineClip, BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import {
     BOTTOM_PANEL_HEIGHT_DEFAULT_PX,

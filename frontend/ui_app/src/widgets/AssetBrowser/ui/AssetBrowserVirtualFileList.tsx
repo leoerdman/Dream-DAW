@@ -57,7 +57,6 @@ export const AssetSearchInput = memo(function AssetSearchInput({
                 borderRadius: 'var(--radius-xs)',
                 fontSize: 'var(--font-size-sm)',
                 fontFamily: 'var(--font-role-data)',
-                outline: 'none',
             }}
         />
     );
@@ -77,6 +76,7 @@ export const VirtualFileList = memo(function VirtualFileList({
     debouncedQuery,
     getAudioDurationSec,
     setItemRowRef,
+    handleItemEnter,
     suppressNextAutoScrollRef,
     fileListRef,
     handleBrowserKeyDown,
@@ -98,6 +98,7 @@ export const VirtualFileList = memo(function VirtualFileList({
     debouncedQuery: string;
     getAudioDurationSec: (path: string) => number | undefined;
     setItemRowRef: (id: string, element: HTMLDivElement | null) => void;
+    handleItemEnter: (item: BrowserItem | null) => Promise<void>;
     suppressNextAutoScrollRef: React.MutableRefObject<boolean>;
     fileListRef: React.RefObject<HTMLDivElement | null>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
@@ -207,7 +208,6 @@ export const VirtualFileList = memo(function VirtualFileList({
                 minHeight: 0,
                 overflowY: 'auto',
                 overflowX: 'hidden',
-                outline: 'none',
             }}
         >
             <VirtualListHeader
@@ -240,6 +240,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                                 setContextMenu={setContextMenu}
                                 navigateInto={navigateInto}
                                 fileListRef={fileListRef}
+                                onItemEnter={() => { void handleItemEnter(item); }}
                             />
                         ))}
                     </div>
@@ -270,6 +271,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                                         syncPreviewForItem={syncPreviewForItem}
                                         setContextMenu={setContextMenu}
                                         fileListRef={fileListRef}
+                                        onItemEnter={() => { void handleItemEnter(row.item); }}
                                     />
                                 </div>
                             );

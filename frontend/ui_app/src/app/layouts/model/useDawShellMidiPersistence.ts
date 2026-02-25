@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import throttle from 'lodash.throttle';
 import * as engineApi from '@/shared/api/engine';
-import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
+import type { MidiNote } from '@/widgets/PianoRoll/model/pianoRollConfig';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import { beatDurationToFrames, beatToFrame, resolveSampleRate } from '@/shared/lib/audioMath';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
@@ -212,8 +212,6 @@ export function useDawShellMidiPersistence({
             await applyProjectDeltas(response.deltas, 'daw-shell:midi-variation');
         } catch (error) {
             console.error('[DawShell] AI MIDI variation failed:', error);
-            const message = error instanceof Error ? error.message : 'Unknown AI error';
-            window.alert(`Не удалось сгенерировать вариацию: ${message}`);
         } finally {
             setAiVariationBusy(false);
         }
@@ -257,6 +255,9 @@ export function useDawShellMidiPersistence({
             send = throttle((toSend) => {
                 void engineApi
                     .setMidiClipEnvelopes(clipId, toSend, { pushUndoStep: false })
+                    .then(() => {
+                        dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
+                    })
                     .catch((error) => console.error('[DawShell] setMidiClipEnvelopes failed:', error));
             }, 100) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
             midiEnvelopeSaveThrottlesRef.current.set(clipId, send);

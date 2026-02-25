@@ -494,7 +494,7 @@ pub(super) fn drain_commands(
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }
-                ctx.deferred_topology.push_back(DeferredEffectChainCmd::Add {
+                ctx.deferred_topology.push_back(DeferredEffectChainCmd::AddInternal {
                     track_index,
                     slot_index,
                     effect_type,
@@ -512,6 +512,22 @@ pub(super) fn drain_commands(
                     .push_back(DeferredEffectChainCmd::Remove {
                         track_index,
                         slot_index,
+                    });
+            }
+            EngineCommand::ReorderDevice {
+                track_index,
+                from_slot,
+                to_slot,
+            } => {
+                if ctx.deferred_topology.len() >= 1024 {
+                    ctx.rt_debug_stats.record_topology_overflow();
+                    let _ = ctx.deferred_topology.pop_front();
+                }
+                ctx.deferred_topology
+                    .push_back(DeferredEffectChainCmd::Reorder {
+                        track_index,
+                        from_slot,
+                        to_slot,
                     });
             }
             EngineCommand::BypassDevice {

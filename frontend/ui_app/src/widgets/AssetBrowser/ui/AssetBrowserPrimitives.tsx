@@ -39,7 +39,7 @@ type AssetBrowserItemLike = {
 };
 
 const itemTypeToIcon: Record<AssetBrowserItemLike['type'], BrowserGlyphName> = {
-    audio: 'wave',
+    audio: 'wave-bars',
     instrument: 'piano',
     audioEffect: 'sliders',
     midiEffect: 'music',

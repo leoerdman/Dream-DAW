@@ -35,7 +35,7 @@ export const PianoRollSidebarPanel = memo(function PianoRollSidebarPanel({
                 <ClipEditorMetaRow label="Length" value={clipDurationLabel} />
                 <ClipEditorMetaRow label="Grid" value={`${gridDivision}${gridTriplet ? 'T' : ''}`} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose Notes</span>
                     <button onClick={() => transposeNotes(-1)} style={miniBtnStyle}>
                         -1
                     </button>

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LOWEST_PITCH, MIN_NOTE_BEATS, TOTAL_KEYS, type MidiNote, type PianoRollTool } from './pianoRollConfig';
 
 interface UsePianoRollNoteInteractionsArgs {
@@ -45,6 +45,12 @@ export function usePianoRollNoteInteractions({
     const isDragInProgressRef = useRef(false);
     const lastClickedNoteIdRef = useRef<string | null>(null);
     const [hoveredNoteEdge, setHoveredNoteEdge] = useState<string | null>(null);
+    const dragCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => () => {
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = null;
+    }, []);
 
     const handleNoteClick = useCallback((event: React.MouseEvent, noteId: string) => {
         event.stopPropagation();
@@ -85,15 +91,16 @@ export function usePianoRollNoteInteractions({
 
     const handleNoteDrag = useCallback((event: React.MouseEvent, noteId: string) => {
         if (tool === 'paint') return;
+        if (event.button !== 0) return;
         event.stopPropagation();
         event.preventDefault();
         editorRootRef.current?.focus();
-        isDragInProgressRef.current = true;
         const startX = event.clientX;
         const startY = event.clientY;
         const notesAtStart = notesRef.current;
         const note = notesAtStart.find((n) => n.id === noteId);
         if (!note) return;
+        isDragInProgressRef.current = true;
         const target = event.currentTarget as HTMLElement;
         const targetRect = target.getBoundingClientRect();
         const localX = event.clientX - targetRect.left;
@@ -157,10 +164,13 @@ export function usePianoRollNoteInteractions({
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            dragCleanupRef.current = null;
             requestAnimationFrame(() => {
                 isDragInProgressRef.current = false;
             });
         };
+        dragCleanupRef.current?.();
+        dragCleanupRef.current = onUp;
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
     }, [auditionNote, beatsPerBar, clipBeats, drumMode, editorRootRef, enforceNoOverlap, isMac, noteHeight, notesRef, onNotesChange, pixelsPerBeatRef, selectedNotes, setSelectedNotes, snapBeat, snapEnabled, tool, visiblePitches]);

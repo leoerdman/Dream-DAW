@@ -31,6 +31,7 @@ export function usePianoRollLaneValues({
     }));
     const lanePersistTimerRef = useRef<number | null>(null);
     const lanePersistHashRef = useRef('');
+    const laneDragCleanupRef = useRef<(() => void) | null>(null);
 
     const sampleEnvelopeAtBeat = useCallback((points: Array<{ beat: number; value: number }>, beat: number): number => {
         if (points.length === 0) return 0;
@@ -106,6 +107,7 @@ export function usePianoRollLaneValues({
     }, [laneValuesByNote.modWheel, laneValuesByNote.expression, notes, onSetMidiEnvelopes]);
 
     const handleVelocityMouseDown = useCallback((noteId: string, event: React.MouseEvent) => {
+        if (event.button !== 0) return;
         event.stopPropagation();
         event.preventDefault();
         const laneEl = (event.currentTarget as HTMLElement).parentElement;
@@ -164,11 +166,23 @@ export function usePianoRollLaneValues({
         const onUp = (upEvent: MouseEvent) => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            laneDragCleanupRef.current = null;
             if (!moved) applyAbsoluteFromY(upEvent.clientY);
+        };
+        laneDragCleanupRef.current?.();
+        laneDragCleanupRef.current = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            laneDragCleanupRef.current = null;
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
     }, [activeLane, auditionNote, notes, onNotesChange, readLaneValue, selectedNotes, setSelectedNotes]);
+
+    useEffect(() => () => {
+        laneDragCleanupRef.current?.();
+        laneDragCleanupRef.current = null;
+    }, []);
 
     return {
         laneValuesByNote,

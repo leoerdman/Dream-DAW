@@ -9,9 +9,19 @@ import {
 } from './pianoRollConfig';
 
 const scrollByClipKey = new Map<string, { top: number; left: number }>();
+const MAX_SCROLL_CACHE = 120;
+
+function cacheScrollPosition(key: string, value: { top: number; left: number }): void {
+    if (scrollByClipKey.has(key)) scrollByClipKey.delete(key);
+    scrollByClipKey.set(key, value);
+    if (scrollByClipKey.size <= MAX_SCROLL_CACHE) return;
+    const oldest = scrollByClipKey.keys().next().value as string | undefined;
+    if (oldest) scrollByClipKey.delete(oldest);
+}
 
 function toClipViewportKey(trackIndex: number | undefined, clipStartBeat: number, clipLengthBeats: number | undefined): string {
-    return `${trackIndex ?? -1}:${clipStartBeat}:${clipLengthBeats ?? 'na'}`;
+    void clipLengthBeats;
+    return `${trackIndex ?? -1}:${clipStartBeat}`;
 }
 
 
@@ -70,7 +80,7 @@ export function usePianoRollViewport({
         clipKeyRef.current = key;
         if (prev !== key) {
             // Different track/clip → reset zoom to auto-fit
-            Promise.resolve().then(() => setZoomOverrideH(null));
+            setZoomOverrideH(null);
         }
     }, [clipViewportKey, setZoomOverrideH]);
 
@@ -80,12 +90,12 @@ export function usePianoRollViewport({
         if (!grid || !keyboard) return;
         const onScroll = () => {
             keyboard.scrollTop = grid.scrollTop;
-            scrollByClipKey.set(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
+            cacheScrollPosition(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
         };
         grid.addEventListener('scroll', onScroll);
         return () => {
             grid.removeEventListener('scroll', onScroll);
-            scrollByClipKey.set(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
+            cacheScrollPosition(clipViewportKey, { top: grid.scrollTop, left: grid.scrollLeft });
         };
     }, [clipViewportKey, keyboardScrollRef, scrollRef]);
 

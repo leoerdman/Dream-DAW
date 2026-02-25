@@ -86,8 +86,13 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         }
     }, [selectedCategoryId, prevCategoryRef, setAudioFilter, setFormatFilter, setPluginSourceFilter, setSizeFilter, setSourceFilter]);
     useEffect(() => {
+        const isEventInsideBrowser = (target: EventTarget | null): boolean => {
+            if (!(target instanceof Element)) return false;
+            return Boolean(target.closest('[data-testid="asset-browser"]'));
+        };
         const handler = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.isComposing) return;
+            if (!isEventInsideBrowser(e.target)) return;
             if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyF') {
                 e.preventDefault();
                 if (selectedCategoryId !== 'all') setSelectedCategoryId('all');
@@ -102,6 +107,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         const focusBrowserSearch = (evt: Event) => {
             const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
             if (detail?.categoryId) {
+                setSelectedCategoryId(detail.categoryId);
                 setExpandedFolders(new Set());
                 setFolderChildrenCache(new Map());
             }
@@ -111,6 +117,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         const setBrowserSearch = (evt: Event) => {
             const detail = (evt as CustomEvent<{ query?: string; categoryId?: string }>).detail;
             if (detail?.categoryId) {
+                setSelectedCategoryId(detail.categoryId);
                 setExpandedFolders(new Set());
                 setFolderChildrenCache(new Map());
             }
@@ -123,7 +130,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
             window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
         };
-    }, [searchRef, setDebouncedQuery, setExpandedFolders, setFolderChildrenCache]);
+    }, [searchRef, setDebouncedQuery, setExpandedFolders, setFolderChildrenCache, setSelectedCategoryId]);
     useEffect(() => {
         if (!contextMenu) return;
         const onClick = (e: MouseEvent) => {

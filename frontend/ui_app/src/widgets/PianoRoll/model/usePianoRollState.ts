@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
     DEFAULT_NOTE_HEIGHT,
     type MidiNote,
@@ -73,6 +73,11 @@ export function usePianoRollState({
         }
         return changed ? pruned : selectedNoteIds;
     }, [notes, selectedNoteIds]);
+
+    useEffect(() => {
+        if (selectedNotes === selectedNoteIds) return;
+        setSelectedNoteIds(selectedNotes);
+    }, [selectedNoteIds, selectedNotes]);
 
     const setSelectedNotes = useCallback<Dispatch<SetStateAction<Set<string>>>>((next) => {
         const noteIdSet = new Set(notes.map((note) => note.id));

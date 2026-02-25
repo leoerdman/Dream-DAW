@@ -248,8 +248,10 @@ export function usePianoRollHotkeys({
             onNotesChange(enforceNoOverlap(moved, selectedNotes));
         };
 
-        window.addEventListener('keydown', onKeyDown, { capture: true });
-        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+        const editorRoot = editorRootRef.current;
+        if (!editorRoot) return;
+        editorRoot.addEventListener('keydown', onKeyDown, { capture: true });
+        return () => editorRoot.removeEventListener('keydown', onKeyDown, { capture: true });
     }, [
         isEditorFocused,
         selectedNotes,

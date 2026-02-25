@@ -133,7 +133,9 @@ export function usePianoRollEditorPipeline({
     const clipDurationLabel = useMemo(() => {
         const bars = Math.floor(clipBeats / beatsPerBar);
         const remainBeats = Math.round((clipBeats % beatsPerBar) * 100) / 100;
-        if (remainBeats > 0) return `${bars}.${remainBeats}`;
+        if (remainBeats > 0) {
+            return `${bars} bar${bars !== 1 ? 's' : ''} + ${remainBeats} beat${remainBeats !== 1 ? 's' : ''}`;
+        }
         return `${bars} bar${bars !== 1 ? 's' : ''}`;
     }, [clipBeats, beatsPerBar]);
 

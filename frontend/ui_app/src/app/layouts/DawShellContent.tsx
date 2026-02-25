@@ -39,11 +39,11 @@ interface DawShellContentProps {
     beginBottomPanelResize: (event: React.MouseEvent<HTMLDivElement>) => void;
     selectedTimelineClip: ReturnType<typeof import('./model/useArrangementTrackViewModel').useArrangementTrackViewModel>['selectedTimelineClip'] | undefined;
     clipColor: string;
-    midiNotes: import('@/widgets/PianoRoll/PianoRoll').MidiNote[];
+    midiNotes: import('@/widgets/PianoRoll/model/pianoRollConfig').MidiNote[];
     aiVariationBusy: boolean;
     selectedMidiTotalBars: number;
     dropPluginOnTrack: (item: import('@/shared/lib/arrangementTypes').BrowserDragItem, trackId: string) => Promise<void>;
-    handlePianoRollNotesChange: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined, notes: import('@/widgets/PianoRoll/PianoRoll').MidiNote[]) => void;
+    handlePianoRollNotesChange: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined, notes: import('@/widgets/PianoRoll/model/pianoRollConfig').MidiNote[]) => void;
     handlePianoRollEnvelopesChange: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined, envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void;
     handleGenerateMidiVariation: (clip: import('@/shared/lib/arrangementTypes').TimelineClip | undefined) => Promise<void>;
     missingAssetsOpen: boolean;

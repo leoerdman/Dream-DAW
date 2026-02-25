@@ -41,7 +41,6 @@ interface PianoRollGridViewportProps {
     activeLane: PianoLaneType;
     readLaneValue: (note: MidiNote, lane: PianoLaneType) => number;
     onLaneMouseDown: (noteId: string, event: MouseEvent) => void;
-    onGridScroll: () => void;
     handleGridClick: (event: MouseEvent) => void;
     handleGridDoubleClick: (event: MouseEvent) => void;
     handleGridMouseDown: (event: MouseEvent) => void;
@@ -78,7 +77,6 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
     activeLane,
     readLaneValue,
     onLaneMouseDown,
-    onGridScroll,
     handleGridClick,
     handleGridDoubleClick,
     handleGridMouseDown,
@@ -93,7 +91,6 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                 scrollRef.current = el;
                 gridViewportRef.current = el;
             }}
-            onScroll={onGridScroll}
             style={{ flex: 1, overflow: 'auto', position: 'relative' }}
         >
             <div style={{ width: canvasWidth, height: RULER_HEIGHT + canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
@@ -116,8 +113,10 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                         const isC = pitch % 12 === 0;
                         let fill: string;
                         if (highlightScale) {
-                            if (isRoot) fill = `${color}20`;
-                            else if (inScale) fill = black ? `${color}0c` : `${color}0a`;
+                            if (isRoot) fill = `color-mix(in srgb, ${color} 14%, transparent)`;
+                            else if (inScale) fill = black
+                                ? `color-mix(in srgb, ${color} 6%, var(--color-piano-black-row))`
+                                : `color-mix(in srgb, ${color} 5%, var(--color-piano-white-row))`;
                             else fill = black ? 'var(--token-color-hex-111111)' : 'var(--token-color-hex-161616)';
                         } else {
                             fill = black ? 'var(--color-piano-black-row)' : 'var(--color-piano-white-row)';
@@ -169,7 +168,9 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                                     boxShadow: isSelected
                                         ? '0 0 0 1px color-mix(in srgb, var(--color-text-on-accent) 45%, transparent)'
                                         : 'none',
-                                    cursor: tool === 'draw' ? 'pointer' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
+                                    cursor: tool === 'paint'
+                                        ? 'crosshair'
+                                        : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
                                     zIndex: isSelected ? 5 : 2,
                                     pointerEvents: tool === 'paint' ? 'none' : 'auto',
                                 }}
@@ -193,7 +194,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)', pointerEvents: 'none', boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-255-255-255-0d45)' }} />
                 )}
 
-                {stepInputCursorBeat > 0 && (
+                {stepInputCursorBeat >= 0 && (
                     <div style={{ position: 'absolute', left: stepInputCursorBeat * pixelsPerBeat, top: RULER_HEIGHT, width: 1, height: canvasHeight, background: 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)', zIndex: 'var(--z-ui-overlay)', pointerEvents: 'none' }} />
                 )}
 

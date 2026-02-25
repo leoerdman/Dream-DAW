@@ -22,11 +22,14 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
 
     /** Send note-off for ALL currently-active preview pitches. */
     const stopAllAudition = useCallback(() => {
-        if (trackIndex == null) return;
         const timers = auditionOffTimersRef.current;
         timers.forEach((timer) => window.clearTimeout(timer));
         timers.clear();
         const pitches = activePitchesRef.current;
+        if (trackIndex == null) {
+            pitches.clear();
+            return;
+        }
         pitches.forEach((pitch) => {
             void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
         });

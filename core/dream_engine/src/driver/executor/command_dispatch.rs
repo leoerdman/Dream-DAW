@@ -1,15 +1,41 @@
 use super::super::*;
+use dream_dsp::device_slot::DeviceProcessor;
 
-#[derive(Clone, Copy)]
+// ═══════════════════════════════════════════════════════════════════════════
+// Deferred Topology Commands
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Topology mutations (add/remove/reorder devices) are deferred to the start
+// of the NEXT audio callback to avoid mid-buffer discontinuities.
+// These commands can hold non-Copy data (Box<dyn DeviceProcessor>).
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
 pub(super) enum DeferredEffectChainCmd {
-    Add {
+    /// Add a built-in DSP effect.
+    AddInternal {
         track_index: u16,
         slot_index: u8,
         effect_type: u8,
     },
+    /// Add a pre-constructed device (internal or external).
+    /// Used when the device is created on the UI thread and passed to the
+    /// audio thread (e.g., ExternalDeviceSlot wrapping a PluginInstanceArc).
+    AddDevice {
+        track_index: u16,
+        slot_index: u8,
+        device: Box<dyn DeviceProcessor>,
+    },
+    /// Remove a device by slot index.
     Remove {
         track_index: u16,
         slot_index: u8,
+    },
+    /// Reorder a device within its chain (atomic move).
+    Reorder {
+        track_index: u16,
+        from_slot: u8,
+        to_slot: u8,
     },
 }
 
@@ -117,46 +143,94 @@ pub(super) fn apply_pending_track_mixer_state(
     }
 }
 
+/// Applies ALL pending topology mutations at the start of each buffer.
+///
+/// Previously this processed only ONE mutation per callback (A-3 bug).
+/// Now it drains the entire queue, ensuring device chain state is always
+/// fully synchronized by the time audio processing begins.
+pub(super) fn apply_all_topology_mutations(
+    deferred_topology: &mut VecDeque<DeferredEffectChainCmd>,
+    master_device_chain: &mut InsertEffectsChain,
+    render_ctx: &mut RenderContext,
+    master_track_index: u16,
+) {
+    while let Some(topology_cmd) = deferred_topology.pop_front() {
+        match topology_cmd {
+            DeferredEffectChainCmd::AddInternal {
+                track_index,
+                slot_index,
+                effect_type,
+            } => {
+                let idx = track_index as usize;
+                if track_index == master_track_index {
+                    if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
+                        master_device_chain.add_effect(slot_index as usize, etype);
+                    }
+                } else if idx < render_ctx.track_slots.len()
+                    && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
+                {
+                    render_ctx.track_slots[idx]
+                        .device_chain
+                        .add_effect(slot_index as usize, etype);
+                }
+            }
+            DeferredEffectChainCmd::AddDevice {
+                track_index,
+                slot_index,
+                device,
+            } => {
+                let idx = track_index as usize;
+                if track_index == master_track_index {
+                    master_device_chain.add_device(slot_index as usize, device);
+                } else if idx < render_ctx.track_slots.len() {
+                    render_ctx.track_slots[idx]
+                        .device_chain
+                        .add_device(slot_index as usize, device);
+                }
+            }
+            DeferredEffectChainCmd::Remove {
+                track_index,
+                slot_index,
+            } => {
+                let idx = track_index as usize;
+                if track_index == master_track_index {
+                    master_device_chain.remove_effect(slot_index as usize);
+                } else if idx < render_ctx.track_slots.len() {
+                    render_ctx.track_slots[idx]
+                        .device_chain
+                        .remove_effect(slot_index as usize);
+                }
+            }
+            DeferredEffectChainCmd::Reorder {
+                track_index,
+                from_slot,
+                to_slot,
+            } => {
+                let idx = track_index as usize;
+                if track_index == master_track_index {
+                    master_device_chain.reorder(from_slot as usize, to_slot as usize);
+                } else if idx < render_ctx.track_slots.len() {
+                    render_ctx.track_slots[idx]
+                        .device_chain
+                        .reorder(from_slot as usize, to_slot as usize);
+                }
+            }
+        }
+    }
+}
+
+/// Backward-compatible wrapper that applies a single mutation.
+/// Used by callers that still expect the old behavior.
 pub(super) fn apply_single_topology_mutation(
     deferred_topology: &mut VecDeque<DeferredEffectChainCmd>,
     master_device_chain: &mut InsertEffectsChain,
     render_ctx: &mut RenderContext,
     master_track_index: u16,
 ) {
-    let Some(topology_cmd) = deferred_topology.pop_front() else {
-        return;
-    };
-    match topology_cmd {
-        DeferredEffectChainCmd::Add {
-            track_index,
-            slot_index,
-            effect_type,
-        } => {
-            let idx = track_index as usize;
-            if track_index == master_track_index {
-                if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
-                    master_device_chain.add_effect(slot_index as usize, etype);
-                }
-            } else if idx < render_ctx.track_slots.len()
-                && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
-            {
-                render_ctx.track_slots[idx]
-                    .device_chain
-                    .add_effect(slot_index as usize, etype);
-            }
-        }
-        DeferredEffectChainCmd::Remove {
-            track_index,
-            slot_index,
-        } => {
-            let idx = track_index as usize;
-            if track_index == master_track_index {
-                master_device_chain.remove_effect(slot_index as usize);
-            } else if idx < render_ctx.track_slots.len() {
-                render_ctx.track_slots[idx]
-                    .device_chain
-                    .remove_effect(slot_index as usize);
-            }
-        }
-    }
+    apply_all_topology_mutations(
+        deferred_topology,
+        master_device_chain,
+        render_ctx,
+        master_track_index,
+    );
 }

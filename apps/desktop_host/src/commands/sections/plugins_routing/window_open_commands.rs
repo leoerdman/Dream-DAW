@@ -1,3 +1,29 @@
+/// Load a plugin instance in-process by dispatching on its format.
+///
+/// This is the hard-recovery path used when a sandboxed plugin crashes.
+/// It mirrors the same format-dispatched loading as
+/// `PluginHostState::ensure_loaded_instance_for_slot`.
+fn load_descriptor_in_process(
+    host: &mut dream_plugins::PluginHost,
+    descriptor: &dream_plugins::PluginDescriptor,
+) -> Result<uuid::Uuid, String> {
+    match descriptor.format {
+        dream_plugins::format::PluginFormat::VST3 => host
+            .load_vst3(descriptor.clone())
+            .map_err(|e| format!("In-process VST3 reload failed for '{}': {e}", descriptor.name)),
+        dream_plugins::format::PluginFormat::VST2 => host
+            .load_vst2(descriptor.clone())
+            .map_err(|e| format!("In-process VST2 reload failed for '{}': {e}", descriptor.name)),
+        dream_plugins::format::PluginFormat::AudioUnit => host
+            .load_au(descriptor.clone())
+            .map_err(|e| format!("In-process AU reload failed for '{}': {e}", descriptor.name)),
+        other => Err(format!(
+            "Unsupported plugin format '{}' for in-process loading of '{}'",
+            other, descriptor.name
+        )),
+    }
+}
+
 fn resolve_plugin_slot_states_by_plugin_id(
     project_state: &tauri::State<'_, ProjectState>,
     plugin_id: &str,

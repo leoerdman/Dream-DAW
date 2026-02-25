@@ -69,8 +69,8 @@ export function usePianoRollTransforms({
     }, [ratchetCount, selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap, setSelectedNotes]);
 
     const transposeNotes = useCallback((delta: number) => {
-        if (delta === 0 || notes.length === 0 || selectedNotes.size === 0) return;
-        const targets = selectedNotes;
+        if (delta === 0 || notes.length === 0) return;
+        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
         const next = notes.map((n) => {
             if (!targets.has(n.id)) return n;
             return {
@@ -85,8 +85,7 @@ export function usePianoRollTransforms({
     const quantizeAllNotesToGrid = useCallback((amountPct = quantizeAmount) => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const amt = Math.max(0, Math.min(1, amountPct / 100));
-        if (selectedNotes.size === 0) return;
-        const targetIds = selectedNotes;
+        const targetIds = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
         const next = notes.map((n) => {
             if (!targetIds.has(n.id)) return n;
             const snappedStart = snapBeat(n.startBeat, beatsPerBar, pixelsPerBeat);

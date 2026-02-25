@@ -216,6 +216,14 @@ pub enum EngineCommand {
     /// Remove a device from a track's insert chain.
     RemoveDevice { track_index: u16, slot_index: u8 },
 
+    /// Reorder a device within a track's insert chain (drag-and-drop).
+    /// Atomic move: no audible gap caused by separate Remove + Add.
+    ReorderDevice {
+        track_index: u16,
+        from_slot: u8,
+        to_slot: u8,
+    },
+
     /// Bypass or un-bypass a device slot.
     BypassDevice {
         track_index: u16,

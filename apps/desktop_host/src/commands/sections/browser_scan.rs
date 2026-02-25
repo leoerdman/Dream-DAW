@@ -152,6 +152,9 @@ async fn preview_audio_file_cmd(
     // Decode the audio file
     let decoded = AudioReader::read(&file_path)
         .map_err(|e| format!("Failed to decode: {e}"))?;
+    if decoded.channels.is_empty() {
+        return Err(format!("Decoded audio has no channels: {}", path));
+    }
 
     // Build interleaved buffer for preview
     let num_ch = decoded.channels.len().min(2);
@@ -245,11 +248,22 @@ fn scan_all_audio_sources(
     let mut all_entries: Vec<AudioFileEntry> = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();
     let mut file_count: usize = 0;
+    let mut scan_errors: Vec<String> = Vec::new();
 
     // Scan samples_path
     let samples_dir = std::path::Path::new(&samples_path);
     if samples_dir.is_dir() {
-        let _ = scan_directory_recursive(samples_dir, &mut all_entries, 0, 8, &mut file_count, MAX_SCAN_FILES);
+        if let Err(err) = scan_directory_recursive(
+            samples_dir,
+            &mut all_entries,
+            0,
+            8,
+            &mut file_count,
+            MAX_SCAN_FILES,
+        ) {
+            log::warn!("[IPC] scan_all_audio_sources: failed to scan samples path '{}': {}", samples_path, err);
+            scan_errors.push(format!("samples: {}", err));
+        }
     }
 
     // Scan each browser folder
@@ -259,7 +273,17 @@ fn scan_all_audio_sources(
         }
         let dir = std::path::Path::new(folder);
         if dir.is_dir() {
-            let _ = scan_directory_recursive(dir, &mut all_entries, 0, 8, &mut file_count, MAX_SCAN_FILES);
+            if let Err(err) = scan_directory_recursive(
+                dir,
+                &mut all_entries,
+                0,
+                8,
+                &mut file_count,
+                MAX_SCAN_FILES,
+            ) {
+                log::warn!("[IPC] scan_all_audio_sources: failed to scan browser folder '{}': {}", folder, err);
+                scan_errors.push(format!("{}: {}", folder, err));
+            }
         }
     }
 
@@ -274,6 +298,13 @@ fn scan_all_audio_sources(
         1 + browser_folders.len(),
         MAX_SCAN_FILES
     );
+    if all_entries.is_empty() && !scan_errors.is_empty() {
+        return Err(format!(
+            "Failed to scan audio sources ({} errors). First error: {}",
+            scan_errors.len(),
+            scan_errors[0]
+        ));
+    }
     Ok(all_entries)
 }
 

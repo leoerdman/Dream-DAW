@@ -71,9 +71,9 @@ export function usePianoRollLogic(props: PianoRollProps) {
         keyboardScrollRef,
         editorRootRef,
     } = pianoState;
-    const { auditionNote } = usePianoRollAudition(trackIndex, noteAuditionEnabled);
+    const { auditionNote, stopAudition } = usePianoRollAudition(trackIndex, noteAuditionEnabled);
 
-    const { laneValuesByNote, setLaneValuesByNote, readLaneValue, handleVelocityMouseDown } = usePianoRollLaneValues({
+    const { readLaneValue, handleVelocityMouseDown } = usePianoRollLaneValues({
         midiEnvelopes,
         notes,
         onSetMidiEnvelopes,
@@ -267,7 +267,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         stepInputCursorBeat, setStepInputCursorBeat, drumMode, setDrumMode,
         noteAuditionEnabled, setNoteAuditionEnabled,
         activeLane, setActiveLane, ratchetCount, setRatchetCount,
-        laneValuesByNote, setLaneValuesByNote, hoveredNoteEdge, setHoveredNoteEdge,
+        hoveredNoteEdge, setHoveredNoteEdge,
         zoomOverrideH, setZoomOverrideH,
         playheadBeat, pixelsPerBeat, totalBeats, clipBeats, canvasWidth, canvasHeight,
         visiblePitches, pitchRowIndex, scaleSet, gridLines, rulerBeatLabels, pianoKeys,
@@ -277,7 +277,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         handleVelocityMouseDown: handleVelocityMouseDownWithFocus,
         transposeNotes, quantizeAllNotesToGrid, duplicateSelection, humanizeSelection,
         applyLegato, applyRatchet, selectSamePitch, copySelection, pasteClipboard,
-        readLaneValue, auditionNote,
+        readLaneValue, auditionNote, stopAudition,
         notes, ghostNotes, color, timeSignature, onNotesChange, onGenerateVariation,
         aiVariationBusy, trackIndex, clipStartBeat, snapBeat, pianoPencilMode,
         snapEnabled, gridDivision, gridTriplet, setGridDivision,

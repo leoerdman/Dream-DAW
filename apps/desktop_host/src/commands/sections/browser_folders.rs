@@ -27,6 +27,18 @@ fn get_browser_folders(
     Ok(settings.browser_folders.clone())
 }
 
+fn normalize_browser_path(path: &str) -> String {
+    let raw = std::path::Path::new(path);
+    if let Ok(canon) = raw.canonicalize() {
+        return canon.to_string_lossy().to_string();
+    }
+    let mut trimmed = path.trim().to_string();
+    while trimmed.len() > 1 && trimmed.ends_with(std::path::MAIN_SEPARATOR) {
+        trimmed.pop();
+    }
+    trimmed
+}
+
 /// Adds a folder to the browser PLACES section (with native picker).
 /// Returns the updated list of browser folders.
 #[tauri::command]
@@ -51,17 +63,27 @@ async fn add_browser_folder(
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Cancelled".to_string())?;
 
+    let normalized_picked = normalize_browser_path(&picked);
+
     {
         let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
         // Don't add duplicates
-        if !settings.browser_folders.contains(&picked) {
-            settings.browser_folders.push(picked.clone());
+        let exists = settings
+            .browser_folders
+            .iter()
+            .any(|f| normalize_browser_path(f) == normalized_picked);
+        if !exists {
+            settings.browser_folders.push(normalized_picked.clone());
         }
     }
     settings_state.save_to_user_folder()?;
 
     let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
-    log::info!("[Browser] Added folder: '{}' (total: {})", picked, settings.browser_folders.len());
+    log::info!(
+        "[Browser] Added folder: '{}' (total: {})",
+        normalized_picked,
+        settings.browser_folders.len()
+    );
     Ok(settings.browser_folders.clone())
 }
 
@@ -72,14 +94,21 @@ fn remove_browser_folder(
     path: String,
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<Vec<String>, String> {
+    let normalized_target = normalize_browser_path(&path);
     {
         let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
-        settings.browser_folders.retain(|f| f != &path);
+        settings
+            .browser_folders
+            .retain(|f| normalize_browser_path(f) != normalized_target);
     }
     settings_state.save_to_user_folder()?;
 
     let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
-    log::info!("[Browser] Removed folder: '{}' (total: {})", path, settings.browser_folders.len());
+    log::info!(
+        "[Browser] Removed folder: '{}' (total: {})",
+        normalized_target,
+        settings.browser_folders.len()
+    );
     Ok(settings.browser_folders.clone())
 }
 
@@ -96,6 +125,85 @@ fn classify_file_type(ext: &str) -> &'static str {
         "preset"
     } else {
         "other"
+    }
+}
+
+fn collect_plugins_recursive(
+    dir: &std::path::Path,
+    plugin_type: &str,
+    depth: u32,
+    max_depth: u32,
+    seen: &mut std::collections::HashSet<String>,
+    entries: &mut Vec<BrowserFileEntry>,
+) {
+    if depth > max_depth {
+        return;
+    }
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(err) => {
+            log::debug!("[Browser] Failed to read plugin path '{}': {}", dir.display(), err);
+            return;
+        }
+    };
+
+    for entry in read_dir.flatten() {
+        let entry_path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if file_name.starts_with('.') {
+            continue;
+        }
+
+        let ext = entry_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let ext_lower = ext.to_lowercase();
+        let is_plugin = PLUGIN_EXTENSIONS.contains(&ext_lower.as_str());
+
+        if is_plugin {
+            let path_str = entry_path.to_string_lossy().to_string();
+            if seen.contains(&path_str) {
+                continue;
+            }
+            seen.insert(path_str.clone());
+
+            let display_name = file_name
+                .rsplit_once('.')
+                .map(|(n, _)| n.to_string())
+                .unwrap_or_else(|| file_name.clone());
+
+            let metadata = std::fs::metadata(&entry_path).ok();
+            let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+            let modified_at = metadata
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs().to_string())
+                .unwrap_or_default();
+
+            entries.push(BrowserFileEntry {
+                name: display_name,
+                path: path_str,
+                size_bytes,
+                modified_at,
+                extension: plugin_type.to_string(),
+                file_type: "plugin".to_string(),
+                is_directory: false,
+                duration_seconds: None,
+            });
+            continue;
+        }
+
+        if entry_path.is_dir() {
+            collect_plugins_recursive(
+                &entry_path,
+                plugin_type,
+                depth + 1,
+                max_depth,
+                seen,
+                entries,
+            );
+        }
     }
 }
 
@@ -238,56 +346,7 @@ fn scan_plugin_folders(
         if !dir.exists() || !dir.is_dir() {
             continue;
         }
-
-        if let Ok(read_dir) = std::fs::read_dir(dir) {
-            for entry in read_dir.flatten() {
-                let entry_path = entry.path();
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
-                if file_name.starts_with('.') {
-                    continue;
-                }
-
-                // Check if it's a plugin bundle
-                let ext = entry_path.extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                let ext_lower = ext.to_lowercase();
-
-                if PLUGIN_EXTENSIONS.contains(&ext_lower.as_str()) {
-                    let path_str = entry_path.to_string_lossy().to_string();
-                    if seen.contains(&path_str) {
-                        continue;
-                    }
-                    seen.insert(path_str.clone());
-
-                    // Strip extension from display name for cleaner look
-                    let display_name = file_name
-                        .rsplit_once('.')
-                        .map(|(n, _)| n.to_string())
-                        .unwrap_or_else(|| file_name.clone());
-
-                    let metadata = std::fs::metadata(&entry_path).ok();
-                    let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
-                    let modified_at = metadata
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs().to_string())
-                        .unwrap_or_default();
-
-                    entries.push(BrowserFileEntry {
-                        name: display_name,
-                        path: path_str,
-                        size_bytes,
-                        modified_at,
-                        extension: plugin_type.to_string(),
-                        file_type: "plugin".to_string(),
-                        is_directory: false,
-                        duration_seconds: None,
-                    });
-                }
-            }
-        }
+        collect_plugins_recursive(dir, plugin_type, 0, 4, &mut seen, &mut entries);
     }
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));

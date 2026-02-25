@@ -28,7 +28,8 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
 export const PluginGroupItemRow = memo(function PluginGroupItemRow({
     item, ROW_HEIGHT, isSelected, debouncedQuery, showTypeColumn, showSizeColumn,
     getAudioDurationSec, isPreviewPlayingRef, bindItemRowRef, suppressNextAutoScrollRef, setSelectedItemId, syncPreviewForItem, setContextMenu, fileListRef,
-}: RowBaseProps & { ROW_HEIGHT: number }) {
+    onItemEnter,
+}: RowBaseProps & { ROW_HEIGHT: number; onItemEnter?: () => void }) {
     const isAudio = item.type === 'audio';
     const isPlugin = item.type === 'plugin';
     const isDraggable = isAudio || isPlugin;
@@ -61,6 +62,9 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
             onContextMenu={(e) => {
                 e.preventDefault();
                 if (item.path) setContextMenu({ x: e.clientX, y: e.clientY, item });
+            }}
+            onDoubleClick={() => {
+                if (onItemEnter) onItemEnter();
             }}
             onMouseDown={(e) => {
                 if (!isDraggable || !item.path || e.button !== 0) return;

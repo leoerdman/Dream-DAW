@@ -115,6 +115,8 @@ pub mod corpus;
 pub mod drum_buss;
 pub mod dynamic_tube;
 pub mod erosion;
+pub mod filter_delay;
+pub mod glue_compressor;
 pub mod grain_delay;
 pub mod hybrid_reverb;
 pub mod multiband_dynamics;

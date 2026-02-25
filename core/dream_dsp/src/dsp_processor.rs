@@ -293,6 +293,8 @@ pub enum BuiltinEffectType {
     GrainDelay = 30,
     Corpus = 31,
     SpectralTime = 32,
+    GlueCompressor = 33,
+    FilterDelay = 34,
 }
 
 impl BuiltinEffectType {
@@ -332,6 +334,8 @@ impl BuiltinEffectType {
             30 => Some(Self::GrainDelay),
             31 => Some(Self::Corpus),
             32 => Some(Self::SpectralTime),
+            33 => Some(Self::GlueCompressor),
+            34 => Some(Self::FilterDelay),
             _ => None,
         }
     }
@@ -429,6 +433,12 @@ impl BuiltinEffectType {
             Self::SpectralTime => Box::new(
                 super::processors::spectral_time::SpectralTimeProcessor::new(sample_rate),
             ),
+            Self::GlueCompressor => Box::new(
+                super::processors::glue_compressor::GlueCompressorProcessor::new(sample_rate),
+            ),
+            Self::FilterDelay => Box::new(
+                super::processors::filter_delay::FilterDelayProcessor::new(sample_rate),
+            ),
         };
         Box::new(SmoothedProcessor::new(*self, inner, sample_rate))
     }
@@ -444,18 +454,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=32u8 {
+        for i in 0..=34u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(33).is_none());
+        assert!(BuiltinEffectType::from_u8(35).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=32u8 {
+        for i in 0..=34u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

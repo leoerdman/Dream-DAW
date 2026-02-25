@@ -1,237 +1,108 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Saturator Processor (Enterprise)
+// Dream DAW — Saturator Processor
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Multi-mode saturation with 5 waveshaping curves:
-//   0 = Analog (tanh soft clip — warm, musical)
-//   1 = Tube (asymmetric triode emulation)
-//   2 = Tape (magnetic hysteresis simulation)
-//   3 = Digital (hard clip with subtle fold)
-//   4 = Sine Fold (wavefolder — synth-style harmonics)
+// Analog-modeled saturation with selectable waveshaping curves. Distinct
+// from Overdrive (tube-focused), Distortion (hard clip), and Pedal
+// (stompbox models).
 //
-// Signal: Input → Pre-gain → DC block → Waveshaper → Tone LP → Mix
+// Curves:
+//   0: Analog Clip — variable knee soft-clip
+//   1: Tape — hysteresis-inspired saturation
+//   2: Tube — triode transfer function
+//   3: Diode — asymmetric diode clipper
+//   4: Sinefold — sinusoidal wavefolder
 //
 // Parameters:
-//   0: Drive    (0–36 dB, default 6)
-//   1: Tone     (0–100%, default 50%) — LP cutoff 1k–20kHz
-//   2: Mix      (0–100%, default 50%)
-//   3: Mode     (0–4, default 0)
-//   4: Output   (-24 to +6 dB, default 0)
-//   5: Color    (0–100%, default 50%) — pre-emphasis (treble drive)
-//
-// Real-Time Safety: Zero allocations. O(N) per buffer.
+//   0: Curve    (0–4, default 0)
+//   1: Drive    (0–100%, default 30%)
+//   2: Output   (-24 to +6 dB, default 0)
+//   3: Colour   (0–100%, default 50%) — pre-saturation tilt
+//   4: Mix      (0–100%, default 100%)
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
 use crate::processors::smoothing::SmoothedValue;
-use crate::processors::{DEFAULT_SAMPLE_RATE, db_to_linear, sanitize_sample_rate};
-
-struct OnePole {
-    state: f32,
-    coeff: f32,
-}
-
-impl OnePole {
-    fn new(cutoff: f32, sr: f32) -> Self {
-        Self {
-            state: 0.0,
-            coeff: Self::calc(cutoff, sr),
-        }
-    }
-    fn calc(cutoff: f32, sr: f32) -> f32 {
-        // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
-        (1.0 - (-std::f32::consts::TAU * cutoff / sr).exp()).clamp(0.0, 1.0)
-    }
-    #[inline]
-    fn process(&mut self, input: f32) -> f32 {
-        self.state += self.coeff * (input - self.state);
-        self.state
-    }
-    fn set_cutoff(&mut self, cutoff: f32, sr: f32) {
-        self.coeff = Self::calc(cutoff, sr);
-    }
-    fn reset(&mut self) {
-        self.state = 0.0;
-    }
-}
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 
 pub struct SaturatorProcessor {
-    drive_db: f32,
-    drive_lin: f32,
-    tone_pct: f32,
-    mix: f32,
-    mode: u8,
+    curve: u8,
+    drive: f32,
     output_db: f32,
-    output_lin: f32,
-    color: f32,
-    tone_l: OnePole,
-    tone_r: OnePole,
-    // DC blocker state
-    dc_x_l: f32,
-    dc_y_l: f32,
-    dc_x_r: f32,
-    dc_y_r: f32,
-    /// DC blocker coefficient — SR-dependent: R = 1 - (2π × 10Hz / sr)
-    dc_coeff: f32,
-    // Pre-emphasis filter
-    pre_state_l: f32,
-    pre_state_r: f32,
-    /// Pre-emphasis LP coefficient — SR-dependent for consistent cutoff
-    pre_coeff: f32,
-    sample_rate: f32,
+    colour: f32,
+    mix: f32,
+    // DC blocker
+    dc_in_l: f32, dc_in_r: f32,
+    dc_out_l: f32, dc_out_r: f32,
+    dc_c: f32,
+    // Colour tilt filter
+    tilt_z_l: f32, tilt_z_r: f32,
+    // Smoothed
     drive_sm: SmoothedValue,
-    /// BUG-4 FIX: Smooth cutoff in Hz (already exponential) instead of
-    /// tone_pct. Avoids per-sample pow() call.
-    cutoff_sm: SmoothedValue,
-    mix_sm: SmoothedValue,
     output_sm: SmoothedValue,
-    color_sm: SmoothedValue,
-    /// Last cutoff frequency sent to OnePole filters (avoids redundant set_cutoff calls)
-    last_cutoff_applied: f32,
-    // 2x oversampling state for nonlinear block
-    os_prev_in_l: f32,
-    os_prev_in_r: f32,
-    os_post_l: f32,
-    os_post_r: f32,
-    os_coeff: f32,
+    colour_sm: SmoothedValue,
+    mix_sm: SmoothedValue,
+    sample_rate: f32,
 }
 
 impl SaturatorProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let sample_rate = sanitize_sample_rate(sample_rate);
-        let sr = sample_rate;
-        let cutoff = Self::tone_to_cutoff(50.0);
-        // BUG-C07 FIX: Use exact exponential DC blocker coefficient.
-        // Old code: `1.0 - (TAU * 10.0 / sr)` — diverges from exp() at low SRs.
-        // ~10 Hz cutoff: R = e^(-2π × 10 / sr)
-        let dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
-        // ~2kHz pre-emphasis LP for consistent "color" across SRs
-        let pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
-        let os_coeff = Self::oversample_coeff(sr);
+        let sr = sanitize_sample_rate(sample_rate);
         Self {
-            drive_db: 6.0,
-            drive_lin: db_to_linear(6.0),
-            tone_pct: 50.0,
-            mix: 0.5,
-            mode: 0,
-            output_db: 0.0,
-            output_lin: 1.0,
-            color: 0.5,
-            tone_l: OnePole::new(cutoff, sr),
-            tone_r: OnePole::new(cutoff, sr),
-            dc_x_l: 0.0,
-            dc_y_l: 0.0,
-            dc_x_r: 0.0,
-            dc_y_r: 0.0,
-            dc_coeff,
-            pre_state_l: 0.0,
-            pre_state_r: 0.0,
-            pre_coeff,
-            sample_rate: sr,
-            drive_sm: SmoothedValue::new(sr, 8.0, db_to_linear(6.0)),
-            cutoff_sm: SmoothedValue::new(sr, 8.0, cutoff),
-            mix_sm: SmoothedValue::new(sr, 8.0, 0.5),
+            curve: 0, drive: 0.3, output_db: 0.0, colour: 0.5, mix: 1.0,
+            dc_in_l: 0.0, dc_in_r: 0.0, dc_out_l: 0.0, dc_out_r: 0.0,
+            dc_c: 1.0 - (std::f32::consts::TAU * 20.0 / sr),
+            tilt_z_l: 0.0, tilt_z_r: 0.0,
+            drive_sm: SmoothedValue::new(sr, 10.0, 0.3),
             output_sm: SmoothedValue::new(sr, 8.0, 1.0),
-            color_sm: SmoothedValue::new(sr, 10.0, 0.5),
-            last_cutoff_applied: cutoff,
-            os_prev_in_l: 0.0,
-            os_prev_in_r: 0.0,
-            os_post_l: 0.0,
-            os_post_r: 0.0,
-            os_coeff,
-        }
-    }
-
-    fn tone_to_cutoff(pct: f32) -> f32 {
-        1000.0 * (20000.0 / 1000.0_f32).powf(pct / 100.0)
-    }
-
-    #[inline]
-    fn oversample_coeff(sr: f32) -> f32 {
-        let os_sr = (sr * 2.0).max(1.0);
-        // Decimator LP: below base Nyquist to suppress folded harmonics.
-        let cutoff_hz = (sr * 0.42).clamp(1000.0, 22000.0);
-        (1.0 - (-std::f32::consts::TAU * cutoff_hz / os_sr).exp()).clamp(0.01, 0.99)
-    }
-
-    /// DC blocker (removes DC offset introduced by asymmetric clipping).
-    /// BUG-18 FIX: Uses SR-dependent coefficient instead of hardcoded 0.9975.
-    #[inline]
-    fn dc_block(x: f32, prev_x: &mut f32, prev_y: &mut f32, coeff: f32) -> f32 {
-        let y = x - *prev_x + coeff * *prev_y;
-        *prev_x = x;
-        *prev_y = y;
-        y
-    }
-
-    /// Pre-emphasis: adds treble before saturation for "color".
-    /// Uses SR-dependent LP coefficient for consistent frequency response.
-    #[inline]
-    fn pre_emphasis(sample: f32, state: &mut f32, amount: f32, coeff: f32) -> f32 {
-        let hp = sample - *state;
-        *state += coeff * (sample - *state);
-        sample + hp * amount * 2.0
-    }
-
-    /// Waveshaping function selected by mode.
-    #[inline]
-    fn waveshape(x: f32, mode: u8) -> f32 {
-        match mode {
-            0 => x.tanh(), // Analog
-            1 => {
-                // Tube: asymmetric triode
-                if x >= 0.0 {
-                    1.0 - (-x * 1.5).exp()
-                } else {
-                    -(1.0 - (x * 0.8).exp()) * 0.8
-                }
-            }
-            2 => {
-                // Tape: soft, warm, slightly compressing
-                let ax = x.abs();
-                let shaped = x.signum() * (ax / (1.0 + ax));
-                // Add subtle 2nd harmonic
-                shaped + 0.05 * x * x * x.signum()
-            }
-            3 => {
-                // Digital: hard clip with subtle fold
-                let clipped = x.clamp(-1.0, 1.0);
-                let excess = (x - clipped).abs();
-                clipped - excess * 0.2 * x.signum()
-            }
-            4 => {
-                // Sine fold: wavefolder
-                (x * std::f32::consts::FRAC_PI_2).sin()
-            }
-            _ => x.tanh(),
+            colour_sm: SmoothedValue::new(sr, 10.0, 0.5),
+            mix_sm: SmoothedValue::new(sr, 8.0, 1.0),
+            sample_rate: sr,
         }
     }
 
     #[inline]
-    fn process_oversampled(
-        input: f32,
-        prev_in: &mut f32,
-        post_state: &mut f32,
-        mode: u8,
-        lp_coeff: f32,
-    ) -> f32 {
-        let x0 = *prev_in;
-        let x1 = input;
-        let u0 = 0.5 * (x0 + x1);
-        let u1 = x1;
-        let y0 = Self::waveshape(u0, mode);
-        let y1 = Self::waveshape(u1, mode);
-        *post_state += lp_coeff * (y0 - *post_state);
-        *post_state += lp_coeff * (y1 - *post_state);
-        *prev_in = x1;
-        *post_state
+    fn analog_clip(x: f32, drive: f32) -> f32 {
+        let g = 1.0 + drive * 20.0;
+        let d = x * g;
+        let knee = 1.0 - drive * 0.5;
+        d / (1.0 + (d / knee.max(0.1)).abs()).powf(knee.max(0.1))
     }
-}
 
-impl Default for SaturatorProcessor {
-    fn default() -> Self {
-        Self::new(DEFAULT_SAMPLE_RATE)
+    #[inline]
+    fn tape(x: f32, drive: f32) -> f32 {
+        let g = 1.0 + drive * 15.0;
+        let d = x * g;
+        let pos = d.max(0.0).tanh();
+        let neg = -((-d).max(0.0) * 0.85).tanh();
+        if d >= 0.0 { pos } else { neg }
+    }
+
+    #[inline]
+    fn tube_curve(x: f32, drive: f32) -> f32 {
+        let g = 1.0 + drive * 25.0;
+        let d = x * g;
+        if d >= 0.0 {
+            d / (1.0 + d * 0.5)
+        } else {
+            d.max(-3.0).tanh()
+        }
+    }
+
+    #[inline]
+    fn diode(x: f32, drive: f32) -> f32 {
+        let g = 1.0 + drive * 30.0;
+        let d = x * g;
+        if d > 0.6 { 0.6 + (d - 0.6) / (1.0 + (d - 0.6) * 3.0) }
+        else if d < -0.3 { -0.3 + (d + 0.3) / (1.0 + (-d - 0.3) * 5.0) }
+        else { d }
+    }
+
+    #[inline]
+    fn sinefold(x: f32, drive: f32) -> f32 {
+        let g = 1.0 + drive * 6.0;
+        (x * g * std::f32::consts::FRAC_PI_2).sin()
     }
 }
 
@@ -240,150 +111,80 @@ impl DspProcessor for SaturatorProcessor {
         let sr = sanitize_sample_rate(sample_rate);
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
-            let cutoff = Self::tone_to_cutoff(self.tone_pct);
-            self.tone_l.set_cutoff(cutoff, sr);
-            self.tone_r.set_cutoff(cutoff, sr);
-            // BUG-18 FIX: Recalculate SR-dependent coefficients using the same
-            // exact exponential form as initialization path.
-            // R = e^(-2πfc/sr), fc = 10Hz.
-            self.dc_coeff = (-std::f32::consts::TAU * 10.0 / sr).exp();
-            self.pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
-            self.os_coeff = Self::oversample_coeff(sr);
-            self.drive_sm.set_sample_rate(sr);
-            self.cutoff_sm.set_sample_rate(sr);
-            self.mix_sm.set_sample_rate(sr);
-            self.output_sm.set_sample_rate(sr);
-            self.color_sm.set_sample_rate(sr);
+            self.dc_c = 1.0 - (std::f32::consts::TAU * 20.0 / sr);
+            for sm in [&mut self.drive_sm, &mut self.output_sm,
+                       &mut self.colour_sm, &mut self.mix_sm] {
+                sm.set_sample_rate(sr);
+            }
         }
 
         let len = left.len().min(right.len());
-        let mode = self.mode;
-        let dc_c = self.dc_coeff;
-        let pre_c = self.pre_coeff;
-        let os_c = self.os_coeff;
-        self.drive_sm.set_target(self.drive_lin.max(0.0));
-        let target_cutoff = Self::tone_to_cutoff(self.tone_pct);
-        self.cutoff_sm.set_target(target_cutoff);
-        self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));
-        self.output_sm.set_target(self.output_lin.max(0.0));
-        self.color_sm.set_target(self.color.clamp(0.0, 1.0));
+        let out_lin = if self.output_db <= -24.0 { 0.0 } else { db_to_linear(self.output_db) };
+        self.drive_sm.set_target(self.drive);
+        self.output_sm.set_target(out_lin);
+        self.colour_sm.set_target(self.colour);
+        self.mix_sm.set_target(self.mix);
+        let dc = self.dc_c;
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
             let drive = self.drive_sm.next_value();
-            let cutoff = self.cutoff_sm.next_value();
+            let output = self.output_sm.next_value();
+            let colour = self.colour_sm.next_value();
             let mix = self.mix_sm.next_value();
-            let out = self.output_sm.next_value();
-            let color = self.color_sm.next_value();
-            // BUG-4 FIX: Only recalculate filter coefficient when cutoff moves
-            // by >1 Hz. Eliminates per-sample exp() call (44,100/sec → ~10/sec).
-            if (cutoff - self.last_cutoff_applied).abs() > 1.0 {
-                self.tone_l.set_cutoff(cutoff, self.sample_rate);
-                self.tone_r.set_cutoff(cutoff, self.sample_rate);
-                self.last_cutoff_applied = cutoff;
-            }
 
-            // Pre-emphasis (color)
-            let pre_l = Self::pre_emphasis(dry_l, &mut self.pre_state_l, color, pre_c);
-            let pre_r = Self::pre_emphasis(dry_r, &mut self.pre_state_r, color, pre_c);
+            // Pre-saturation tilt (colour)
+            let tilt_c = (1.0 - (-std::f32::consts::TAU * (200.0 + colour * 8000.0) / sr).exp()).clamp(0.0, 1.0);
+            self.tilt_z_l += tilt_c * (dry_l - self.tilt_z_l);
+            self.tilt_z_r += tilt_c * (dry_r - self.tilt_z_r);
+            let tilted_l = self.tilt_z_l * (1.0 - colour) + dry_l * colour;
+            let tilted_r = self.tilt_z_r * (1.0 - colour) + dry_r * colour;
 
-            // Drive
-            let driven_l = pre_l * drive;
-            let driven_r = pre_r * drive;
+            let (sat_l, sat_r) = match self.curve {
+                0 => (Self::analog_clip(tilted_l, drive), Self::analog_clip(tilted_r, drive)),
+                1 => (Self::tape(tilted_l, drive), Self::tape(tilted_r, drive)),
+                2 => (Self::tube_curve(tilted_l, drive), Self::tube_curve(tilted_r, drive)),
+                3 => (Self::diode(tilted_l, drive), Self::diode(tilted_r, drive)),
+                _ => (Self::sinefold(tilted_l, drive), Self::sinefold(tilted_r, drive)),
+            };
 
-            // Waveshape in 2x oversampled path (reduced aliasing).
-            let shaped_l = Self::process_oversampled(
-                driven_l,
-                &mut self.os_prev_in_l,
-                &mut self.os_post_l,
-                mode,
-                os_c,
-            );
-            let shaped_r = Self::process_oversampled(
-                driven_r,
-                &mut self.os_prev_in_r,
-                &mut self.os_post_r,
-                mode,
-                os_c,
-            );
+            // DC blocker
+            let dcb_l = sat_l - self.dc_in_l + dc * self.dc_out_l;
+            self.dc_in_l = sat_l; self.dc_out_l = dcb_l;
+            let dcb_r = sat_r - self.dc_in_r + dc * self.dc_out_r;
+            self.dc_in_r = sat_r; self.dc_out_r = dcb_r;
 
-            // DC block (SR-dependent coefficient)
-            let dc_l = Self::dc_block(shaped_l, &mut self.dc_x_l, &mut self.dc_y_l, dc_c);
-            let dc_r = Self::dc_block(shaped_r, &mut self.dc_x_r, &mut self.dc_y_r, dc_c);
+            crate::processors::flush_denormal!(self.tilt_z_l);
+            crate::processors::flush_denormal!(self.tilt_z_r);
+            crate::processors::flush_denormal!(self.dc_out_l);
+            crate::processors::flush_denormal!(self.dc_out_r);
 
-            // Tone filter
-            let toned_l = self.tone_l.process(dc_l);
-            let toned_r = self.tone_r.process(dc_r);
-
-            // Output gain + mix
-            let wet_l = toned_l * out;
-            let wet_r = toned_r * out;
-            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
-            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
-
-            // SSOT: Flush denormals in all filter states.
-            crate::processors::flush_denormal!(self.tone_l.state);
-            crate::processors::flush_denormal!(self.tone_r.state);
-            crate::processors::flush_denormal!(self.dc_y_l);
-            crate::processors::flush_denormal!(self.dc_y_r);
-            // M04 FIX: dc_x states also need flush (missed in original audit).
-            crate::processors::flush_denormal!(self.dc_x_l);
-            crate::processors::flush_denormal!(self.dc_x_r);
-            crate::processors::flush_denormal!(self.pre_state_l);
-            crate::processors::flush_denormal!(self.pre_state_r);
-            crate::processors::flush_denormal!(self.os_prev_in_l);
-            crate::processors::flush_denormal!(self.os_prev_in_r);
-            crate::processors::flush_denormal!(self.os_post_l);
-            crate::processors::flush_denormal!(self.os_post_r);
+            left[i] = (dry_l * (1.0 - mix) + dcb_l * mix) * output;
+            right[i] = (dry_r * (1.0 - mix) + dcb_r * mix) * output;
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => {
-                self.drive_db = value.clamp(0.0, 36.0);
-                self.drive_lin = db_to_linear(self.drive_db);
-            }
-            1 => {
-                self.tone_pct = value.clamp(0.0, 100.0);
-                let cutoff = Self::tone_to_cutoff(self.tone_pct);
-                self.tone_l.set_cutoff(cutoff, self.sample_rate);
-                self.tone_r.set_cutoff(cutoff, self.sample_rate);
-            }
-            2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
-            // BUG-029 FIX: Clamp to valid range before cast.
-            // `(256.0 as u8) = 0` via wrapping; `(-1.0 as u8) = 0` via saturation.
-            3 => self.mode = value.clamp(0.0, 4.0) as u8,
-            4 => {
-                self.output_db = value.clamp(-24.0, 6.0);
-                self.output_lin = db_to_linear(self.output_db);
-            }
-            5 => self.color = (value / 100.0).clamp(0.0, 1.0),
+            0 => self.curve = (value as u8).min(4),
+            1 => self.drive = (value / 100.0).clamp(0.0, 1.0),
+            2 => self.output_db = value.clamp(-24.0, 6.0),
+            3 => self.colour = (value / 100.0).clamp(0.0, 1.0),
+            4 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             _ => {}
         }
     }
 
     fn reset(&mut self) {
-        self.tone_l.reset();
-        self.tone_r.reset();
-        self.dc_x_l = 0.0;
-        self.dc_y_l = 0.0;
-        self.dc_x_r = 0.0;
-        self.dc_y_r = 0.0;
-        self.pre_state_l = 0.0;
-        self.pre_state_r = 0.0;
-        self.drive_sm.set_instant(self.drive_lin.max(0.0));
-        let cutoff = Self::tone_to_cutoff(self.tone_pct);
-        self.cutoff_sm.set_instant(cutoff);
-        self.last_cutoff_applied = cutoff;
-        self.mix_sm.set_instant(self.mix.clamp(0.0, 1.0));
-        self.output_sm.set_instant(self.output_lin.max(0.0));
-        self.color_sm.set_instant(self.color.clamp(0.0, 1.0));
-        self.os_prev_in_l = 0.0;
-        self.os_prev_in_r = 0.0;
-        self.os_post_l = 0.0;
-        self.os_post_r = 0.0;
+        self.dc_in_l = 0.0; self.dc_in_r = 0.0;
+        self.dc_out_l = 0.0; self.dc_out_r = 0.0;
+        self.tilt_z_l = 0.0; self.tilt_z_r = 0.0;
+        self.drive_sm.set_instant(self.drive);
+        let o = if self.output_db <= -24.0 { 0.0 } else { db_to_linear(self.output_db) };
+        self.output_sm.set_instant(o);
+        self.colour_sm.set_instant(self.colour);
+        self.mix_sm.set_instant(self.mix);
     }
 }
 
@@ -392,68 +193,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn saturator_clips_loud_signal() {
-        let mut proc = SaturatorProcessor::new(44100.0);
-        proc.set_param(0, 24.0);
-        proc.set_param(2, 100.0);
-        let mut l = vec![1.0f32; 256];
-        let mut r = vec![1.0f32; 256];
-        proc.process_stereo(&mut l, &mut r, 44100.0);
-        for s in &l {
-            assert!(s.abs() <= 1.5, "Sat too hot: {s}");
-        }
-    }
-
-    #[test]
-    fn saturator_zero_drive_passthrough() {
-        let mut proc = SaturatorProcessor::new(44100.0);
-        proc.set_param(0, 0.0);
-        proc.set_param(1, 100.0);
-        proc.set_param(2, 100.0);
-        proc.set_param(5, 0.0); // no color
-        let mut l = vec![0.3f32; 1024];
-        let mut r = vec![0.3f32; 1024];
-        proc.process_stereo(&mut l, &mut r, 44100.0);
-        // With pre-emphasis and DC blocking, value may differ more from pure tanh(0.3)
-        let tail_avg: f32 = l[512..].iter().sum::<f32>() / 512.0;
-        assert!(
-            tail_avg > 0.0 && tail_avg < 0.5,
-            "Expected small positive, got: {tail_avg}"
-        );
-    }
-
-    #[test]
-    fn all_modes_work() {
-        for m in 0..=4u8 {
-            let mut proc = SaturatorProcessor::new(44100.0);
-            proc.set_param(3, m as f32);
-            proc.set_param(0, 12.0);
-            let mut l = vec![0.5f32; 512];
-            let mut r = vec![0.5f32; 512];
-            proc.process_stereo(&mut l, &mut r, 44100.0);
-        }
-    }
-
-    #[test]
-    fn saturator_high_drive_no_nan_or_inf() {
-        let mut proc = SaturatorProcessor::new(48000.0);
-        proc.set_param(0, 36.0);
-        proc.set_param(1, 100.0);
-        proc.set_param(2, 100.0);
-        proc.set_param(3, 4.0);
-        proc.set_param(5, 100.0);
-        let n = 4096usize;
-        let mut l = vec![0.0f32; n];
-        let mut r = vec![0.0f32; n];
-        for i in 0..n {
-            let t = i as f32 / 48000.0;
-            let s = (2.0 * std::f32::consts::PI * 17000.0 * t).sin() * 0.95;
-            l[i] = s;
-            r[i] = -s;
-        }
-        proc.process_stereo(&mut l, &mut r, 48000.0);
-        for s in l.iter().chain(r.iter()) {
-            assert!(s.is_finite(), "Found non-finite sample: {s}");
+    fn saturator_all_curves() {
+        let sr = 44100.0;
+        for c in 0..5u8 {
+            let mut proc = SaturatorProcessor::new(sr);
+            proc.set_param(0, c as f32);
+            proc.set_param(1, 70.0);
+            let mut left: Vec<f32> = (0..4096)
+                .map(|i| (std::f32::consts::TAU * 200.0 * i as f32 / sr).sin() * 0.3)
+                .collect();
+            let mut right = left.clone();
+            proc.process_stereo(&mut left, &mut right, sr);
+            assert!(left.iter().all(|x| x.is_finite()), "curve {c} NaN");
+            let rms: f32 = (left[2048..].iter().map(|x| x * x).sum::<f32>() / 2048.0).sqrt();
+            assert!(rms > 0.001, "curve {c} silent: {rms}");
         }
     }
 }

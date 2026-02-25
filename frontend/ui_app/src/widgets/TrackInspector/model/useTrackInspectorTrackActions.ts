@@ -7,7 +7,7 @@ interface UseTrackInspectorTrackActionsArgs {
     tracks: TrackData[];
     selectedTrackIdSet: Set<string>;
     getTrackIndex: (id: string) => number;
-    engineSetTrackDisabled: (trackIndex: number, muted: boolean) => Promise<void>;
+    engineSetTrackDisabled: (trackIndex: number, disabled: boolean) => Promise<void>;
     engineSetTrackSolo: (trackIndex: number, soloed: boolean) => Promise<void>;
     setLocalOverrides: React.Dispatch<React.SetStateAction<Record<string, Partial<TrackData>>>>;
 }
@@ -24,9 +24,9 @@ export function useTrackInspectorTrackActions({
         const track = tracks.find((t) => t.id === id);
         if (!track) return;
         const idx = getTrackIndex(id);
-        const newMuted = !track.isDisabled;
-        if (idx >= 0) void engineSetTrackDisabled(idx, newMuted);
-        setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isDisabled: newMuted } }));
+        const newDisabled = !track.isDisabled;
+        if (idx >= 0) void engineSetTrackDisabled(idx, newDisabled);
+        setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isDisabled: newDisabled } }));
     }, [tracks, getTrackIndex, engineSetTrackDisabled, setLocalOverrides]);
 
     const toggleSolo = useCallback((id: string) => {

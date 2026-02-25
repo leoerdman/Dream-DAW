@@ -43,7 +43,7 @@ export const AssetBrowserSidebar = memo(function AssetBrowserSidebar({
     }, [categories]);
 
     return (
-        <div className="scrollbar-hide" style={sidebarStyle}>
+        <div style={sidebarStyle}>
             {categories.map((cat) => {
                 if (cat.kind === 'section') {
                     const collapsed = cat.id === 'sec-collections' ? false : collapsedSections.has(cat.id);

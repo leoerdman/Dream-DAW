@@ -213,7 +213,7 @@ pub struct SamplerEngine {
     /// Engine/device sample rate (Hz).
     device_sample_rate: f64,
 
-    /// Cached ratio: sourcedevice_sample_rate / devicedevice_sample_rate.
+    /// Cached ratio: source_sample_rate / device_sample_rate.
     ///
     /// Applied to `pitch_ratio` in sample-mode playback so that samples
     /// recorded at a different SR play at the correct pitch on any device.

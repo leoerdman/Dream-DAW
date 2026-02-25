@@ -199,7 +199,6 @@ export const VirtualFileList = memo(function VirtualFileList({
     return (
         <div
             ref={fileListRef}
-            className="scrollbar-hide"
             onScroll={handleFileListScroll}
             onKeyDown={handleBrowserKeyDown}
             tabIndex={0}

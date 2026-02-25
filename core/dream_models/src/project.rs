@@ -350,6 +350,8 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_GRAIN_DELAY: u8 = 30;
     const FX_CORPUS: u8 = 31;
     const FX_SPECTRAL_TIME: u8 = 32;
+    const FX_GLUE_COMPRESSOR: u8 = 33;
+    const FX_FILTER_DELAY: u8 = 34;
 
     let key = plugin_id.trim().to_lowercase();
 
@@ -420,6 +422,9 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         "internal://effect/spectral-time" => Some(FX_SPECTRAL_TIME),
         "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
         "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+        "internal://effect/saturator" => Some(FX_SATURATOR),
+        "internal://effect/glue-compressor" | "internal://effect/glue" => Some(FX_GLUE_COMPRESSOR),
+        "internal://effect/filter-delay" => Some(FX_FILTER_DELAY),
         "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
         "internal://effect/analyzer" | "internal://effect/spectrum" => Some(FX_ANALYZER),
         _ => None,

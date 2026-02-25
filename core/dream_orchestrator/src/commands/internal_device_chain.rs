@@ -8,9 +8,9 @@ const INSTRUMENT_SLOT_INDEX: u8 = 255;
 fn selected_runtime_chain(rack: &DeviceRack) -> Option<&RackChain> {
     let has_solo = rack.chains.iter().any(|c| c.is_solo);
     if has_solo {
-        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
     } else {
-        rack.chains.iter().find(|c| !c.is_mute)
+        rack.chains.iter().find(|c| !c.is_disabled)
     }
 }
 

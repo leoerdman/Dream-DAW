@@ -108,9 +108,9 @@ fn selected_audit_chain(
 ) -> Option<&dream_models::project::RackChain> {
     let has_solo = rack.chains.iter().any(|c| c.is_solo);
     if has_solo {
-        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
     } else {
-        rack.chains.iter().find(|c| !c.is_mute)
+        rack.chains.iter().find(|c| !c.is_disabled)
     }
 }
 

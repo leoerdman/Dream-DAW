@@ -90,18 +90,18 @@ impl Command for SetMasterVolumeCommand {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SetTrackMuteResult {
+pub struct SetTrackDisabledResult {
     pub track_id: Uuid,
-    pub muted: bool,
+    pub disabled: bool,
 }
 
-pub struct SetTrackMuteByIndexCommand {
+pub struct SetTrackDisabledByIndexCommand {
     pub track_index: u16,
-    pub muted: bool,
+    pub disabled: bool,
 }
 
-impl Command for SetTrackMuteByIndexCommand {
-    type Result = SetTrackMuteResult;
+impl Command for SetTrackDisabledByIndexCommand {
+    type Result = SetTrackDisabledResult;
 
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<Self::Result> {
         let mut project = ctx.lock_project()?;
@@ -114,10 +114,10 @@ impl Command for SetTrackMuteByIndexCommand {
                 requested: idx,
                 total,
             })?;
-        track.is_mute = self.muted;
-        Ok(SetTrackMuteResult {
+        track.is_disabled = self.disabled;
+        Ok(SetTrackDisabledResult {
             track_id: track.id,
-            muted: self.muted,
+            disabled: self.disabled,
         })
     }
 }

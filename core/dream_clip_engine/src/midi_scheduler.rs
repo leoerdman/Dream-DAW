@@ -138,7 +138,7 @@ impl MidiScheduler {
 
         for clip in clips {
             // Skip muted clips — they remain visible but produce no MIDI output.
-            if clip.is_muted {
+            if clip.is_disabledd {
                 continue;
             }
 
@@ -304,7 +304,7 @@ impl MidiScheduler {
                 // Loop boundary safety: explicitly turn off notes that cross the wrap point.
                 let mut forced_off_by_pitch = [false; 128];
                 for clip in clips {
-                    if clip.is_muted {
+                    if clip.is_disabledd {
                         continue;
                     }
                     let clip_start = clip.position.sample_frame;

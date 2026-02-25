@@ -18,7 +18,7 @@ pub(super) fn apply_pending_track_mixer_state(
     render_ctx: &mut RenderContext,
     pending_track_volume: &[Option<f32>; MAX_TRACKS],
     pending_track_pan: &[Option<f32>; MAX_TRACKS],
-    pending_track_mute: &[Option<bool>; MAX_TRACKS],
+    pending_track_disabled: &[Option<bool>; MAX_TRACKS],
     pending_track_solo: &[Option<bool>; MAX_TRACKS],
     track_disabled: &mut [bool; MAX_TRACKS],
     track_soloed: &mut [bool; MAX_TRACKS],
@@ -32,7 +32,7 @@ pub(super) fn apply_pending_track_mixer_state(
         if let Some(p) = pending_track_pan[i] {
             render_ctx.track_slots[i].strip.set_pan(p);
         }
-        if let Some(m) = pending_track_mute[i] {
+        if let Some(m) = pending_track_disabled[i] {
             track_disabled[i] = m;
         }
         if let Some(s) = pending_track_solo[i] {
@@ -44,7 +44,7 @@ pub(super) fn apply_pending_track_mixer_state(
         .iter()
         .take(render_ctx.track_slots.len())
         .any(|v| v.is_some())
-        || pending_track_mute
+        || pending_track_disabled
             .iter()
             .take(render_ctx.track_slots.len())
             .any(|v| v.is_some());

@@ -27,7 +27,7 @@ pub(crate) struct SharedTrackSnapshot {
     volume: f64,
     pan: f64,
     is_solo: bool,
-    is_mute: bool,
+    is_disabled: bool,
     is_armed: bool,
     color: TrackColor,
     color_hex: Option<String>,
@@ -68,7 +68,7 @@ impl SharedTrackSnapshot {
             volume: track.volume,
             pan: track.pan,
             is_solo: track.is_solo,
-            is_mute: track.is_mute,
+            is_disabled: track.is_disabled,
             is_armed: track.is_armed,
             color: track.color,
             color_hex: track.color_hex.clone(),
@@ -95,7 +95,7 @@ impl SharedTrackSnapshot {
             && self.volume == track.volume
             && self.pan == track.pan
             && self.is_solo == track.is_solo
-            && self.is_mute == track.is_mute
+            && self.is_disabled == track.is_disabled
             && self.is_armed == track.is_armed
             && self.color == track.color
             && self.color_hex == track.color_hex
@@ -129,7 +129,7 @@ impl SharedTrackSnapshot {
             volume: self.volume,
             pan: self.pan,
             is_solo: self.is_solo,
-            is_mute: self.is_mute,
+            is_disabled: self.is_disabled,
             is_armed: self.is_armed,
             color: self.color,
             color_hex: self.color_hex.clone(),

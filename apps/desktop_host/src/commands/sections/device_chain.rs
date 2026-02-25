@@ -13,9 +13,9 @@ fn selected_runtime_chain(
 ) -> Option<&dream_models::project::RackChain> {
     let has_solo = rack.chains.iter().any(|c| c.is_solo);
     if has_solo {
-        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
     } else {
-        rack.chains.iter().find(|c| !c.is_mute)
+        rack.chains.iter().find(|c| !c.is_disabled)
     }
 }
 
@@ -352,19 +352,19 @@ fn update_track(
     if let Some(muted) = update.muted {
         let result = execute_orchestrator_command(
             &project_state,
-            &dream_orchestrator::commands::SetTrackMuteByIndexCommand {
+            &dream_orchestrator::commands::SetTrackDisabledByIndexCommand {
                 track_index: update.track_index,
                 muted,
             },
         )?;
         if let Err(e) = push_command(
             &handle,
-            EngineCommand::SetTrackMute {
+            EngineCommand::SetTrackDisabled {
                 track_index: update.track_index,
                 muted: result.muted,
             },
         ) {
-            log::error!("[update_track] SetTrackMute dropped: {e}");
+            log::error!("[update_track] SetTrackDisabled dropped: {e}");
         }
     }
 

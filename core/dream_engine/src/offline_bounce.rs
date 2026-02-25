@@ -137,9 +137,9 @@ impl OfflineRenderer {
                 let rack_bypassed = parent_bypassed || rack.is_bypassed;
                 let has_solo = rack.chains.iter().any(|c| c.is_solo);
                 if let Some(chain) = if has_solo {
-                    rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                    rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
                 } else {
-                    rack.chains.iter().find(|c| !c.is_mute)
+                    rack.chains.iter().find(|c| !c.is_disabled)
                 } {
                     for child in &chain.devices {
                         Self::collect_declared_external_slot_ids(child, rack_bypassed, out);
@@ -298,9 +298,9 @@ impl OfflineRenderer {
                     let rack_bypassed = parent_bypassed || rack.is_bypassed;
                     let has_solo = rack.chains.iter().any(|c| c.is_solo);
                     if let Some(chain) = if has_solo {
-                        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                        rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
                     } else {
-                        rack.chains.iter().find(|c| !c.is_mute)
+                        rack.chains.iter().find(|c| !c.is_disabled)
                     } {
                         Self::collect_internal_slots(&chain.devices, rack_bypassed, out);
                     }
@@ -476,9 +476,9 @@ impl OfflineRenderer {
                 let rack_bypassed = parent_bypassed || rack.is_bypassed;
                 let has_solo = rack.chains.iter().any(|c| c.is_solo);
                 let selected = if has_solo {
-                    rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                    rack.chains.iter().find(|c| c.is_solo && !c.is_disabled)
                 } else {
-                    rack.chains.iter().find(|c| !c.is_mute)
+                    rack.chains.iter().find(|c| !c.is_disabled)
                 };
                 if let Some(chain) = selected {
                     for n in &chain.devices {
@@ -1064,7 +1064,7 @@ impl OfflineRenderer {
             if let Some(cfg) = &rack_cfg {
                 for (i, pad_cfg) in cfg.pads.iter().enumerate() {
                     if let Some(pad) = rack.pad_mut(i) {
-                        pad.volume = if pad_cfg.is_muted {
+                        pad.volume = if pad_cfg.is_disabledd {
                             0.0
                         } else {
                             pad_cfg.volume.clamp(0.0, 2.0) as f32

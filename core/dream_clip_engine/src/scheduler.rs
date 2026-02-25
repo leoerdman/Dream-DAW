@@ -68,7 +68,7 @@ impl ClipScheduler {
 
         for (clip_index, clip) in clips.iter().enumerate() {
             // Skip muted/disabled clips — they stay on timeline but produce no audio
-            if clip.is_muted {
+            if clip.is_disabledd {
                 continue;
             }
 

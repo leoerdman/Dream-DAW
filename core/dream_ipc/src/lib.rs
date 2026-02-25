@@ -72,8 +72,8 @@ pub enum EngineCommand {
     /// Set master output volume (linear gain, 0.0–2.0).
     SetMasterVolume { volume: f32 },
 
-    /// Mute or unmute a track.
-    SetTrackMute { track_index: u16, muted: bool },
+    /// Enable or disable a track.
+    SetTrackDisabled { track_index: u16, disabled: bool },
 
     /// Solo or unsolo a track.
     SetTrackSolo { track_index: u16, soloed: bool },

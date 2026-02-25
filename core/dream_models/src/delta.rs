@@ -152,8 +152,8 @@ pub enum ProjectDelta {
     /// A track's pan changed.
     TrackPanChanged { track_id: Uuid, pan: f32 },
 
-    /// A track was muted/unmuted.
-    TrackMuteChanged { track_id: Uuid, muted: bool },
+    /// A track was enabled/disabled.
+    TrackDisabledChanged { track_id: Uuid, disabled: bool },
 
     /// A track was soloed/unsoloed.
     TrackSoloChanged { track_id: Uuid, soloed: bool },

@@ -70,7 +70,7 @@ pub(super) fn drain_commands(
     let mut commands_processed = 0usize;
     let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
     let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
-    let mut pending_track_mute: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
+    let mut pending_track_disabled: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
     let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
 
     for _ in 0..max_commands {
@@ -186,10 +186,10 @@ pub(super) fn drain_commands(
             EngineCommand::SetMasterVolume { volume } => {
                 *ctx.master_gain_target = volume.clamp(0.0, 2.0);
             }
-            EngineCommand::SetTrackMute { track_index, muted } => {
+            EngineCommand::SetTrackDisabled { track_index, disabled } => {
                 let idx = track_index as usize;
                 if idx < MAX_TRACKS {
-                    pending_track_mute[idx] = Some(muted);
+                    pending_track_disabled[idx] = Some(disabled);
                 }
             }
             EngineCommand::SetTrackSolo {
@@ -558,7 +558,7 @@ pub(super) fn drain_commands(
         ctx.render_ctx,
         &pending_track_volume,
         &pending_track_pan,
-        &pending_track_mute,
+        &pending_track_disabled,
         &pending_track_solo,
         ctx.track_disabled,
         ctx.track_soloed,

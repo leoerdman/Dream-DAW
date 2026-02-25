@@ -240,7 +240,7 @@ fn get_audio_chain_audit(
             track_id: project.master_track.id.to_string(),
             name: project.master_track.name.clone(),
             track_type: "Master".to_string(),
-            muted: project.master_track.is_mute,
+            muted: project.master_track.is_disabled,
             solo: project.master_track.is_solo,
             parent_track_index: None,
             output_track_index: None,

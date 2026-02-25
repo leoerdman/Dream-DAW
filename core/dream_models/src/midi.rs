@@ -117,7 +117,7 @@ pub struct MidiClip {
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
     #[serde(default)]
-    pub is_muted: bool,
+    pub is_disabledd: bool,
 
     /// User-defined fade-in length in sample frames.
     #[serde(default)]
@@ -251,7 +251,7 @@ impl MidiClip {
             duration,
             notes: Vec::new(),
             is_selected: false,
-            is_muted: false,
+            is_disabledd: false,
             fade_in_frames: 0,
             fade_out_frames: 0,
             take_id: None,
@@ -467,7 +467,7 @@ pub struct SampleRackPadConfig {
 
     /// Whether this pad is muted.
     #[serde(default)]
-    pub is_muted: bool,
+    pub is_disabledd: bool,
 
     /// Whether this pad is soloed.
     #[serde(default)]
@@ -501,7 +501,7 @@ impl Default for SampleRackPadConfig {
             name: String::new(),
             volume: default_rack_pad_volume(),
             pan: 0.0,
-            is_muted: false,
+            is_disabledd: false,
             is_soloed: false,
             attack: default_rack_pad_attack(),
             decay: default_rack_pad_decay(),

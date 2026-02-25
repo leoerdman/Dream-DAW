@@ -648,7 +648,7 @@ pub struct RackChain {
     pub is_solo: bool,
     /// Whether this chain is muted.
     #[serde(default)]
-    pub is_mute: bool,
+    pub is_disabled: bool,
     /// Chain volume (0.0–2.0, 1.0 = unity).
     #[serde(default = "default_unity")]
     pub volume: f64,
@@ -670,7 +670,7 @@ impl RackChain {
             devices: Vec::new(),
             zone_settings: ZoneSettings::default(),
             is_solo: false,
-            is_mute: false,
+            is_disabled: false,
             volume: 1.0,
             pan: 0.0,
         }
@@ -946,7 +946,7 @@ pub struct AudioClip {
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
     #[serde(default)]
-    pub is_muted: bool,
+    pub is_disabledd: bool,
 
     /// Optional color override (uses track color when `None`).
     pub color_override: Option<TrackColor>,
@@ -1091,7 +1091,7 @@ impl AudioClip {
             fade_out_frames: 0,
             is_offline: false,
             is_selected: false,
-            is_muted: false,
+            is_disabledd: false,
             color_override: None,
             color_hex: None,
             launch_mode: 0,
@@ -1229,7 +1229,7 @@ pub struct Track {
     pub is_solo: bool,
 
     /// Whether this track is muted.
-    pub is_mute: bool,
+    pub is_disabled: bool,
 
     /// Whether this track is armed for recording.
     pub is_armed: bool,
@@ -1308,7 +1308,7 @@ impl Track {
             volume: 1.0,
             pan: 0.0,
             is_solo: false,
-            is_mute: false,
+            is_disabled: false,
             is_armed: false,
             color: TrackColor::default(),
             color_hex: None,
@@ -1393,7 +1393,7 @@ impl Track {
     /// A track is treated as muted if either explicit mute is on, or
     /// Ableton import marked it as `mixer.output_enabled = 0`.
     pub fn effective_mute_from_model(&self) -> bool {
-        self.is_mute || !self.output_enabled_from_model()
+        self.is_disabled || !self.output_enabled_from_model()
     }
 
     /// End position of the last clip on this track.

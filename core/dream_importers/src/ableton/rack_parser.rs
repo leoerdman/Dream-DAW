@@ -393,7 +393,7 @@ pub fn parse_als_rack_chains(
             .and_then(|n| n.attribute("Value"))
             .and_then(parse_bool_value)
             .unwrap_or(false);
-        chain.is_mute = branch
+        chain.is_disabled = branch
             .children()
             .find(|n| n.is_element() && n.has_tag_name("IsMuted"))
             .and_then(|n| n.attribute("Value"))

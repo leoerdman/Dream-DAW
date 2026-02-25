@@ -53,7 +53,7 @@ pub fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<()
                 | EngineCommand::SetTimeSignature { .. }
                 | EngineCommand::SetLoopEnabled(_)
                 | EngineCommand::SetLoopRegion { .. }
-                | EngineCommand::SetTrackMute { .. }
+                | EngineCommand::SetTrackDisabled { .. }
                 | EngineCommand::SetTrackSolo { .. }
                 | EngineCommand::SetTrackVolume { .. }
                 | EngineCommand::SetTrackPan { .. }
@@ -580,7 +580,7 @@ pub fn sync_track_mix_state_from_project(
         )?;
         push_command(
             handle,
-            EngineCommand::SetTrackMute {
+            EngineCommand::SetTrackDisabled {
                 track_index: idx,
                 muted: track.effective_mute_from_model(),
             },

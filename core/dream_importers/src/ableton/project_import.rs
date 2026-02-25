@@ -274,7 +274,7 @@ pub fn import_als_project_with_target_sample_rate(
             }
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
-            track.is_mute = on == Some(false) || speaker == Some(false);
+            track.is_disabled = on == Some(false) || speaker == Some(false);
             let solo = maybe_parse_bool_manual(mixer, "Solo")
                 .or_else(|| {
                     node_child_value(mixer, "SoloSink")
@@ -422,7 +422,7 @@ pub fn import_als_project_with_target_sample_rate(
                     // Ensure runtime strip gate matches ALS "No Output" behavior.
                     // The current engine model uses mute/solo output gating;
                     // without this, tracks with AudioOut/None can still reach master.
-                    track.is_mute = true;
+                    track.is_disabled = true;
                 }
                 OutputRoutingTarget::Unknown => {
                     // Unknown token may still be a valid external/hardware output.

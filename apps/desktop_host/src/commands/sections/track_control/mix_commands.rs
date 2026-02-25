@@ -158,19 +158,19 @@ fn set_master_volume(
     Ok(())
 }
 
-/// Mutes or unmutes a track.
+/// Enables or disables a track.
 #[tauri::command]
-fn set_track_mute(
+fn set_track_disabled(
     track_index: u16,
-    muted: bool,
+    disabled: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let cmd = dream_orchestrator::commands::SetTrackMuteByIndexCommand { track_index, muted };
+    let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let _ = execute_orchestrator_command(&project_state, &cmd)?;
 
-    push_command(&handle, EngineCommand::SetTrackMute { track_index, muted })?;
+    push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -178,22 +178,22 @@ fn set_track_mute(
     };
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    log::info!("[IPC] set_track_mute(track={track_index}, muted={muted})");
+    log::info!("[IPC] set_track_disabled(track={track_index}, disabled={disabled})");
     Ok(())
 }
 
 #[tauri::command]
-fn set_track_mute_with_deltas(
+fn set_track_disabled_with_deltas(
     track_index: u16,
-    muted: bool,
+    disabled: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<TrackDeltaResponse, String> {
-    let cmd = dream_orchestrator::commands::SetTrackMuteByIndexCommand { track_index, muted };
+    let cmd = dream_orchestrator::commands::SetTrackDisabledByIndexCommand { track_index, disabled };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
 
-    push_command(&handle, EngineCommand::SetTrackMute { track_index, muted })?;
+    push_command(&handle, EngineCommand::SetTrackDisabled { track_index, disabled })?;
 
     let project_name = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -202,9 +202,9 @@ fn set_track_mute_with_deltas(
     project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(TrackDeltaResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::TrackMuteChanged {
+        deltas: vec![dream_models::delta::ProjectDelta::TrackDisabledChanged {
             track_id: result.track_id,
-            muted: result.muted,
+            disabled: result.disabled,
         }],
     })
 }

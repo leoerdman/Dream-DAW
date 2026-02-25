@@ -391,7 +391,7 @@ impl RenderContext {
             for ac in &self.scratch_active_clips {
                 let clip = &clips[ac.clip_index];
                 // Skip muted clips — they remain visible but produce no audio.
-                if clip.is_muted {
+                if clip.is_disabledd {
                     continue;
                 }
                 let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;

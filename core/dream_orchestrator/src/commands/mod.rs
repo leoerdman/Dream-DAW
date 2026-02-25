@@ -111,7 +111,7 @@ pub use track_grouping::{
     CreateGroupCommand, CreateGroupResult, SetGroupExpandedCommand, snapshot_track_order_and_parent,
 };
 pub use track_mix::{
-    SetMasterVolumeCommand, SetTrackMuteByIndexCommand, SetTrackMuteResult,
+    SetMasterVolumeCommand, SetTrackDisabledByIndexCommand, SetTrackDisabledResult,
     SetTrackPanByIndexCommand, SetTrackPanResult, SetTrackSendLevelByIndexCommand,
     SetTrackSendLevelResult, SetTrackSoloByIndexCommand, SetTrackSoloResult,
     SetTrackVolumeByIndexCommand, SetTrackVolumeResult,

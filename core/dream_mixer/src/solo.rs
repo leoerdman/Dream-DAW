@@ -38,7 +38,7 @@ pub struct TrackFlags {
     pub is_solo: bool,
 
     /// Whether this track is muted.
-    pub is_mute: bool,
+    pub is_disabled: bool,
 
     /// Whether this track is the master track.
     pub is_master: bool,
@@ -71,7 +71,7 @@ impl SoloResolver {
         // also silent (mute overrides solo) → TOTAL SILENCE.
         let any_solo = tracks
             .iter()
-            .any(|t| t.is_solo && !t.is_master && !t.is_mute);
+            .any(|t| t.is_solo && !t.is_master && !t.is_disabled);
         let count = tracks.len().min(out.len());
 
         for (i, flags) in tracks.iter().enumerate().take(count) {
@@ -88,7 +88,7 @@ impl SoloResolver {
         // BUG-M6 FIX: Same fix as resolve_into — exclude muted tracks from solo context.
         let any_solo = tracks
             .iter()
-            .any(|t| t.is_solo && !t.is_master && !t.is_mute);
+            .any(|t| t.is_solo && !t.is_master && !t.is_disabled);
 
         tracks
             .iter()
@@ -107,7 +107,7 @@ impl SoloResolver {
     #[inline]
     fn resolve_single(flags: &TrackFlags, any_solo: bool) -> f32 {
         // Rule 3: Mute ALWAYS wins
-        if flags.is_mute {
+        if flags.is_disabled {
             return 0.0;
         }
 
@@ -134,10 +134,10 @@ impl SoloResolver {
 mod tests {
     use super::*;
 
-    fn flags(is_solo: bool, is_mute: bool, is_master: bool) -> TrackFlags {
+    fn flags(is_solo: bool, is_disabled: bool, is_master: bool) -> TrackFlags {
         TrackFlags {
             is_solo,
-            is_mute,
+            is_disabled,
             is_master,
         }
     }

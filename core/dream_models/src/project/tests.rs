@@ -40,7 +40,7 @@ fn track_defaults() {
     assert!((track.volume - 1.0).abs() < f64::EPSILON);
     assert!((track.pan - 0.0).abs() < f64::EPSILON);
     assert!(!track.is_solo);
-    assert!(!track.is_mute);
+    assert!(!track.is_disabled);
     assert!(!track.is_armed);
     assert_eq!(track.track_type, TrackType::Audio);
     assert!((track.height - 48.0).abs() < f64::EPSILON);

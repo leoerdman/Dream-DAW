@@ -115,7 +115,7 @@ fn bounce_rejects_invalid_range() {
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_test_project();
     let mut pool = ClipPool::new();
 
@@ -138,7 +138,7 @@ fn bounce_rejects_invalid_bit_depth() {
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_test_project();
     let mut pool = ClipPool::new();
 
@@ -162,7 +162,7 @@ fn bounce_silence_produces_wav() {
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_test_project();
     let mut pool = ClipPool::new();
 
@@ -198,7 +198,7 @@ fn bounce_with_normalization() {
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_test_project();
     let mut pool = ClipPool::new();
 
@@ -224,7 +224,7 @@ fn bounce_continues_best_effort_when_external_vst_instrument_binding_is_missing(
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_external_vst_midi_project();
     let mut pool = ClipPool::new();
 
@@ -259,7 +259,7 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_track
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_external_vst_fx_project_on_track();
     let mut pool = ClipPool::new();
 
@@ -292,7 +292,7 @@ fn bounce_continues_best_effort_when_external_vst_fx_binding_is_missing_on_maste
         bpm: 120.0,
     };
 
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
     let mut project = make_external_vst_fx_project_on_master();
     let mut pool = ClipPool::new();
 
@@ -393,7 +393,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
         project_sample_rate: SR,
         bpm: BPM,
     };
-    let bouncer = OfflineBouncer::new(config);
+    let bouncer = OfflineRenderer::new(config);
 
     let clips_per_track: Vec<Vec<AudioClip>> =
         project.tracks.iter().map(|t| t.clips.clone()).collect();
@@ -402,13 +402,13 @@ fn master_fx_processes_both_group_and_direct_paths() {
         .iter()
         .map(|t| t.midi_clips.clone())
         .collect();
-    let (routing, post_sum_mask) = OfflineBouncer::build_routing(&project);
+    let (routing, post_sum_mask) = OfflineRenderer::build_routing(&project);
     let sidechains: Vec<Vec<Option<usize>>> = vec![Vec::new(); project.tracks.len()];
     let mut render_ctx = bouncer.create_render_ctx(&project, None, SR);
     let mut output_no_master_fx = vec![0.0f32; FRAMES * OFFLINE_CHANNELS];
     let mut output_with_master_fx = vec![0.0f32; FRAMES * OFFLINE_CHANNELS];
-    let mut master_chain_none = DeviceChain::new(SR as f32);
-    let external_fx_map_empty = vec![Vec::<ExternalFxRuntimeSlot>::new(); project.tracks.len() + 1];
+    let mut master_chain_none = InsertEffectsChain::new(SR as f32);
+    let external_fx_map_empty = vec![Vec::<ExternalPluginRuntimeSlot>::new(); project.tracks.len() + 1];
     let plugin_registry: HashMap<uuid::Uuid, PluginInstanceArc> = HashMap::new();
 
     let mut routing_ctx_none = super::RenderRoutingCtx {
@@ -426,7 +426,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
         midi_clips_per_track: &midi_clips_per_track,
         loop_region: None,
     };
-    OfflineBouncer::render_routing_aware(
+    OfflineRenderer::render_routing_aware(
         &mut render_ctx,
         &mut output_no_master_fx,
         &mut routing_ctx_none,
@@ -434,11 +434,11 @@ fn master_fx_processes_both_group_and_direct_paths() {
 
     // Recreate render context for deterministic comparison from frame 0.
     let mut render_ctx_with_master = bouncer.create_render_ctx(&project, None, SR);
-    let mut master_chain_utility = DeviceChain::new(SR as f32);
+    let mut master_chain_utility = InsertEffectsChain::new(SR as f32);
     let mut utility = PluginSlot::new("Utility", "internal://effect/utility");
     // Utility param[0] = Gain (dB). -60 dB should strongly attenuate master output.
     utility.params = Some(vec![-60.0]);
-    OfflineBouncer::populate_device_chain_from_effects(
+    OfflineRenderer::populate_device_chain_from_effects(
         &mut master_chain_utility,
         &[DeviceNode::single(utility)],
     );
@@ -458,7 +458,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
         midi_clips_per_track: &midi_clips_per_track,
         loop_region: None,
     };
-    OfflineBouncer::render_routing_aware(
+    OfflineRenderer::render_routing_aware(
         &mut render_ctx_with_master,
         &mut output_with_master_fx,
         &mut routing_ctx_utility,

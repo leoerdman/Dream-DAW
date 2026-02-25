@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use super::{AutomationPoint, ExternalFxRuntimeSlot, TrackAutomationState};
+use super::{AutomationPoint, ExternalPluginRuntimeSlot, TrackAutomationState};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExternalParamTarget {
@@ -166,7 +166,7 @@ fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
 
 #[cfg(test)]
 #[inline]
-pub(crate) fn apply_plugin_automation_sample_accurate(
+pub(crate) fn apply_gain_pan_automation_sample_accurate(
     left: &mut [f32],
     right: &mut [f32],
     buffer_start_frame: i64,
@@ -302,7 +302,7 @@ pub(crate) fn apply_track_mixer_automation_sample_accurate(
 pub(crate) fn apply_external_plugin_param_automation_block(
     host: &mut Box<dyn dream_plugins::PluginInstance>,
     lane: Option<&TrackAutomationState>,
-    runtime_slot: &ExternalFxRuntimeSlot,
+    runtime_slot: &ExternalPluginRuntimeSlot,
     runtime_slot_index: usize,
     playhead_pos: i64,
 ) {

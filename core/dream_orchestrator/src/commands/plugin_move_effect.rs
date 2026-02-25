@@ -70,7 +70,7 @@ impl Command for MoveEffectSlotCommand {
                 id: self.slot_id.to_string(),
             })?;
 
-        dream_graph::routing::device_chain::DeviceChain::move_effect(
+        dream_graph::routing::device_chain::InsertEffectsChain::move_effect(
             track,
             self.slot_id,
             self.target_index,

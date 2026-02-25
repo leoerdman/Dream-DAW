@@ -218,7 +218,7 @@ impl Command for AddPluginToTrackCommand {
             }
         } else {
             runtime_effect_slot_index =
-                dream_graph::routing::device_chain::DeviceChain::insert_effect(
+                dream_graph::routing::device_chain::InsertEffectsChain::insert_effect(
                     track,
                     plugin_slot,
                     self.insert_index,

@@ -137,7 +137,7 @@ async fn bounce_selection_to_track_cmd(
     let app_for_progress = app.clone();
     let job_id_for_progress = job_id.clone();
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
+        let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
@@ -313,7 +313,7 @@ async fn bounce_track_cmd(
     let app_for_progress = app.clone();
     let job_id_for_progress = job_id.clone();
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
+        let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;
@@ -557,7 +557,7 @@ async fn bounce_group_cmd(
     let app_for_progress = app.clone();
     let job_id_for_progress = job_id.clone();
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
+        let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;

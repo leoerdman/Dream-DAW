@@ -26,7 +26,7 @@ use dream_plugins::MidiEvent;
 
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
-use dream_dsp::device_chain::DeviceChain;
+use dream_dsp::device_chain::InsertEffectsChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 use dream_ipc::metering::{MeterBank, linear_to_db, peak_decay_for_block};
 use dream_ipc::{EngineCommand, MasterClock};
@@ -52,7 +52,7 @@ mod snapshots;
 pub use automation::{ExternalParamTarget, parse_external_param_target};
 #[cfg(test)]
 use automation::{
-    apply_plugin_automation_sample_accurate, apply_track_mixer_automation_sample_accurate,
+    apply_gain_pan_automation_sample_accurate, apply_track_mixer_automation_sample_accurate,
 };
 use cpal_backend::{list_audio_devices_backend, resolve_output_setup};
 pub use graph_topology::{
@@ -64,9 +64,9 @@ pub use rt_debug::{RtDebugSnapshot, SharedRtDebugStats};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 pub use snapshots::{
-    AutomationPoint, ExternalFxRuntimeSlot, ExternalParamAutomationLane, MidiFxRuntimeConfig,
+    AutomationPoint, ExternalPluginRuntimeSlot, ExternalParamAutomationLane, MidiFxRuntimeConfig,
     MidiTrackRuntime, PluginInstanceArc, SharedAutomationSnapshot, SharedClipSnapshot,
-    SharedDiskStreamers, SharedExternalFxSnapshot, SharedMidiSnapshot, SharedPluginRegistry,
+    SharedDiskStreamers, SharedExternalPluginSnapshot, SharedMidiSnapshot, SharedPluginRegistry,
     SharedRoutingSnapshot, SharedSampleRackSamples, SharedSamplerSamples, SharedSidechainSnapshot,
     TrackAutomationState,
 };
@@ -166,7 +166,7 @@ pub fn start_audio_thread(
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
     sidechain_snapshot: Arc<SharedSidechainSnapshot>,
-    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     sample_rack_samples: Arc<SharedSampleRackSamples>,
@@ -217,7 +217,7 @@ pub fn start_audio_thread_on_device(
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
     sidechain_snapshot: Arc<SharedSidechainSnapshot>,
-    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     sample_rack_samples: Arc<SharedSampleRackSamples>,

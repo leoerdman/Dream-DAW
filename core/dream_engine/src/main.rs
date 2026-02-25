@@ -57,7 +57,7 @@ fn main() {
         Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
         Arc::new(dream_engine::driver::SharedRoutingSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSidechainSnapshot::new()),
-        Arc::new(dream_engine::driver::SharedExternalFxSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedExternalPluginSnapshot::new()),
         Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
         Arc::new(dream_engine::driver::SharedSampleRackSamples::new()),

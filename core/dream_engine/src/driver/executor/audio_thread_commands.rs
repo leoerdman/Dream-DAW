@@ -1,26 +1,26 @@
 use super::super::rt_debug::SharedRtDebugStats;
 use super::super::*;
 use super::command_dispatch::{
-    DeferredTopologyCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
+    DeferredEffectChainCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
 use crate::essence_synth::EssenceSynthEngine;
-use crate::sampler::AdsrParams;
+use crate::instrument_core::AdsrParams;
 
 pub(super) const MASTER_TRACK_INDEX: u16 = u16::MAX;
-const MAX_RT_VST3_MIDI_QUEUE_EVENTS: usize = 256;
+const MAX_RT_PLUGIN_MIDI_QUEUE_EVENTS: usize = 256;
 
 #[inline]
-fn enqueue_rt_vst3_note_on(queue: &mut Vec<MidiEvent>, pitch: u8, velocity: u8) {
-    if queue.len() < MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+fn enqueue_rt_plugin_note_on(queue: &mut Vec<MidiEvent>, pitch: u8, velocity: u8) {
+    if queue.len() < MAX_RT_PLUGIN_MIDI_QUEUE_EVENTS {
         queue.push(MidiEvent::note_on(0, 0, pitch, velocity));
     }
 }
 
 #[inline]
-fn enqueue_rt_vst3_note_off(queue: &mut Vec<MidiEvent>, pitch: u8) {
+fn enqueue_rt_plugin_note_off(queue: &mut Vec<MidiEvent>, pitch: u8) {
     // Prioritize release events under pressure. If the queue is saturated,
     // purge stale note-ons and force a deterministic silence command block.
-    if queue.len() >= MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+    if queue.len() >= MAX_RT_PLUGIN_MIDI_QUEUE_EVENTS {
         queue.clear();
         queue.push(MidiEvent::cc(0, 0, 120, 0)); // All Sound Off
         queue.push(MidiEvent::cc(0, 0, 123, 0)); // All Notes Off
@@ -28,7 +28,7 @@ fn enqueue_rt_vst3_note_off(queue: &mut Vec<MidiEvent>, pitch: u8) {
     queue.push(MidiEvent::note_off(0, 0, pitch, 0));
 }
 
-pub(super) struct CommandDrainContext<'a> {
+pub(super) struct CommandProcessingContext<'a> {
     pub clock: &'a Arc<MasterClock>,
     pub render_ctx: &'a mut RenderContext,
     pub sampler_engines: &'a mut [SamplerEngine],
@@ -36,7 +36,7 @@ pub(super) struct CommandDrainContext<'a> {
     pub essence_engines: &'a mut [EssenceSynthEngine],
     pub midi_note_states: &'a mut [MidiNoteMapState],
     pub vst3_flush_per_track: &'a mut [bool; MAX_TRACKS],
-    pub vst3_rt_midi_queue: &'a mut [Vec<MidiEvent>],
+    pub plugin_rt_midi_queue: &'a mut [Vec<MidiEvent>],
     pub is_playing: &'a mut bool,
     pub bpm: &'a mut f64,
     pub time_sig_numerator: &'a mut u8,
@@ -55,8 +55,8 @@ pub(super) struct CommandDrainContext<'a> {
     pub test_tone_enabled: &'a mut bool,
     pub test_tone_target_freq: &'a mut f32,
     pub midi_chase_needed: &'a mut bool,
-    pub deferred_topology: &'a mut VecDeque<DeferredTopologyCmd>,
-    pub master_device_chain: &'a mut DeviceChain,
+    pub deferred_topology: &'a mut VecDeque<DeferredEffectChainCmd>,
+    pub master_device_chain: &'a mut InsertEffectsChain,
     pub routing_snapshot: &'a Arc<SharedRoutingSnapshot>,
     pub rt_debug_stats: &'a SharedRtDebugStats,
 }
@@ -64,7 +64,7 @@ pub(super) struct CommandDrainContext<'a> {
 pub(super) fn drain_commands(
     consumer: &mut rtrb::Consumer<EngineCommand>,
     frame_count: usize,
-    ctx: &mut CommandDrainContext<'_>,
+    ctx: &mut CommandProcessingContext<'_>,
 ) -> usize {
     let max_commands = (frame_count * 4).clamp(64, 512);
     let mut commands_processed = 0usize;
@@ -89,8 +89,8 @@ pub(super) fn drain_commands(
                         ctx.sample_rack_engines[idx].all_notes_off();
                         ctx.midi_note_states[idx].active_notes.clear();
                         ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
-                        if idx < ctx.vst3_rt_midi_queue.len() {
-                            ctx.vst3_rt_midi_queue[idx].clear();
+                        if idx < ctx.plugin_rt_midi_queue.len() {
+                            ctx.plugin_rt_midi_queue[idx].clear();
                         }
                     }
                     ctx.vst3_flush_per_track.fill(true);
@@ -112,8 +112,8 @@ pub(super) fn drain_commands(
                     ctx.sample_rack_engines[idx].all_notes_off();
                     ctx.midi_note_states[idx].active_notes.clear();
                     ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
-                    if idx < ctx.vst3_rt_midi_queue.len() {
-                        ctx.vst3_rt_midi_queue[idx].clear();
+                    if idx < ctx.plugin_rt_midi_queue.len() {
+                        ctx.plugin_rt_midi_queue[idx].clear();
                     }
                 }
                 ctx.vst3_flush_per_track.fill(true);
@@ -222,8 +222,8 @@ pub(super) fn drain_commands(
                         ctx.essence_engines[idx].note_on(pitch, velocity);
                     }
                 }
-                if idx < ctx.vst3_rt_midi_queue.len() {
-                    enqueue_rt_vst3_note_on(&mut ctx.vst3_rt_midi_queue[idx], pitch, velocity);
+                if idx < ctx.plugin_rt_midi_queue.len() {
+                    enqueue_rt_plugin_note_on(&mut ctx.plugin_rt_midi_queue[idx], pitch, velocity);
                 }
             }
             EngineCommand::SamplerNoteOff { track_index, pitch } => {
@@ -240,8 +240,8 @@ pub(super) fn drain_commands(
                         ctx.essence_engines[idx].note_off(pitch);
                     }
                 }
-                if idx < ctx.vst3_rt_midi_queue.len() {
-                    enqueue_rt_vst3_note_off(&mut ctx.vst3_rt_midi_queue[idx], pitch);
+                if idx < ctx.plugin_rt_midi_queue.len() {
+                    enqueue_rt_plugin_note_off(&mut ctx.plugin_rt_midi_queue[idx], pitch);
                 }
             }
             EngineCommand::SetSamplerRootNote {
@@ -348,15 +348,13 @@ pub(super) fn drain_commands(
                 }
             }
             EngineCommand::SetSampleRackPadFilterCutoff {
-                track_index,
-                pad_index,
-                cutoff,
+                track_index: _,
+                pad_index: _,
+                cutoff: _,
             } => {
-                if let Some(engine) = ctx.sample_rack_engines.get_mut(track_index as usize)
-                    && let Some(pad) = engine.pad_mut(pad_index as usize)
-                {
-                    pad.set_filter_cutoff(cutoff);
-                }
+                // No-op: per-pad filter cutoff is not implemented for the
+                // sample-playback engine. The SamplerEngine only plays PCM
+                // data — filtering belongs to synth engines (EssenceSynth).
             }
             // ── Essence Synth Commands ────────────────────────────────
             EngineCommand::SetEssenceWaveform1 { track_index, waveform } => {
@@ -478,8 +476,8 @@ pub(super) fn drain_commands(
                 *ctx.test_tone_phase = 0.0;
                 for (idx, engine) in ctx.sampler_engines.iter_mut().enumerate() {
                     engine.all_notes_off();
-                    if idx < ctx.vst3_rt_midi_queue.len() {
-                        ctx.vst3_rt_midi_queue[idx].clear();
+                    if idx < ctx.plugin_rt_midi_queue.len() {
+                        ctx.plugin_rt_midi_queue[idx].clear();
                     }
                 }
                 for engine in ctx.essence_engines.iter_mut() {
@@ -496,7 +494,7 @@ pub(super) fn drain_commands(
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }
-                ctx.deferred_topology.push_back(DeferredTopologyCmd::Add {
+                ctx.deferred_topology.push_back(DeferredEffectChainCmd::Add {
                     track_index,
                     slot_index,
                     effect_type,
@@ -511,7 +509,7 @@ pub(super) fn drain_commands(
                     let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology
-                    .push_back(DeferredTopologyCmd::Remove {
+                    .push_back(DeferredEffectChainCmd::Remove {
                         track_index,
                         slot_index,
                     });
@@ -583,12 +581,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enqueue_rt_vst3_note_off_forces_silence_when_queue_is_saturated() {
+    fn enqueue_rt_plugin_note_off_forces_silence_when_queue_is_saturated() {
         let mut queue = Vec::new();
-        for pitch in 0..MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+        for pitch in 0..MAX_RT_PLUGIN_MIDI_QUEUE_EVENTS {
             queue.push(MidiEvent::note_on(0, 0, (pitch % 127) as u8, 100));
         }
-        enqueue_rt_vst3_note_off(&mut queue, 64);
+        enqueue_rt_plugin_note_off(&mut queue, 64);
 
         assert_eq!(queue.len(), 3);
         assert_eq!(queue[0].data[0] & 0xF0, 0xB0);

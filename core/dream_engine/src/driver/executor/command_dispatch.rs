@@ -1,7 +1,7 @@
 use super::super::*;
 
 #[derive(Clone, Copy)]
-pub(super) enum DeferredTopologyCmd {
+pub(super) enum DeferredEffectChainCmd {
     Add {
         track_index: u16,
         slot_index: u8,
@@ -118,8 +118,8 @@ pub(super) fn apply_pending_track_mixer_state(
 }
 
 pub(super) fn apply_single_topology_mutation(
-    deferred_topology: &mut VecDeque<DeferredTopologyCmd>,
-    master_device_chain: &mut DeviceChain,
+    deferred_topology: &mut VecDeque<DeferredEffectChainCmd>,
+    master_device_chain: &mut InsertEffectsChain,
     render_ctx: &mut RenderContext,
     master_track_index: u16,
 ) {
@@ -127,7 +127,7 @@ pub(super) fn apply_single_topology_mutation(
         return;
     };
     match topology_cmd {
-        DeferredTopologyCmd::Add {
+        DeferredEffectChainCmd::Add {
             track_index,
             slot_index,
             effect_type,
@@ -135,27 +135,27 @@ pub(super) fn apply_single_topology_mutation(
             let idx = track_index as usize;
             if track_index == master_track_index {
                 if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
-                    master_device_chain.add_device(slot_index as usize, etype);
+                    master_device_chain.add_effect(slot_index as usize, etype);
                 }
             } else if idx < render_ctx.track_slots.len()
                 && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
             {
                 render_ctx.track_slots[idx]
                     .device_chain
-                    .add_device(slot_index as usize, etype);
+                    .add_effect(slot_index as usize, etype);
             }
         }
-        DeferredTopologyCmd::Remove {
+        DeferredEffectChainCmd::Remove {
             track_index,
             slot_index,
         } => {
             let idx = track_index as usize;
             if track_index == master_track_index {
-                master_device_chain.remove_device(slot_index as usize);
+                master_device_chain.remove_effect(slot_index as usize);
             } else if idx < render_ctx.track_slots.len() {
                 render_ctx.track_slots[idx]
                     .device_chain
-                    .remove_device(slot_index as usize);
+                    .remove_effect(slot_index as usize);
             }
         }
     }

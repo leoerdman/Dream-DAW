@@ -103,7 +103,7 @@ impl Command for PasteDeviceToTrackCommand {
                 });
             }
         } else {
-            let opt_internal_idx = dream_graph::routing::device_chain::DeviceChain::insert_effect(
+            let opt_internal_idx = dream_graph::routing::device_chain::InsertEffectsChain::insert_effect(
                 track,
                 self.pasted_node.clone(),
                 None,

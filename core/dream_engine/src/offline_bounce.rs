@@ -6,7 +6,7 @@
 //   A DAW without mix export is just a player. Users need to bounce
 //   their project to a WAV file for distribution, mastering, or archival.
 //
-// THE SOLUTION: OfflineBouncer
+// THE SOLUTION: OfflineRenderer
 //   Decoupled from cpal's real-time clock, this engine runs the same
 //   RenderContext at maximum CPU speed. Instead of feeding samples to
 //   a sound card, it writes them to a WAV file via `hound`.
@@ -44,14 +44,15 @@ use dream_models::time::AbsoluteTime;
 use dream_plugins::vst3_host::PluginInstanceArc;
 use dream_plugins::{MidiEvent, TransportContext};
 
-use dream_dsp::device_chain::DeviceChain;
+use dream_dsp::device_chain::InsertEffectsChain;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
-use crate::driver::ExternalFxRuntimeSlot;
+use crate::driver::ExternalPluginRuntimeSlot;
 use crate::driver::midi_dispatcher::clamp_midi_pitch;
 use crate::render_callback::{RenderContext, soft_clip};
 use crate::essence_synth::EssenceSynthEngine;
-use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine};
+use crate::instrument_core::AdsrParams;
+use crate::sampler::{SampleRackEngine, SamplerEngine};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ struct FxChainProcessCtx<'a> {
     time_sig_numerator: u8,
     time_sig_denominator: u8,
     plugin_registry: &'a HashMap<uuid::Uuid, PluginInstanceArc>,
-    external_fx_map: &'a [Vec<ExternalFxRuntimeSlot>],
+    external_fx_map: &'a [Vec<ExternalPluginRuntimeSlot>],
     bpm: f64,
     playhead_pos: i64,
     left_slots: &'a [crate::render_callback::TrackSlot],
@@ -83,11 +84,11 @@ struct RenderRoutingCtx<'a> {
     sidechains: &'a [Vec<Option<usize>>],
     post_sum_mask: &'a [bool],
     plugin_registry: &'a HashMap<uuid::Uuid, PluginInstanceArc>,
-    external_fx_map: &'a [Vec<ExternalFxRuntimeSlot>],
+    external_fx_map: &'a [Vec<ExternalPluginRuntimeSlot>],
     bpm: f64,
     time_sig_numerator: u8,
     time_sig_denominator: u8,
-    master_device_chain: &'a mut DeviceChain,
+    master_device_chain: &'a mut InsertEffectsChain,
     /// MIDI clips per track for VST instrument rendering.
     midi_clips_per_track: &'a [Vec<MidiClip>],
     /// Loop region for MIDI scheduling (if loop enabled).
@@ -103,19 +104,19 @@ struct RenderRoutingCtx<'a> {
 ///
 /// # Usage
 /// ```ignore
-/// let bouncer = OfflineBouncer::new(config);
+/// let bouncer = OfflineRenderer::new(config);
 /// bouncer.bounce(&project, &clip_pool, |progress| {
 ///     println!("Bounce progress: {:.0}%", progress * 100.0);
 /// })?;
 /// ```
-pub struct OfflineBouncer {
+pub struct OfflineRenderer {
     config: BounceConfig,
     /// Cancellation flag - set to true to abort the bounce.
     /// The bouncer checks this flag during each render iteration.
     pub cancel_flag: Arc<AtomicBool>,
 }
 
-impl OfflineBouncer {
+impl OfflineRenderer {
     fn collect_declared_external_slot_ids(
         node: &dream_models::project::DeviceNode,
         parent_bypassed: bool,
@@ -150,7 +151,7 @@ impl OfflineBouncer {
 
     fn validate_external_vst_runtime_bindings(
         project: &Project,
-        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+        external_fx_map: &[Vec<ExternalPluginRuntimeSlot>],
     ) -> Result<(), BounceError> {
         let mut unresolved_slots: Vec<String> = Vec::new();
         let mut recovered_by_presence: Vec<String> = Vec::new();
@@ -166,7 +167,7 @@ impl OfflineBouncer {
             if declared_slot_ids.is_empty() {
                 continue;
             }
-            let runtime_external_slots: Vec<&ExternalFxRuntimeSlot> = external_fx_map
+            let runtime_external_slots: Vec<&ExternalPluginRuntimeSlot> = external_fx_map
                 .get(track_idx)
                 .map(|slots| {
                     slots
@@ -219,7 +220,7 @@ impl OfflineBouncer {
             Self::collect_declared_external_slot_ids(node, false, &mut master_declared_slot_ids);
         }
         if !master_declared_slot_ids.is_empty() {
-            let master_runtime_external_slots: Vec<&ExternalFxRuntimeSlot> = external_fx_map
+            let master_runtime_external_slots: Vec<&ExternalPluginRuntimeSlot> = external_fx_map
                 .get(master_runtime_index)
                 .map(|slots| {
                     slots
@@ -277,7 +278,7 @@ impl OfflineBouncer {
         )))
     }
 
-    /// Populates a DeviceChain from a list of DeviceNode effects,
+    /// Populates a InsertEffectsChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
     /// that the user configured in the UI.
@@ -308,12 +309,12 @@ impl OfflineBouncer {
         }
     }
 
-    /// Populates a DeviceChain from a list of DeviceNode effects,
+    /// Populates a InsertEffectsChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
     /// that the user configured in the UI.
     fn populate_device_chain_from_effects(
-        chain: &mut DeviceChain,
+        chain: &mut InsertEffectsChain,
         effects: &[dream_models::project::DeviceNode],
     ) {
         let mut slots = Vec::new();
@@ -324,7 +325,7 @@ impl OfflineBouncer {
             if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id)
                 .and_then(BuiltinEffectType::from_u8)
             {
-                chain.add_device(slot_index, effect_type);
+                chain.add_effect(slot_index, effect_type);
                 if bypassed {
                     chain.set_bypass(slot_index, true);
                 }
@@ -508,7 +509,7 @@ impl OfflineBouncer {
     /// Processes the unified FX chain for a single track slot.
     ///
     /// Mirrors the RT driver's Insert processing logic:
-    /// 1. If `external_fx_map[track_idx]` exists, iterate each `ExternalFxRuntimeSlot` in order.
+    /// 1. If `external_fx_map[track_idx]` exists, iterate each `ExternalPluginRuntimeSlot` in order.
     ///    - `internal_slot_index` → native FX: `device_chain.process_slot_with_sidechain()`
     ///    - `instance_id` → VST3: lock the `PluginInstanceArc`, set transport, call `process_with_sidechain()`
     /// 2. If no external FX map entry, fall back to `device_chain.process_stereo()`.
@@ -1074,7 +1075,6 @@ impl OfflineBouncer {
                             sustain: pad_cfg.sustain,
                             release: pad_cfg.release,
                         });
-                        pad.set_filter_cutoff(pad_cfg.filter_cutoff as f32);
 
                         if !pad_cfg.sample_path.is_empty()
                             && let Some(clip_audio) = clip_pool.get(&pad_cfg.sample_path)
@@ -1385,7 +1385,7 @@ impl OfflineBouncer {
         clip_pool: &mut ClipPool,
         loop_region: Option<&ClipLoopRegion>,
         plugin_registry: &HashMap<uuid::Uuid, PluginInstanceArc>,
-        external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+        external_fx_map: &[Vec<ExternalPluginRuntimeSlot>],
         mut progress_callback: F,
     ) -> Result<(), BounceError>
     where
@@ -1464,11 +1464,11 @@ impl OfflineBouncer {
 
         let mut render_ctx = self.create_render_ctx(project, loop_region, project_sr);
 
-        // ── Master DeviceChain: internal FX on master bus ──────────
+        // ── Master InsertEffectsChain: internal FX on master bus ──────────
         // Build from project.master_track.effects, matching the
         // real-time driver's rebuild_runtime_device_chains_from_project.
         // Uses populate_device_chain_from_effects to add devices AND sync params.
-        let mut master_device_chain = DeviceChain::new(project_sr as f32);
+        let mut master_device_chain = InsertEffectsChain::new(project_sr as f32);
         Self::populate_device_chain_from_effects(
             &mut master_device_chain,
             &project.master_track.effects,

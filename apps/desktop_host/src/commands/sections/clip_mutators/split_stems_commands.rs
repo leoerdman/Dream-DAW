@@ -71,7 +71,7 @@ async fn split_track_to_stems_cmd(
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
     let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
+        let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
         let mut bounce_project = bounce_project;
         let mut local_pool = local_pool;

@@ -39,7 +39,7 @@ use std::sync::atomic::Ordering;
 use crate::state_managers::sync_engine::*;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
-use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
+use dream_engine::offline_bounce::{BounceConfig, OfflineRenderer};
 use dream_engine::recording::RecordingSession;
 use dream_engine::render_callback::MAX_TRACKS;
 use dream_io::audio_reader::AudioReader;

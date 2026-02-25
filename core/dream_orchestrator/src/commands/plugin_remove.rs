@@ -70,7 +70,7 @@ impl Command for RemovePluginFromTrackCommand {
 
         if !removed
             && let Some((_node, runtime_idx)) =
-                dream_graph::routing::device_chain::DeviceChain::remove_effect(track, self.slot_id)
+                dream_graph::routing::device_chain::InsertEffectsChain::remove_effect(track, self.slot_id)
         {
             runtime_remove_slot = runtime_idx;
             removed = true;

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use dream_clip_engine::pool::ClipPool;
 use dream_engine::driver::{
-    SharedAutomationSnapshot, SharedClipSnapshot, SharedDiskStreamers, SharedExternalFxSnapshot,
+    SharedAutomationSnapshot, SharedClipSnapshot, SharedDiskStreamers, SharedExternalPluginSnapshot,
     SharedPreparedGraphSnapshot, SharedRoutingSnapshot, SharedRtDebugStats,
     SharedSidechainSnapshot,
 };
@@ -57,7 +57,7 @@ pub struct AudioEngineHandle {
     pub routing_snapshot: Arc<SharedRoutingSnapshot>,
     pub prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     pub sidechain_snapshot: Arc<SharedSidechainSnapshot>,
-    pub external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
+    pub external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
     pub automation_snapshot: Arc<SharedAutomationSnapshot>,
     pub sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
     pub sample_rack_samples: Arc<dream_engine::driver::SharedSampleRackSamples>,

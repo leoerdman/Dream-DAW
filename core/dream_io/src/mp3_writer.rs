@@ -11,7 +11,7 @@
 //   - 320 kbps CBR stereo encoding (studio-grade)
 //   - Configurable sample rate (44.1k / 48k / 96k)
 //   - Streaming encoder with 4096-frame chunks
-//   - Matches the WavWriter API for drop-in use in OfflineBouncer
+//   - Matches the WavWriter API for drop-in use in OfflineRenderer
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -58,7 +58,7 @@ impl std::error::Error for Mp3WriterError {}
 /// MP3 file writer for audio export.
 ///
 /// Mirrors `WavWriter::write_channels` for seamless use in the
-/// `OfflineBouncer`, substituting the WAV backend with LAME MP3 encoding.
+/// `OfflineRenderer`, substituting the WAV backend with LAME MP3 encoding.
 pub struct Mp3Writer;
 
 /// Incremental MP3 writer for large offline renders.

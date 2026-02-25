@@ -18,7 +18,17 @@ pub mod offline_bounce;
 mod offline_bounce_types;
 pub mod recording;
 pub mod render_callback;
-pub mod sampler;
+
+// ── Instrument Core ────────────────────────────────────────────────────
+// Shared types for all internal instrument engines (ADSR, voice constants).
+pub mod instrument_core;
+// Synth-specific types (Waveform, SynthFilterType, LfoTarget).
 pub mod synth_types;
+// PolyBLEP oscillator functions for synthesis engines.
 mod oscillator;
+
+// ── Instrument Engines ─────────────────────────────────────────────────
+// Sample-playback engine (SamplerEngine, SampleRackEngine).
+pub mod sampler;
+// Subtractive synthesizer engine (EssenceSynthEngine).
 pub mod essence_synth;

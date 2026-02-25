@@ -30,14 +30,14 @@ impl Default for MidiNoteMapState {
 /// VST3 plugins need explicit note-off tracking so we can flush
 /// all active notes on transport stop/seek.
 #[derive(Clone)]
-pub struct Vst3NoteTracker {
+pub struct PluginNoteTracker {
     /// Active notes: (mapped_pitch, channel) pairs currently held.
     pub active: Vec<(u8, u8)>,
     /// RNG state for random MIDI FX (xorshift32, same algorithm as sampler path).
     pub rng_state: u32,
 }
 
-impl Default for Vst3NoteTracker {
+impl Default for PluginNoteTracker {
     fn default() -> Self {
         Self {
             active: Vec::with_capacity(128),
@@ -49,7 +49,7 @@ impl Default for Vst3NoteTracker {
     }
 }
 
-impl Vst3NoteTracker {
+impl PluginNoteTracker {
     /// Register an active note-on. Prevents duplicates by
     /// releasing the previous instance of the same pitch first.
     /// Returns an optional note-off event if a duplicate was found.

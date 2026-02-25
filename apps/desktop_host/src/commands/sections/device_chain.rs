@@ -132,7 +132,7 @@ fn remove_device_cmd(
 /// BUG-ROUTING FIX: Converts raw slot_index to internal-only device_chain index.
 /// BUG-R3 FIX: Handles master track (MASTER_TRACK_INDEX=65535) via project.master_track.
 /// BUG-BYPASS-INST FIX: Routes instrument bypass (slot 255) to BypassInstrument command
-///     instead of BypassDevice, which silently failed because DeviceChain max = 16 slots.
+///     instead of BypassDevice, which silently failed because InsertEffectsChain max = 16 slots.
 #[tauri::command]
 fn bypass_device_cmd(
     track_index: u16,
@@ -160,7 +160,7 @@ fn bypass_device_cmd(
 
     if let Some(resolved_slot) = result.engine_slot_index {
         // BUG-BYPASS-INST FIX: Instrument slot (255) must be routed to BypassInstrument,
-        // NOT BypassDevice — DeviceChain has max 16 slots so set_bypass(255, ...) is a no-op.
+        // NOT BypassDevice — InsertEffectsChain has max 16 slots so set_bypass(255, ...) is a no-op.
         if resolved_slot == INSTRUMENT_SLOT_INDEX && track_index != MASTER_TRACK_INDEX {
             push_command(
                 &handle,

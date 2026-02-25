@@ -3,7 +3,7 @@ use crate::render_callback::soft_clip;
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
-pub(super) fn sync_sampler_engines(
+pub(super) fn sync_sampler_samples(
     sampler_engines: &mut [SamplerEngine],
     sampler_samples: &Arc<SharedSamplerSamples>,
 ) {
@@ -60,10 +60,10 @@ pub(super) fn sync_sample_rack_engines(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn process_master_runtime_fx_and_gain(
-    external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+pub(super) fn process_master_bus(
+    external_fx_map: &[Vec<ExternalPluginRuntimeSlot>],
     track_count: usize,
-    master_device_chain: &mut DeviceChain,
+    master_device_chain: &mut InsertEffectsChain,
     plugin_registry_ref: &std::collections::HashMap<uuid::Uuid, PluginInstanceArc>,
     graph_out_left: &mut [f32],
     graph_out_right: &mut [f32],
@@ -86,13 +86,13 @@ pub(super) fn process_master_runtime_fx_and_gain(
         if !master_slots.is_empty() {
             let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
             if !has_external {
-                // AUD-500 FIX: Diagnostic — log once if DeviceChain is empty despite
+                // AUD-500 FIX: Diagnostic — log once if InsertEffectsChain is empty despite
                 // having internal runtime slots, which indicates a topology sync bug.
                 if master_device_chain.is_empty() && master_slots.iter().any(|s| s.internal_slot_index.is_some()) {
                     static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                     if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                         log::warn!(
-                            "[AUD-500] Master has {} internal runtime slots but DeviceChain is empty — \
+                            "[AUD-500] Master has {} internal runtime slots but InsertEffectsChain is empty — \
                              topology sync issue. Internal master FX will not process.",
                             master_slots.iter().filter(|s| s.internal_slot_index.is_some()).count()
                         );

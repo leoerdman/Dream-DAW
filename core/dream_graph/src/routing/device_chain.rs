@@ -2,9 +2,9 @@ use dream_models::project::{DeviceNode, Track};
 use uuid::Uuid;
 
 /// Utility helpers for mutating `Track.effects` chains in a deterministic way.
-pub struct DeviceChain;
+pub struct InsertEffectsChain;
 
-impl DeviceChain {
+impl InsertEffectsChain {
     fn runtime_slot_before(track: &Track, idx: usize) -> Option<u8> {
         let internal_before = count_internal_effects_before(&track.effects, idx);
         u8::try_from(internal_before).ok()
@@ -216,9 +216,9 @@ mod tests {
         let i1 = DeviceNode::Single(PluginSlot::new("EQ", "internal://effect/eq-eight"));
         let i2 = DeviceNode::Single(PluginSlot::new("Comp", "internal://effect/compressor"));
 
-        assert_eq!(DeviceChain::insert_effect(&mut track, ext, None), None);
-        assert_eq!(DeviceChain::insert_effect(&mut track, i1, None), Some(0));
-        assert_eq!(DeviceChain::insert_effect(&mut track, i2, None), Some(1));
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, ext, None), None);
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, i1, None), Some(0));
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, i2, None), Some(1));
     }
 
     #[test]
@@ -228,9 +228,9 @@ mod tests {
         let alias_eq = DeviceNode::Single(PluginSlot::new("EQ", "internal://effect/eq8"));
         let comp = DeviceNode::Single(PluginSlot::new("Comp", "internal://effect/compressor"));
 
-        assert_eq!(DeviceChain::insert_effect(&mut track, ext, None), None);
-        assert_eq!(DeviceChain::insert_effect(&mut track, alias_eq, None), Some(0));
-        assert_eq!(DeviceChain::insert_effect(&mut track, comp, None), Some(1));
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, ext, None), None);
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, alias_eq, None), Some(0));
+        assert_eq!(InsertEffectsChain::insert_effect(&mut track, comp, None), Some(1));
     }
 
     #[test]
@@ -246,13 +246,13 @@ mod tests {
 
         track.effects = vec![n1, n2, n3];
 
-        let (_, r1) = DeviceChain::remove_effect(&mut track, id1).expect("remove 1");
+        let (_, r1) = InsertEffectsChain::remove_effect(&mut track, id1).expect("remove 1");
         assert_eq!(r1, Some(0));
 
-        let (_, r2) = DeviceChain::remove_effect(&mut track, id2).expect("remove 2");
+        let (_, r2) = InsertEffectsChain::remove_effect(&mut track, id2).expect("remove 2");
         assert_eq!(r2, None);
 
-        let (_, r3) = DeviceChain::remove_effect(&mut track, id3).expect("remove 3");
+        let (_, r3) = InsertEffectsChain::remove_effect(&mut track, id3).expect("remove 3");
         assert_eq!(r3, Some(0));
     }
 }

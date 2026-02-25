@@ -34,7 +34,7 @@ pub fn build_main_track_mixer_snapshot(
 
     if let Some(mixer) = main_track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -285,7 +285,7 @@ pub fn build_pointee_map_with(
 
     let mixer = track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -585,13 +585,13 @@ mod tests {
     fn main_track_pan_prefers_primary_pan_over_split_stereo() {
         let xml = r#"
         <MainTrack>
-          <DeviceChain>
+          <InsertEffectsChain>
             <Mixer>
               <Pan><Manual Value="0.4"/></Pan>
               <SplitStereoPanL><Manual Value="-1.0"/></SplitStereoPanL>
               <SplitStereoPanR><Manual Value="1.0"/></SplitStereoPanR>
             </Mixer>
-          </DeviceChain>
+          </InsertEffectsChain>
         </MainTrack>
         "#;
         let doc = roxmltree::Document::parse(xml).expect("xml");

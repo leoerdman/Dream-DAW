@@ -4,7 +4,7 @@ use super::*;
 fn build_pointee_map_captures_extended_mixer_targets() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Mixer>
           <CrossFadeState>
             <AutomationTarget Id="1001"/>
@@ -21,7 +21,7 @@ fn build_pointee_map_captures_extended_mixer_targets() {
             </TrackSendHolder>
           </Sends>
         </Mixer>
-      </DeviceChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -41,7 +41,7 @@ fn build_pointee_map_captures_extended_mixer_targets() {
 fn build_pointee_map_uses_track_send_holder_id() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Mixer>
           <Sends>
             <TrackSendHolder Id="2">
@@ -49,7 +49,7 @@ fn build_pointee_map_uses_track_send_holder_id() {
             </TrackSendHolder>
           </Sends>
         </Mixer>
-      </DeviceChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -330,7 +330,7 @@ fn canonical_internal_plugin_for_import_maps_synthesizer_v_to_wave_synth() {
 fn import_track_automation_adds_static_plugin_param_lane_when_no_envelope() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Devices>
           <PluginDevice>
             <UserName Value="My VST"/>
@@ -341,7 +341,7 @@ fn import_track_automation_adds_static_plugin_param_lane_when_no_envelope() {
             </PluginFloatParameter>
           </PluginDevice>
         </Devices>
-      </DeviceChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -376,7 +376,7 @@ fn plugin_param_lane_key_uses_parameter_id_for_stable_uniqueness() {
 fn import_track_automation_keeps_envelope_for_plugin_param() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Devices>
           <PluginDevice>
             <UserName Value="My VST"/>
@@ -388,7 +388,7 @@ fn import_track_automation_keeps_envelope_for_plugin_param() {
             </PluginFloatParameter>
           </PluginDevice>
         </Devices>
-      </DeviceChain>
+      </InsertEffectsChain>
       <AutomationEnvelopes>
         <Envelopes>
           <AutomationEnvelope>
@@ -429,7 +429,7 @@ fn import_track_automation_keeps_envelope_for_plugin_param() {
 fn import_main_track_mixer_snapshot_reads_master_mixer_values() {
     let xml = r#"
     <MainTrack>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Mixer>
           <Volume><Manual Value="1.25"/></Volume>
           <Pan><Manual Value="-0.2"/></Pan>
@@ -438,7 +438,7 @@ fn import_main_track_mixer_snapshot_reads_master_mixer_values() {
         <AudioOutputRouting>
           <Target Value="AudioOut/None"/>
         </AudioOutputRouting>
-      </DeviceChain>
+      </InsertEffectsChain>
     </MainTrack>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -463,11 +463,11 @@ fn import_main_track_mixer_snapshot_reads_master_mixer_values() {
 fn import_main_track_mixer_snapshot_marks_unknown_output_as_enabled() {
     let xml = r#"
     <MainTrack>
-      <DeviceChain>
+      <InsertEffectsChain>
         <AudioOutputRouting>
           <Target Value="AudioOut/External/S0"/>
         </AudioOutputRouting>
-      </DeviceChain>
+      </InsertEffectsChain>
     </MainTrack>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");

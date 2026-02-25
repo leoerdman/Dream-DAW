@@ -22,7 +22,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use crate::sampler::{AdsrEnvelope, AdsrParams};
+use crate::instrument_core::{AdsrEnvelope, AdsrParams};
 use crate::synth_types::{LfoTarget, SynthFilterType, Waveform};
 use crate::oscillator::oscillator_sample_blep;
 use dream_dsp::svf::SvfState;

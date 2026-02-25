@@ -312,7 +312,7 @@ pub fn ensure_external_plugins_prepared_for_offline_render(
     plugin_host_state.publish_registry();
     // BUG-AUD-314 FIX: Use MAX_BUFFER_FRAMES (8192) for offline rendering.
     // Previously used current_audio_config() which returns the realtime device's
-    // buffer size (e.g., 512). OfflineBouncer processes in larger blocks, causing
+    // buffer size (e.g., 512). OfflineRenderer processes in larger blocks, causing
     // the `num_frames > max_buffer_size` passthrough guard to trigger silently.
     let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
     plugin_host_state

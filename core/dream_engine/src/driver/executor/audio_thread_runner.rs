@@ -5,19 +5,19 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use log::{error, info};
 use std::time::Instant;
 
-use super::audio_thread_commands::{CommandDrainContext, drain_commands};
-use super::audio_thread_sampler_pass::render_sampler_sources;
-use super::command_dispatch::DeferredTopologyCmd;
+use super::audio_thread_commands::{CommandProcessingContext, drain_commands};
+use super::audio_thread_instrument_pass::render_instrument_sources;
+use super::command_dispatch::DeferredEffectChainCmd;
 use super::render_pipeline::{
     finalize_output_and_publish, interleave_graph_output, mix_preview_audio,
-    process_master_runtime_fx_and_gain, render_test_tone_if_needed, sync_sample_rack_engines,
-    sync_sampler_engines,
+    process_master_bus, render_test_tone_if_needed, sync_sample_rack_engines,
+    sync_sampler_samples,
 };
 
 use crate::driver::automation::{
     apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate,
 };
-use crate::driver::midi_dispatcher::{Vst3NoteTracker, clamp_midi_pitch, quantize_to_scale};
+use crate::driver::midi_dispatcher::{PluginNoteTracker, clamp_midi_pitch, quantize_to_scale};
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_graph::GraphRenderer;
 use dream_ipc::metering::{METER_FLOOR_DB, compute_peak, compute_rms};
@@ -36,7 +36,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
     _sidechain_snapshot: Arc<SharedSidechainSnapshot>,
-    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     sample_rack_samples: Arc<SharedSampleRackSamples>,
@@ -112,7 +112,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
     // Historically this path was bypassed; now it is active in the master FX stage.
-    let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
+    let mut master_device_chain = InsertEffectsChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
@@ -143,14 +143,14 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut external_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut external_right = vec![0.0f32; MAX_BUFFER_FRAMES];
-    let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(1024);
+    let mut deferred_topology: VecDeque<DeferredEffectChainCmd> = VecDeque::with_capacity(1024);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(2048);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(2048);
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent
     // objects that external VST3 plugins receive.
     let mut vst3_midi_scratch: Vec<MidiEvent> = Vec::with_capacity(4096);
     // Per-track active-note tracking for VST3 plugins (flush on stop/seek).
-    let mut vst3_note_trackers: Vec<Vst3NoteTracker> = vec![Vst3NoteTracker::default(); MAX_TRACKS];
+    let mut vst3_note_trackers: Vec<PluginNoteTracker> = vec![PluginNoteTracker::default(); MAX_TRACKS];
     // BUG-012 FIX: Per-track flush instead of global flag.
     // The previous global flag killed notes on ALL VST3 instruments when only
     // one track needed flushing (e.g. single-track bypass/stop).
@@ -163,7 +163,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // are pushed here in the command loop and drained into vst3_midi_scratch
     // during the graph pass so external VST3 instruments (Serum, etc.)
     // receive real-time MIDI alongside clip events.
-    let mut vst3_rt_midi_queue: Vec<Vec<MidiEvent>> =
+    let mut plugin_rt_midi_queue: Vec<Vec<MidiEvent>> =
         (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
     let mut rt_midi_uid_counter: u64 = 1;
     // Track which samples were last loaded per-track to avoid re-assigning
@@ -239,7 +239,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         let commands_processed = drain_commands(
                             &mut consumer,
                             frame_count,
-                            &mut CommandDrainContext {
+                            &mut CommandProcessingContext {
                                 clock: &clock,
                                 render_ctx: &mut render_ctx,
                                 sampler_engines: &mut sampler_engines,
@@ -247,7 +247,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 essence_engines: &mut essence_engines,
                                 midi_note_states: &mut midi_note_states,
                                 vst3_flush_per_track: &mut vst3_flush_per_track,
-                                vst3_rt_midi_queue: &mut vst3_rt_midi_queue,
+                                plugin_rt_midi_queue: &mut plugin_rt_midi_queue,
                                 is_playing: &mut is_playing,
                                 bpm: &mut bpm,
                                 time_sig_numerator: &mut time_sig_numerator,
@@ -276,7 +276,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // mixer automation later on graph output buffers.
                         let automation = automation_snapshot.load();
                         // AUD-504 FIX: Removed unused _sidechain_map = sidechain_snapshot.load().
-                        // Sidechain routing is resolved via ExternalFxRuntimeSlot.sidechain_track_index,
+                        // Sidechain routing is resolved via ExternalPluginRuntimeSlot.sidechain_track_index,
                         // not through the raw sidechain snapshot.
                         let external_fx_map = external_fx_snapshot.load();
                         // PREVIEW-FIX: Refresh per-track VST instrument flags from snapshot.
@@ -339,7 +339,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         // ── B. Source render pass (Clips & Samplers) ────
                         // Sync loaded samples from shared snapshots once per buffer.
-                        sync_sampler_engines(&mut sampler_engines, &sampler_samples);
+                        sync_sampler_samples(&mut sampler_engines, &sampler_samples);
                         sync_sample_rack_engines(&mut sample_rack_engines, &sample_rack_samples);
 
 
@@ -390,7 +390,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // ── B1. Sampler Render Pass (Source Generation) ──
                         // This renders internal samplers directly into slot buffers.
                         // This happens BEFORE the FX graph, so FX apply to sampler voices.
-                        render_sampler_sources(
+                        render_instrument_sources(
                             track_count,
                             midi_snap.as_ref(),
                             &mut render_ctx,
@@ -398,7 +398,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             &mut sample_rack_engines,
                             &mut essence_engines,
                             &mut midi_note_states,
-                            &mut vst3_rt_midi_queue,
+                            &mut plugin_rt_midi_queue,
                             &mut rt_midi_uid_counter,
                             midi_chase_needed,
                             is_playing,
@@ -558,8 +558,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     host.set_transport_context(transport);
 
                                                     vst3_midi_scratch.clear();
-                                                    if track_idx < vst3_rt_midi_queue.len() {
-                                                        vst3_midi_scratch.append(&mut vst3_rt_midi_queue[track_idx]);
+                                                    if track_idx < plugin_rt_midi_queue.len() {
+                                                        vst3_midi_scratch.append(&mut plugin_rt_midi_queue[track_idx]);
                                                     }
                                                     if vst3_flush_per_track.get(track_idx).copied().unwrap_or(false)
                                                         && track_idx < vst3_note_trackers.len()
@@ -791,7 +791,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         }
                         _vst_diag_counter = _vst_diag_counter.wrapping_add(1);
 
-                        process_master_runtime_fx_and_gain(
+                        process_master_bus(
                             external_fx_map.as_slice(),
                             track_count,
                             &mut master_device_chain,

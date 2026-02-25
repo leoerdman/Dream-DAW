@@ -86,7 +86,7 @@ fn sample_accurate_plugin_gain_changes_within_buffer() {
         },
     ];
 
-    apply_plugin_automation_sample_accurate(&mut left, &mut right, 0, Some(&gain_points), None);
+    apply_gain_pan_automation_sample_accurate(&mut left, &mut right, 0, Some(&gain_points), None);
 
     assert!(left[0] < left[7]);
     assert!(right[0] < right[7]);
@@ -117,7 +117,7 @@ fn sample_accurate_plugin_pan_unit_interval_maps_correctly() {
         },
     ];
 
-    apply_plugin_automation_sample_accurate(&mut left, &mut right, 0, None, Some(&pan_points));
+    apply_gain_pan_automation_sample_accurate(&mut left, &mut right, 0, None, Some(&pan_points));
 
     assert!(left[0] > right[0]);
     assert!(right[3] > left[3]);
@@ -181,21 +181,21 @@ fn sample_accurate_track_mixer_volume_and_pan_change_within_buffer() {
 #[test]
 fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
     let map = vec![
-        vec![ExternalFxRuntimeSlot {
+        vec![ExternalPluginRuntimeSlot {
             slot_id: None,
             internal_slot_index: Some(0),
             instance_id: None,
             sidechain_track_index: None,
             is_instrument: false,
         }],
-        vec![ExternalFxRuntimeSlot {
+        vec![ExternalPluginRuntimeSlot {
             slot_id: None,
             internal_slot_index: Some(1),
             instance_id: None,
             sidechain_track_index: None,
             is_instrument: false,
         }],
-        vec![ExternalFxRuntimeSlot {
+        vec![ExternalPluginRuntimeSlot {
             slot_id: None,
             internal_slot_index: Some(2),
             instance_id: None,

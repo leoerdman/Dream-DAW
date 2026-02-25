@@ -275,7 +275,7 @@ pub fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(us
 pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -291,7 +291,7 @@ pub fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> 
 pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -307,7 +307,7 @@ pub fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Optio
 pub fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
     track_node
         .children()
-        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         .and_then(|dc| {
             dc.children()
                 .find(|n| n.is_element() && n.has_tag_name("Mixer"))
@@ -373,7 +373,7 @@ pub fn parse_track_i64_value_legacy(track_node: roxmltree::Node<'_, '_>, tag: &s
 // ── Device Container Helpers ───────────────────────────────────────────
 
 /// Recursively collects all device nodes from a `<Devices>` container,
-/// expanding intermediate wrapper elements like `DeviceChain`.
+/// expanding intermediate wrapper elements like `InsertEffectsChain`.
 pub fn collect_devices_in_container<'a, 'input>(
     device_container: roxmltree::Node<'a, 'input>,
     out: &mut Vec<roxmltree::Node<'a, 'input>>,
@@ -395,12 +395,12 @@ fn collect_devices_in_container_inner<'a, 'input>(
         out.push(device);
 
         // Ableton can nest rack chains deeply:
-        // Device -> ... -> DeviceChain -> ... -> Devices.
-        // Walk descendant DeviceChain nodes and recurse into each nested
+        // Device -> ... -> InsertEffectsChain -> ... -> Devices.
+        // Walk descendant InsertEffectsChain nodes and recurse into each nested
         // Devices container we can find.
         for nested_chain in device
             .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+            .filter(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
         {
             if let Some(nested_devices) = find_first_devices_container(nested_chain) {
                 collect_devices_in_container_inner(nested_devices, out, visited);
@@ -434,7 +434,7 @@ pub fn collect_track_devices<'a, 'input>(
     let mut devices = Vec::new();
     for chain in track_node
         .children()
-        .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .filter(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
     {
         if let Some(root_devices) = find_first_devices_container(chain) {
             collect_devices_in_container(root_devices, &mut devices);
@@ -486,25 +486,25 @@ mod tests {
     fn collect_track_devices_keeps_full_nested_chain() {
         let xml = r#"
         <AudioTrack>
-          <DeviceChain>
+          <InsertEffectsChain>
             <Devices>
               <OriginalSimpler Id="1">
-                <DeviceChain>
+                <InsertEffectsChain>
                   <Branches>
                     <Branch>
-                      <DeviceChain>
+                      <InsertEffectsChain>
                         <Devices>
                           <Eq8 Id="2" />
                           <GlueCompressor Id="3" />
                         </Devices>
-                      </DeviceChain>
+                      </InsertEffectsChain>
                     </Branch>
                   </Branches>
-                </DeviceChain>
+                </InsertEffectsChain>
               </OriginalSimpler>
               <Saturator Id="4" />
             </Devices>
-          </DeviceChain>
+          </InsertEffectsChain>
         </AudioTrack>
         "#;
 

@@ -246,7 +246,7 @@ pub fn import_als_project_with_target_sample_rate(
 
         if let Some(mixer) = track_node
             .children()
-            .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+            .find(|n| n.is_element() && n.has_tag_name("InsertEffectsChain"))
             .and_then(|dc| {
                 dc.children()
                     .find(|n| n.is_element() && n.has_tag_name("Mixer"))

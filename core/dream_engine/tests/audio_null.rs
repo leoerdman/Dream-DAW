@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
-use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
+use dream_engine::offline_bounce::{BounceConfig, OfflineRenderer};
 use dream_models::project::{AudioClip, DeviceNode, PluginSlot, Project, Track, TrackType};
 use dream_models::time::AbsoluteTime;
 
@@ -204,8 +204,8 @@ fn offline_bounce_is_deterministic_for_silent_project() {
     let mut project_a = make_silent_project();
     let mut project_b = make_silent_project();
 
-    let bouncer_a = OfflineBouncer::new(mk_cfg(&out_a));
-    let bouncer_b = OfflineBouncer::new(mk_cfg(&out_b));
+    let bouncer_a = OfflineRenderer::new(mk_cfg(&out_a));
+    let bouncer_b = OfflineRenderer::new(mk_cfg(&out_b));
 
     bouncer_a
         .bounce(
@@ -318,7 +318,7 @@ fn grouped_plus_direct_path_hits_master_fx_and_is_deterministic() {
         bpm: BPM,
     };
 
-    OfflineBouncer::new(mk_cfg(&out_dry))
+    OfflineRenderer::new(mk_cfg(&out_dry))
         .bounce(
             &mut project_base,
             &mut pool,
@@ -329,7 +329,7 @@ fn grouped_plus_direct_path_hits_master_fx_and_is_deterministic() {
         )
         .expect("dry bounce should succeed");
 
-    OfflineBouncer::new(mk_cfg(&out_wet_a))
+    OfflineRenderer::new(mk_cfg(&out_wet_a))
         .bounce(
             &mut project_with_master_fx.clone(),
             &mut pool,
@@ -340,7 +340,7 @@ fn grouped_plus_direct_path_hits_master_fx_and_is_deterministic() {
         )
         .expect("wet bounce A should succeed");
 
-    OfflineBouncer::new(mk_cfg(&out_wet_b))
+    OfflineRenderer::new(mk_cfg(&out_wet_b))
         .bounce(
             &mut project_with_master_fx,
             &mut pool,

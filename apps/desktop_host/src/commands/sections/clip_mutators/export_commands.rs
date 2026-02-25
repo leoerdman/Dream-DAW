@@ -273,7 +273,7 @@ async fn export_mix_cmd(
         );
     }
 
-    // Refresh runtime snapshots used by OfflineBouncer.
+    // Refresh runtime snapshots used by OfflineRenderer.
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
     let external_fx_snapshot_for_preflight = (*handle.external_fx_snapshot.load()).clone();
@@ -320,7 +320,7 @@ async fn export_mix_cmd(
     // Ensure plugins are reactivated for the current export processing format.
     // This avoids silent passthrough when a plugin stayed in a stale inactive state.
     // BUG-AUD-312 FIX: Use MAX_BUFFER_FRAMES (8192) instead of the current device
-    // buffer size. OfflineBouncer may process in blocks larger than the realtime
+    // buffer size. OfflineRenderer may process in blocks larger than the realtime
     // device's configured buffer size, which would trigger the
     // `num_frames > max_buffer_size` passthrough guard in VST3/VST2/AU plugins.
     let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
@@ -372,7 +372,7 @@ async fn export_mix_cmd(
         drop(producer_guard);
         was_playing
     };
-    // Snapshot runtime plugin state used by OfflineBouncer.
+    // Snapshot runtime plugin state used by OfflineRenderer.
     // This keeps offline export timing aligned with realtime graph processing.
     let plugin_registry_snapshot = (*handle.plugin_registry.load()).clone();
     let external_fx_snapshot = (*handle.external_fx_snapshot.load()).clone();
@@ -411,7 +411,7 @@ async fn export_mix_cmd(
     let job_id_for_progress = job_id.clone();
     let job_id_for_finish = job_id.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let mut bouncer = OfflineBouncer::new(cfg);
+        let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = std::sync::Arc::clone(&cancel_flag);
         let mut project = project;
         let mut local_pool = local_pool;
@@ -419,7 +419,7 @@ async fn export_mix_cmd(
         // ENTERPRISE: single-source offline render path.
         // We intentionally avoid pre-rendering VST instruments/FX here because
         // split pipelines caused drift, double-processing, and silent fallback
-        // states across project variants. OfflineBouncer already supports
+        // states across project variants. OfflineRenderer already supports
         // timeline-accurate runtime VST processing (instrument + track FX + master FX).
         let external_fx_snapshot_for_bounce = Vec::clone(&external_fx_snapshot);
 

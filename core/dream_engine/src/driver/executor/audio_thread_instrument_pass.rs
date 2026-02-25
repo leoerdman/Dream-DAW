@@ -4,7 +4,7 @@ use crate::essence_synth::EssenceSynthEngine;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn render_sampler_sources(
+pub(super) fn render_instrument_sources(
     track_count: usize,
     midi_snap: &[MidiTrackRuntime],
     render_ctx: &mut RenderContext,
@@ -12,7 +12,7 @@ pub(super) fn render_sampler_sources(
     sample_rack_engines: &mut [SampleRackEngine],
     essence_engines: &mut [EssenceSynthEngine],
     midi_note_states: &mut [MidiNoteMapState],
-    vst3_rt_midi_queue: &mut [Vec<MidiEvent>],
+    plugin_rt_midi_queue: &mut [Vec<MidiEvent>],
     rt_midi_uid_counter: &mut u64,
     midi_chase_needed: bool,
     is_playing: bool,
@@ -33,8 +33,8 @@ pub(super) fn render_sampler_sources(
                 essence_engines[track_idx].all_notes_off();
             }
             midi_note_states[track_idx].active_notes.clear();
-            if track_idx < vst3_rt_midi_queue.len() {
-                vst3_rt_midi_queue[track_idx].clear();
+            if track_idx < plugin_rt_midi_queue.len() {
+                plugin_rt_midi_queue[track_idx].clear();
             }
             continue;
         }
@@ -83,7 +83,7 @@ pub(super) fn render_sampler_sources(
         }
 
         let has_rt_midi =
-            track_idx < vst3_rt_midi_queue.len() && !vst3_rt_midi_queue[track_idx].is_empty();
+            track_idx < plugin_rt_midi_queue.len() && !plugin_rt_midi_queue[track_idx].is_empty();
 
         let essence_active = essence.as_ref().map_or(false, |e| e.has_active_voices());
 
@@ -127,8 +127,8 @@ pub(super) fn render_sampler_sources(
             }
         }
 
-        if track_idx < vst3_rt_midi_queue.len() {
-            for evt in &vst3_rt_midi_queue[track_idx] {
+        if track_idx < plugin_rt_midi_queue.len() {
+            for evt in &plugin_rt_midi_queue[track_idx] {
                 let raw_offset = evt.sample_offset.max(0) as usize;
                 let offset = raw_offset.min(fc);
                 if evt.is_note_off() {

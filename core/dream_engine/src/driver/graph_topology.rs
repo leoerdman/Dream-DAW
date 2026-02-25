@@ -8,7 +8,7 @@ use dream_graph::{
 
 use crate::render_callback::MAX_TRACKS;
 
-use super::ExternalFxRuntimeSlot;
+use super::ExternalPluginRuntimeSlot;
 
 /// Resolves the runtime FX slot list for the master bus from an external-FX
 /// snapshot.
@@ -17,9 +17,9 @@ use super::ExternalFxRuntimeSlot;
 /// During topology transitions a stale snapshot can be longer; in that case we
 /// conservatively take the tail entry to preserve master processing.
 pub fn resolve_master_runtime_slots(
-    external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
+    external_fx_map: &[Vec<ExternalPluginRuntimeSlot>],
     track_count: usize,
-) -> Option<&[ExternalFxRuntimeSlot]> {
+) -> Option<&[ExternalPluginRuntimeSlot]> {
     // Expected shape: track_count + 1 entries (tracks + master).
     // During topology transitions, the snapshot may be stale.
     if external_fx_map.len() == track_count + 1 {

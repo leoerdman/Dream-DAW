@@ -234,7 +234,7 @@ impl Default for SharedSidechainSnapshot {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, Copy)]
-pub struct ExternalFxRuntimeSlot {
+pub struct ExternalPluginRuntimeSlot {
     pub slot_id: Option<Uuid>,
     pub internal_slot_index: Option<usize>,
     pub instance_id: Option<Uuid>,
@@ -248,12 +248,12 @@ pub struct ExternalFxRuntimeSlot {
 /// Atomic snapshot of per-track external effect runtime instances.
 ///
 /// Shape: `[track_index] -> Vec<fx_steps_in_project_order>`.
-pub struct SharedExternalFxSnapshot {
-    inner: ArcSwap<Vec<Vec<ExternalFxRuntimeSlot>>>,
+pub struct SharedExternalPluginSnapshot {
+    inner: ArcSwap<Vec<Vec<ExternalPluginRuntimeSlot>>>,
     generation: AtomicU64,
 }
 
-impl SharedExternalFxSnapshot {
+impl SharedExternalPluginSnapshot {
     pub fn new() -> Self {
         Self {
             inner: ArcSwap::from_pointee(Vec::new()),
@@ -261,12 +261,12 @@ impl SharedExternalFxSnapshot {
         }
     }
 
-    pub fn swap(&self, fx: Vec<Vec<ExternalFxRuntimeSlot>>) {
+    pub fn swap(&self, fx: Vec<Vec<ExternalPluginRuntimeSlot>>) {
         self.inner.store(Arc::new(fx));
         self.generation.fetch_add(1, Ordering::Release);
     }
 
-    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<ExternalFxRuntimeSlot>>>> {
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<ExternalPluginRuntimeSlot>>>> {
         self.inner.load()
     }
 
@@ -275,7 +275,7 @@ impl SharedExternalFxSnapshot {
     }
 }
 
-impl Default for SharedExternalFxSnapshot {
+impl Default for SharedExternalPluginSnapshot {
     fn default() -> Self {
         Self::new()
     }

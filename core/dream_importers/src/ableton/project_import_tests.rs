@@ -25,19 +25,19 @@ fn empty_external_plugin_index() -> ExternalPluginIndex {
 fn nested_device_collector_finds_devices_inside_racks() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Devices>
           <AudioEffectGroupDevice Id="1">
-            <DeviceChain>
+            <InsertEffectsChain>
               <Devices>
                 <Eq8 Id="2"/>
                 <PluginDevice Id="3"/>
               </Devices>
-            </DeviceChain>
+            </InsertEffectsChain>
           </AudioEffectGroupDevice>
           <AutoFilter Id="4"/>
         </Devices>
-      </DeviceChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -61,14 +61,14 @@ fn nested_device_collector_finds_devices_inside_racks() {
 fn collect_track_devices_reads_wrapper_root_chain_devices() {
     let xml = r#"
     <Track>
-      <DeviceChain>
-        <AudioToAudioDeviceChain>
+      <InsertEffectsChain>
+        <AudioToAudioInsertEffectsChain>
           <Devices>
             <PluginDevice Id="11"/>
             <Compressor2 Id="12"/>
           </Devices>
-        </AudioToAudioDeviceChain>
-      </DeviceChain>
+        </AudioToAudioInsertEffectsChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -90,17 +90,17 @@ fn collect_track_devices_reads_wrapper_root_chain_devices() {
 fn collect_track_devices_reads_deeply_nested_root_chain_devices() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <MainSequencer />
-        <DeviceChain>
-          <AudioToAudioDeviceChain>
+        <InsertEffectsChain>
+          <AudioToAudioInsertEffectsChain>
             <Devices>
               <PluginDevice Id="21"/>
               <Eq8 Id="22"/>
             </Devices>
-          </AudioToAudioDeviceChain>
-        </DeviceChain>
-      </DeviceChain>
+          </AudioToAudioInsertEffectsChain>
+        </InsertEffectsChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -122,8 +122,8 @@ fn collect_track_devices_reads_deeply_nested_root_chain_devices() {
 fn import_track_devices_keeps_full_chain_from_wrapper_root() {
     let xml = r#"
     <AudioTrack>
-      <DeviceChain>
-        <AudioToAudioDeviceChain>
+      <InsertEffectsChain>
+        <AudioToAudioInsertEffectsChain>
           <Devices>
             <PluginDevice Id="11">
               <UserName Value="Third Party FX" />
@@ -131,8 +131,8 @@ fn import_track_devices_keeps_full_chain_from_wrapper_root() {
             <Compressor2 Id="12" />
             <AutoFilter Id="13" />
           </Devices>
-        </AudioToAudioDeviceChain>
-      </DeviceChain>
+        </AudioToAudioInsertEffectsChain>
+      </InsertEffectsChain>
     </AudioTrack>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -156,15 +156,15 @@ fn import_track_devices_keeps_full_chain_from_wrapper_root() {
 fn import_track_devices_maps_adv_plugin_device_to_internal_utility() {
     let xml = r#"
     <AudioTrack>
-      <DeviceChain>
-        <AudioToAudioDeviceChain>
+      <InsertEffectsChain>
+        <AudioToAudioInsertEffectsChain>
           <Devices>
             <PluginDevice Id="11">
               <RelativePath Value="Audio Effects/Utility/Bass Mono.adv" />
             </PluginDevice>
           </Devices>
-        </AudioToAudioDeviceChain>
-      </DeviceChain>
+        </AudioToAudioInsertEffectsChain>
+      </InsertEffectsChain>
     </AudioTrack>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -197,18 +197,18 @@ fn parse_als_rack_supports_deep_branch_device_chain_wrappers() {
       <Branches>
         <AudioEffectBranch Id="0">
           <Name Value="Chain A" />
-          <DeviceChain>
-            <DeviceChain>
-              <AudioToAudioDeviceChain>
+          <InsertEffectsChain>
+            <InsertEffectsChain>
+              <AudioToAudioInsertEffectsChain>
                 <Devices>
                   <Eq8 Id="2"/>
                   <PluginDevice Id="3">
                     <UserName Value="Third Party Rack FX" />
                   </PluginDevice>
                 </Devices>
-              </AudioToAudioDeviceChain>
-            </DeviceChain>
-          </DeviceChain>
+              </AudioToAudioInsertEffectsChain>
+            </InsertEffectsChain>
+          </InsertEffectsChain>
         </AudioEffectBranch>
       </Branches>
     </AudioEffectGroupDevice>
@@ -267,8 +267,8 @@ fn parse_als_rack_collects_macro_parameter_mappings() {
       <Branches>
         <AudioEffectBranch Id="0">
           <Name Value="Chain A" />
-          <DeviceChain>
-            <AudioToAudioDeviceChain>
+          <InsertEffectsChain>
+            <AudioToAudioInsertEffectsChain>
               <Devices>
                 <Eq8 Id="42">
                   <BandStateA>
@@ -281,8 +281,8 @@ fn parse_als_rack_collects_macro_parameter_mappings() {
                   </BandStateA>
                 </Eq8>
               </Devices>
-            </AudioToAudioDeviceChain>
-          </DeviceChain>
+            </AudioToAudioInsertEffectsChain>
+          </InsertEffectsChain>
         </AudioEffectBranch>
       </Branches>
     </AudioEffectGroupDevice>
@@ -524,7 +524,7 @@ fn normalize_input_routing_target_handles_no_input_variants() {
 fn parse_output_target_supports_nested_routing_and_display_fallback() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <RoutingContainer>
           <AudioOutputRouting>
             <UpperDisplayString Value="AudioOut/Track.123"/>
@@ -533,7 +533,7 @@ fn parse_output_target_supports_nested_routing_and_display_fallback() {
         <AudioInputRouting>
           <Target Value="AudioIn/Ext.1"/>
         </AudioInputRouting>
-      </DeviceChain>
+      </InsertEffectsChain>
     </Track>
     "#;
     let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -575,11 +575,11 @@ fn parse_output_target_supports_direct_track_level_routing_node() {
 fn parse_track_bool_flag_reads_nested_value() {
     let xml = r#"
     <Track>
-      <DeviceChain>
+      <InsertEffectsChain>
         <Mixer>
           <IsAutoSelectEnabled Value="false" />
         </Mixer>
-      </DeviceChain>
+      </InsertEffectsChain>
       <KeepRecordMonitoringLatency Value="true" />
     </Track>
     "#;
@@ -693,21 +693,21 @@ fn import_als_prefers_pan_over_split_stereo_pan() {
         <MainTrack>
           <Tempo><Manual Value="120"/></Tempo>
           <TimeSignature><Numerator Value="4"/><Denominator Value="4"/></TimeSignature>
-          <DeviceChain><Mixer/></DeviceChain>
+          <InsertEffectsChain><Mixer/></InsertEffectsChain>
         </MainTrack>
         <Tracks>
           <AudioTrack Id="1">
             <Name><EffectiveName Value="PanTest"/></Name>
-            <DeviceChain>
+            <InsertEffectsChain>
               <Mixer>
                 <Pan><Manual Value="0.25"/></Pan>
                 <SplitStereoPanL><Manual Value="-1.0"/></SplitStereoPanL>
                 <SplitStereoPanR><Manual Value="1.0"/></SplitStereoPanR>
               </Mixer>
-              <AudioToAudioDeviceChain>
+              <AudioToAudioInsertEffectsChain>
                 <Devices/>
-              </AudioToAudioDeviceChain>
-            </DeviceChain>
+              </AudioToAudioInsertEffectsChain>
+            </InsertEffectsChain>
           </AudioTrack>
         </Tracks>
       </LiveSet>

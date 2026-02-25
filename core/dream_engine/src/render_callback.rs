@@ -20,7 +20,7 @@ use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::{ClipReader, WarpResampleMode};
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
-use dream_dsp::device_chain::DeviceChain;
+use dream_dsp::device_chain::InsertEffectsChain;
 use dream_dsp::fades::FadeCache;
 use dream_ipc::metering::{
     MeterBank, compute_peak, compute_rms, linear_to_db, peak_decay_for_block,
@@ -88,7 +88,7 @@ pub struct TrackSlot {
     /// Per-track channel strip (gain, pan, mute).
     pub strip: ChannelStrip,
     /// Per-track insert effect chain (processed after strip, before metering).
-    pub device_chain: DeviceChain,
+    pub device_chain: InsertEffectsChain,
     /// Was this slot active (had clips rendered) in the current buffer?
     pub active: bool,
     /// When `true`, the internal sampler on this track is bypassed and produces silence.
@@ -114,11 +114,11 @@ impl TrackSlot {
             buf_left: vec![0.0; max_frames],
             buf_right: vec![0.0; max_frames],
             strip: ChannelStrip::new(),
-            // AUD-067: f64→f32 cast for DeviceChain sample rate. This is
+            // AUD-067: f64→f32 cast for InsertEffectsChain sample rate. This is
             // lossless for common rates (44100, 48000, 96000) since they
             // fit exactly in f32. Only exotic rates (e.g. 176400/3) could
             // lose sub-Hz precision.
-            device_chain: DeviceChain::new(sample_rate as f32),
+            device_chain: InsertEffectsChain::new(sample_rate as f32),
             active: false,
             instrument_bypassed: false,
             ext_left: vec![0.0; max_frames],
@@ -327,7 +327,7 @@ impl RenderContext {
     /// Phase 1: Clears the track slots.
     /// Phase 2: Writes the audio data, applying fades.
     ///
-    /// NOTE: This function NO LONGER applies per-track internal FX (DeviceChain)
+    /// NOTE: This function NO LONGER applies per-track internal FX (InsertEffectsChain)
     /// or volume/pan/metering (ChannelStrip). These must be applied by the caller
     /// AFTER synthesizing any MIDI instruments into the same track buffers!
     #[inline]
@@ -672,7 +672,7 @@ impl RenderContext {
         // Phase 1: Fill track slots with Audio Clips.
         self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
 
-        // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
+        // Phase 2: Apply InsertEffectsChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
         let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
         for track_idx in 0..self.track_slots.len() {
             let slot = &mut self.track_slots[track_idx];

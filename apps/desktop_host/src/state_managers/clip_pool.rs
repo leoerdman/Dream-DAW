@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
-    SharedClipSnapshot, SharedExternalFxSnapshot, SharedPreparedGraphSnapshot,
+    SharedClipSnapshot, SharedExternalPluginSnapshot, SharedPreparedGraphSnapshot,
     SharedRoutingSnapshot, SharedSidechainSnapshot,
 };
 use dream_engine::render_callback::MAX_TRACKS;
@@ -44,7 +44,7 @@ pub struct ClipPoolState {
     pub sidechain_snapshot: Arc<SharedSidechainSnapshot>,
 
     /// Atomic snapshot of external FX runtime instances per track.
-    pub external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
+    pub external_fx_snapshot: Arc<SharedExternalPluginSnapshot>,
 }
 
 impl ClipPoolState {
@@ -56,7 +56,7 @@ impl ClipPoolState {
             routing_snapshot: Arc::new(SharedRoutingSnapshot::new()),
             prepared_graph_snapshot: Arc::new(SharedPreparedGraphSnapshot::new()),
             sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
-            external_fx_snapshot: Arc::new(SharedExternalFxSnapshot::new()),
+            external_fx_snapshot: Arc::new(SharedExternalPluginSnapshot::new()),
         }
     }
 
@@ -277,7 +277,7 @@ impl ClipPoolState {
             internal_slot_index: &mut usize,
             parent_bypassed: bool,
             is_instrument: bool,
-            out: &mut Vec<dream_engine::driver::ExternalFxRuntimeSlot>,
+            out: &mut Vec<dream_engine::driver::ExternalPluginRuntimeSlot>,
         ) {
             match node {
                 DeviceNode::Single(slot) => {
@@ -286,11 +286,11 @@ impl ClipPoolState {
                     let is_internal_effect =
                         builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some();
                     if is_internal_effect {
-                        // Keep runtime indexing aligned with DeviceChain even when this slot is bypassed.
+                        // Keep runtime indexing aligned with InsertEffectsChain even when this slot is bypassed.
                         let idx = *internal_slot_index;
                         *internal_slot_index = internal_slot_index.saturating_add(1);
                         if !effective_bypassed {
-                            out.push(dream_engine::driver::ExternalFxRuntimeSlot {
+                            out.push(dream_engine::driver::ExternalPluginRuntimeSlot {
                                 slot_id: Some(slot.id),
                                 internal_slot_index: Some(idx),
                                 instance_id: None,
@@ -301,7 +301,7 @@ impl ClipPoolState {
                     } else if !effective_bypassed
                         && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
                     {
-                        out.push(dream_engine::driver::ExternalFxRuntimeSlot {
+                        out.push(dream_engine::driver::ExternalPluginRuntimeSlot {
                             slot_id: Some(slot.id),
                             internal_slot_index: None,
                             instance_id: Some(instance_id),
@@ -329,14 +329,14 @@ impl ClipPoolState {
             }
         }
 
-        let mut external_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = project
+        let mut external_fx: Vec<Vec<dream_engine::driver::ExternalPluginRuntimeSlot>> = project
             .tracks
             .iter()
             .take(MAX_TRACKS)
             .map(|track| {
                 let mut internal_slot_index: usize = 0;
 
-                let mut slots: Vec<dream_engine::driver::ExternalFxRuntimeSlot> = Vec::new();
+                let mut slots: Vec<dream_engine::driver::ExternalPluginRuntimeSlot> = Vec::new();
                 if let Some(inst) = track.instrument.as_ref() {
                     collect_effect_runtime_slots(
                         inst,
@@ -375,7 +375,7 @@ impl ClipPoolState {
             let master = &project.master_track;
             let mut master_internal_idx: usize = 0;
 
-            let mut master_fx_chain: Vec<dream_engine::driver::ExternalFxRuntimeSlot> = Vec::new();
+            let mut master_fx_chain: Vec<dream_engine::driver::ExternalPluginRuntimeSlot> = Vec::new();
             if let Some(inst) = master.instrument.as_ref() {
                 collect_effect_runtime_slots(
                     inst,

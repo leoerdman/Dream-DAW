@@ -17,10 +17,10 @@
 use crate::dsp_processor::{BuiltinEffectType, DspProcessor};
 
 /// BUG-95 FIX: Increased from 8 to 16 for professional effect chains.
-pub const MAX_DEVICE_SLOTS: usize = 16;
+pub const MAX_INSERT_EFFECT_SLOTS: usize = 16;
 
 /// A single device slot in the effect chain.
-pub struct DeviceChainSlot {
+pub struct InsertEffectSlot {
     /// The DSP processor instance.
     pub processor: Box<dyn DspProcessor>,
     /// Whether this slot is bypassed (passthrough).
@@ -32,18 +32,18 @@ pub struct DeviceChainSlot {
 /// Per-track insert effect chain.
 ///
 /// Processes audio through all active (non-bypassed) slots in series.
-pub struct DeviceChain {
+pub struct InsertEffectsChain {
     /// Effect slots (processed in order, 0 → N).
-    slots: Vec<DeviceChainSlot>,
+    slots: Vec<InsertEffectSlot>,
     /// Cached sample rate for new processor initialization.
     sample_rate: f32,
 }
 
-impl DeviceChain {
+impl InsertEffectsChain {
     /// Creates a new empty device chain.
     pub fn new(sample_rate: f32) -> Self {
         Self {
-            slots: Vec::with_capacity(MAX_DEVICE_SLOTS),
+            slots: Vec::with_capacity(MAX_INSERT_EFFECT_SLOTS),
             sample_rate,
         }
     }
@@ -61,17 +61,17 @@ impl DeviceChain {
     /// Adds a device at the specified slot index.
     ///
     /// If `slot_index` exceeds the current count, the device is appended
-    /// at the end. If the chain is full (`MAX_DEVICE_SLOTS` slots), the call is ignored.
+    /// at the end. If the chain is full (`MAX_INSERT_EFFECT_SLOTS` slots), the call is ignored.
     ///
     /// # Returns
     /// `true` if the device was added successfully.
-    pub fn add_device(&mut self, slot_index: usize, effect_type: BuiltinEffectType) -> bool {
-        if self.slots.len() >= MAX_DEVICE_SLOTS {
+    pub fn add_effect(&mut self, slot_index: usize, effect_type: BuiltinEffectType) -> bool {
+        if self.slots.len() >= MAX_INSERT_EFFECT_SLOTS {
             return false;
         }
 
         let processor = effect_type.create_processor(self.sample_rate);
-        let slot = DeviceChainSlot {
+        let slot = InsertEffectSlot {
             processor,
             is_bypassed: false,
             effect_type,
@@ -86,7 +86,7 @@ impl DeviceChain {
     ///
     /// # Returns
     /// `true` if a device was removed.
-    pub fn remove_device(&mut self, slot_index: usize) -> bool {
+    pub fn remove_effect(&mut self, slot_index: usize) -> bool {
         if slot_index < self.slots.len() {
             self.slots.remove(slot_index);
             true
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn empty_chain_passthrough() {
-        let mut chain = DeviceChain::new(44100.0);
+        let mut chain = InsertEffectsChain::new(44100.0);
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
         let original = left.clone();
@@ -204,16 +204,16 @@ mod tests {
 
     #[test]
     fn add_and_remove_devices() {
-        let mut chain = DeviceChain::new(44100.0);
+        let mut chain = InsertEffectsChain::new(44100.0);
         assert!(chain.is_empty());
 
-        assert!(chain.add_device(0, BuiltinEffectType::Utility));
+        assert!(chain.add_effect(0, BuiltinEffectType::Utility));
         assert_eq!(chain.slot_count(), 1);
 
-        assert!(chain.add_device(1, BuiltinEffectType::Eq));
+        assert!(chain.add_effect(1, BuiltinEffectType::Eq));
         assert_eq!(chain.slot_count(), 2);
 
-        assert!(chain.remove_device(0));
+        assert!(chain.remove_effect(0));
         assert_eq!(chain.slot_count(), 1);
 
         // Chain should have EQ (was at index 1, now shifted to 0)
@@ -222,21 +222,21 @@ mod tests {
 
     #[test]
     fn max_slots_enforced() {
-        let mut chain = DeviceChain::new(44100.0);
-        for _ in 0..MAX_DEVICE_SLOTS {
-            assert!(chain.add_device(0, BuiltinEffectType::Utility));
+        let mut chain = InsertEffectsChain::new(44100.0);
+        for _ in 0..MAX_INSERT_EFFECT_SLOTS {
+            assert!(chain.add_effect(0, BuiltinEffectType::Utility));
         }
-        assert_eq!(chain.slot_count(), MAX_DEVICE_SLOTS);
+        assert_eq!(chain.slot_count(), MAX_INSERT_EFFECT_SLOTS);
 
         // Should refuse 9th device
-        assert!(!chain.add_device(0, BuiltinEffectType::Utility));
-        assert_eq!(chain.slot_count(), MAX_DEVICE_SLOTS);
+        assert!(!chain.add_effect(0, BuiltinEffectType::Utility));
+        assert_eq!(chain.slot_count(), MAX_INSERT_EFFECT_SLOTS);
     }
 
     #[test]
     fn bypass_skips_processing() {
-        let mut chain = DeviceChain::new(44100.0);
-        chain.add_device(0, BuiltinEffectType::Utility);
+        let mut chain = InsertEffectsChain::new(44100.0);
+        chain.add_effect(0, BuiltinEffectType::Utility);
 
         // Set utility gain to -60dB (silence)
         chain.set_param(0, 0, -60.0);
@@ -262,13 +262,13 @@ mod tests {
 
     #[test]
     fn chain_cascade_order() {
-        let mut chain = DeviceChain::new(44100.0);
+        let mut chain = InsertEffectsChain::new(44100.0);
         // Add Utility at slot 0 with -60dB gain (silences signal)
-        chain.add_device(0, BuiltinEffectType::Utility);
+        chain.add_effect(0, BuiltinEffectType::Utility);
         chain.set_param(0, 0, -60.0);
 
         // Add Compressor at slot 1
-        chain.add_device(1, BuiltinEffectType::Compressor);
+        chain.add_effect(1, BuiltinEffectType::Compressor);
 
         // Utility runs first → silences → Compressor receives silence
         let mut left = vec![1.0f32; 4096];

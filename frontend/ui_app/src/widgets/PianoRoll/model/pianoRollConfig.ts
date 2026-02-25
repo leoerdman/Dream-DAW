@@ -9,7 +9,7 @@ export interface MidiNote {
     selected?: boolean;
 }
 
-export type PianoRollTool = 'draw' | 'paint';
+export type PianoRollTool = 'cursor' | 'paint';
 
 export type ScaleName =
     | 'Major'
@@ -100,5 +100,9 @@ export const isBlackKey = (pitch: number): boolean => {
     return [1, 3, 6, 8, 10].includes(note);
 };
 
-export const genNoteId = (): string => crypto.randomUUID();
-
+export const genNoteId = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `note_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+};

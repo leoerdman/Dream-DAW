@@ -37,8 +37,8 @@ export function formatToolResult(name: string, resultJson: string): string {
             case 'resize_clip': return `✅ Resized to ${data.newDuration} beats`;
             case 'search_browser': return `🔍 ${data.matchesFound} results` + (data.results?.[0]?.name ? ` • "${data.results[0].name}"` : '');
             case 'add_sample_to_rack': return '✅ Sample loaded';
-            case 'add_effect': return `✅ ${data.effectType || 'Effect'} added`;
-            case 'remove_effect': return '✅ Effect removed';
+            case 'add_device': return `✅ ${data.effectType || 'Effect'} added`;
+            case 'remove_device': return '✅ Effect removed';
             case 'bypass_effect': return data.bypassed ? '⏸ Bypassed' : '▶ Enabled';
             case 'set_device_param': return '✅ Param set';
             case 'set_track_color': return `🎨 Color → ${data.color}`;

@@ -33,15 +33,18 @@ export function usePianoRollLaneValues({
     const lanePersistHashRef = useRef('');
     const laneDragCleanupRef = useRef<(() => void) | null>(null);
 
+    const sortEnvelopePoints = useCallback((points: Array<{ beat: number; value: number }>): Array<{ beat: number; value: number }> => (
+        [...points].sort((a, b) => a.beat - b.beat)
+    ), []);
+
     const sampleEnvelopeAtBeat = useCallback((points: Array<{ beat: number; value: number }>, beat: number): number => {
         if (points.length === 0) return 0;
         if (points.length === 1) return Math.round(points[0].value * 127);
-        const sorted = [...points].sort((a, b) => a.beat - b.beat);
-        if (beat <= sorted[0].beat) return Math.round(sorted[0].value * 127);
-        if (beat >= sorted[sorted.length - 1].beat) return Math.round(sorted[sorted.length - 1].value * 127);
-        for (let i = 0; i < sorted.length - 1; i++) {
-            const a = sorted[i];
-            const b = sorted[i + 1];
+        if (beat <= points[0].beat) return Math.round(points[0].value * 127);
+        if (beat >= points[points.length - 1].beat) return Math.round(points[points.length - 1].value * 127);
+        for (let i = 0; i < points.length - 1; i++) {
+            const a = points[i];
+            const b = points[i + 1];
             if (beat >= a.beat && beat <= b.beat) {
                 const span = Math.max(0.0001, b.beat - a.beat);
                 const t = (beat - a.beat) / span;
@@ -58,7 +61,7 @@ export function usePianoRollLaneValues({
     }, [laneValuesByNote]);
 
     useEffect(() => {
-        const envMap = new Map(midiEnvelopes.map((env) => [env.paramId, env.points]));
+        const envMap = new Map(midiEnvelopes.map((env) => [env.paramId, sortEnvelopePoints(env.points)]));
         const buildLane = (paramId: string): Record<string, number> => {
             const points = envMap.get(paramId) ?? [];
             const next: Record<string, number> = {};
@@ -73,19 +76,24 @@ export function usePianoRollLaneValues({
             }));
         });
         return () => window.cancelAnimationFrame(raf);
-    }, [midiEnvelopes, notes, sampleEnvelopeAtBeat]);
+    }, [midiEnvelopes, notes, sampleEnvelopeAtBeat, sortEnvelopePoints]);
 
     useEffect(() => {
         if (!onSetMidiEnvelopes) return;
-        const toEnvelope = (paramId: string, values: Record<string, number>) => ({
-            paramId,
-            points: notes
-                .map((note) => ({
-                    beat: note.startBeat,
-                    value: Math.max(0, Math.min(1, (values[note.id] ?? 0) / 127)),
-                }))
-                .sort((a, b) => a.beat - b.beat),
-        });
+        const toEnvelope = (paramId: string, values: Record<string, number>) => {
+            const byBeat = new Map<number, { sum: number; count: number }>();
+            for (const note of notes) {
+                const beat = note.startBeat;
+                const value = Math.max(0, Math.min(1, (values[note.id] ?? 0) / 127));
+                const existing = byBeat.get(beat);
+                if (existing) byBeat.set(beat, { sum: existing.sum + value, count: existing.count + 1 });
+                else byBeat.set(beat, { sum: value, count: 1 });
+            }
+            const points = Array.from(byBeat.entries())
+                .map(([beat, agg]) => ({ beat, value: agg.sum / Math.max(1, agg.count) }))
+                .sort((a, b) => a.beat - b.beat);
+            return { paramId, points };
+        };
         const payload = [
             toEnvelope('cc1.modWheel', laneValuesByNote.modWheel),
             toEnvelope('cc11.expression', laneValuesByNote.expression),

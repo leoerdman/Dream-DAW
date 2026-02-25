@@ -503,7 +503,7 @@ async function executeToolInner(
             await useEngineStore.getState().applyProjectDeltas(result.deltas, 'agent-merge-clips');
             return JSON.stringify({ success: true, newClipId: result.new_id });
         }
-        case 'add_effect': {
+        case 'add_device': {
             const trackIndex = args.trackIndex as number;
             const trackId = tracks[trackIndex]?.id;
             if (!trackId) return JSON.stringify({ error: `Track ${trackIndex} not found` });
@@ -519,7 +519,7 @@ async function executeToolInner(
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-add-effect');
             return JSON.stringify({ success: true, trackIndex, effectType: effectArg, effect: effect.displayName });
         }
-        case 'remove_effect': {
+        case 'remove_device': {
             const trackIndex = args.trackIndex as number;
             const slotId = args.slotId as string;
             const trackId = tracks[trackIndex]?.id;

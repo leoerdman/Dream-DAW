@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use super::audio_thread_commands::{CommandProcessingContext, drain_commands};
 use super::audio_thread_instrument_pass::render_instrument_sources;
-use super::command_dispatch::DeferredEffectChainCmd;
+use super::command_dispatch::DeferredDeviceChainCmd;
 use super::render_pipeline::{
     finalize_output_and_publish, interleave_graph_output, mix_preview_audio,
     process_master_bus, render_test_tone_if_needed, sync_sample_rack_engines,
@@ -113,7 +113,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
     // Historically this path was bypassed; now it is active in the master FX stage.
-    let mut master_device_chain = InsertEffectsChain::new(sample_rate_f64 as f32);
+    let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
@@ -144,7 +144,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut external_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut external_right = vec![0.0f32; MAX_BUFFER_FRAMES];
-    let mut deferred_topology: VecDeque<DeferredEffectChainCmd> = VecDeque::with_capacity(1024);
+    let mut deferred_topology: VecDeque<DeferredDeviceChainCmd> = VecDeque::with_capacity(1024);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(2048);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(2048);
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent

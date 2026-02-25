@@ -15,10 +15,7 @@ const effect = (
 export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
     effect('internal://effect/eq-eight', 'EQ', ['eq']),
     effect('internal://effect/compressor', 'Compressor', ['dynamics']),
-    effect('internal://effect/glue-compressor', 'Glue Compressor', ['dynamics']),
     effect('internal://effect/delay', 'Delay', ['time']),
-    effect('internal://effect/simple-delay', 'Simple Delay', ['time']),
-    effect('internal://effect/filter-delay', 'Filter Delay', ['time', 'filter']),
     effect('internal://effect/reverb', 'Reverb', ['space']),
     effect('internal://effect/chorus', 'Chorus', ['modulation']),
     effect('internal://effect/saturator', 'Saturator', ['drive']),
@@ -37,7 +34,7 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
     effect('internal://effect/channel-eq', 'Channel EQ', ['eq']),
     effect('internal://effect/eq-three', 'Band EQ', ['eq', 'dj']),
     effect('internal://effect/multiband-dynamics', 'Multiband Dynamics', ['dynamics', 'multiband']),
-    effect('internal://effect/echo', 'Echo', ['delay']),
+
     effect('internal://effect/grain-delay', 'Grain Delay', ['delay', 'granular']),
     effect('internal://effect/hybrid-reverb', 'Hybrid Reverb', ['reverb']),
     effect('internal://effect/amp', 'Amp', ['drive', 'amp']),

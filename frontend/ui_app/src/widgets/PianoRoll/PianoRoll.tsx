@@ -104,6 +104,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         <div
             ref={(el) => { editorRootRef.current = el; }}
             tabIndex={0}
+            data-testid="piano-roll"
             data-keyboard-scope="piano-roll"
             data-selected-notes={selectedNotes.size}
             onFocus={() => setIsEditorFocused(true)}

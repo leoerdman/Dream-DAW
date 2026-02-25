@@ -407,7 +407,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let mut render_ctx = bouncer.create_render_ctx(&project, None, SR);
     let mut output_no_master_fx = vec![0.0f32; FRAMES * OFFLINE_CHANNELS];
     let mut output_with_master_fx = vec![0.0f32; FRAMES * OFFLINE_CHANNELS];
-    let mut master_chain_none = InsertEffectsChain::new(SR as f32);
+    let mut master_chain_none = DeviceChain::new(SR as f32);
     let external_fx_map_empty = vec![Vec::<ExternalPluginRuntimeSlot>::new(); project.tracks.len() + 1];
     let plugin_registry: HashMap<uuid::Uuid, PluginInstanceArc> = HashMap::new();
 
@@ -434,7 +434,7 @@ fn master_fx_processes_both_group_and_direct_paths() {
 
     // Recreate render context for deterministic comparison from frame 0.
     let mut render_ctx_with_master = bouncer.create_render_ctx(&project, None, SR);
-    let mut master_chain_utility = InsertEffectsChain::new(SR as f32);
+    let mut master_chain_utility = DeviceChain::new(SR as f32);
     let mut utility = PluginSlot::new("Utility", "internal://effect/utility");
     // Utility param[0] = Gain (dB). -60 dB should strongly attenuate master output.
     utility.params = Some(vec![-60.0]);

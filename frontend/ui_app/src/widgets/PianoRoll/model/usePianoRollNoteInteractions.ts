@@ -3,6 +3,7 @@ import { LOWEST_PITCH, MIN_NOTE_BEATS, TOTAL_KEYS, type MidiNote, type PianoRoll
 
 interface UsePianoRollNoteInteractionsArgs {
     tool: PianoRollTool;
+    pianoPencilMode: boolean;
     isMac: boolean;
     snapEnabled: boolean;
     drumMode: boolean;
@@ -24,6 +25,7 @@ interface UsePianoRollNoteInteractionsArgs {
 
 export function usePianoRollNoteInteractions({
     tool,
+    pianoPencilMode,
     isMac,
     snapEnabled,
     drumMode,
@@ -53,9 +55,33 @@ export function usePianoRollNoteInteractions({
     }, []);
 
     const handleNoteClick = useCallback((event: React.MouseEvent, noteId: string) => {
+        if (tool === 'paint') return;
         event.stopPropagation();
         editorRootRef.current?.focus();
         const target = notes.find((note) => note.id === noteId);
+        if (pianoPencilMode) {
+            onNotesChange(notes.filter((note) => note.id !== noteId));
+            setSelectedNotes((prev) => {
+                const next = new Set(prev);
+                next.delete(noteId);
+                return next;
+            });
+            lastClickedNoteIdRef.current = null;
+            return;
+        }
+        const deleteOnSecondClick = !event.shiftKey
+            && selectedNotes.has(noteId)
+            && lastClickedNoteIdRef.current === noteId;
+        if (deleteOnSecondClick) {
+            onNotesChange(notes.filter((note) => note.id !== noteId));
+            setSelectedNotes((prev) => {
+                const next = new Set(prev);
+                next.delete(noteId);
+                return next;
+            });
+            lastClickedNoteIdRef.current = null;
+            return;
+        }
         if (target && !event.shiftKey) auditionNote(target.pitch, target.velocity, 120);
         if (event.shiftKey && lastClickedNoteIdRef.current) {
             const anchor = notes.find((note) => note.id === lastClickedNoteIdRef.current);
@@ -71,7 +97,7 @@ export function usePianoRollNoteInteractions({
                         rangeIds.add(note.id);
                     }
                 }
-                setSelectedNotes(rangeIds);
+                setSelectedNotes((prev) => new Set([...prev, ...rangeIds]));
                 return;
             }
         }
@@ -87,10 +113,10 @@ export function usePianoRollNoteInteractions({
             }
             return next;
         });
-    }, [auditionNote, editorRootRef, notes, setSelectedNotes]);
+    }, [auditionNote, editorRootRef, notes, onNotesChange, pianoPencilMode, selectedNotes, setSelectedNotes, tool]);
 
     const handleNoteDrag = useCallback((event: React.MouseEvent, noteId: string) => {
-        if (tool === 'paint') return;
+        if (tool === 'paint' || pianoPencilMode) return;
         if (event.button !== 0) return;
         event.stopPropagation();
         event.preventDefault();
@@ -173,7 +199,7 @@ export function usePianoRollNoteInteractions({
         dragCleanupRef.current = onUp;
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [auditionNote, beatsPerBar, clipBeats, drumMode, editorRootRef, enforceNoOverlap, isMac, noteHeight, notesRef, onNotesChange, pixelsPerBeatRef, selectedNotes, setSelectedNotes, snapBeat, snapEnabled, tool, visiblePitches]);
+    }, [auditionNote, beatsPerBar, clipBeats, drumMode, editorRootRef, enforceNoOverlap, isMac, noteHeight, notesRef, onNotesChange, pianoPencilMode, pixelsPerBeatRef, selectedNotes, setSelectedNotes, snapBeat, snapEnabled, tool, visiblePitches]);
 
     const handleNoteMouseMove = useCallback((event: React.MouseEvent, noteId: string) => {
         const noteDiv = event.currentTarget as HTMLElement;

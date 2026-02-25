@@ -15,32 +15,11 @@ export const INTERNAL_EFFECT_PLUGINS_A: InternalPluginDefinition[] = [
         tags: ['internal', 'effect', 'dynamics'],
     },
     {
-        id: 'internal://effect/glue-compressor',
-        name: 'Glue Compressor',
-        kind: 'effect',
-        slotHint: 'effect',
-        tags: ['internal', 'effect', 'dynamics'],
-    },
-    {
         id: 'internal://effect/delay',
         name: 'Delay',
         kind: 'effect',
         slotHint: 'effect',
         tags: ['internal', 'effect', 'time'],
-    },
-    {
-        id: 'internal://effect/simple-delay',
-        name: 'Simple Delay',
-        kind: 'effect',
-        slotHint: 'effect',
-        tags: ['internal', 'effect', 'time'],
-    },
-    {
-        id: 'internal://effect/filter-delay',
-        name: 'Filter Delay',
-        kind: 'effect',
-        slotHint: 'effect',
-        tags: ['internal', 'effect', 'time', 'filter'],
     },
     {
         id: 'internal://effect/reverb',

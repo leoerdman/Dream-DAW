@@ -21,7 +21,7 @@ export function usePianoRollState({
     clipStartBeat,
     trackIndex,
 }: UsePianoRollStateArgs) {
-    const [tool, setTool] = useState<PianoRollTool>('draw');
+    const [tool, setTool] = useState<PianoRollTool>('cursor');
     const [selectionRect, setSelectionRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [containerWidth, setContainerWidth] = useState(0);
     const [zoomOverrideH, setZoomOverrideH] = useState<number | null>(null);

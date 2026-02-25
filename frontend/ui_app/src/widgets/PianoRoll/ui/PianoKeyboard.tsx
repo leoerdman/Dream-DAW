@@ -78,9 +78,24 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                         return (
                             <div
                                 key={key.pitch}
-                                onMouseDown={() => auditionNote(key.pitch, 110, 220)}
-                                onMouseUp={() => stopAudition?.(key.pitch)}
-                                onMouseLeave={() => stopAudition?.(key.pitch)}
+                                onPointerDown={(event) => {
+                                    if (event.button !== 0) return;
+                                    event.currentTarget.setPointerCapture(event.pointerId);
+                                    auditionNote(key.pitch, 110, 220);
+                                }}
+                                onPointerUp={(event) => {
+                                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                        event.currentTarget.releasePointerCapture(event.pointerId);
+                                    }
+                                    stopAudition?.(key.pitch);
+                                }}
+                                onPointerCancel={(event) => {
+                                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                        event.currentTarget.releasePointerCapture(event.pointerId);
+                                    }
+                                    stopAudition?.(key.pitch);
+                                }}
+                                onPointerLeave={() => stopAudition?.(key.pitch)}
                                 style={{
                                     position: 'absolute',
                                     top: key.y,
@@ -96,6 +111,7 @@ export const PianoKeyboard = memo(function PianoKeyboard({
                                     zIndex: key.isBlack ? 2 : 1,
                                     transition: 'background var(--transition-fast)',
                                     cursor: 'pointer',
+                                    touchAction: 'none',
                                 }}
                             >
                                 {(drumMode || key.isC) && noteHeight >= 8 && (

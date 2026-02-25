@@ -12,7 +12,7 @@ pub fn rebuild_runtime_device_chains_from_project(
     project: &Project,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
-    const MAX_DEVICE_SLOTS: u8 = 16;
+    const MAX_DEVICE_SLOTS: usize = dream_dsp::device_chain::MAX_DEVICE_SLOTS;
     fn apply_static_imported_params_for_slot(
         handle: &AudioEngineHandle,
         track_index: u16,
@@ -678,7 +678,7 @@ pub fn rebuild_runtime_device_chains_from_project(
 
     for track_index in 0..project.tracks.len() {
         let track_index = track_index as u16;
-        for slot_index in 0..MAX_DEVICE_SLOTS {
+        for slot_index in 0..MAX_DEVICE_SLOTS as u8 {
             push_command(
                 handle,
                 EngineCommand::RemoveDevice {

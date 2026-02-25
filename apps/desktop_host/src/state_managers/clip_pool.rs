@@ -286,7 +286,7 @@ impl ClipPoolState {
                     let is_internal_effect =
                         builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some();
                     if is_internal_effect {
-                        // Keep runtime indexing aligned with InsertEffectsChain even when this slot is bypassed.
+                        // Keep runtime indexing aligned with DeviceChain even when this slot is bypassed.
                         let idx = *internal_slot_index;
                         *internal_slot_index = internal_slot_index.saturating_add(1);
                         if !effective_bypassed {

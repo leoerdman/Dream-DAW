@@ -26,9 +26,6 @@ use crate::dsp_processor::BuiltinEffectType;
 /// Maximum number of device slots per chain (effects + instruments).
 pub const MAX_DEVICE_SLOTS: usize = 16;
 
-/// Backward-compatible alias for migration (will be removed after Phase 4).
-pub const MAX_INSERT_EFFECT_SLOTS: usize = MAX_DEVICE_SLOTS;
-
 /// Per-track device chain.
 ///
 /// Processes audio through all active (non-bypassed) slots in series.
@@ -40,9 +37,6 @@ pub struct DeviceChain {
     /// Cached sample rate for new device initialization.
     sample_rate: f32,
 }
-
-/// Backward-compatible type alias (will be removed after Phase 4).
-pub type InsertEffectsChain = DeviceChain;
 
 impl DeviceChain {
     /// Creates a new empty device chain.
@@ -94,7 +88,7 @@ impl DeviceChain {
     ///
     /// # Returns
     /// `true` if the device was added successfully.
-    pub fn add_effect(&mut self, slot_index: usize, effect_type: BuiltinEffectType) -> bool {
+    pub fn add_builtin_effect(&mut self, slot_index: usize, effect_type: BuiltinEffectType) -> bool {
         let device = InternalDeviceSlot::new(effect_type, self.sample_rate);
         self.add_device(slot_index, Box::new(device))
     }
@@ -103,18 +97,13 @@ impl DeviceChain {
     ///
     /// # Returns
     /// `true` if a device was removed.
-    pub fn remove_effect(&mut self, slot_index: usize) -> bool {
+    pub fn remove_device(&mut self, slot_index: usize) -> bool {
         if slot_index < self.slots.len() {
             self.slots.remove(slot_index);
             true
         } else {
             false
         }
-    }
-
-    /// Alias for `remove_effect` using unified naming.
-    pub fn remove_device(&mut self, slot_index: usize) -> bool {
-        self.remove_effect(slot_index)
     }
 
     /// Reorders a device from one slot to another.
@@ -297,26 +286,17 @@ mod tests {
     }
 
     #[test]
-    fn type_alias_backward_compat() {
-        // InsertEffectsChain should be usable as DeviceChain.
-        let mut chain = InsertEffectsChain::new(44100.0);
-        assert!(chain.is_empty());
-        assert!(chain.add_effect(0, BuiltinEffectType::Utility));
-        assert_eq!(chain.slot_count(), 1);
-    }
-
-    #[test]
     fn add_and_remove_devices() {
         let mut chain = DeviceChain::new(44100.0);
         assert!(chain.is_empty());
 
-        assert!(chain.add_effect(0, BuiltinEffectType::Utility));
+        assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
         assert_eq!(chain.slot_count(), 1);
 
-        assert!(chain.add_effect(1, BuiltinEffectType::Eq));
+        assert!(chain.add_builtin_effect(1, BuiltinEffectType::Eq));
         assert_eq!(chain.slot_count(), 2);
 
-        assert!(chain.remove_effect(0));
+        assert!(chain.remove_device(0));
         assert_eq!(chain.slot_count(), 1);
     }
 
@@ -324,16 +304,16 @@ mod tests {
     fn max_slots_enforced() {
         let mut chain = DeviceChain::new(44100.0);
         for _ in 0..MAX_DEVICE_SLOTS {
-            assert!(chain.add_effect(0, BuiltinEffectType::Utility));
+            assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
         }
         assert_eq!(chain.slot_count(), MAX_DEVICE_SLOTS);
-        assert!(!chain.add_effect(0, BuiltinEffectType::Utility));
+        assert!(!chain.add_builtin_effect(0, BuiltinEffectType::Utility));
     }
 
     #[test]
     fn bypass_skips_processing() {
         let mut chain = DeviceChain::new(44100.0);
-        chain.add_effect(0, BuiltinEffectType::Utility);
+        chain.add_builtin_effect(0, BuiltinEffectType::Utility);
         chain.set_param(0, 0, -60.0);
 
         let mut left = vec![1.0f32; 4096];
@@ -352,9 +332,9 @@ mod tests {
     #[test]
     fn chain_cascade_order() {
         let mut chain = DeviceChain::new(44100.0);
-        chain.add_effect(0, BuiltinEffectType::Utility);
+        chain.add_builtin_effect(0, BuiltinEffectType::Utility);
         chain.set_param(0, 0, -60.0);
-        chain.add_effect(1, BuiltinEffectType::Compressor);
+        chain.add_builtin_effect(1, BuiltinEffectType::Compressor);
 
         let mut left = vec![1.0f32; 4096];
         let mut right = vec![1.0f32; 4096];
@@ -366,9 +346,9 @@ mod tests {
     #[test]
     fn reorder_moves_device() {
         let mut chain = DeviceChain::new(44100.0);
-        chain.add_effect(0, BuiltinEffectType::Utility);
-        chain.add_effect(1, BuiltinEffectType::Eq);
-        chain.add_effect(2, BuiltinEffectType::Compressor);
+        chain.add_builtin_effect(0, BuiltinEffectType::Utility);
+        chain.add_builtin_effect(1, BuiltinEffectType::Eq);
+        chain.add_builtin_effect(2, BuiltinEffectType::Compressor);
         assert_eq!(chain.slot_count(), 3);
 
         // Move slot 2 (Compressor) to slot 0.
@@ -392,7 +372,7 @@ mod tests {
     #[test]
     fn process_with_context() {
         let mut chain = DeviceChain::new(44100.0);
-        chain.add_effect(0, BuiltinEffectType::Utility);
+        chain.add_builtin_effect(0, BuiltinEffectType::Utility);
 
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];
@@ -408,7 +388,7 @@ mod tests {
     #[test]
     fn process_with_sidechains() {
         let mut chain = DeviceChain::new(44100.0);
-        chain.add_effect(0, BuiltinEffectType::Compressor);
+        chain.add_builtin_effect(0, BuiltinEffectType::Compressor);
 
         let mut left = vec![1.0f32; 64];
         let mut right = vec![1.0f32; 64];

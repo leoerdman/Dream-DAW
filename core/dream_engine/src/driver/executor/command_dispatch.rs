@@ -11,7 +11,7 @@ use dream_dsp::device_slot::DeviceProcessor;
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-pub(super) enum DeferredEffectChainCmd {
+pub(super) enum DeferredDeviceChainCmd {
     /// Add a built-in DSP effect.
     AddInternal {
         track_index: u16,
@@ -149,14 +149,14 @@ pub(super) fn apply_pending_track_mixer_state(
 /// Now it drains the entire queue, ensuring device chain state is always
 /// fully synchronized by the time audio processing begins.
 pub(super) fn apply_all_topology_mutations(
-    deferred_topology: &mut VecDeque<DeferredEffectChainCmd>,
-    master_device_chain: &mut InsertEffectsChain,
+    deferred_topology: &mut VecDeque<DeferredDeviceChainCmd>,
+    master_device_chain: &mut DeviceChain,
     render_ctx: &mut RenderContext,
     master_track_index: u16,
 ) {
     while let Some(topology_cmd) = deferred_topology.pop_front() {
         match topology_cmd {
-            DeferredEffectChainCmd::AddInternal {
+            DeferredDeviceChainCmd::AddInternal {
                 track_index,
                 slot_index,
                 effect_type,
@@ -164,17 +164,17 @@ pub(super) fn apply_all_topology_mutations(
                 let idx = track_index as usize;
                 if track_index == master_track_index {
                     if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
-                        master_device_chain.add_effect(slot_index as usize, etype);
+                        master_device_chain.add_builtin_effect(slot_index as usize, etype);
                     }
                 } else if idx < render_ctx.track_slots.len()
                     && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
                 {
                     render_ctx.track_slots[idx]
                         .device_chain
-                        .add_effect(slot_index as usize, etype);
+                        .add_builtin_effect(slot_index as usize, etype);
                 }
             }
-            DeferredEffectChainCmd::AddDevice {
+            DeferredDeviceChainCmd::AddDevice {
                 track_index,
                 slot_index,
                 device,
@@ -188,20 +188,20 @@ pub(super) fn apply_all_topology_mutations(
                         .add_device(slot_index as usize, device);
                 }
             }
-            DeferredEffectChainCmd::Remove {
+            DeferredDeviceChainCmd::Remove {
                 track_index,
                 slot_index,
             } => {
                 let idx = track_index as usize;
                 if track_index == master_track_index {
-                    master_device_chain.remove_effect(slot_index as usize);
+                    master_device_chain.remove_device(slot_index as usize);
                 } else if idx < render_ctx.track_slots.len() {
                     render_ctx.track_slots[idx]
                         .device_chain
-                        .remove_effect(slot_index as usize);
+                        .remove_device(slot_index as usize);
                 }
             }
-            DeferredEffectChainCmd::Reorder {
+            DeferredDeviceChainCmd::Reorder {
                 track_index,
                 from_slot,
                 to_slot,
@@ -222,8 +222,8 @@ pub(super) fn apply_all_topology_mutations(
 /// Backward-compatible wrapper that applies a single mutation.
 /// Used by callers that still expect the old behavior.
 pub(super) fn apply_single_topology_mutation(
-    deferred_topology: &mut VecDeque<DeferredEffectChainCmd>,
-    master_device_chain: &mut InsertEffectsChain,
+    deferred_topology: &mut VecDeque<DeferredDeviceChainCmd>,
+    master_device_chain: &mut DeviceChain,
     render_ctx: &mut RenderContext,
     master_track_index: u16,
 ) {

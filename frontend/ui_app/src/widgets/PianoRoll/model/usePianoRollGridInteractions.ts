@@ -70,23 +70,53 @@ export function usePianoRollGridInteractions({
         auditionNote(pitch, 100, 160);
     }, [clipBeats, currentGridInterval, notesRef, onNotesChange, pixelsPerBeat, snapToCellStart, yToPitch, enforceNoOverlap, auditionNote]);
 
+    const toggleNoteAtPointer = useCallback((clientX: number, clientY: number, target: HTMLElement) => {
+        const rect = target.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const pitch = yToPitch(y);
+        const beat = snapToCellStart(x / pixelsPerBeat);
+        if (beat >= clipBeats) return;
+        const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const candidate = notesRef.current.find((note) => (
+            note.pitch === pitch
+            && beat >= note.startBeat - 1e-6
+            && beat < (note.startBeat + note.durationBeats) + 1e-6
+        ));
+        if (candidate) {
+            onNotesChange(notesRef.current.filter((note) => note.id !== candidate.id));
+            setSelectedNotes((prev) => {
+                const next = new Set(prev);
+                next.delete(candidate.id);
+                return next;
+            });
+            return;
+        }
+        const duration = Math.max(MIN_NOTE_BEATS, Math.min(gridStep, clipBeats - beat));
+        const newNote: MidiNote = { id: genNoteId(), pitch, startBeat: beat, durationBeats: duration, velocity: 100 };
+        onNotesChange(enforceNoOverlap([...notesRef.current, newNote], new Set([newNote.id])));
+        setSelectedNotes(new Set([newNote.id]));
+        auditionNote(pitch, 100, 160);
+    }, [clipBeats, currentGridInterval, notesRef, onNotesChange, pixelsPerBeat, setSelectedNotes, snapToCellStart, yToPitch, enforceNoOverlap, auditionNote]);
+
     const handleGridClick = useCallback((event: React.MouseEvent) => {
         editorRootRef.current?.focus();
-        if (tool !== 'draw' || !pianoPencilMode) return;
         if (event.button !== 0) return;
+        if (tool === 'paint') return;
+        if (!pianoPencilMode) return;
         if (isDragSelectingRef.current || isDragInProgressRef.current) return;
         const now = Date.now();
         const last = lastInsertPosRef.current;
         const tooClose = last && now - last.t < 250 && Math.abs(event.clientX - last.x) < 6 && Math.abs(event.clientY - last.y) < 6;
         if (tooClose) return;
         lastInsertPosRef.current = { x: event.clientX, y: event.clientY, t: now };
-        insertNoteFromPointer(event.clientX, event.clientY, event.currentTarget as HTMLElement);
-    }, [editorRootRef, insertNoteFromPointer, isDragInProgressRef, pianoPencilMode, tool]);
+        toggleNoteAtPointer(event.clientX, event.clientY, event.currentTarget as HTMLElement);
+    }, [editorRootRef, isDragInProgressRef, pianoPencilMode, toggleNoteAtPointer, tool]);
 
     const handleGridDoubleClick = useCallback((event: React.MouseEvent) => {
         editorRootRef.current?.focus();
         if (event.button !== 0) return;
-        if (tool !== 'draw' || pianoPencilMode || isDragInProgressRef.current) return;
+        if (tool !== 'cursor' || pianoPencilMode || isDragInProgressRef.current) return;
         lastInsertPosRef.current = { x: event.clientX, y: event.clientY, t: Date.now() };
         insertNoteFromPointer(event.clientX, event.clientY, event.currentTarget as HTMLElement);
     }, [editorRootRef, insertNoteFromPointer, isDragInProgressRef, pianoPencilMode, tool]);
@@ -188,8 +218,9 @@ export function usePianoRollGridInteractions({
             handleGridPaintStart(event);
             return;
         }
+        if (pianoPencilMode) return;
         handleGridSelectionStart(event);
-    }, [tool, handleGridPaintStart, handleGridSelectionStart]);
+    }, [tool, pianoPencilMode, handleGridPaintStart, handleGridSelectionStart]);
 
     return {
         handleGridClick,

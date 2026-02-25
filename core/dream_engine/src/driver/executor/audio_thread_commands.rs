@@ -1,7 +1,7 @@
 use super::super::rt_debug::SharedRtDebugStats;
 use super::super::*;
 use super::command_dispatch::{
-    DeferredEffectChainCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
+    DeferredDeviceChainCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
 use crate::essence_synth::EssenceSynthEngine;
 use crate::instrument_core::AdsrParams;
@@ -55,8 +55,8 @@ pub(super) struct CommandProcessingContext<'a> {
     pub test_tone_enabled: &'a mut bool,
     pub test_tone_target_freq: &'a mut f32,
     pub midi_chase_needed: &'a mut bool,
-    pub deferred_topology: &'a mut VecDeque<DeferredEffectChainCmd>,
-    pub master_device_chain: &'a mut InsertEffectsChain,
+    pub deferred_topology: &'a mut VecDeque<DeferredDeviceChainCmd>,
+    pub master_device_chain: &'a mut DeviceChain,
     pub routing_snapshot: &'a Arc<SharedRoutingSnapshot>,
     pub rt_debug_stats: &'a SharedRtDebugStats,
 }
@@ -87,6 +87,9 @@ pub(super) fn drain_commands(
                     for idx in 0..ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].all_notes_off();
                         ctx.sample_rack_engines[idx].all_notes_off();
+                        if idx < ctx.essence_engines.len() {
+                            ctx.essence_engines[idx].all_notes_off();
+                        }
                         ctx.midi_note_states[idx].active_notes.clear();
                         ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
                         if idx < ctx.plugin_rt_midi_queue.len() {
@@ -110,6 +113,9 @@ pub(super) fn drain_commands(
                 for idx in 0..ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].all_notes_off();
                     ctx.sample_rack_engines[idx].all_notes_off();
+                    if idx < ctx.essence_engines.len() {
+                        ctx.essence_engines[idx].all_notes_off();
+                    }
                     ctx.midi_note_states[idx].active_notes.clear();
                     ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
                     if idx < ctx.plugin_rt_midi_queue.len() {
@@ -212,13 +218,21 @@ pub(super) fn drain_commands(
                 // a buzzing waveform layered on top of the VST instrument sound.
                 let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
                 if !has_vst_instrument {
+                    // INSTRUMENT EXCLUSION: Only fire the engine that matches
+                    // the track's actual instrument. Sampler+Rack are sample-based;
+                    // EssenceSynth is oscillator-based. Never fire both.
+                    let sampler_has_sample = idx < ctx.sampler_engines.len()
+                        && ctx.sampler_engines[idx].has_sample();
+                    let use_essence = !sampler_has_sample
+                        && idx < ctx.essence_engines.len();
+
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_on(pitch, velocity);
                     }
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_on(pitch, velocity);
                     }
-                    if idx < ctx.essence_engines.len() {
+                    if use_essence {
                         ctx.essence_engines[idx].note_on(pitch, velocity);
                     }
                 }
@@ -230,13 +244,19 @@ pub(super) fn drain_commands(
                 let idx = track_index as usize;
                 let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
                 if !has_vst_instrument {
+                    // INSTRUMENT EXCLUSION: Mirror the note-on logic.
+                    let sampler_has_sample = idx < ctx.sampler_engines.len()
+                        && ctx.sampler_engines[idx].has_sample();
+                    let use_essence = !sampler_has_sample
+                        && idx < ctx.essence_engines.len();
+
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_off(pitch);
                     }
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_off(pitch);
                     }
-                    if idx < ctx.essence_engines.len() {
+                    if use_essence {
                         ctx.essence_engines[idx].note_off(pitch);
                     }
                 }
@@ -282,8 +302,17 @@ pub(super) fn drain_commands(
 
             EngineCommand::SamplerAllNotesOff { track_index } => {
                 let idx = track_index as usize;
+                // ENTERPRISE: Silence ALL internal engines, not just the sampler.
+                // This command is used by piano roll preview / MIDI input to stop
+                // all sound from internal instruments on a track.
                 if idx < ctx.sampler_engines.len() {
                     ctx.sampler_engines[idx].all_notes_off();
+                }
+                if idx < ctx.sample_rack_engines.len() {
+                    ctx.sample_rack_engines[idx].all_notes_off();
+                }
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].all_notes_off();
                 }
             }
             EngineCommand::BypassInstrument {
@@ -474,8 +503,12 @@ pub(super) fn drain_commands(
             EngineCommand::Shutdown => {
                 *ctx.is_playing = false;
                 *ctx.test_tone_phase = 0.0;
+                // ENTERPRISE: Silence ALL internal instrument engines on shutdown.
                 for (idx, engine) in ctx.sampler_engines.iter_mut().enumerate() {
                     engine.all_notes_off();
+                    if idx < ctx.sample_rack_engines.len() {
+                        ctx.sample_rack_engines[idx].all_notes_off();
+                    }
                     if idx < ctx.plugin_rt_midi_queue.len() {
                         ctx.plugin_rt_midi_queue[idx].clear();
                     }
@@ -494,7 +527,7 @@ pub(super) fn drain_commands(
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }
-                ctx.deferred_topology.push_back(DeferredEffectChainCmd::AddInternal {
+                ctx.deferred_topology.push_back(DeferredDeviceChainCmd::AddInternal {
                     track_index,
                     slot_index,
                     effect_type,
@@ -509,7 +542,7 @@ pub(super) fn drain_commands(
                     let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology
-                    .push_back(DeferredEffectChainCmd::Remove {
+                    .push_back(DeferredDeviceChainCmd::Remove {
                         track_index,
                         slot_index,
                     });
@@ -524,7 +557,7 @@ pub(super) fn drain_commands(
                     let _ = ctx.deferred_topology.pop_front();
                 }
                 ctx.deferred_topology
-                    .push_back(DeferredEffectChainCmd::Reorder {
+                    .push_back(DeferredDeviceChainCmd::Reorder {
                         track_index,
                         from_slot,
                         to_slot,

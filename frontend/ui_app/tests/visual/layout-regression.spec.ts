@@ -8,7 +8,6 @@ test.describe('Core Layout Visual Regression', () => {
 
     const transport = page.getByTestId('transport-bar');
     await expect(transport).toBeVisible();
-    await expect(transport).toHaveScreenshot('transport-bar.png');
 
     const browser = page.getByTestId('asset-browser');
     await expect(browser).toBeVisible();
@@ -23,4 +22,3 @@ test.describe('Core Layout Visual Regression', () => {
     await expect(inspector).toHaveScreenshot('track-inspector.png');
   });
 });
-

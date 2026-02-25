@@ -172,6 +172,7 @@ export function usePianoRollLogic(props: PianoRollProps) {
         handleNoteMouseMove,
     } = usePianoRollNoteInteractions({
         tool,
+        pianoPencilMode,
         isMac,
         snapEnabled,
         drumMode,

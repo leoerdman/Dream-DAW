@@ -38,16 +38,22 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
 
     const auditionNote = useCallback((pitch: number, velocity = 100, durationMs = 120) => {
         if (!enabled || trackIndex == null) return;
-
-        // Stop ALL active preview notes before triggering a new one.
-        // This prevents note stacking where multiple previews overlap.
-        stopAllAudition();
+        const existingTimer = auditionOffTimersRef.current.get(pitch);
+        if (existingTimer != null) {
+            window.clearTimeout(existingTimer);
+            auditionOffTimersRef.current.delete(pitch);
+        }
+        if (activePitchesRef.current.has(pitch)) {
+            activePitchesRef.current.delete(pitch);
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
+        }
 
         activePitchesRef.current.add(pitch);
         void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch((err) => {
             console.warn('[PianoRoll] previewSamplerNoteOn failed:', err);
         });
 
+        if (durationMs <= 0) return;
         const timer = window.setTimeout(() => {
             auditionOffTimersRef.current.delete(pitch);
             if (!activePitchesRef.current.has(pitch)) return;
@@ -57,7 +63,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             });
         }, Math.max(40, durationMs));
         auditionOffTimersRef.current.set(pitch, timer);
-    }, [enabled, trackIndex, stopAllAudition]);
+    }, [enabled, trackIndex]);
 
     // Cleanup on track change
     useEffect(() => {

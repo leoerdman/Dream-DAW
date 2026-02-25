@@ -334,6 +334,12 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_NOISE_MACHINE: u8 = 14;
     const FX_AUTO_PAN: u8 = 15;
     const FX_ANALYZER: u8 = 16;
+    const FX_CHANNEL_EQ: u8 = 17;
+    const FX_OVERDRIVE: u8 = 18;
+    const FX_TRANSIENT_SHAPER: u8 = 19;
+    const FX_DRUM_BUSS: u8 = 20;
+    const FX_DYNAMIC_TUBE: u8 = 21;
+    const FX_PHASER_FLANGER: u8 = 22;
 
     let key = plugin_id.trim().to_lowercase();
 
@@ -361,12 +367,12 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         | "internal://effect/eq3"
         | "internal://effect/eqthree"
         | "internal://effect/eq-eight"
-        | "internal://effect/channel-eq"
         | "internal://effect/eq-three" => Some(FX_EQ),
+        "internal://effect/channel-eq" => Some(FX_CHANNEL_EQ),
         "internal://effect/compressor"
         | "internal://effect/glue-compressor"
-        | "internal://effect/multiband-dynamics"
-        | "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
+        | "internal://effect/multiband-dynamics" => Some(FX_COMPRESSOR),
+        "internal://effect/transient-shaper" => Some(FX_TRANSIENT_SHAPER),
         "internal://effect/delay"
         | "internal://effect/echo"
         | "internal://effect/simple-delay"
@@ -386,21 +392,22 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         | "internal://effect/external-audio-effect"
         | "internal://effect/auto-shift"
         | "internal://effect/shifter" => Some(FX_UTILITY),
-        "internal://effect/saturator"
-        | "internal://effect/drum-buss"
-        | "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
+        "internal://effect/saturator" => Some(FX_SATURATOR),
+        "internal://effect/drum-buss" => Some(FX_DRUM_BUSS),
+        "internal://effect/dynamic-tube" => Some(FX_DYNAMIC_TUBE),
         "internal://effect/limiter" => Some(FX_LIMITER),
         "internal://effect/gate" => Some(FX_GATE),
         "internal://effect/auto-filter" | "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
-        "internal://effect/phaser" | "internal://effect/phaser-flanger" => Some(FX_PHASER),
+        "internal://effect/phaser" => Some(FX_PHASER),
+        "internal://effect/phaser-flanger" => Some(FX_PHASER_FLANGER),
         "internal://effect/flanger" => Some(FX_FLANGER),
         "internal://effect/distortion"
         | "internal://effect/amp"
         | "internal://effect/cabinet"
-        | "internal://effect/overdrive"
         | "internal://effect/pedal"
         | "internal://effect/roar"
         | "internal://effect/erosion" => Some(FX_DISTORTION),
+        "internal://effect/overdrive" => Some(FX_OVERDRIVE),
         "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
         "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
         "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
@@ -647,7 +654,7 @@ pub struct RackChain {
     #[serde(default)]
     pub is_solo: bool,
     /// Whether this chain is muted.
-    #[serde(default)]
+    #[serde(default, alias = "is_mute")]
     pub is_disabled: bool,
     /// Chain volume (0.0–2.0, 1.0 = unity).
     #[serde(default = "default_unity")]
@@ -945,7 +952,7 @@ pub struct AudioClip {
     pub is_selected: bool,
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
-    #[serde(default)]
+    #[serde(default, alias = "is_muted")]
     pub is_disabledd: bool,
 
     /// Optional color override (uses track color when `None`).
@@ -1229,6 +1236,7 @@ pub struct Track {
     pub is_solo: bool,
 
     /// Whether this track is disabled.
+    #[serde(alias = "is_mute")]
     pub is_disabled: bool,
 
     /// Whether this track is armed for recording.

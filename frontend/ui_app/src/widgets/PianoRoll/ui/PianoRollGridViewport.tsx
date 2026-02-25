@@ -32,7 +32,7 @@ interface PianoRollGridViewportProps {
     rootNote: RootNote;
     notes: MidiNote[];
     selectedNotes: Set<string>;
-    tool: 'draw' | 'paint';
+    tool: 'cursor' | 'paint';
     hoveredNoteEdge: string | null;
     setHoveredNoteEdge: (value: string | null) => void;
     selectionRect: SelectionRect;
@@ -137,7 +137,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     onClick={handleGridClick}
                     onDoubleClick={handleGridDoubleClick}
                     onMouseDown={handleGridMouseDown}
-                    style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, width: canvasWidth, height: canvasHeight, cursor: tool === 'draw' || tool === 'paint' ? 'crosshair' : 'default' }}
+                    style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, width: canvasWidth, height: canvasHeight, cursor: tool === 'paint' ? 'crosshair' : 'default' }}
                 >
                     <canvas ref={noteCanvasRef} style={{ position: 'absolute', left: 0, top: 0, width: canvasWidth, height: canvasHeight, pointerEvents: 'none' }} />
 
@@ -185,7 +185,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     {notes.length === 0 && (
                         <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)', textAlign: 'center', padding: 'var(--space-2-5) var(--space-3-5)', borderRadius: 'var(--radius-xl)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))', background: 'color-mix(in srgb, var(--color-bg-header) 85%, var(--token-color-hex-0b1525))', boxShadow: 'var(--shadow-lg)' }}>
                             <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-bold)', marginBottom: 2 }}>Draw notes to start</div>
-                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Draw tool click adds notes. `Q` quantize, `H` humanize, `L` legato.</div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Cursor: double-click to add, click to select, second click to delete. Pencil mode: single-click toggles note. Paint: drag to paint notes.</div>
                         </div>
                     )}
                 </div>

@@ -87,13 +87,17 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [selectedCategoryId, prevCategoryRef, setAudioFilter, setFormatFilter, setPluginSourceFilter, setSizeFilter, setSourceFilter]);
     useEffect(() => {
         const isEventInsideBrowser = (target: EventTarget | null): boolean => {
-            if (!(target instanceof Element)) return false;
-            return Boolean(target.closest('[data-testid="asset-browser"]'));
+            const browserRoot = document.querySelector('[data-testid="asset-browser"]');
+            if (!browserRoot) return false;
+            const targetInside = target instanceof Node && browserRoot.contains(target);
+            const activeInside = document.activeElement instanceof Node && browserRoot.contains(document.activeElement);
+            return targetInside || activeInside;
         };
         const handler = (e: KeyboardEvent) => {
             if (e.defaultPrevented || e.isComposing) return;
             if (!isEventInsideBrowser(e.target)) return;
-            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyF') {
+            const isFindHotkey = e.code === 'KeyF' || (typeof e.key === 'string' && e.key.toLowerCase() === 'f');
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && isFindHotkey) {
                 e.preventDefault();
                 if (selectedCategoryId !== 'all') setSelectedCategoryId('all');
                 searchRef.current?.focus();
@@ -102,6 +106,15 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
+    }, [searchRef, selectedCategoryId, setSelectedCategoryId]);
+    useEffect(() => {
+        const input = searchRef.current;
+        if (!input) return;
+        const onFocus = () => {
+            if (selectedCategoryId !== 'all') setSelectedCategoryId('all');
+        };
+        input.addEventListener('focus', onFocus);
+        return () => input.removeEventListener('focus', onFocus);
     }, [searchRef, selectedCategoryId, setSelectedCategoryId]);
     useEffect(() => {
         const focusBrowserSearch = (evt: Event) => {

@@ -128,7 +128,7 @@ export const TOOL_DEFS_ADV_A: AssistantToolDefinition[] = [
     {
         type: 'function' as const,
         function: {
-            name: 'add_effect',
+            name: 'add_device',
             description: 'Add a builtin effect plugin to a track slot. effectType can be: eq, compressor, reverb, delay, distortion, chorus, flanger, phaser, limiter, utility, filter, saturation, stereo_imager, tremolo, vibrato, auto_pan, bit_crusher, ring_modulator, vocoder, gater, pitch_shifter.',
             parameters: {
                 type: 'object',
@@ -144,7 +144,7 @@ export const TOOL_DEFS_ADV_A: AssistantToolDefinition[] = [
     {
         type: 'function' as const,
         function: {
-            name: 'remove_effect',
+            name: 'remove_device',
             description: 'Remove an effect plugin from a track slot.',
             parameters: {
                 type: 'object',

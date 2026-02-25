@@ -27,7 +27,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dsp_processor::DspProcessor;
-use crate::processors::sanitize_sample_rate;
+use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
 
 const MAX_LOOKAHEAD_SAMPLES: usize = 2048;
@@ -174,7 +174,7 @@ impl CompressorProcessor {
             let over = -self.threshold_db;
             if over > 0.0 {
                 let reduction = over * (1.0 - 1.0 / self.ratio) * 0.5;
-                Self::db_to_linear(reduction)
+                db_to_linear(reduction)
             } else {
                 1.0
             }
@@ -217,13 +217,6 @@ impl CompressorProcessor {
         }
     }
 
-    /// ln(10) / 20 ≈ 0.11512925 — pre-computed for fast dB→linear.
-    const LN10_OVER_20: f32 = 0.11512925;
-
-    #[inline]
-    fn db_to_linear(db: f32) -> f32 {
-        (db * Self::LN10_OVER_20).exp()
-    }
 
     /// Soft-knee gain computation.
     #[inline]
@@ -334,7 +327,7 @@ impl DspProcessor for CompressorProcessor {
 
             // Gain computation (with soft knee)
             let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
-            let gain = Self::db_to_linear(gain_db) * makeup;
+            let gain = db_to_linear(gain_db) * makeup;
 
             let read_pos =
                 (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
@@ -443,7 +436,7 @@ impl DspProcessor for CompressorProcessor {
             crate::processors::flush_denormal!(self.sc_hp_prev_r);
 
             let gain_db = Self::compute_gain_reduction(self.envelope_db, threshold_db, ratio, knee);
-            let gain = Self::db_to_linear(gain_db) * makeup;
+            let gain = db_to_linear(gain_db) * makeup;
 
             let read_pos =
                 (self.la_pos + MAX_LOOKAHEAD_SAMPLES - self.lookahead_samples) & LOOKAHEAD_MASK;
@@ -481,7 +474,7 @@ impl DspProcessor for CompressorProcessor {
             4 => self.knee_db = value.clamp(0.0, 24.0),
             5 => {
                 self.makeup_db = value.clamp(-12.0, 24.0);
-                self.makeup_lin = Self::db_to_linear(self.makeup_db);
+                self.makeup_lin = db_to_linear(self.makeup_db);
             }
             6 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             7 => {

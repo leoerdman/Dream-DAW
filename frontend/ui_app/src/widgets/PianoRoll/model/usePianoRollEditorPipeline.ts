@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { usePianoRollCanvasEngine } from './usePianoRollCanvasEngine';
 import { usePianoRollHotkeys } from './usePianoRollHotkeys';
 import { usePianoRollTransforms } from './usePianoRollTransforms';
+import { usePianoRollWebGPUCanvasEngine } from './usePianoRollWebGPUCanvasEngine';
 import type { MidiNote } from './pianoRollConfig';
 
 interface UsePianoRollEditorPipelineArgs {
@@ -89,7 +90,7 @@ export function usePianoRollEditorPipeline({
         setClipTranspose,
     });
 
-    const { noteCanvasRef } = usePianoRollCanvasEngine({
+    const { gpuCanvasRef, webGpuActive } = usePianoRollWebGPUCanvasEngine({
         notes,
         ghostNotes,
         selectedNotes,
@@ -100,6 +101,20 @@ export function usePianoRollEditorPipeline({
         color,
         pitchToY,
     });
+
+    const { noteCanvasRef: cpuCanvasRef } = usePianoRollCanvasEngine({
+        notes,
+        ghostNotes,
+        selectedNotes,
+        canvasWidth,
+        canvasHeight,
+        pixelsPerBeat,
+        noteHeight,
+        color,
+        pitchToY,
+        disabled: webGpuActive,
+    });
+    const noteCanvasRef = webGpuActive ? gpuCanvasRef : cpuCanvasRef;
 
     usePianoRollHotkeys({
         isEditorFocused,

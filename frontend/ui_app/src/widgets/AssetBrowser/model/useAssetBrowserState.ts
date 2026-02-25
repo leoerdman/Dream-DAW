@@ -7,7 +7,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const [collectionItems, setCollectionItems] = useState<Record<CollectionId, Set<string>>>(loadCollections);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: BrowserItem } | null>(null);
-    const [selectedCategoryId, setSelectedCategoryId] = useState('samples');
+    const [selectedCategoryId, setSelectedCategoryId] = useState('all');
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [sourceFilter, setSourceFilter] = useState(0);
     const [formatFilter, setFormatFilter] = useState(0);

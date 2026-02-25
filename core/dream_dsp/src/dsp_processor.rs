@@ -136,6 +136,8 @@ impl SmoothedProcessor {
                 | (BuiltinEffectType::AutoPan, 3)
                 // Analyzer reset trigger
                 | (BuiltinEffectType::Analyzer, 0)
+                // Channel EQ kill switches and crossover toggles
+                | (BuiltinEffectType::ChannelEq, 5 | 6 | 7)
         )
     }
 
@@ -274,6 +276,13 @@ pub enum BuiltinEffectType {
     AutoPan = 15,
     // Wave 2 — Metering & Analysis
     Analyzer = 16,
+    // Wave 3 — Unique Processors
+    ChannelEq = 17,
+    Overdrive = 18,
+    TransientShaper = 19,
+    DrumBuss = 20,
+    DynamicTube = 21,
+    PhaserFlanger = 22,
 }
 
 impl BuiltinEffectType {
@@ -297,6 +306,12 @@ impl BuiltinEffectType {
             14 => Some(Self::NoiseMachine),
             15 => Some(Self::AutoPan),
             16 => Some(Self::Analyzer),
+            17 => Some(Self::ChannelEq),
+            18 => Some(Self::Overdrive),
+            19 => Some(Self::TransientShaper),
+            20 => Some(Self::DrumBuss),
+            21 => Some(Self::DynamicTube),
+            22 => Some(Self::PhaserFlanger),
             _ => None,
         }
     }
@@ -346,6 +361,24 @@ impl BuiltinEffectType {
             Self::Analyzer => Box::new(super::processors::analyzer::AnalyzerProcessor::new(
                 sample_rate,
             )),
+            Self::ChannelEq => Box::new(
+                super::processors::channel_eq::ChannelEqProcessor::new(sample_rate),
+            ),
+            Self::Overdrive => Box::new(
+                super::processors::overdrive::OverdriveProcessor::new(sample_rate),
+            ),
+            Self::TransientShaper => Box::new(
+                super::processors::transient_shaper::TransientShaperProcessor::new(sample_rate),
+            ),
+            Self::DrumBuss => Box::new(
+                super::processors::drum_buss::DrumBussProcessor::new(sample_rate),
+            ),
+            Self::DynamicTube => Box::new(
+                super::processors::dynamic_tube::DynamicTubeProcessor::new(sample_rate),
+            ),
+            Self::PhaserFlanger => Box::new(
+                super::processors::phaser_flanger::PhaserFlangerProcessor::new(sample_rate),
+            ),
         };
         Box::new(SmoothedProcessor::new(*self, inner, sample_rate))
     }
@@ -361,18 +394,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=16u8 {
+        for i in 0..=22u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(17).is_none());
+        assert!(BuiltinEffectType::from_u8(23).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=16u8 {
+        for i in 0..=22u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

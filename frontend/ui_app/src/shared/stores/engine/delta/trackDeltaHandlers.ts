@@ -49,7 +49,10 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         return true;
     }
     if (delta.kind === 'TrackDisabledChanged') {
-        patchTrack(state, delta.data.track_id, { is_disabled: delta.data.disabled });
+        const nextDisabled = 'disabled' in delta.data
+            ? Boolean((delta.data as { disabled?: boolean }).disabled)
+            : Boolean((delta.data as { muted?: boolean }).muted);
+        patchTrack(state, delta.data.track_id, { is_disabled: nextDisabled });
         return true;
     }
     if (delta.kind === 'TrackSoloChanged') {

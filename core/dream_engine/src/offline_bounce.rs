@@ -44,7 +44,7 @@ use dream_models::time::AbsoluteTime;
 use dream_plugins::vst3_host::PluginInstanceArc;
 use dream_plugins::{MidiEvent, TransportContext};
 
-use dream_dsp::device_chain::InsertEffectsChain;
+use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::device_slot::ProcessContext;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
@@ -89,7 +89,7 @@ struct RenderRoutingCtx<'a> {
     bpm: f64,
     time_sig_numerator: u8,
     time_sig_denominator: u8,
-    master_device_chain: &'a mut InsertEffectsChain,
+    master_device_chain: &'a mut DeviceChain,
     /// MIDI clips per track for VST instrument rendering.
     midi_clips_per_track: &'a [Vec<MidiClip>],
     /// Loop region for MIDI scheduling (if loop enabled).
@@ -279,7 +279,7 @@ impl OfflineRenderer {
         )))
     }
 
-    /// Populates a InsertEffectsChain from a list of DeviceNode effects,
+    /// Populates a DeviceChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
     /// that the user configured in the UI.
@@ -310,12 +310,12 @@ impl OfflineRenderer {
         }
     }
 
-    /// Populates a InsertEffectsChain from a list of DeviceNode effects,
+    /// Populates a DeviceChain from a list of DeviceNode effects,
     /// including param sync from PluginSlot.params.
     /// This ensures the offline bounce uses the same native FX settings
     /// that the user configured in the UI.
     fn populate_device_chain_from_effects(
-        chain: &mut InsertEffectsChain,
+        chain: &mut DeviceChain,
         effects: &[dream_models::project::DeviceNode],
     ) {
         let mut slots = Vec::new();
@@ -326,7 +326,7 @@ impl OfflineRenderer {
             if let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id)
                 .and_then(BuiltinEffectType::from_u8)
             {
-                chain.add_effect(slot_index, effect_type);
+                chain.add_builtin_effect(slot_index, effect_type);
                 if bypassed {
                     chain.set_bypass(slot_index, true);
                 }
@@ -1212,7 +1212,11 @@ impl OfflineRenderer {
                     }
                 }
 
-                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active || essence.has_active_voices() {
+                // ENTERPRISE: Gate essence_active based on instrument exclusion.
+                // If the sampler has a loaded sample, suppress the Essence Synth.
+                let use_essence = !has_sample;
+                let essence_active_now = use_essence && essence.has_active_voices();
+                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active || essence_active_now {
                     // Convert scheduled notes to instantaneous events (same logic as driver.rs).
                     let mut events: Vec<(usize, u8, u8, u8)> = Vec::new(); // (frame, kind, pitch, velocity)
                     for event in &schedule_scratch {
@@ -1256,7 +1260,7 @@ impl OfflineRenderer {
                                 &mut chunk_right[cursor..cursor + seg],
                                 seg,
                             );
-                            if essence.has_active_voices() {
+                            if use_essence && essence.has_active_voices() {
                                 essence.render(
                                     &mut chunk_left[cursor..cursor + seg],
                                     &mut chunk_right[cursor..cursor + seg],
@@ -1271,11 +1275,15 @@ impl OfflineRenderer {
                         if kind == 0 {
                             engine.note_off(pitch);
                             rack.note_off(pitch);
-                            essence.note_off(pitch);
+                            if use_essence {
+                                essence.note_off(pitch);
+                            }
                         } else {
                             engine.note_on(pitch, velocity);
                             rack.note_on(pitch, velocity);
-                            essence.note_on(pitch, velocity);
+                            if use_essence {
+                                essence.note_on(pitch, velocity);
+                            }
                         }
                     }
 
@@ -1294,7 +1302,7 @@ impl OfflineRenderer {
                             &mut chunk_right[cursor..cursor + rem],
                             rem,
                         );
-                        if essence.has_active_voices() {
+                        if use_essence && essence.has_active_voices() {
                             essence.render(
                                 &mut chunk_left[cursor..cursor + rem],
                                 &mut chunk_right[cursor..cursor + rem],
@@ -1529,11 +1537,11 @@ impl OfflineRenderer {
 
         let mut render_ctx = self.create_render_ctx(project, loop_region, project_sr);
 
-        // ── Master InsertEffectsChain: internal FX on master bus ──────────
+        // ── Master DeviceChain: internal FX on master bus ──────────
         // Build from project.master_track.effects, matching the
         // real-time driver's rebuild_runtime_device_chains_from_project.
         // Uses populate_device_chain_from_effects to add devices AND sync params.
-        let mut master_device_chain = InsertEffectsChain::new(project_sr as f32);
+        let mut master_device_chain = DeviceChain::new(project_sr as f32);
         Self::populate_device_chain_from_effects(
             &mut master_device_chain,
             &project.master_track.effects,

@@ -344,8 +344,13 @@ pub struct Vst2Instance {
     /// Stored transport context for VstTimeInfo.
     transport: TransportContext,
 
-    /// Pre-allocated silence buffer for missing input channels.
+    /// Pre-allocated silence buffer for missing input channels (READ-ONLY in process).
     silence_buffer: Vec<f32>,
+
+    /// BUG-AUD-302 FIX: Separate mutable sink buffer for excess output channels.
+    /// Previously `silence_buffer` was used for both input silence (read) and
+    /// output sink (write), causing ghost audio bleeding between process calls.
+    output_sink_buffer: Vec<f32>,
 
     /// Pre-allocated input channel pointer array.
     input_ptrs: Vec<*const f32>,
@@ -533,6 +538,7 @@ impl Vst2Instance {
             max_midi_events: max_midi,
             transport: TransportContext::default(),
             silence_buffer: vec![0.0f32; 8192],
+            output_sink_buffer: vec![0.0f32; 8192],
             input_ptrs: Vec::with_capacity(usize::try_from(num_inputs.max(2)).unwrap_or(2)),
             output_ptrs: Vec::with_capacity(usize::try_from(num_outputs.max(2)).unwrap_or(2)),
             dummy_output_buffers: Vec::new(),
@@ -660,7 +666,11 @@ impl Vst2Instance {
             info.ppq_pos = position_seconds * beats_per_second;
 
             // Bar start position
-            let bar_beats = self.transport.time_sig_numerator.max(1) as f64;
+            // BUG-AUD-311 FIX: Account for time signature denominator.
+            // In 6/8 time, a bar has 3 quarter notes (6 × 4/8), not 6.
+            // PPQ is always in quarter notes, so we scale by (4/denominator).
+            let denom = self.transport.time_sig_denominator.max(1) as f64;
+            let bar_beats = self.transport.time_sig_numerator.max(1) as f64 * (4.0 / denom);
             info.bar_start_pos = (info.ppq_pos / bar_beats).floor() * bar_beats;
 
             // Flags
@@ -777,12 +787,17 @@ impl PluginInstance for Vst2Instance {
         let num_plugin_outputs =
             usize::try_from(unsafe { (*self.effect).num_outputs }.max(0)).unwrap_or(0);
 
-        // Silence buffer for missing input channels
+        // Silence buffer for missing input channels (read-only during process)
         if self.silence_buffer.len() < max_buffer_size {
             self.silence_buffer.resize(max_buffer_size, 0.0);
         } else {
             // Zero the buffer (it may have been used before)
             self.silence_buffer[..max_buffer_size].fill(0.0);
+        }
+
+        // BUG-AUD-302 FIX: Separate output sink buffer for excess output channels.
+        if self.output_sink_buffer.len() < max_buffer_size {
+            self.output_sink_buffer.resize(max_buffer_size, 0.0);
         }
 
         // Input/output pointer arrays
@@ -901,9 +916,11 @@ impl PluginInstance for Vst2Instance {
                     .push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
                 dummy_idx += 1;
             } else {
-                // Safety net for malformed plugin channel layouts:
-                // route excess outputs into a scratch sink rather than null pointers.
-                self.output_ptrs.push(self.silence_buffer.as_mut_ptr());
+                // BUG-AUD-302 FIX: Route excess outputs into a dedicated sink buffer.
+                // Previously used silence_buffer.as_mut_ptr() here, which aliased with
+                // the silence_buffer used as read-only source for missing input channels.
+                // This caused ghost audio to bleed from excess outputs into silence inputs.
+                self.output_ptrs.push(self.output_sink_buffer.as_mut_ptr());
             }
         }
 

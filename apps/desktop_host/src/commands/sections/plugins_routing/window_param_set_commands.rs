@@ -122,6 +122,35 @@ fn set_external_plugin_param_for_slot_cmd(
     Ok(())
 }
 
+/// Runtime-only parameter update for external plugin slot.
+///
+/// Uses slot binding directly and avoids project mutation / undo / dirty marking.
+/// Intended for high-frequency UI gestures.
+#[tauri::command]
+fn set_external_plugin_param_for_slot_runtime_cmd(
+    slot_id: String,
+    plugin_id: String,
+    param_index: u32,
+    value: f64,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let normalized = value.clamp(0.0, 1.0);
+
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot_uuid, instance_id);
+
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance = host
+        .get_mut(instance_id)
+        .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
+    instance
+        .lock()
+        .set_parameter(param_index, normalized)
+        .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn set_external_plugin_param_for_slot_with_deltas_cmd(
     track_id: String,

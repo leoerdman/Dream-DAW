@@ -291,6 +291,7 @@ fn set_slot_bypass_cmd(
         &project_state,
         &clip_pool_state,
         &plugin_host_state,
+        &handle,
         &app,
         true,
     )?;
@@ -359,7 +360,7 @@ async fn move_effect_slot_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    _handle: tauri::State<'_, AudioEngineHandle>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -393,6 +394,7 @@ async fn move_effect_slot_cmd(
         &project_state,
         &clip_pool_state,
         &plugin_host_state,
+        &handle,
         &app,
         false,
     )?;
@@ -443,12 +445,11 @@ async fn move_effect_slot_with_deltas_cmd(
         &project_state,
         &clip_pool_state,
         &plugin_host_state,
+        &handle,
         &app,
         false,
     )?;
     log::info!("[IPC] move_effect_slot_with_deltas_cmd(track={track_id}, slot={slot_id} → {target_index})");
-
-    let _ = handle;
 
     Ok(PluginMutationDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::PluginMoved {

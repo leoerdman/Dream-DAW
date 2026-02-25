@@ -377,3 +377,20 @@ fn default_project_starts_with_three_audio_and_three_midi_tracks() {
     assert_eq!(project.tracks[3].name, "MIDI 1");
     assert_eq!(project.tracks[5].name, "MIDI 3");
 }
+
+#[test]
+fn builtin_effect_mapping_supports_internal_eq_alias_ids() {
+    let expected_eq_type = builtin_effect_type_from_plugin_id("internal://effect/eq-eight");
+    assert_eq!(
+        builtin_effect_type_from_plugin_id("internal://effect/eq"),
+        expected_eq_type
+    );
+    assert_eq!(
+        builtin_effect_type_from_plugin_id("internal://effect/eq8"),
+        expected_eq_type
+    );
+    assert_eq!(
+        builtin_effect_type_from_plugin_id("internal://effect/eqthree"),
+        expected_eq_type
+    );
+}

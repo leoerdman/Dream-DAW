@@ -106,6 +106,7 @@ fn paste_device_to_track_impl(
         project_state,
         clip_pool_state,
         plugin_host_state,
+        handle,
         app,
         true,
     )?;

@@ -82,6 +82,7 @@ const ChannelBar: React.FC<{
                 transformOrigin: 'bottom',
                 transform: `scaleY(${scale})`,
                 willChange: 'transform',
+                transition: 'transform 55ms linear',
             }}
         />
     );

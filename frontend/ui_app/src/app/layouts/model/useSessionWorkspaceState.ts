@@ -1,8 +1,31 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import { useSessionWorkspaceStore } from '@/shared/stores/useSessionWorkspaceStore';
 import { SESSION_SCENE_ROWS } from '../sessionWorkspace.constants';
 
-type SessionClip = { id: string; name: string; color: string; looped: boolean };
+const SLOT_KEY_SEPARATOR = '::';
+
+function encodeTrackIdForSlot(trackId: string): string {
+    return encodeURIComponent(trackId);
+}
+
+function decodeTrackIdFromSlot(encoded: string): string {
+    try {
+        return decodeURIComponent(encoded);
+    } catch {
+        return encoded;
+    }
+}
+
+function trackIdFromSlotKey(slotKey: string): string {
+    const sep = slotKey.indexOf(SLOT_KEY_SEPARATOR);
+    if (sep >= 0) {
+        return decodeTrackIdFromSlot(slotKey.slice(0, sep));
+    }
+    // Backward compatibility for legacy `${trackId}:${sceneIndex}` keys.
+    const legacySep = slotKey.indexOf(':');
+    return legacySep >= 0 ? slotKey.slice(0, legacySep) : slotKey;
+}
 
 export function useSessionWorkspaceState(
     tracks: ProjectTrack[],
@@ -10,18 +33,21 @@ export function useSessionWorkspaceState(
     togglePlay: () => Promise<void>,
 ) {
     const scenes = useMemo(() => Array.from({ length: SESSION_SCENE_ROWS }, (_, i) => i), []);
-    const [sessionClips, setSessionClips] = useState<Record<string, SessionClip>>({});
-    const [selectedSessionClipId, setSelectedSessionClipId] = useState<string | null>(null);
-    const [playingSessionClipByTrack, setPlayingSessionClipByTrack] = useState<Record<string, string | null>>({});
+    const sessionClips = useSessionWorkspaceStore((s) => s.sessionClips);
+    const selectedSessionClipId = useSessionWorkspaceStore((s) => s.selectedSessionClipId);
+    const playingSessionClipByTrack = useSessionWorkspaceStore((s) => s.playingSessionClipByTrack);
+    const setSessionClips = useSessionWorkspaceStore((s) => s.setSessionClips);
+    const setSelectedSessionClipId = useSessionWorkspaceStore((s) => s.setSelectedSessionClipId);
+    const setPlayingSessionClipByTrack = useSessionWorkspaceStore((s) => s.setPlayingSessionClipByTrack);
 
-    const slotKey = (trackId: string, sceneIndex: number) => `${trackId}:${sceneIndex}`;
+    const slotKey = (trackId: string, sceneIndex: number) =>
+        `${encodeTrackIdForSlot(trackId)}${SLOT_KEY_SEPARATOR}${sceneIndex}`;
     const validTrackIds = useMemo(() => new Set(tracks.map((track) => track.id)), [tracks]);
 
     const sessionClipsSafe = useMemo(() => {
         const next: typeof sessionClips = {};
         for (const [key, clip] of Object.entries(sessionClips)) {
-            const sep = key.indexOf(':');
-            const trackId = sep >= 0 ? key.slice(0, sep) : key;
+            const trackId = trackIdFromSlotKey(key);
             if (!validTrackIds.has(trackId)) continue;
             next[key] = clip;
         }

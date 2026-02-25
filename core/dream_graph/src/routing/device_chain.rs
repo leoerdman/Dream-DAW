@@ -188,7 +188,11 @@ pub fn waveform_code_from_token(token: &str) -> u8 {
 }
 
 fn is_internal_effect_node(node: &DeviceNode) -> bool {
-    matches!(node, DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/"))
+    matches!(
+        node,
+        DeviceNode::Single(slot)
+            if dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some()
+    )
 }
 
 fn count_internal_effects_before(nodes: &[DeviceNode], end_idx: usize) -> usize {
@@ -215,6 +219,18 @@ mod tests {
         assert_eq!(DeviceChain::insert_effect(&mut track, ext, None), None);
         assert_eq!(DeviceChain::insert_effect(&mut track, i1, None), Some(0));
         assert_eq!(DeviceChain::insert_effect(&mut track, i2, None), Some(1));
+    }
+
+    #[test]
+    fn runtime_index_counts_internal_alias_effects() {
+        let mut track = Track::new("T");
+        let ext = DeviceNode::Single(PluginSlot::new("Ext", "vst3:/ext"));
+        let alias_eq = DeviceNode::Single(PluginSlot::new("EQ", "internal://effect/eq8"));
+        let comp = DeviceNode::Single(PluginSlot::new("Comp", "internal://effect/compressor"));
+
+        assert_eq!(DeviceChain::insert_effect(&mut track, ext, None), None);
+        assert_eq!(DeviceChain::insert_effect(&mut track, alias_eq, None), Some(0));
+        assert_eq!(DeviceChain::insert_effect(&mut track, comp, None), Some(1));
     }
 
     #[test]

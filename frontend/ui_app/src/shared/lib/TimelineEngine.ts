@@ -75,6 +75,8 @@ export class TimelineEngine {
     private _boundDblClick: (e: MouseEvent) => void;
     private _boundContextMenu: (e: MouseEvent) => void;
     private _boundKeyDown: (e: KeyboardEvent) => void;
+    private _boundKeyUp: (e: KeyboardEvent) => void;
+    private _boundWindowBlur: () => void;
 
     /** Deferred prefetch redraw handle (idle callback or fallback timeout). */
     private _prefetchDeferredId: IdleHandle | null = null;
@@ -135,6 +137,8 @@ export class TimelineEngine {
         this._boundDblClick = this._onDoubleClick.bind(this);
         this._boundContextMenu = this._onContextMenu.bind(this);
         this._boundKeyDown = this._onKeyDown.bind(this);
+        this._boundKeyUp = this._onKeyUp.bind(this);
+        this._boundWindowBlur = this._onWindowBlur.bind(this);
     }
 
     /**
@@ -145,7 +149,11 @@ export class TimelineEngine {
         if (this._canvas) this.detach();
 
         this._canvas = canvas;
-        this._ctx = canvas.getContext('2d', { alpha: false })!;
+        this._ctx = canvas.getContext('2d', { alpha: false });
+        if (!this._ctx) {
+            this._canvas = null;
+            return;
+        }
 
         this._syncCanvasSize();
 
@@ -162,6 +170,8 @@ export class TimelineEngine {
         window.addEventListener('mousemove', this._boundMouseMove);
         window.addEventListener('mouseup', this._boundMouseUp);
         window.addEventListener('keydown', this._boundKeyDown, { capture: true });
+        window.addEventListener('keyup', this._boundKeyUp, { capture: true });
+        window.addEventListener('blur', this._boundWindowBlur);
 
         this._tick();
     }
@@ -191,6 +201,8 @@ export class TimelineEngine {
         window.removeEventListener('mousemove', this._boundMouseMove);
         window.removeEventListener('mouseup', this._boundMouseUp);
         window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
+        window.removeEventListener('keyup', this._boundKeyUp, { capture: true });
+        window.removeEventListener('blur', this._boundWindowBlur);
 
         cancelIdle(this._prefetchDeferredId);
         this._prefetchDeferredId = null;
@@ -206,14 +218,7 @@ export class TimelineEngine {
         this._waveformCache.clear();
     }
 
-    private _lastClipInput: TimelineClipData[] | null = null;
-
     setClips(clips: TimelineClipData[]): void {
-        if (clips === this._lastClipInput && clips.length === this._clips.length) {
-            return;
-        }
-        this._lastClipInput = clips;
-
         const prevClips = this._clips;
         const normalizedInput = normalizeTimelineClips(clips);
         this._clips = normalizedInput.map((clip) => {
@@ -1379,7 +1384,24 @@ export class TimelineEngine {
             }
             case DragMode.ClipMove: {
                 if (this._drag.clipId) {
-                    if (!canvas) break;
+                    if (!canvas) {
+                        const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
+                        if (clipToRestore) {
+                            clipToRestore.startBeat = this._drag.clipOriginalBeat;
+                            clipToRestore.trackIndex = this._drag.clipOriginalTrack;
+                        }
+                        if (this._drag.coMoverOrigins) {
+                            for (const [id, origin] of this._drag.coMoverOrigins) {
+                                const co = this._clips.find(c => c.id === id);
+                                if (co) {
+                                    co.startBeat = origin.beat;
+                                    co.trackIndex = origin.track;
+                                }
+                            }
+                        }
+                        this._requestRedraw();
+                        break;
+                    }
 
                     const rect = canvas.getBoundingClientRect();
                     const beat = this._viewport.screenToBeats(e.clientX, rect);
@@ -1701,7 +1723,8 @@ export class TimelineEngine {
 
         if (clipIds.length > 0) {
             const ppb = this._viewport.pixelsPerBeat;
-            const samplesPerBeat = this._sampleRate * 60 / this._bpm;
+            const hasValidTempo = this._bpm > 0 && this._sampleRate > 0;
+            const samplesPerBeat = hasValidTempo ? (this._sampleRate * 60 / this._bpm) : 1024;
             const samplesPerPixel = ppb > 0 ? (samplesPerBeat / ppb) : 1024;
 
             this._waveformCache.prefetch(clipIds, samplesPerPixel);
@@ -1754,5 +1777,13 @@ export class TimelineEngine {
                 this._setMarquee(null);
             }
         }
+    }
+
+    private _onKeyUp(e: KeyboardEvent): void {
+        this._metaKeyHeld = e.metaKey || e.ctrlKey;
+    }
+
+    private _onWindowBlur(): void {
+        this._metaKeyHeld = false;
     }
 }

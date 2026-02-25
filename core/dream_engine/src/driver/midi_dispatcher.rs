@@ -79,6 +79,9 @@ impl Vst3NoteTracker {
     }
 
     /// Register a note-off — remove from active tracking.
+    /// NOTE: BUG-AUD-500 fix inlines tracker removal in the main dispatch loop
+    /// to retrieve the mapped_pitch. This method is retained for API completeness.
+    #[allow(dead_code)]
     pub(crate) fn note_off(&mut self, pitch: u8, channel: u8) {
         if let Some(pos) = self
             .active

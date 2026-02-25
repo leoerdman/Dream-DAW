@@ -19,14 +19,16 @@ fn get_audio_devices() -> Result<serde_json::Value, String> {
 /// 1) build a new audio stream on the requested device
 /// 2) atomically replace producer + stream handles
 /// 3) replay transport state into the new callback
+/// 4) BUG-AUD-301 FIX: reactivate all plugins with new device config
 #[tauri::command]
 fn set_audio_device(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
     project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
-    restart_audio_engine_impl(device_name, handle, settings_state, project_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
 }
 
 fn restart_audio_engine_impl(
@@ -34,6 +36,7 @@ fn restart_audio_engine_impl(
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
     project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
     log::info!("Audio device change requested: '{}'", device_name);
 
@@ -65,6 +68,7 @@ fn restart_audio_engine_impl(
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
 
     let resolved_output_device = new_stream.output_device_name.clone();
+    let new_sample_rate_hz = new_stream.sample_rate_hz;
 
     // Atomically replace queue producer first, then stream handle.
     {
@@ -75,6 +79,29 @@ fn restart_audio_engine_impl(
         let mut stream = handle._stream.lock().map_err(|e| e.to_string())?;
         *stream = Some(Box::new(new_stream));
     }
+
+    // BUG-AUD-301 FIX: Reactivate all loaded plugins with the new device's
+    // actual sample rate and MAX_BUFFER_FRAMES (8192). Without this, plugins
+    // remain activated at the OLD device's sample rate and buffer size, causing:
+    // - Pitch-shifted output (wrong sample rate)
+    // - Silent passthrough (num_frames > max_buffer_size guard triggers)
+    if let Err(e) = plugin_host_state.update_audio_config(
+        f64::from(new_sample_rate_hz),
+        dream_engine::render_callback::MAX_BUFFER_FRAMES,
+    ) {
+        log::warn!(
+            "[AudioDevices] Failed to sync PluginHostState after device switch: {}",
+            e
+        );
+    } else {
+        log::info!(
+            "[AudioDevices] Synced PluginHostState to new device config: {}Hz / {} max frames",
+            new_sample_rate_hz,
+            dream_engine::render_callback::MAX_BUFFER_FRAMES,
+        );
+    }
+    // Re-publish plugin registry so the new audio thread sees updated instances.
+    plugin_host_state.publish_registry();
 
     // Re-apply latest transport state to the new callback state machine.
     let snapshot = handle
@@ -144,6 +171,7 @@ fn restart_audio_engine(
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
     project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
-    restart_audio_engine_impl(device_name, handle, settings_state, project_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
 }

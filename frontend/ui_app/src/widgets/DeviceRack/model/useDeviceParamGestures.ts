@@ -64,12 +64,12 @@ export function useDeviceParamGestures(
                     let runtimeSender = throttledExternalRuntimeSendsRef.current.get(key);
                     if (!runtimeSender) {
                         runtimeSender = createAdaptiveParamSender(async (v: number) => {
-                            const response = await engineApi.setExternalPluginParamForSlotWithDeltas(selectedTrack.id, device.id, paramIndex, v, {
-                                pushUndoStep: false,
-                            });
-                            if (response.deltas.length > 0) {
-                                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:external-param-live');
-                            }
+                            await engineApi.setExternalPluginParamForSlotRuntime(
+                                device.id,
+                                device.pluginId,
+                                paramIndex,
+                                v,
+                            );
                         });
                         throttledExternalRuntimeSendsRef.current.set(key, runtimeSender);
                     }
@@ -143,26 +143,9 @@ export function useDeviceParamGestures(
                     value,
                 });
                 pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
-                // Always mirror gesture updates into project state (pushUndo=false).
-                // Runtime-only updates can get lost if gesture end is interrupted.
-                const liveKey = `${selectedTrack.id}:${device.id}:${scopedParamId}:live`;
-                let liveSender = throttledParamSendsRef.current.get(liveKey);
-                if (!liveSender) {
-                    liveSender = createAdaptiveParamSender(async (v: number) => {
-                        const response = await engineApi.setInternalPluginParamWithDeltas(
-                            selectedTrack.id,
-                            device.id,
-                            scopedParamId,
-                            v,
-                            { pushUndoStep: false },
-                        );
-                        if (response.deltas.length > 0) {
-                            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'device-rack:param-live');
-                        }
-                    });
-                    throttledParamSendsRef.current.set(liveKey, liveSender);
-                }
-                liveSender.send(value, false);
+                // PERFORMANCE FIX: during active gestures we keep internal FX updates
+                // on runtime path only (audio-thread params). Project mutations and
+                // UI delta reconciliation happen once on gesture commit.
                 return;
             }
             let sender = throttledParamSendsRef.current.get(key);

@@ -9,6 +9,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use num_traits::ToPrimitive;
+
 /// A loop region on the timeline.
 ///
 /// When `enabled`, the `Playhead` wraps from `end` to `start`
@@ -195,4 +197,3 @@ mod tests {
         assert!(!invalid.is_valid());
     }
 }
-use num_traits::ToPrimitive;

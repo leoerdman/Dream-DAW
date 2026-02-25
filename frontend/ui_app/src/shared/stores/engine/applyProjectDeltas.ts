@@ -26,6 +26,19 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeMidiNoteStartFrame(
+    rawStartFrame: number,
+    clipStartFrame: number,
+    clipDurationFrame: number,
+): number {
+    // Some snapshots/import paths may surface absolute note frames.
+    // If the start clearly exceeds clip-local range, remap to clip-local.
+    if (clipStartFrame > 0 && rawStartFrame >= clipDurationFrame && rawStartFrame >= clipStartFrame) {
+        return Math.max(0, rawStartFrame - clipStartFrame);
+    }
+    return Math.max(0, rawStartFrame);
+}
+
 function resolveCanonicalTrackState(state: DeltaApplyState): {
     byId: Record<string, DeltaApplyState['projectTracks'][number]>;
     allIds: string[];
@@ -176,13 +189,17 @@ export function applyProjectDeltasToState(
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),
                         fadeOut: Math.max(0, toFiniteNumber(clip.fade_out_frames ?? 0, 0)),
                         muted: Boolean(clip.is_muted ?? false),
-                        midiNotes: (clip.notes ?? []).map((note, idx) => ({
-                            id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
-                            pitch: note.pitch,
-                            startBeat: frameToBeat(toFiniteNumber(note.start_frame, 0), bpm, sampleRate),
-                            durationBeats: frameToBeat(toFiniteNumber(note.duration_frames, 1), bpm, sampleRate),
-                            velocity: note.velocity,
-                        })),
+                        midiNotes: (clip.notes ?? []).map((note, idx) => {
+                            const rawStartFrame = toFiniteNumber(note.start_frame, 0);
+                            const localStartFrame = normalizeMidiNoteStartFrame(rawStartFrame, posFrames, durFrames);
+                            return {
+                                id: `${clip.id}:${idx}:${note.pitch}:${localStartFrame}`,
+                                pitch: note.pitch,
+                                startBeat: frameToBeat(localStartFrame, bpm, sampleRate),
+                                durationBeats: frameToBeat(Math.max(1, toFiniteNumber(note.duration_frames, 1)), bpm, sampleRate),
+                                velocity: note.velocity,
+                            };
+                        }),
                         midiEnvelopes: [],
                     });
                 }

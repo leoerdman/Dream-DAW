@@ -74,6 +74,17 @@ fn ensure_slot_loaded_for_export(
     }
 }
 
+fn export_quiescence_wait_ms(sample_rate_hz: f64) -> u64 {
+    let sr = if sample_rate_hz.is_finite() && sample_rate_hz > 0.0 {
+        sample_rate_hz
+    } else {
+        44_100.0
+    };
+    // Wait roughly two callback periods with a 1024-frame assumption,
+    // but keep it tight to avoid visible UI stalls before export starts.
+    (((1024.0 * 2.0) / sr) * 1000.0).round().clamp(35.0, 140.0) as u64
+}
+
 /// Offline bounce/export command.
 #[tauri::command]
 async fn export_mix_cmd(
@@ -308,10 +319,11 @@ async fn export_mix_cmd(
 
     // Ensure plugins are reactivated for the current export processing format.
     // This avoids silent passthrough when a plugin stayed in a stale inactive state.
-    let buffer_size = plugin_host_state
-        .current_audio_config()
-        .map(|(_, bs)| bs.max(1))
-        .unwrap_or(512);
+    // BUG-AUD-312 FIX: Use MAX_BUFFER_FRAMES (8192) instead of the current device
+    // buffer size. OfflineBouncer may process in blocks larger than the realtime
+    // device's configured buffer size, which would trigger the
+    // `num_frames > max_buffer_size` passthrough guard in VST3/VST2/AU plugins.
+    let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
     if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), buffer_size) {
         log::warn!(
             "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
@@ -330,14 +342,26 @@ async fn export_mix_cmd(
     };
     if was_playing {
         push_command(&handle, EngineCommand::SetPlay(false))?;
+        let timeline_sr = {
+            let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+            state.sample_rate
+        };
         {
             let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
             state.is_playing = false;
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
-        // Allow the RT audio thread to finish its current buffer cycle
-        // before we start processing VST plugins from the export thread.
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        // Wait briefly for RT thread to drain SetPlay(false) and stop touching
+        // shared plugin instances before offline processing starts.
+        let wait_start = std::time::Instant::now();
+        let wait_ms = export_quiescence_wait_ms(timeline_sr);
+        std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+        log::info!(
+            "[Export] Waited {}ms for RT thread quiescence (target={}ms @ {:.0}Hz)",
+            wait_start.elapsed().as_millis(),
+            wait_ms,
+            timeline_sr
+        );
     }
 
     // Clone the command producer so we can resume playback from spawn_blocking.

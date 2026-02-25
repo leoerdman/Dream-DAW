@@ -573,7 +573,7 @@ impl OfflineBouncer {
                                 [&mut out_left[..c], &mut out_right[..c]];
                             let midi_to_send: &[MidiEvent] = ctx.midi_events;
                             let empty_midi: Vec<MidiEvent> = Vec::new();
-                            let use_midi = if !midi_to_send.is_empty() {
+                            let use_midi = if runtime_slot.is_instrument && !midi_to_send.is_empty() {
                                 midi_to_send
                             } else {
                                 &empty_midi

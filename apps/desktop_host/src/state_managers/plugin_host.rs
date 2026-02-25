@@ -261,10 +261,6 @@ impl PluginHostState {
         host.reactivate_all(sample_rate, buffer_size);
         Ok(())
     }
-    pub(crate) fn current_audio_config(&self) -> Result<(f64, usize), String> {
-        let host = self.host.lock().map_err(|e| e.to_string())?;
-        Ok(host.audio_config())
-    }
     pub(crate) fn shutdown_all_plugins(&self) {
         log::info!("[PluginHostState] Initiating graceful plugin shutdown...");
         match self.host.lock() {

@@ -28,15 +28,29 @@ export function useDawShellGlobalShortcuts(args: {
     const { setSettingsOpen, setExportOpen, setMainViewMode, setBottomPanelModeForActiveTrack } = args;
     useEffect(() => {
         const openExportPanel = () => {
+            const openViaGlobal =
+                typeof dreamGlobals.getOpenExportModal === 'function'
+                    ? dreamGlobals.getOpenExportModal()
+                    : null;
+            if (typeof openViaGlobal === 'function') {
+                openViaGlobal();
+                return;
+            }
             setExportOpen(true);
             if (typeof window.__dreamOpenExportModal === 'function') {
                 window.__dreamOpenExportModal();
                 return;
             }
             window.dispatchEvent(new CustomEvent('dream:open-export'));
+            document.dispatchEvent(new CustomEvent('dream:open-export'));
             // Extra async dispatch for cases where listener attaches in the same tick.
             requestAnimationFrame(() => {
                 window.dispatchEvent(new CustomEvent('dream:open-export'));
+                document.dispatchEvent(new CustomEvent('dream:open-export'));
+            });
+            setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('dream:open-export'));
+                document.dispatchEvent(new CustomEvent('dream:open-export'));
             });
         };
         const isEditableTarget = (target: EventTarget | null): boolean => {

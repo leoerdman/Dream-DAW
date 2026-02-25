@@ -338,8 +338,13 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     let key = plugin_id.trim().to_lowercase();
 
     if key.starts_with("internal://effect/") {
-        return match key.as_str() {
-            "internal://effect/eq-eight"
+        let resolved = match key.as_str() {
+            "internal://effect/eq"
+            | "internal://effect/eq8"
+            | "internal://effect/eqeight"
+            | "internal://effect/eq3"
+            | "internal://effect/eqthree"
+            | "internal://effect/eq-eight"
             | "internal://effect/channel-eq"
             | "internal://effect/eq-three" => Some(FX_EQ),
             "internal://effect/compressor"
@@ -386,6 +391,9 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
             "internal://effect/analyzer" | "internal://effect/spectrum" => Some(FX_ANALYZER),
             _ => None,
         };
+        if resolved.is_some() {
+            return resolved;
+        }
     }
 
     if key.contains("eq eight")

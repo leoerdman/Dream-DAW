@@ -834,11 +834,11 @@ export class CanvasClipRenderer {
         const cursorX = Math.round(x) + 0.5;
 
 
-        // ── P4: Quantized blink — matches _drawFrameNow's 500ms cycle ──
-        // Previously used continuous cos() which changed every frame,
-        // conflicting with the 500ms redraw guard and causing visual stutter.
-        const blinkOn = (Math.floor(performance.now() / 500) % 2) === 0;
-        const blink = blinkOn ? 0.9 : 0.22;
+        // Smooth pulse to avoid hard on/off flicker.
+        const cycleMs = 2600;
+        const t = (performance.now() % cycleMs) / cycleMs;
+        const eased = 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
+        const blink = 0.34 + eased * 0.48;
         ctx.save();
         ctx.setLineDash([]);
         ctx.globalCompositeOperation = 'screen';

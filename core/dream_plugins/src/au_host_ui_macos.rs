@@ -58,6 +58,18 @@ unsafe fn objc_msg_send_void_usize(obj: id, selector: *mut c_void, arg: usize) {
     unsafe { f(obj, selector, arg) }
 }
 
+unsafe fn objc_msg_send_void_bool(obj: id, selector: *mut c_void, arg: bool) {
+    type Fn = unsafe extern "C" fn(id, *mut c_void, bool);
+    let f: Fn = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, selector, arg) }
+}
+
+unsafe fn objc_msg_send_void_0(obj: id, selector: *mut c_void) {
+    type Fn = unsafe extern "C" fn(id, *mut c_void);
+    let f: Fn = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, selector) }
+}
+
 pub(super) fn has_cocoa_ui_property(unit: AudioUnit) -> bool {
     let mut data_size: u32 = 0;
     let mut writable: u8 = 0;
@@ -224,4 +236,19 @@ pub(super) unsafe fn set_view_autoresize_mask(view: id, mask: usize) {
 pub(super) unsafe fn add_subview(content_view: id, child: id) {
     let sel_add_subview = unsafe { sel_registerName(c"addSubview:".as_ptr()) };
     let _ = unsafe { objc_msg_send_id_1_id(content_view, sel_add_subview, child) };
+}
+
+pub(super) unsafe fn set_released_when_closed(window: id, released_when_closed: bool) {
+    let sel_set_released = unsafe { sel_registerName(c"setReleasedWhenClosed:".as_ptr()) };
+    unsafe { objc_msg_send_void_bool(window, sel_set_released, released_when_closed) };
+}
+
+pub(super) unsafe fn close_window(window: id) {
+    let sel_close = unsafe { sel_registerName(c"close".as_ptr()) };
+    unsafe { objc_msg_send_void_0(window, sel_close) };
+}
+
+pub(super) unsafe fn release_obj(obj: id) {
+    let sel_release = unsafe { sel_registerName(c"release".as_ptr()) };
+    unsafe { objc_msg_send_void_0(obj, sel_release) };
 }

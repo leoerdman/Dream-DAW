@@ -3,7 +3,7 @@ mod tests {
     use std::collections::HashSet;
 
     use dream_models::midi::{MidiClip, MidiNote};
-    use dream_models::project::{AudioClip, DeviceNode, Project, TrackType};
+    use dream_models::project::{AudioClip, Project, TrackType};
     use dream_models::time::AbsoluteTime;
     use uuid::Uuid;
 

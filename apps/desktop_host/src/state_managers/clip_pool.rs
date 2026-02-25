@@ -10,7 +10,9 @@ use dream_engine::driver::{
 };
 use dream_engine::render_callback::MAX_TRACKS;
 use dream_io::audio_reader::AudioReader;
-use dream_models::project::{AudioClip, DeviceNode, PluginSlot, Project};
+use dream_models::project::{
+    AudioClip, DeviceNode, PluginSlot, Project, builtin_effect_type_from_plugin_id,
+};
 use uuid::Uuid;
 
 use crate::ProjectState; // Cross-dependency to the main state wrapper in lib.rs
@@ -281,16 +283,21 @@ impl ClipPoolState {
                 DeviceNode::Single(slot) => {
                     let effective_bypassed = parent_bypassed || slot.is_bypassed;
                     let sidechain_track_index = resolve_sidechain_track_index(slot, project);
-                    if slot.plugin_id.starts_with("internal://effect/") && !effective_bypassed {
+                    let is_internal_effect =
+                        builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some();
+                    if is_internal_effect {
+                        // Keep runtime indexing aligned with DeviceChain even when this slot is bypassed.
                         let idx = *internal_slot_index;
                         *internal_slot_index = internal_slot_index.saturating_add(1);
-                        out.push(dream_engine::driver::ExternalFxRuntimeSlot {
-                            slot_id: Some(slot.id),
-                            internal_slot_index: Some(idx),
-                            instance_id: None,
-                            sidechain_track_index,
-                            is_instrument,
-                        });
+                        if !effective_bypassed {
+                            out.push(dream_engine::driver::ExternalFxRuntimeSlot {
+                                slot_id: Some(slot.id),
+                                internal_slot_index: Some(idx),
+                                instance_id: None,
+                                sidechain_track_index,
+                                is_instrument,
+                            });
+                        }
                     } else if !effective_bypassed
                         && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
                     {
@@ -636,5 +643,36 @@ impl ClipPoolState {
             }
         }
         self.sync_pool_to_arc();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dream_models::project::Track;
+
+    #[test]
+    fn runtime_fx_snapshot_keeps_internal_slot_index_alignment_with_bypassed_slots() {
+        let mut project = Project::new("T", 120.0, 44100.0);
+        let mut track = Track::new("Track 1");
+        let mut eq_a = PluginSlot::new("EQ A", "internal://effect/eq-eight");
+        eq_a.is_bypassed = false;
+        let mut comp = PluginSlot::new("Comp", "internal://effect/compressor");
+        comp.is_bypassed = true;
+        let mut eq_b = PluginSlot::new("EQ B", "internal://effect/eq-eight");
+        eq_b.is_bypassed = false;
+        track.effects.push(DeviceNode::Single(eq_a));
+        track.effects.push(DeviceNode::Single(comp));
+        track.effects.push(DeviceNode::Single(eq_b));
+        project.add_track(track);
+
+        let state = ClipPoolState::new();
+        state.rebuild_external_fx_snapshot(&project, &HashMap::new());
+        let snapshot = state.external_fx_snapshot.load();
+        let slots = &snapshot[0];
+
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].internal_slot_index, Some(0));
+        assert_eq!(slots[1].internal_slot_index, Some(2));
     }
 }

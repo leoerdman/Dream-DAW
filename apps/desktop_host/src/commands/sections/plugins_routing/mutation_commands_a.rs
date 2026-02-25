@@ -90,6 +90,7 @@ fn add_plugin_to_track_impl(
         new_slot_id,
         &effective_plugin_id,
         &effective_plugin_name,
+        None, // Newly added plugin — no imported state blob to restore
         &plugin_host_state,
         "add_plugin_to_track_cmd",
     );
@@ -119,6 +120,7 @@ fn add_plugin_to_track_impl(
         &project_state,
         &clip_pool_state,
         &plugin_host_state,
+        &handle,
         &app,
         true,
     )?;
@@ -311,6 +313,7 @@ fn remove_plugin_from_track_cmd(
         &project_state,
         &clip_pool_state,
         &plugin_host_state,
+        &handle,
         &app,
         true,
     )?;

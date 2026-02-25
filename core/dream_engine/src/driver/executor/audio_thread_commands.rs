@@ -6,6 +6,26 @@ use super::command_dispatch::{
 use crate::sampler::{AdsrParams, Waveform};
 
 pub(super) const MASTER_TRACK_INDEX: u16 = u16::MAX;
+const MAX_RT_VST3_MIDI_QUEUE_EVENTS: usize = 256;
+
+#[inline]
+fn enqueue_rt_vst3_note_on(queue: &mut Vec<MidiEvent>, pitch: u8, velocity: u8) {
+    if queue.len() < MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+        queue.push(MidiEvent::note_on(0, 0, pitch, velocity));
+    }
+}
+
+#[inline]
+fn enqueue_rt_vst3_note_off(queue: &mut Vec<MidiEvent>, pitch: u8) {
+    // Prioritize release events under pressure. If the queue is saturated,
+    // purge stale note-ons and force a deterministic silence command block.
+    if queue.len() >= MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+        queue.clear();
+        queue.push(MidiEvent::cc(0, 0, 120, 0)); // All Sound Off
+        queue.push(MidiEvent::cc(0, 0, 123, 0)); // All Notes Off
+    }
+    queue.push(MidiEvent::note_off(0, 0, pitch, 0));
+}
 
 pub(super) struct CommandDrainContext<'a> {
     pub clock: &'a Arc<MasterClock>,
@@ -63,6 +83,9 @@ pub(super) fn drain_commands(
                         ctx.sample_rack_engines[idx].all_notes_off();
                         ctx.midi_note_states[idx].active_notes.clear();
                         ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
+                        if idx < ctx.vst3_rt_midi_queue.len() {
+                            ctx.vst3_rt_midi_queue[idx].clear();
+                        }
                     }
                     ctx.vst3_flush_per_track.fill(true);
                     *ctx.test_tone_phase = 0.0;
@@ -83,6 +106,9 @@ pub(super) fn drain_commands(
                     ctx.sample_rack_engines[idx].all_notes_off();
                     ctx.midi_note_states[idx].active_notes.clear();
                     ctx.midi_note_states[idx].rng_state = 0xA5A5_1337;
+                    if idx < ctx.vst3_rt_midi_queue.len() {
+                        ctx.vst3_rt_midi_queue[idx].clear();
+                    }
                 }
                 ctx.vst3_flush_per_track.fill(true);
                 *ctx.midi_chase_needed = true;
@@ -181,8 +207,8 @@ pub(super) fn drain_commands(
                 if idx < ctx.sample_rack_engines.len() {
                     ctx.sample_rack_engines[idx].note_on(pitch, velocity);
                 }
-                if idx < ctx.vst3_rt_midi_queue.len() && ctx.vst3_rt_midi_queue[idx].len() < 256 {
-                    ctx.vst3_rt_midi_queue[idx].push(MidiEvent::note_on(0, 0, pitch, velocity));
+                if idx < ctx.vst3_rt_midi_queue.len() {
+                    enqueue_rt_vst3_note_on(&mut ctx.vst3_rt_midi_queue[idx], pitch, velocity);
                 }
             }
             EngineCommand::SamplerNoteOff { track_index, pitch } => {
@@ -193,8 +219,8 @@ pub(super) fn drain_commands(
                 if idx < ctx.sample_rack_engines.len() {
                     ctx.sample_rack_engines[idx].note_off(pitch);
                 }
-                if idx < ctx.vst3_rt_midi_queue.len() && ctx.vst3_rt_midi_queue[idx].len() < 256 {
-                    ctx.vst3_rt_midi_queue[idx].push(MidiEvent::note_off(0, 0, pitch, 0));
+                if idx < ctx.vst3_rt_midi_queue.len() {
+                    enqueue_rt_vst3_note_off(&mut ctx.vst3_rt_midi_queue[idx], pitch);
                 }
             }
             EngineCommand::SetSamplerRootNote {
@@ -430,8 +456,11 @@ pub(super) fn drain_commands(
             EngineCommand::Shutdown => {
                 *ctx.is_playing = false;
                 *ctx.test_tone_phase = 0.0;
-                for engine in ctx.sampler_engines.iter_mut() {
+                for (idx, engine) in ctx.sampler_engines.iter_mut().enumerate() {
                     engine.all_notes_off();
+                    if idx < ctx.vst3_rt_midi_queue.len() {
+                        ctx.vst3_rt_midi_queue[idx].clear();
+                    }
                 }
                 ctx.vst3_flush_per_track.fill(true);
             }
@@ -524,4 +553,26 @@ pub(super) fn drain_commands(
     );
 
     commands_processed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enqueue_rt_vst3_note_off_forces_silence_when_queue_is_saturated() {
+        let mut queue = Vec::new();
+        for pitch in 0..MAX_RT_VST3_MIDI_QUEUE_EVENTS {
+            queue.push(MidiEvent::note_on(0, 0, (pitch % 127) as u8, 100));
+        }
+        enqueue_rt_vst3_note_off(&mut queue, 64);
+
+        assert_eq!(queue.len(), 3);
+        assert_eq!(queue[0].data[0] & 0xF0, 0xB0);
+        assert_eq!(queue[0].data[1], 120);
+        assert_eq!(queue[1].data[0] & 0xF0, 0xB0);
+        assert_eq!(queue[1].data[1], 123);
+        assert_eq!(queue[2].data[0] & 0xF0, 0x80);
+        assert_eq!(queue[2].data[1], 64);
+    }
 }

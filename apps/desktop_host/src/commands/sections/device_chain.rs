@@ -21,7 +21,9 @@ fn selected_runtime_chain(
 
 fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
     match node {
-        DeviceNode::Single(slot) => usize::from(slot.plugin_id.starts_with("internal://effect/")),
+        DeviceNode::Single(slot) => usize::from(
+            dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some(),
+        ),
         DeviceNode::Rack(rack) => selected_runtime_chain(rack)
             .map(|chain| chain.devices.iter().map(count_runtime_internal_effects).sum())
             .unwrap_or(0),
@@ -39,7 +41,10 @@ fn raw_slot_to_internal_device_index_track(
         .map(count_runtime_internal_effects)
         .sum::<usize>();
     match target {
-        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+        DeviceNode::Single(slot)
+            if dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                .is_some() =>
+        {
             Some(preceding_internal as u8)
         }
         _ => None,
@@ -57,7 +62,10 @@ fn raw_slot_to_internal_device_index_master(
         .map(count_runtime_internal_effects)
         .sum::<usize>();
     match target {
-        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+        DeviceNode::Single(slot)
+            if dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                .is_some() =>
+        {
             Some(preceding_internal as u8)
         }
         _ => None,

@@ -6,7 +6,6 @@ type Args = {
     transportIsPlaying: boolean;
     selectedClipIds: string[];
     timelineClipsForView: TimelineClip[];
-    editCursorBeat: number;
     queuedStartBeatRef: React.MutableRefObject<number | null>;
 };
 
@@ -14,7 +13,6 @@ export function usePlaybackStartAnchor({
     transportIsPlaying,
     selectedClipIds,
     timelineClipsForView,
-    editCursorBeat,
     queuedStartBeatRef,
 }: Args): void {
     const prevIsPlayingRef = useRef(false);
@@ -41,15 +39,11 @@ export function usePlaybackStartAnchor({
             startBeat = queuedStartBeatRef.current;
         }
 
-        if (startBeat === null && editCursorBeat >= 0) {
-            startBeat = editCursorBeat;
-        }
-
         queuedStartBeatRef.current = null;
         if (startBeat === null) return;
 
         void engineApi.seekToBeat(Math.max(0, startBeat)).catch((err) => {
             console.error('[DawShell] seek to playback anchor failed:', err);
         });
-    }, [transportIsPlaying, selectedClipIds, timelineClipsForView, editCursorBeat, queuedStartBeatRef]);
+    }, [transportIsPlaying, selectedClipIds, timelineClipsForView, queuedStartBeatRef]);
 }

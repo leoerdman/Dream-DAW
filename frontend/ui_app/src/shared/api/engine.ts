@@ -956,6 +956,18 @@ export const setExternalPluginParamForSlot = (
         value,
         pushUndoStep: options?.pushUndoStep,
     });
+export const setExternalPluginParamForSlotRuntime = (
+    slotId: string,
+    pluginId: string,
+    paramIndex: number,
+    value: number,
+) =>
+    invoke<void>('set_external_plugin_param_for_slot_runtime_cmd', {
+        slotId,
+        pluginId,
+        paramIndex,
+        value,
+    });
 export const setExternalPluginParamForSlotWithDeltas = (
     trackId: string,
     slotId: string,

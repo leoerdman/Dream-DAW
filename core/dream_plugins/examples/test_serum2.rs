@@ -40,7 +40,7 @@ unsafe extern "C" fn crash_handler(sig: c_int) {
 
     let mut addrs: [*mut c_void; 64] = [ptr::null_mut(); 64];
     let count = unsafe { backtrace(addrs.as_mut_ptr(), 64) };
-    let syms = unsafe { backtrace_symbols(addrs.as_ptr(), count) };
+    let _syms = unsafe { backtrace_symbols(addrs.as_ptr(), count) };
 
     for i in 0..count as usize {
         let mut info: DlInfo = DlInfo {
@@ -84,10 +84,8 @@ unsafe extern "C" fn crash_handler(sig: c_int) {
     unsafe {
         libc_write(2, footer.as_ptr() as *const c_void, footer.len());
     }
-    // Re-raise to get the default behavior (core dump)
-    unsafe {
-        signal(sig, std::mem::transmute(0usize));
-    }
+    // Do not invoke UB by fabricating a null function pointer for `signal`.
+    // We exit with signal-like code after emitting the crash backtrace.
     std::process::exit(128 + sig);
 }
 
@@ -118,8 +116,6 @@ unsafe extern "C" {
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
-    fn CFRunLoopGetCurrent() -> *mut c_void;
-    fn CFRunLoopRun();
     static kCFRunLoopDefaultMode: *const c_void;
 }
 
@@ -129,47 +125,61 @@ const NIL: Id = std::ptr::null_mut();
 
 macro_rules! sel {
     ($name:expr) => {
-        unsafe { sel_registerName(concat!($name, "\0").as_ptr() as *const c_char) }
+        sel_name(concat!($name, "\0").as_ptr() as *const c_char)
     };
 }
 
 macro_rules! cls {
     ($name:expr) => {
-        unsafe { objc_getClass(concat!($name, "\0").as_ptr() as *const c_char) }
+        class_name(concat!($name, "\0").as_ptr() as *const c_char)
     };
 }
 
 macro_rules! msg {
     ($obj:expr, $sel:expr $(,)?) => {{
-        type F = unsafe extern "C" fn(Id, Sel) -> Id;
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel) }
+        msg_send_id($obj, $sel)
     }};
     ($obj:expr, $sel:expr, bool: $v:expr) => {{
-        type F = unsafe extern "C" fn(Id, Sel, i8);
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel, if $v { 1 } else { 0 }) }
+        msg_send_bool($obj, $sel, $v)
     }};
     ($obj:expr, $sel:expr, id: $v:expr) => {{
-        type F = unsafe extern "C" fn(Id, Sel, Id) -> Id;
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel, $v) }
+        msg_send_id_arg($obj, $sel, $v)
     }};
     ($obj:expr, $sel:expr, rect: $r:expr) => {{
-        type F = unsafe extern "C" fn(Id, Sel, NSRect) -> Id;
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel, $r) }
+        msg_send_rect($obj, $sel, $r)
     }};
-    ($obj:expr, $sel:expr, u64: $v:expr) => {{
-        type F = unsafe extern "C" fn(Id, Sel, u64) -> Id;
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel, $v) }
-    }};
-    ($obj:expr, $sel:expr, f64f64: $a:expr, $b:expr) => {{
-        type F = unsafe extern "C" fn(Id, Sel, f64, f64) -> Id;
-        let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
-        unsafe { f($obj, $sel, $a, $b) }
-    }};
+}
+
+fn sel_name(name: *const c_char) -> Sel {
+    unsafe { sel_registerName(name) }
+}
+
+fn class_name(name: *const c_char) -> Id {
+    unsafe { objc_getClass(name) }
+}
+
+fn msg_send_id(obj: Id, sel: Sel) -> Id {
+    type F = unsafe extern "C" fn(Id, Sel) -> Id;
+    let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, sel) }
+}
+
+fn msg_send_bool(obj: Id, sel: Sel, value: bool) {
+    type F = unsafe extern "C" fn(Id, Sel, i8);
+    let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, sel, if value { 1 } else { 0 }) }
+}
+
+fn msg_send_id_arg(obj: Id, sel: Sel, value: Id) -> Id {
+    type F = unsafe extern "C" fn(Id, Sel, Id) -> Id;
+    let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, sel, value) }
+}
+
+fn msg_send_rect(obj: Id, sel: Sel, rect: NSRect) -> Id {
+    type F = unsafe extern "C" fn(Id, Sel, NSRect) -> Id;
+    let f: F = unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+    unsafe { f(obj, sel, rect) }
 }
 
 #[repr(C)]
@@ -190,8 +200,6 @@ impl NSRect {
 // ── VST3 types ──
 type Tresult = i32;
 type Tuid = [u8; 16];
-const K_RESULT_OK: Tresult = 0;
-
 #[repr(C)]
 struct ViewRect {
     left: i32,
@@ -444,7 +452,9 @@ impl WriteStream {
 
 unsafe extern "C" fn ws_qi(_: *mut c_void, _: *const Tuid, obj: *mut *mut c_void) -> Tresult {
     if !obj.is_null() {
-        *obj = ptr::null_mut();
+        unsafe {
+            *obj = ptr::null_mut();
+        }
     }
     -1
 }
@@ -559,7 +569,9 @@ impl ReadStream {
 
 unsafe extern "C" fn rs_qi(_: *mut c_void, _: *const Tuid, obj: *mut *mut c_void) -> Tresult {
     if !obj.is_null() {
-        *obj = ptr::null_mut();
+        unsafe {
+            *obj = ptr::null_mut();
+        }
     }
     -1
 }
@@ -772,16 +784,16 @@ unsafe extern "C" fn handler2_qi(
     obj: *mut *mut c_void,
 ) -> Tresult {
     // Navigate back from vtbl2 ptr to the base TestHandler
-    let base = (this as *mut u8).sub(8) as *mut c_void;
-    handler_qi(base, iid, obj)
+    let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
+    unsafe { handler_qi(base, iid, obj) }
 }
 unsafe extern "C" fn handler2_add_ref(this: *mut c_void) -> u32 {
     let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
-    handler_add_ref(base)
+    unsafe { handler_add_ref(base) }
 }
 unsafe extern "C" fn handler2_release(this: *mut c_void) -> u32 {
     let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
-    handler_release(base)
+    unsafe { handler_release(base) }
 }
 unsafe extern "C" fn handler2_set_dirty(_: *mut c_void, _state: u8) -> Tresult {
     0
@@ -913,16 +925,16 @@ unsafe extern "C" fn host_iface_qi(
     iid: *const Tuid,
     obj: *mut *mut c_void,
 ) -> Tresult {
-    let base = (this as *mut u8).sub(8) as *mut c_void;
-    host_qi(base, iid, obj)
+    let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
+    unsafe { host_qi(base, iid, obj) }
 }
 unsafe extern "C" fn host_iface_add_ref(this: *mut c_void) -> u32 {
     let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
-    host_add_ref(base)
+    unsafe { host_add_ref(base) }
 }
 unsafe extern "C" fn host_iface_release(this: *mut c_void) -> u32 {
     let base = unsafe { (this as *mut u8).sub(8) as *mut c_void };
-    host_release(base)
+    unsafe { host_release(base) }
 }
 unsafe extern "C" fn host_is_plug_interface_supported(
     _this: *mut c_void,
@@ -1054,7 +1066,9 @@ unsafe extern "C" fn attr_qi(
         unsafe {
             *obj = this;
         }
-        attr_add_ref(this);
+        unsafe {
+            attr_add_ref(this);
+        }
         return 0;
     }
     -1
@@ -1262,7 +1276,9 @@ unsafe extern "C" fn msg_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut 
         unsafe {
             *obj = this;
         }
-        msg_add_ref(this);
+        unsafe {
+            msg_add_ref(this);
+        }
         return 0;
     }
     -1
@@ -1285,7 +1301,9 @@ unsafe extern "C" fn msg_release(this: *mut c_void) -> u32 {
     if rc == 0 {
         // Release the attribute list
         if !m.attr_list.is_null() {
-            attr_release(m.attr_list as *mut c_void);
+            unsafe {
+                attr_release(m.attr_list as *mut c_void);
+            }
         }
         unsafe {
             let _ = Box::from_raw(this as *mut Msg);
@@ -2109,7 +2127,7 @@ fn main() {
 
         // Run the main loop
         loop {
-            let result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, 0);
+            let _result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, 0);
             // Just keep running
         }
     }

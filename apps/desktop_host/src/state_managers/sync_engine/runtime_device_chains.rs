@@ -791,7 +791,7 @@ pub fn rebuild_runtime_device_chains_from_project(
         ) {
             match node {
                 DeviceNode::Single(slot) => {
-                    if slot.plugin_id.starts_with("internal://effect/") {
+                    if builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some() {
                         out.push(MasterFxEntry {
                             plugin_id: slot.plugin_id.clone(),
                             bypassed: parent_bypassed || slot.is_bypassed,

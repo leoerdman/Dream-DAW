@@ -3,6 +3,10 @@ import type { AdaptiveSender } from './useDeviceParamGestureTypes';
 const ADAPTIVE_INTERVAL_MIN_MS = 16;
 const ADAPTIVE_INTERVAL_MAX_MS = 48;
 const ADAPTIVE_INTERVAL_INITIAL_MS = 24;
+const RUNTIME_BATCH_INTERVAL_MIN_MS = 24;
+const RUNTIME_BATCH_INTERVAL_MAX_MS = 72;
+const RUNTIME_BATCH_INTERVAL_INITIAL_MS = 32;
+const RUNTIME_VALUE_EPSILON = 1e-4;
 
 export function createAdaptiveParamSenderFactory(
 ): (emit: (value: number, pushUndoStep: boolean) => Promise<void> | void) => AdaptiveSender {
@@ -76,7 +80,7 @@ export function createAdaptiveRuntimeBatchSenderFactory(
         let timer: number | null = null;
         const pendingByParam = new Map<number, number>();
         let lastSentAt = 0;
-        let adaptiveIntervalMs = ADAPTIVE_INTERVAL_INITIAL_MS;
+        let adaptiveIntervalMs = RUNTIME_BATCH_INTERVAL_INITIAL_MS;
 
         const schedule = () => {
             if (timer != null || pendingByParam.size === 0) return;
@@ -96,7 +100,10 @@ export function createAdaptiveRuntimeBatchSenderFactory(
                     .catch(() => { /* errors handled by caller */ })
                     .finally(() => {
                         const elapsed = Math.max(1, performance.now() - startedAt);
-                        const target = Math.max(ADAPTIVE_INTERVAL_MIN_MS, Math.min(ADAPTIVE_INTERVAL_MAX_MS, elapsed * 1.25));
+                        const target = Math.max(
+                            RUNTIME_BATCH_INTERVAL_MIN_MS,
+                            Math.min(RUNTIME_BATCH_INTERVAL_MAX_MS, elapsed * 1.25),
+                        );
                         adaptiveIntervalMs = adaptiveIntervalMs * 0.7 + target * 0.3;
                         if (pendingByParam.size > 0) schedule();
                     });
@@ -105,6 +112,8 @@ export function createAdaptiveRuntimeBatchSenderFactory(
 
         return {
             queue: (paramIndex: number, value: number) => {
+                const prev = pendingByParam.get(paramIndex);
+                if (prev != null && Math.abs(prev - value) < RUNTIME_VALUE_EPSILON) return;
                 pendingByParam.set(paramIndex, value);
                 schedule();
             },

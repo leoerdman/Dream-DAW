@@ -295,6 +295,7 @@ fn replace_missing_plugin_slot_impl(
     plugin_host_state: &tauri::State<'_, PluginHostState>,
     project_state: &tauri::State<'_, ProjectState>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
+    handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
 ) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
@@ -393,6 +394,7 @@ fn replace_missing_plugin_slot_impl(
         project_state,
         clip_pool_state,
         plugin_host_state,
+        handle,
         app,
         true,
     )?;
@@ -407,6 +409,7 @@ fn replace_missing_plugin_slot_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let _ = replace_missing_plugin_slot_impl(
@@ -414,6 +417,7 @@ fn replace_missing_plugin_slot_cmd(
         &plugin_host_state,
         &project_state,
         &clip_pool_state,
+        &handle,
         &app,
     )?;
     Ok(())
@@ -426,6 +430,7 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<DeltaMutationResponse, String> {
     let track_id_raw = payload.track_id.clone();
@@ -436,6 +441,7 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
         &plugin_host_state,
         &project_state,
         &clip_pool_state,
+        &handle,
         &app,
     )?;
 

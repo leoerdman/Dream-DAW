@@ -162,9 +162,11 @@ export const DawShell = () => {
     useEffect(() => {
         const onOpenExport = () => setExportOpen(true);
         window.addEventListener('dream:open-export', onOpenExport as EventListener);
+        document.addEventListener('dream:open-export', onOpenExport as EventListener);
         dreamGlobals.setOpenExportModal(onOpenExport);
         return () => {
             window.removeEventListener('dream:open-export', onOpenExport as EventListener);
+            document.removeEventListener('dream:open-export', onOpenExport as EventListener);
             dreamGlobals.clearOpenExportModal(onOpenExport);
         };
     }, []);
@@ -367,7 +369,6 @@ export const DawShell = () => {
         transportIsPlaying,
         selectedClipIds: selectedClipIdsForView,
         timelineClipsForView,
-        editCursorBeat,
         queuedStartBeatRef,
     });
     const {
@@ -511,7 +512,7 @@ export const DawShell = () => {
                 beginBottomPanelResize={beginBottomPanelResize}
                 selectedTimelineClip={selectedTimelineClip ?? undefined}
                 clipColor={selectedTimelineClip?.color || tracksEntity.byId[selectedTrackId]?.color || 'var(--color-accent-primary)'}
-                midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? []) : []}
+                midiNotes={selectedTimelineClip?.type === 'midi' ? (midiNotesByClip[selectedTimelineClip.id] ?? selectedTimelineClip.midiNotes ?? []) : []}
                 aiVariationBusy={aiVariationBusy}
                 selectedMidiTotalBars={selectedMidiTotalBars}
                 dropPluginOnTrack={dropPluginOnTrack}

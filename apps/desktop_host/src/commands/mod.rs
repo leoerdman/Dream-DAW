@@ -287,6 +287,7 @@ pub(crate) fn invoke_handler()
         set_internal_plugin_param_with_deltas_cmd,
         set_external_plugin_param_cmd,
         set_external_plugin_param_for_slot_cmd,
+        set_external_plugin_param_for_slot_runtime_cmd,
         set_external_plugin_param_for_slot_with_deltas_cmd,
         set_sampler_sample_cmd,
         set_sampler_sample_with_deltas_cmd,

@@ -43,9 +43,14 @@ export function useProjectAutoRecovery(): void {
             const state = useEngineStore.getState();
             const hasNoTracks = state.tracks.allIds.length === 0;
             const isConnected = state.connected || state.telemetryRunning;
-            const hasTracksButNoClips = state.tracks.allIds.length > 0 && state.timelineClips.length === 0;
+            const hasCanonicalClips = state.clips.allIds.length > 0;
+            const hasLegacyClipMap = Object.keys(state.clipsById).length > 0;
+            const hasTimelineClips = state.timelineClips.length > 0;
+            const hasAnyClipData = hasCanonicalClips || hasLegacyClipMap || hasTimelineClips;
+            const hasTracksButNoClips = state.tracks.allIds.length > 0 && !hasAnyClipData;
             const transportLooksActive = state.transport.is_playing || (state.transport.position_frames ?? 0) > 0;
-            const likelyDesyncedTimeline = hasTracksButNoClips && transportLooksActive;
+            const looksLikeFreshBoot = state.projectHistory.length === 0 && state.projectHistoryCursor === 0;
+            const likelyDesyncedTimeline = hasTracksButNoClips && transportLooksActive && looksLikeFreshBoot;
 
             if ((!hasNoTracks && !likelyDesyncedTimeline) || !isConnected || recoveryInFlight) return;
             if (Date.now() - lastRecoveryAttemptAtMs < RECOVERY_COOLDOWN_MS) return;

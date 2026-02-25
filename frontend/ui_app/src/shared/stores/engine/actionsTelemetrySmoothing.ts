@@ -2,10 +2,12 @@ import type { MeteringSnapshot } from '@/shared/api/engine';
 
 const METER_FLOOR_DB = -160;
 const DEFAULT_METER_DELTA_SEC = 1 / 30;
-const PEAK_ATTACK_TAU_SEC = 0.012;
-const PEAK_RELEASE_TAU_SEC = 0.22;
-const RMS_ATTACK_TAU_SEC = 0.08;
-const RMS_RELEASE_TAU_SEC = 0.35;
+// DAW-like meter ballistics:
+// fast enough on attacks to stay responsive, slower release to avoid flicker.
+const PEAK_ATTACK_TAU_SEC = 0.025;
+const PEAK_RELEASE_TAU_SEC = 0.42;
+const RMS_ATTACK_TAU_SEC = 0.12;
+const RMS_RELEASE_TAU_SEC = 0.55;
 
 function alphaFromTau(dtSec: number, tauSec: number): number {
     if (!Number.isFinite(dtSec) || dtSec <= 0) return 1;

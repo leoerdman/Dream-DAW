@@ -366,6 +366,18 @@ fn main() {
                             output_gain = value.clamp(0.0, 2.0) as f32;
                         }
                     }
+                    PluginHostControlMessage::SetBufferSize {
+                        instance_id,
+                        max_frames,
+                    } => {
+                        // Shared-memory layout is fixed for this daemon instance.
+                        // We accept the control message for protocol compatibility and log it.
+                        log::debug!(
+                            "[plugin_host_daemon] SetBufferSize ignored (fixed layout): instance={} max_frames={}",
+                            instance_id,
+                            max_frames
+                        );
+                    }
                     PluginHostControlMessage::OpenEditor { instance_id } => {
                         let evt = PluginHostEventMessage::EditorOpened { instance_id };
                         if let Ok(json) = serde_json::to_string(&evt) {

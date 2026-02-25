@@ -100,21 +100,66 @@ pub fn load_external_slots_best_effort(
     log_context: &str,
 ) -> Option<String> {
     let mut first_error: Option<String> = None;
+    let mut restored_state_count: usize = 0;
     for slot in slots {
         if slot.plugin_id.starts_with("internal://") {
             continue;
         }
-        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
-            log::warn!(
-                "[IPC] {log_context}: plugin '{}' failed to load (slot={}): {}",
-                slot.plugin_id,
-                slot.id,
-                err
-            );
-            if first_error.is_none() {
-                first_error = Some(format!("Plugin '{}' failed to load: {}", slot.name, err));
+        match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
+            Ok(instance_id) => {
+                // If ALS/native import provided processor state or preset blobs,
+                // restore them immediately so playback/export starts with correct sound.
+                if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+                    match plugin_host_state.host.lock() {
+                        Ok(mut host) => {
+                            if let Err(err) =
+                                apply_imported_external_state_blob(&mut host, instance_id, slot)
+                            {
+                                log::warn!(
+                                    "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
+                                    slot.name,
+                                    slot.id,
+                                    err
+                                );
+                                if first_error.is_none() {
+                                    first_error = Some(format!(
+                                        "Plugin '{}' failed to restore state: {}",
+                                        slot.name, err
+                                    ));
+                                }
+                            } else {
+                                restored_state_count = restored_state_count.saturating_add(1);
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "[IPC] {log_context}: host lock failed for state restore '{}' (slot={}): {}",
+                                slot.name,
+                                slot.id,
+                                err
+                            );
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                log::warn!(
+                    "[IPC] {log_context}: plugin '{}' failed to load (slot={}): {}",
+                    slot.plugin_id,
+                    slot.id,
+                    err
+                );
+                if first_error.is_none() {
+                    first_error = Some(format!("Plugin '{}' failed to load: {}", slot.name, err));
+                }
             }
         }
+    }
+    if restored_state_count > 0 {
+        log::info!(
+            "[IPC] {log_context}: restored imported state/preset for {} external slot(s)",
+            restored_state_count
+        );
     }
     first_error
 }
@@ -123,6 +168,7 @@ pub fn load_external_slot_best_effort(
     slot_id: Uuid,
     plugin_id: &str,
     plugin_name: &str,
+    slot_state: Option<&PluginSlot>,
     plugin_host_state: &State<'_, PluginHostState>,
     log_context: &str,
 ) -> Option<String> {
@@ -130,7 +176,33 @@ pub fn load_external_slot_best_effort(
         return None;
     }
     match plugin_host_state.ensure_loaded_instance_for_slot(slot_id, plugin_id) {
-        Ok(_) => None,
+        Ok(instance_id) => {
+            if let Some(slot) = slot_state
+                && (slot.external_state_blob.is_some() || slot.external_preset_blob.is_some())
+            {
+                match plugin_host_state.host.lock() {
+                    Ok(mut host) => {
+                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, slot) {
+                            log::warn!(
+                                "[IPC] {log_context}: state restore failed for '{}' (slot={}): {}",
+                                slot.name,
+                                slot.id,
+                                err
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[IPC] {log_context}: host lock failed for state restore '{}' (slot={}): {}",
+                            slot.name,
+                            slot.id,
+                            err
+                        );
+                    }
+                }
+            }
+            None
+        }
         Err(err) => {
             log::warn!(
                 "[IPC] {log_context}: plugin '{}' failed to load (slot={}): {}",
@@ -147,6 +219,7 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     project_state: &State<'_, ProjectState>,
     clip_pool_state: &State<'_, ClipPoolState>,
     plugin_host_state: &State<'_, PluginHostState>,
+    handle: &State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
     rebuild_routing: bool,
 ) -> Result<(), String> {
@@ -158,7 +231,15 @@ pub fn sync_plugin_runtime_and_mark_dirty(
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
+    // SSOT FIX: Runtime internal device chains must be rebuilt from the same
+    // project snapshot used for external FX mapping; otherwise chain/order/bypass
+    // mutations diverge between project model and audio thread state.
+    let runtime_project = project.clone();
     drop(project);
+    crate::state_managers::sync_engine::rebuild_runtime_device_chains_from_project(
+        &runtime_project,
+        handle,
+    )?;
     project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
@@ -229,10 +310,11 @@ pub fn ensure_external_plugins_prepared_for_offline_render(
 
     clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     plugin_host_state.publish_registry();
-    let buffer_size = plugin_host_state
-        .current_audio_config()
-        .map(|(_, bs)| bs.max(1))
-        .unwrap_or(512);
+    // BUG-AUD-314 FIX: Use MAX_BUFFER_FRAMES (8192) for offline rendering.
+    // Previously used current_audio_config() which returns the realtime device's
+    // buffer size (e.g., 512). OfflineBouncer processes in larger blocks, causing
+    // the `num_frames > max_buffer_size` passthrough guard to trigger silently.
+    let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
     plugin_host_state
         .reactivate_all(project_sample_rate.max(1.0), buffer_size)
         .map_err(|e| format!("{op_name} aborted: failed to reactivate plugin runtime: {e}"))?;

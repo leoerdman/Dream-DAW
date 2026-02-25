@@ -291,6 +291,45 @@ mod tests {
     }
 
     #[test]
+    fn add_effect_respects_insert_index_in_chain() {
+        let mut project = Project::new("t", 120.0, 44100.0);
+        let mut track = Track::new("audio");
+        let track_id = track.id;
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "EQ",
+            "internal://effect/eq-eight",
+        )));
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "Comp",
+            "internal://effect/compressor",
+        )));
+        project.tracks.push(track);
+
+        let ctx = OrchestratorContext::new(project);
+        let cmd = AddPluginToTrackCommand {
+            track_id,
+            plugin_id: "internal://effect/delay".to_string(),
+            plugin_name: "Delay".to_string(),
+            slot_preference: PluginSlotPreference::Effect,
+            canonical_slot_hint: Some("effect".to_string()),
+            external_audio_inputs: None,
+            external_supports_sidechain_input: None,
+            insert_index: Some(1),
+        };
+        let _ = ctx.execute(&cmd).unwrap();
+
+        let effects = &ctx.lock_project().unwrap().tracks[0].effects;
+        let names: Vec<&str> = effects
+            .iter()
+            .map(|n| match n {
+                DeviceNode::Single(slot) => slot.name.as_str(),
+                DeviceNode::Rack(r) => r.name.as_str(),
+            })
+            .collect();
+        assert_eq!(names, vec!["EQ", "Delay", "Comp"]);
+    }
+
+    #[test]
     fn normalize_plugin_target_maps_internal_aliases() {
         let normalized =
             normalize_plugin_target_for_add("PluginDevice", "Synthesizer V Studio 2 Plugin");

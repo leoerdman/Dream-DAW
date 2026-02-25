@@ -315,6 +315,20 @@ impl PluginInstance for Vst3Instance {
                 return Ok(());
             }
             if num_frames > self.max_buffer_size {
+                // BUG-AUD-304 FIX: Log diagnostic instead of silently passing through.
+                // Use a static atomic counter to rate-limit RT logging (once per ~500 hits).
+                static PASSTHROUGH_COUNT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
+                let count = PASSTHROUGH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if count.is_multiple_of(500) {
+                    log::warn!(
+                        "[VST3] Buffer size mismatch: num_frames={} > max_buffer_size={} — passthrough (#{}).\
+                         Re-activate plugin with correct buffer size.",
+                        num_frames,
+                        self.max_buffer_size,
+                        count
+                    );
+                }
                 passthrough(inputs, outputs, num_frames);
                 return Ok(());
             }

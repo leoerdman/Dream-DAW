@@ -122,7 +122,6 @@ impl Command for PasteDeviceToTrackCommand {
             }
 
             if let DeviceNode::Single(slot) = &self.pasted_node
-                && slot.plugin_id.starts_with("internal://effect/")
                 && let Some(effect_type) = builtin_effect_type_from_plugin_id(&slot.plugin_id)
                 && let Some(internal_slot_index) = opt_internal_idx
             {
@@ -143,5 +142,30 @@ impl Command for PasteDeviceToTrackCommand {
             replaced_instrument_slot_id,
             added_slot_deltas,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dream_models::project::{Project, Track};
+
+    #[test]
+    fn paste_internal_eq_alias_creates_runtime_add() {
+        let mut project = Project::new("t", 120.0, 44100.0);
+        let track = Track::new("audio");
+        let track_id = track.id;
+        project.tracks.push(track);
+
+        let ctx = OrchestratorContext::new(project);
+        let cmd = PasteDeviceToTrackCommand {
+            track_id,
+            slot_hint: Some("effect".to_string()),
+            pasted_node: DeviceNode::Single(PluginSlot::new("EQ", "internal://effect/eq8")),
+        };
+        let result = ctx.execute(&cmd).expect("paste should succeed");
+
+        assert!(!result.use_instrument);
+        assert!(result.runtime_add.is_some());
     }
 }

@@ -226,7 +226,8 @@ export function useDeviceRackLogic(
     const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {
         const key = `${deviceId}:${paramName}`;
         setLocalParams((prev) => {
-            if (prev[key] === value) return prev;
+            const current = prev[key];
+            if (current != null && Math.abs(current - value) < 1e-4) return prev;
             return { ...prev, [key]: value };
         });
     }, [setLocalParams]);

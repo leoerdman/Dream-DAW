@@ -16,7 +16,9 @@ fn selected_runtime_chain(rack: &DeviceRack) -> Option<&RackChain> {
 
 fn count_runtime_internal_effects(node: &DeviceNode) -> usize {
     match node {
-        DeviceNode::Single(slot) => usize::from(slot.plugin_id.starts_with("internal://effect/")),
+        DeviceNode::Single(slot) => usize::from(
+            dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id).is_some(),
+        ),
         DeviceNode::Rack(rack) => selected_runtime_chain(rack)
             .map(|chain| {
                 chain
@@ -42,7 +44,10 @@ fn raw_slot_to_internal_device_index(
         .map(count_runtime_internal_effects)
         .sum::<usize>();
     match target {
-        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+        DeviceNode::Single(slot)
+            if dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                .is_some() =>
+        {
             Some(preceding_internal as u8)
         }
         _ => None,
@@ -57,7 +62,10 @@ fn raw_slot_to_internal_device_index_master(project: &Project, raw_slot_index: u
         .map(count_runtime_internal_effects)
         .sum::<usize>();
     match target {
-        DeviceNode::Single(slot) if slot.plugin_id.starts_with("internal://effect/") => {
+        DeviceNode::Single(slot)
+            if dream_models::project::builtin_effect_type_from_plugin_id(&slot.plugin_id)
+                .is_some() =>
+        {
             Some(preceding_internal as u8)
         }
         _ => None,
@@ -217,5 +225,51 @@ impl Command for SetInternalDeviceParamByTrackIndexCommand {
             value: self.value,
             engine_slot_index,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dream_models::project::{PluginSlot, Track};
+
+    #[test]
+    fn raw_slot_index_maps_internal_eq_alias() {
+        let mut project = Project::new("T", 120.0, 44100.0);
+        let mut track = Track::new("Track 1");
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "Ext",
+            "com.vendor.plugin",
+        )));
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "EQ",
+            "internal://effect/eq8",
+        )));
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "Comp",
+            "internal://effect/compressor",
+        )));
+        project.add_track(track);
+
+        assert_eq!(raw_slot_to_internal_device_index(&project, 0, 1), Some(0));
+        assert_eq!(raw_slot_to_internal_device_index(&project, 0, 2), Some(1));
+    }
+
+    #[test]
+    fn raw_slot_index_skips_unknown_internal_effect_ids() {
+        let mut project = Project::new("T", 120.0, 44100.0);
+        let mut track = Track::new("Track 1");
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "Unknown",
+            "internal://effect/custom-unknown",
+        )));
+        track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "EQ",
+            "internal://effect/eq-eight",
+        )));
+        project.add_track(track);
+
+        assert_eq!(raw_slot_to_internal_device_index(&project, 0, 0), None);
+        assert_eq!(raw_slot_to_internal_device_index(&project, 0, 1), Some(0));
     }
 }

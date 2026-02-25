@@ -29,6 +29,26 @@ function makeUiId(prefix: string, index: number): string {
     return `${prefix}_${Date.now()}_${index}`;
 }
 
+function normalizeIncomingMidiNotes(
+    clip: TimelineClip,
+    notes: MidiNote[],
+): MidiNote[] {
+    if (!Number.isFinite(clip.durationBeats) || clip.durationBeats <= 0) return notes;
+    if (!Number.isFinite(clip.startBeat) || clip.startBeat <= 0) return notes;
+    if (notes.length === 0) return notes;
+
+    const duration = Math.max(0.25, clip.durationBeats);
+    const hasOutOfRangeStarts = notes.some((n) => n.startBeat > duration + 0.001);
+    if (!hasOutOfRangeStarts) return notes;
+
+    // Recovery path for legacy/imported absolute note beats.
+    return notes.map((n, idx) => ({
+        ...n,
+        id: n.id || makeUiId(clip.id, idx),
+        startBeat: Math.max(0, n.startBeat - clip.startBeat),
+    }));
+}
+
 export function useDawShellMidiPersistence({
     timelineClips,
     trackIds,
@@ -80,13 +100,14 @@ export function useDawShellMidiPersistence({
                 durationBeats: note.durationBeats,
                 velocity: note.velocity,
             }));
+            const normalizedNotes = normalizeIncomingMidiNotes(clip, backendNotes);
             if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
                 // Keep local edits if they exist; otherwise never drop to empty.
                 // This prevents "empty piano roll" after snapshot/delta churn when
                 // a clip id is marked dirty but local cache has been reset.
-                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? backendNotes;
+                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? normalizedNotes;
             } else {
-                incoming[clip.id] = backendNotes;
+                incoming[clip.id] = normalizedNotes;
             }
         }
         setMidiNotesByClip((prev) => {
@@ -214,7 +235,11 @@ export function useDawShellMidiPersistence({
                         serializeMidiNotesToFrames(toSend),
                         { pushUndoStep: false },
                     )
-                    .then((response) => applyProjectDeltas(response.deltas, 'midi-notes:throttle'))
+                    .then(async (response) => {
+                        await applyProjectDeltas(response.deltas, 'midi-notes:throttle');
+                        // Successful roundtrip: clip is no longer locally dirty.
+                        dirtyMidiNotesClipIdsRef.current.delete(clipId);
+                    })
                     .catch((error) => console.error('[DawShell] updateMidiClip failed:', error));
             }, 80) as ThrottledSender<MidiNote[]>;
             midiSaveThrottlesRef.current.set(clipId, send);

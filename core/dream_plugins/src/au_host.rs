@@ -227,8 +227,8 @@ mod macos {
     }
     use ui::{
         AuEditorWindow, add_subview, cocoa_view_frame, content_view_bounds,
-        create_cocoa_view_for_unit, has_cocoa_ui_property, is_main_thread, set_view_autoresize_mask,
-        set_view_frame,
+        close_window, create_cocoa_view_for_unit, has_cocoa_ui_property, is_main_thread,
+        release_obj, set_released_when_closed, set_view_autoresize_mask, set_view_frame,
     };
 
     fn osstatus_ok(status: OSStatus, ctx: &str) -> Result<(), PluginError> {
@@ -542,7 +542,18 @@ mod macos {
 
     impl Drop for AudioUnitInstance {
         fn drop(&mut self) {
-            let _ = self.close_editor();
+            if self.editor_window.is_some() {
+                if is_main_thread() {
+                    let _ = self.close_editor();
+                } else {
+                    log::error!(
+                        "[AU] Dropping AudioUnit '{}' with open editor off main thread; \
+                         skipping unit disposal to avoid UI/use-after-free crash",
+                        self.descriptor.id
+                    );
+                    return;
+                }
+            }
             if !self.unit.is_null() {
                 // SAFETY: valid AudioUnit instance owned by this object.
                 let _ = unsafe { AudioUnitUninitialize(self.unit) };
@@ -569,6 +580,9 @@ mod macos {
         ) -> Result<(), PluginError> {
             self.sample_rate = sample_rate;
             self.max_buffer_size = max_buffer_size.max(1);
+            // BUG-AUD-313 FIX: Reset cumulative sample time on reactivation.
+            // Without this, delay-based effects see timestamp discontinuities.
+            self.sample_time = 0.0;
             let format = Self::stream_format(sample_rate);
 
             // SAFETY: unit is a valid AudioUnit instance.
@@ -840,12 +854,16 @@ mod macos {
                         "Failed to create AudioUnit editor window".to_string(),
                     ));
                 }
+                // Keep explicit ownership on Rust side and release manually in close_editor.
+                // This prevents dangling window pointers when users manually close the window.
+                set_released_when_closed(window, false);
 
                 let title = NSString::alloc(nil).init_str(&self.descriptor.name);
                 window.setTitle_(title);
                 let content_view = window.contentView();
                 if content_view == nil {
-                    window.close();
+                    close_window(window);
+                    release_obj(window);
                     return Err(PluginError::InvalidState(
                         "Failed to acquire AudioUnit editor content view".to_string(),
                     ));
@@ -881,7 +899,8 @@ mod macos {
             unsafe {
                 let window = editor.window as id;
                 if window != nil {
-                    window.close();
+                    close_window(window);
+                    release_obj(window);
                 }
             }
             Ok(())

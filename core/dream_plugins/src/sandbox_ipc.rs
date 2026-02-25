@@ -25,6 +25,10 @@ pub enum PluginHostControlMessage {
         index: u32,
         value: f64,
     },
+    SetBufferSize {
+        instance_id: Uuid,
+        max_frames: u32,
+    },
     OpenEditor {
         instance_id: Uuid,
     },

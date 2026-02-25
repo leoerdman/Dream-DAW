@@ -320,9 +320,48 @@ fn open_project(
     let unresolved_missing_after_open = collect_missing_slot_labels(&loaded, 20);
 
     let _ = plugin_host_state.unload_all_instances();
-    // Do not eagerly activate external plugins while opening a project.
-    // Some third-party VSTs can crash on activation/probing; runtime activation
-    // is done lazily from the rack (UI/Fix/Open actions).
+    // Best-effort preload of external slots so imported projects sound/render
+    // correctly immediately after open, without requiring manual plugin opens.
+    // This remains non-fatal: any single plugin load failure is logged and the
+    // project still opens.
+    let mut external_slots_for_boot: Vec<dream_models::project::PluginSlot> = Vec::new();
+    let mut collect_external_slot = |slot: &dream_models::project::PluginSlot| {
+        let pid = slot.plugin_id.as_str();
+        if !pid.starts_with("internal://") && !pid.starts_with("missing://") {
+            external_slots_for_boot.push(slot.clone());
+        }
+    };
+    for track in &loaded.tracks {
+        if let Some(inst) = &track.instrument {
+            for slot in inst.collect_plugin_slots() {
+                collect_external_slot(slot);
+            }
+        }
+        for node in &track.effects {
+            for slot in node.collect_plugin_slots() {
+                collect_external_slot(slot);
+            }
+        }
+    }
+    if let Some(inst) = &loaded.master_track.instrument {
+        for slot in inst.collect_plugin_slots() {
+            collect_external_slot(slot);
+        }
+    }
+    for node in &loaded.master_track.effects {
+        for slot in node.collect_plugin_slots() {
+            collect_external_slot(slot);
+        }
+    }
+    if !external_slots_for_boot.is_empty() {
+        if let Some(err) = crate::commands::plugins_routing_helpers::load_external_slots_best_effort(
+            &external_slots_for_boot,
+            &plugin_host_state,
+            "open_project_preload_external_plugins",
+        ) {
+            log::warn!("[OpenProject] External plugin preload completed with warning: {}", err);
+        }
+    }
 
     clip_pool_state.rebuild_snapshot(&loaded);
     clip_pool_state.rebuild_external_fx_snapshot(&loaded, plugin_host_state.slot_instance_snapshot().as_ref());

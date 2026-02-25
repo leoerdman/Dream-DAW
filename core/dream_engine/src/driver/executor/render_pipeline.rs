@@ -74,7 +74,7 @@ pub(super) fn process_master_runtime_fx_and_gain(
     playhead_pos: i64,
     sample_rate_f64: f64,
     bpm: f64,
-    _is_playing: bool,
+    is_playing: bool,
     time_sig_numerator: u8,
     time_sig_denominator: u8,
     master_gain_target: f32,
@@ -108,12 +108,8 @@ pub(super) fn process_master_runtime_fx_and_gain(
                         sample_rate: sample_rate_f64,
                         position_samples: playhead_pos,
                         tempo: bpm,
-                        // VST3 SPEC FIX: Always report active state to master FX.
-                        // Same rationale as per-track fix — effects (limiters,
-                        // EQs, saturators) enter bypass/suspended mode if told
-                        // the host is stopped, silencing or corrupting the
-                        // master output.
-                        is_playing: true,
+                        // Keep master insert effects in sync with DAW transport.
+                        is_playing,
                         is_recording: false,
                         time_sig_numerator: i32::from(time_sig_numerator),
                         time_sig_denominator: i32::from(time_sig_denominator),
@@ -125,15 +121,20 @@ pub(super) fn process_master_runtime_fx_and_gain(
                     external_right[..n].copy_from_slice(&graph_out_right[..n]);
                     let mut out_slices: [&mut [f32]; 2] =
                         [&mut external_left[..n], &mut external_right[..n]];
-                    let _ = host.process_with_sidechain(
+                    // BUG-AUD-306 FIX: Check process result. On error, leave
+                    // graph_out untouched (passthrough) instead of copying stale
+                    // external buffers back into the master output.
+                    let process_result = host.process_with_sidechain(
                         &main_inputs,
                         None,
                         &mut out_slices,
                         n,
                         empty_midi,
                     );
-                    graph_out_left[..n].copy_from_slice(&external_left[..n]);
-                    graph_out_right[..n].copy_from_slice(&external_right[..n]);
+                    if process_result.is_ok() {
+                        graph_out_left[..n].copy_from_slice(&external_left[..n]);
+                        graph_out_right[..n].copy_from_slice(&external_right[..n]);
+                    }
                 }
             }
         } else if !master_device_chain.is_empty() {

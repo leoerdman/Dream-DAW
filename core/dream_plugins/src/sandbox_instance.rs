@@ -241,9 +241,18 @@ impl PluginInstance for SandboxedPluginInstance {
         &self.descriptor
     }
 
-    fn activate(&mut self, sample_rate: f64, _max_buffer_size: usize) -> Result<(), PluginError> {
+    fn activate(&mut self, sample_rate: f64, max_buffer_size: usize) -> Result<(), PluginError> {
         self.transport.sample_rate = sample_rate;
         self.active = true;
+        // BUG-AUD-308 FIX: Forward new buffer size to sandbox daemon via IPC.
+        // Previously this parameter was ignored with `_max_buffer_size`, so the
+        // daemon continued using creation-time max_frames after reactivation.
+        if let Some(ref sender) = self.ipc_sender {
+            let _ = sender.send(PluginHostControlMessage::SetBufferSize {
+                instance_id: self.id,
+                max_frames: u32::try_from(max_buffer_size).unwrap_or(u32::MAX),
+            });
+        }
         Ok(())
     }
 
@@ -314,13 +323,15 @@ impl PluginInstance for SandboxedPluginInstance {
         midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
+            // BUG-AUD-309 FIX: Use static str — no heap allocation on RT thread.
             return Err(PluginError::InvalidState(
-                "Sandboxed plugin is not active".to_string(),
+                "Sandboxed plugin is not active".into(),
             ));
         }
         if num_frames > self.shared_region.layout.max_frames as usize {
+            // BUG-AUD-309 FIX: Use static str — no heap allocation on RT thread.
             return Err(PluginError::ProcessError(
-                "num_frames exceeds shared max".to_string(),
+                "num_frames exceeds shared max".into(),
             ));
         }
 

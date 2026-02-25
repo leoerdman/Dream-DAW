@@ -20,10 +20,21 @@ pub fn resolve_master_runtime_slots(
     external_fx_map: &[Vec<ExternalFxRuntimeSlot>],
     track_count: usize,
 ) -> Option<&[ExternalFxRuntimeSlot]> {
-    if external_fx_map.len() > track_count + 1 {
+    // Expected shape: track_count + 1 entries (tracks + master).
+    // During topology transitions, the snapshot may be stale.
+    if external_fx_map.len() == track_count + 1 {
+        // Normal case: exact match.
+        external_fx_map.get(track_count).map(Vec::as_slice)
+    } else if external_fx_map.len() > track_count + 1 {
+        // Stale snapshot with more tracks — master is the tail entry.
+        external_fx_map.last().map(Vec::as_slice)
+    } else if !external_fx_map.is_empty() {
+        // BUG-AUD-310 FIX: Snapshot shorter than expected (topology transition).
+        // The master entry is always last. Fall back to .last() to preserve
+        // master FX processing during track add/remove transitions.
         external_fx_map.last().map(Vec::as_slice)
     } else {
-        external_fx_map.get(track_count).map(Vec::as_slice)
+        None
     }
 }
 

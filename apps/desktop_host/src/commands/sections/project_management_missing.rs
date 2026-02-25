@@ -322,6 +322,69 @@ fn auto_resolve_missing_external_plugin_slots(
     project: &mut dream_models::project::Project,
 ) -> MissingPluginAutoResolveStats {
     use dream_plugins::PluginScanner;
+    fn canonical_internal_effect_alias(
+        raw: &str,
+    ) -> Option<(&'static str, &'static str)> {
+        let normalized = raw
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['_', '-'], " ");
+        let compact: String = normalized
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect();
+
+        let key = normalized.as_str();
+        match key {
+            "utility" | "gain utility" | "bass mono" | "mono bass" | "mxdeviceaudioeffect" => {
+                return Some(("internal://effect/utility", "Utility"));
+            }
+            "auto filter" | "autofilter" => {
+                return Some(("internal://effect/auto-filter", "Auto Filter"));
+            }
+            "eq" | "eq8" | "eq eight" | "eqthree" | "channel eq" => {
+                return Some(("internal://effect/eq-eight", "EQ"));
+            }
+            "compressor" | "glue compressor" | "drum buss" | "drumbuss" => {
+                return Some(("internal://effect/compressor", "Compressor"));
+            }
+            "delay" | "echo" | "ping pong delay" => {
+                return Some(("internal://effect/delay", "Delay"));
+            }
+            "reverb" | "hybrid reverb" => {
+                return Some(("internal://effect/reverb", "Reverb"));
+            }
+            "saturator" | "dynamic tube" => {
+                return Some(("internal://effect/saturator", "Saturator"));
+            }
+            "distortion" | "overdrive" | "amp" | "pedal" | "roar" => {
+                return Some(("internal://effect/distortion", "Distortion"));
+            }
+            _ => {}
+        }
+
+        match compact.as_str() {
+            "utility" | "gainutility" | "bassmono" | "monobass" | "mxdeviceaudioeffect" => {
+                Some(("internal://effect/utility", "Utility"))
+            }
+            "autofilter" => Some(("internal://effect/auto-filter", "Auto Filter")),
+            "eq8" | "eqeight" | "eqthree" | "channeleq" => {
+                Some(("internal://effect/eq-eight", "EQ"))
+            }
+            "compressor" | "gluecompressor" | "drumbuss" => {
+                Some(("internal://effect/compressor", "Compressor"))
+            }
+            "delay" | "echo" | "pingpongdelay" => {
+                Some(("internal://effect/delay", "Delay"))
+            }
+            "reverb" | "hybridreverb" => Some(("internal://effect/reverb", "Reverb")),
+            "saturator" | "dynamictube" => Some(("internal://effect/saturator", "Saturator")),
+            "distortion" | "overdrive" | "amp" | "pedal" | "roar" => {
+                Some(("internal://effect/distortion", "Distortion"))
+            }
+            _ => None,
+        }
+    }
 
     fn resolve_best_compact_fuzzy(
         compact: &str,
@@ -390,12 +453,18 @@ fn auto_resolve_missing_external_plugin_slots(
                 candidates.extend(collect_name_variants(value));
             }
         }
+        if let Some(pathish) = slot.plugin_id.strip_prefix("missing://") {
+            candidates.extend(collect_name_variants(pathish));
+        }
 
         let mut seen = std::collections::HashSet::<String>::new();
         for candidate in candidates {
             let normalized = candidate.trim().to_ascii_lowercase();
             if normalized.is_empty() || !seen.insert(normalized) {
                 continue;
+            }
+            if let Some((plugin_id, display_name)) = canonical_internal_effect_alias(&candidate) {
+                return Some((plugin_id, display_name));
             }
             if let Some((plugin_id, display_name, kind)) =
                 dream_importers::ableton::plugin_mapper::canonical_internal_plugin_for_import(

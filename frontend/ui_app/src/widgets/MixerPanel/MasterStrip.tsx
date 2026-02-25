@@ -18,8 +18,10 @@ export function MasterStrip() {
     const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
     const peakL = meters.master_left?.peak ?? -60;
     const peakR = meters.master_right?.peak ?? -60;
-    const meterL = Math.max(0, Math.min(1, vuNorm(peakL)));
-    const meterR = Math.max(0, Math.min(1, vuNorm(peakR)));
+    const rmsL = meters.master_left?.rms ?? -60;
+    const rmsR = meters.master_right?.rms ?? -60;
+    const meterL = Math.max(0, Math.min(1, vuNorm((peakL * 0.7) + (rmsL * 0.3))));
+    const meterR = Math.max(0, Math.min(1, vuNorm((peakR * 0.7) + (rmsR * 0.3))));
 
     const applyVolume = useCallback((clientY: number) => {
         const el = faderRef.current;

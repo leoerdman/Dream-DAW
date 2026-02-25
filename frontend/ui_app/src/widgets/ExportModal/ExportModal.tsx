@@ -169,10 +169,8 @@ export const ExportModal = ({
     useEffect(() => {
         if (hasMarquee && exportRange !== 'selected') {
             setExportRange('selected');
-        } else if (exportRange === 'selected' && !hasSelection) {
-            setExportRange('full');
         }
-    }, [exportRange, hasSelection, hasMarquee]);
+    }, [exportRange, hasMarquee]);
 
     const handleBounce = useCallback(async () => {
         // BUG-081 FIX: Prevent double-submit (keyboard shortcut bypass).

@@ -149,7 +149,7 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             const selectedTrackIdAtIndex = trackIds[selectedTrackIndex];
             const selectedTrack = selectedTrackIdAtIndex ? tracksById[selectedTrackIdAtIndex] : undefined;
             const response = await engine.setTrackDisabledWithDeltas(selectedTrackIndex, !selectedTrack?.is_disabled);
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-mute');
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'keyboard:toggle-track-disabled');
         } catch (err) {
             console.error('[Shortcuts] setTrackDisabled failed:', err);
         }

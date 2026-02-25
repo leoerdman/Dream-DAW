@@ -47,7 +47,7 @@ pan: number,
  */
 is_solo: boolean, 
 /**
- * Whether this track is muted.
+ * Whether this track is disabled.
  */
 is_disabled: boolean, 
 /**

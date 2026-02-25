@@ -78,10 +78,10 @@ export const setTrackPanWithDeltas = (trackIndex: number, pan: number) =>
     invoke<DeltaMutationResponse>('set_track_pan_with_deltas', { trackIndex, pan });
 export const setMasterVolume = (volume: number) =>
     invoke<void>('set_master_volume', { volume });
-export const setTrackDisabled = (trackIndex: number, muted: boolean) =>
-    invoke<void>('set_track_disabled', { trackIndex, muted });
-export const setTrackDisabledWithDeltas = (trackIndex: number, muted: boolean) =>
-    invoke<DeltaMutationResponse>('set_track_disabled_with_deltas', { trackIndex, muted });
+export const setTrackDisabled = (trackIndex: number, disabled: boolean) =>
+    invoke<void>('set_track_disabled', { trackIndex, disabled });
+export const setTrackDisabledWithDeltas = (trackIndex: number, disabled: boolean) =>
+    invoke<DeltaMutationResponse>('set_track_disabled_with_deltas', { trackIndex, disabled });
 export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
     invoke<void>('set_track_solo', { trackIndex, soloed });
 export const setTrackSoloWithDeltas = (trackIndex: number, soloed: boolean) =>

@@ -149,9 +149,9 @@ export const TOOL_DEFS_CORE_A: AssistantToolDefinition[] = [
                 type: 'object',
                 properties: {
                     trackIndex: { type: 'number' },
-                    muted: { type: 'boolean' },
+                    disabled: { type: 'boolean' },
                 },
-                required: ['trackIndex', 'muted'],
+                required: ['trackIndex', 'disabled'],
             },
         },
     },

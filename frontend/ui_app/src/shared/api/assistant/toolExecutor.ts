@@ -83,7 +83,7 @@ async function executeToolInner(
                     type: t.track_type,
                     volume: t.volume,
                     pan: t.pan,
-                    muted: t.is_disabled,
+                    disabled: t.is_disabled,
                     soloed: t.is_solo,
                     armed: t.is_armed,
                     color: t.color,
@@ -138,12 +138,12 @@ async function executeToolInner(
             await engineApi.stop();
             return JSON.stringify({ status: 'stopped' });
         case 'set_bpm':
-        {
-            const bpm = args.bpm as number;
-            const response = await engineApi.setBpmWithDeltas(bpm);
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-bpm');
-            return JSON.stringify({ bpm: args.bpm });
-        }
+            {
+                const bpm = args.bpm as number;
+                const response = await engineApi.setBpmWithDeltas(bpm);
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-bpm');
+                return JSON.stringify({ bpm: args.bpm });
+            }
         case 'seek_to_beat':
             await engineApi.seekToBeat(args.beat as number);
             return JSON.stringify({ seekedTo: args.beat });
@@ -160,9 +160,9 @@ async function executeToolInner(
             return JSON.stringify({ trackIndex: args.trackIndex, pan: pan });
         }
         case 'set_track_disabled': {
-            const response = await engineApi.setTrackDisabledWithDeltas(args.trackIndex as number, args.muted as boolean);
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-mute');
-            return JSON.stringify({ trackIndex: args.trackIndex, muted: args.muted });
+            const response = await engineApi.setTrackDisabledWithDeltas(args.trackIndex as number, args.disabled as boolean);
+            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-disabled');
+            return JSON.stringify({ trackIndex: args.trackIndex, disabled: args.disabled });
         }
         case 'set_track_solo': {
             const response = await engineApi.setTrackSoloWithDeltas(args.trackIndex as number, args.soloed as boolean);
@@ -274,17 +274,17 @@ async function executeToolInner(
             return JSON.stringify({ clipId: args.clipId, muted: args.muted });
         }
         case 'undo':
-        {
-            const response = await engineApi.undoWithDeltas();
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-undo');
-            return JSON.stringify({ undone: true });
-        }
+            {
+                const response = await engineApi.undoWithDeltas();
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-undo');
+                return JSON.stringify({ undone: true });
+            }
         case 'redo':
-        {
-            const response = await engineApi.redoWithDeltas();
-            await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-redo');
-            return JSON.stringify({ redone: true });
-        }
+            {
+                const response = await engineApi.redoWithDeltas();
+                await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-redo');
+                return JSON.stringify({ redone: true });
+            }
         case 'set_master_volume':
             await engineApi.setMasterVolume(args.volume as number);
             return JSON.stringify({ masterVolume: args.volume });

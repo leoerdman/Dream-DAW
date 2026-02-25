@@ -14,6 +14,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod driver;
+pub mod external_device_slot;
 pub mod offline_bounce;
 mod offline_bounce_types;
 pub mod recording;

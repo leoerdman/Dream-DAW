@@ -57,6 +57,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const previewRequestToken = useRef<number>(0);
     const isPreviewPlayingRef = useRef(false);
     const previewCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const suppressNextAutoScrollRef = useRef(false);
 
     const setItemRowRef = useCallback((id: string, element: HTMLDivElement | null) => {
         if (element) {
@@ -141,6 +142,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
         previewRequestToken,
         isPreviewPlayingRef,
         previewCommandQueueRef,
+        suppressNextAutoScrollRef,
         setItemRowRef,
         getAudioDurationSec,
         setAudioDuration,

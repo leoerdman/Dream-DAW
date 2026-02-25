@@ -10,6 +10,7 @@ export interface UseAssetBrowserEffectsParams {
     setUserFolders: SetState<string[]>;
     prevCategoryRef: React.MutableRefObject<string>;
     selectedCategoryId: string;
+    setSelectedCategoryId: SetState<string>;
     setSourceFilter: SetState<number>;
     setFormatFilter: SetState<number>;
     setAudioFilter: SetState<number>;
@@ -61,4 +62,5 @@ export interface UseAssetBrowserEffectsParams {
     prevCatForPreviewRef: React.MutableRefObject<string>;
     isPreviewPlayingRef: React.MutableRefObject<boolean>;
     itemRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+    suppressNextAutoScrollRef: React.MutableRefObject<boolean>;
 }

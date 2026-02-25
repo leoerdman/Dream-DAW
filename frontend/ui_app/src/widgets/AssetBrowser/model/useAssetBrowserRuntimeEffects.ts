@@ -24,6 +24,7 @@ export function useAssetBrowserRuntimeEffects({
         setUserFolders: state.setUserFolders,
         prevCategoryRef: state.prevCategoryRef,
         selectedCategoryId: state.selectedCategoryId,
+        setSelectedCategoryId: state.setSelectedCategoryId,
         setSourceFilter: state.setSourceFilter,
         setFormatFilter: state.setFormatFilter,
         setAudioFilter: state.setAudioFilter,
@@ -71,5 +72,6 @@ export function useAssetBrowserRuntimeEffects({
         prevCatForPreviewRef: state.prevCatForPreviewRef,
         isPreviewPlayingRef: state.isPreviewPlayingRef,
         itemRowRefs: state.itemRowRefs,
+        suppressNextAutoScrollRef: state.suppressNextAutoScrollRef,
     });
 }

@@ -5,6 +5,7 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
     const auditionOffTimersRef = useRef<Map<number, number>>(new Map());
     const activePitchesRef = useRef<Set<number>>(new Set());
 
+    /** Send note-off for a single pitch and clean up tracking state. */
     const stopAudition = useCallback((pitch: number) => {
         if (trackIndex == null) return;
         const existing = auditionOffTimersRef.current.get(pitch);
@@ -12,33 +13,50 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
             window.clearTimeout(existing);
             auditionOffTimersRef.current.delete(pitch);
         }
+        if (!activePitchesRef.current.has(pitch)) return;
         activePitchesRef.current.delete(pitch);
         void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
             console.warn('[PianoRoll] previewSamplerNoteOff failed:', err);
         });
     }, [trackIndex]);
 
-    const auditionNote = useCallback((pitch: number, velocity = 100, durationMs = 140) => {
+    /** Send note-off for ALL currently-active preview pitches. */
+    const stopAllAudition = useCallback(() => {
+        if (trackIndex == null) return;
+        const timers = auditionOffTimersRef.current;
+        timers.forEach((timer) => window.clearTimeout(timer));
+        timers.clear();
+        const pitches = activePitchesRef.current;
+        pitches.forEach((pitch) => {
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { /* noop */ });
+        });
+        pitches.clear();
+    }, [trackIndex]);
+
+    const auditionNote = useCallback((pitch: number, velocity = 100, durationMs = 120) => {
         if (!enabled || trackIndex == null) return;
-        stopAudition(pitch);
+
+        // Stop ALL active preview notes before triggering a new one.
+        // This prevents note stacking where multiple previews overlap.
+        stopAllAudition();
+
         activePitchesRef.current.add(pitch);
         void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch((err) => {
             console.warn('[PianoRoll] previewSamplerNoteOn failed:', err);
         });
+
         const timer = window.setTimeout(() => {
-            // Fire two note-offs (small stagger) to avoid stuck audition voices
-            // when one command is dropped during UI/buffer pressure.
-            const sendOff = () => engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+            auditionOffTimersRef.current.delete(pitch);
+            if (!activePitchesRef.current.has(pitch)) return;
+            activePitchesRef.current.delete(pitch);
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
                 console.warn('[PianoRoll] previewSamplerNoteOff(timer) failed:', err);
             });
-            void sendOff();
-            window.setTimeout(() => { void sendOff(); }, 70);
-            activePitchesRef.current.delete(pitch);
-            auditionOffTimersRef.current.delete(pitch);
         }, Math.max(40, durationMs));
         auditionOffTimersRef.current.set(pitch, timer);
-    }, [enabled, trackIndex, stopAudition]);
+    }, [enabled, trackIndex, stopAllAudition]);
 
+    // Cleanup on track change
     useEffect(() => {
         const timers = auditionOffTimersRef.current;
         const activePitches = activePitchesRef.current;
@@ -54,19 +72,11 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         };
     }, [trackIndex]);
 
+    // Cleanup when audition is disabled
     useEffect(() => {
         if (enabled || trackIndex == null) return;
-        const timers = auditionOffTimersRef.current;
-        timers.forEach((timer) => window.clearTimeout(timer));
-        const pitches = Array.from(new Set([...timers.keys(), ...activePitchesRef.current.values()]));
-        timers.clear();
-        for (const pitch of pitches) {
-            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
-                console.warn('[PianoRoll] previewSamplerNoteOff(disable) failed:', err);
-            });
-        }
-        activePitchesRef.current.clear();
-    }, [enabled, trackIndex]);
+        stopAllAudition();
+    }, [enabled, trackIndex, stopAllAudition]);
 
-    return { auditionNote };
+    return { auditionNote, stopAudition, stopAllAudition };
 }

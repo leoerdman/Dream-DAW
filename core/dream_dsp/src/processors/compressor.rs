@@ -128,23 +128,22 @@ impl CompressorProcessor {
             // Previous formula used -1.0 which produced ~2x faster response.
             // The standard -2.2 factor gives the correct time constant where
             // the envelope reaches ~10dB of its target in the specified time.
-            let attack_sec = self.attack_ms * 0.001;
-            let release_sec = self.release_ms * 0.001;
-            self.attack_coeff = if attack_sec > 0.0 {
-                (-2.2 / (attack_sec * sr)).exp()
+            // AUD-228 FIX: Use shared SSOT envelope_coeff helper.
+            self.attack_coeff = if self.attack_ms > 0.0 {
+                crate::processors::envelope_coeff(self.attack_ms, sr)
             } else {
                 0.0 // Instant attack
             };
-            self.release_coeff = if release_sec > 0.0 {
-                (-2.2 / (release_sec * sr)).exp()
+            self.release_coeff = if self.release_ms > 0.0 {
+                crate::processors::envelope_coeff(self.release_ms, sr)
             } else {
                 0.0 // Instant release
             };
             // Program-dependent release companion:
             // under heavy GR, release gets slower to reduce pumping/chatter.
-            let slow_release_sec = (release_sec * 2.5).min(5.0);
-            self.release_slow_coeff = if slow_release_sec > 0.0 {
-                (-2.2 / (slow_release_sec * sr)).exp()
+            let slow_release_ms = (self.release_ms * 2.5).min(5000.0);
+            self.release_slow_coeff = if slow_release_ms > 0.0 {
+                crate::processors::envelope_coeff(slow_release_ms, sr)
             } else {
                 0.0
             };

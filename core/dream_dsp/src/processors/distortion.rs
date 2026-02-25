@@ -61,6 +61,9 @@ pub struct DistortionProcessor {
     cached_tone_c: f32,
     cached_hp_freq: f32,
     cached_tone_freq: f32,
+    /// AUD-217 FIX: Cached cab LP coefficient — only recalculated on SR change
+    /// or cab_sim toggle, not per-buffer. Eliminates one exp() call per buffer.
+    cached_cab_c: f32,
 }
 
 impl DistortionProcessor {
@@ -95,6 +98,7 @@ impl DistortionProcessor {
             cached_tone_c: crate::processors::one_pole_lp_coeff(10500.0, sample_rate),
             cached_hp_freq: 275.0,
             cached_tone_freq: 10500.0,
+            cached_cab_c: crate::processors::one_pole_lp_coeff(4500.0, sample_rate),
         }
     }
 
@@ -150,15 +154,13 @@ impl DspProcessor for DistortionProcessor {
             self.output_sm.set_sample_rate(sr);
             self.tightness_sm.set_sample_rate(sr);
             self.bias_sm.set_sample_rate(sr);
+            // AUD-217 FIX: Recalculate cab LP coefficient on SR change.
+            self.cached_cab_c = crate::processors::one_pole_lp_coeff(4500.0, sr);
         }
         let len = left.len().min(right.len());
         let mode = self.mode;
-        // Cabinet simulation LP (~4.5kHz) — exact one-pole coefficient.
-        let cab_c = if self.cab_sim {
-            (1.0 - (-std::f32::consts::TAU * 4500.0 / self.sample_rate).exp()).clamp(0.0, 1.0)
-        } else {
-            1.0 // passthrough
-        };
+        // AUD-217 FIX: Use cached cab LP coefficient (recalculated on SR change).
+        let cab_c = if self.cab_sim { self.cached_cab_c } else { 1.0 };
         self.drive_sm.set_target(self.drive.clamp(0.0, 1.0));
         self.tone_sm.set_target(self.tone.clamp(0.0, 1.0));
         self.mix_sm.set_target(self.mix.clamp(0.0, 1.0));

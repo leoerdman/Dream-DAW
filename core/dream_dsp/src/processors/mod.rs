@@ -69,6 +69,28 @@ pub(crate) fn one_pole_hp_coeff(cutoff_hz: f32, sample_rate: f32) -> f32 {
     (-std::f32::consts::TAU * cutoff_hz / sample_rate).exp()
 }
 
+/// AUD-228 FIX: SSOT envelope coefficient for attack/release ballistics.
+///
+/// Used by compressor, limiter, and gate processors for consistent
+/// 10dB/τ (−2.2) envelope timing. Equivalent to:
+///   `(-2.2 / (time_ms * 0.001 * sample_rate)).exp()`
+///
+/// # Arguments
+/// - `time_ms`: Attack or release time in milliseconds (must be > 0).
+/// - `sample_rate`: Audio sample rate in Hz.
+///
+/// # Returns
+/// Per-sample smoothing coefficient in (0, 1).
+#[inline]
+pub(crate) fn envelope_coeff(time_ms: f32, sample_rate: f32) -> f32 {
+    let time_samples = time_ms * 0.001 * sample_rate;
+    if time_samples > 0.0 {
+        (-2.2 / time_samples).exp()
+    } else {
+        0.0 // instant attack/release
+    }
+}
+
 pub mod chorus;
 pub mod compressor;
 pub mod delay;

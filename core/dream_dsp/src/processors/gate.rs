@@ -108,12 +108,13 @@ impl GateProcessor {
             // 10dB/τ envelope timing across all dynamics processors (compressor,
             // limiter, gate). Previously used -1.0, which made attack/release ~2.2×
             // faster than the specified millisecond values.
+            // AUD-228 FIX: Use shared SSOT helper for consistent coefficient math.
             self.attack_coeff = if self.attack_ms > 0.01 {
-                (-2.2 / (self.attack_ms * 0.001 * sr)).exp()
+                crate::processors::envelope_coeff(self.attack_ms, sr)
             } else {
                 0.0
             };
-            self.release_coeff = (-2.2 / (self.release_ms * 0.001 * sr)).exp();
+            self.release_coeff = crate::processors::envelope_coeff(self.release_ms, sr);
             self.hold_samples = (self.hold_ms * 0.001 * sr) as u32;
             // BUG-FIX: The previous formula exp(-2πfc/fs) is a low-pass coefficient,
             // not a high-pass one. The filter equation y[n] = α*(y[n-1] + x[n] - x[n-1])

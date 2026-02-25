@@ -8,62 +8,23 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
-import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
 import { snapTimelineX } from './lib/pixelSnap';
 import { AutomationOverlay } from './AutomationOverlay';
 import { TimelineMasterLane } from './TimelineMasterLane';
+import type { TimelineProps } from './Timeline.types';
+import { useTimelineCallbackRefs } from './model/useTimelineCallbackRefs';
 import { useTimelineDnD } from './model/useTimelineDnD';
 import { useTimelineCommandBusBindings, useTimelineEngineCommandBindings } from './model/useTimelineCommandBindings';
 import { useTimelineClipSync } from './model/useTimelineClipSync';
 import { useTimelineRegionEdit } from './model/useTimelineRegionEdit';
 import { useTimelineViewportSync } from './model/useTimelineViewportSync';
-interface TimelineProps {
-    bpm?: number;
-    timeSignature?: [number, number];
-    totalBars?: number;
-    trackCount?: number;
-    trackHeight?: number;
-    trackHeights?: number[];
-    clips?: TimelineClip[];
-    playheadBeat?: number;
-    editCursorBeat?: number;
-    editCursorTrackIndex?: number;
-    editCursorTrackIndexEnd?: number;
-    selectedTrackIndex?: number;
-    selectedTrackIndices?: number[];
-    isPlaying?: boolean;
-    recordingActive?: boolean;
-    recordingTrackIndex?: number;
-    trackIds?: string[];
-    loopStart?: number;
-    loopEnd?: number;
-    loopEnabled?: boolean;
-    onPlayheadChange?: (beat: number) => void;
-    onEditCursorChange?: (beat: number, trackStart: number, trackEnd: number) => void;
-    onClipSelect?: (clipId: string) => void;
-    selectedClipIds?: string[];
-    onClipSelectionChange?: (clipIds: string[]) => void;
-    onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
-    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
-    onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
-    onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
-    onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
-    onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
-    onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
-    onTrackSelect?: (trackId: string, trackIndex: number) => void;
-    onMarqueeSelectionStart?: () => void;
-    onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
-    marqueeSelection?: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
-    followPlayhead?: boolean;
-    automationVisible?: boolean;
-    fitHorizontalToken?: number;
-}
 const RULER_HEIGHT = 28;
 const DEFAULT_PPB = 20;
 const DEFAULT_TRACK_HEIGHT = 48;
 const TRAILING_EMPTY_TRACK_SLOTS = 1;
+const MASTER_LANE_ALIGNMENT_OFFSET_PX = 1;
 export const Timeline = (props: TimelineProps) => {
     const {
         bpm = 120,
@@ -150,9 +111,9 @@ export const Timeline = (props: TimelineProps) => {
     );
     const masterGridViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
     const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX;
-    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX;
-    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX;
+    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const playheadLineX = snapTimelineX(playheadX);
     const loopStartLineX = snapTimelineX(loopStartX);
     const loopEndLineX = snapTimelineX(loopEndX);
@@ -167,6 +128,7 @@ export const Timeline = (props: TimelineProps) => {
             effectiveSnapBeatsValue,
             viewportState.scrollX,
             masterGridViewportWidth,
+            MASTER_LANE_ALIGNMENT_OFFSET_PX,
         ),
         [
             beatsPerBar,
@@ -179,9 +141,8 @@ export const Timeline = (props: TimelineProps) => {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const arrangementRef = useRef<HTMLDivElement | null>(null);
     const masterLaneRef = useRef<HTMLDivElement | null>(null);
-    const propsRef = useRef(props);
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
-    const callbacksRef = useRef({
+    const callbacks = useMemo(() => ({
         onPlayheadChange,
         onEditCursorChange,
         onClipSelect,
@@ -196,9 +157,28 @@ export const Timeline = (props: TimelineProps) => {
         onTrackSelect,
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
-    });
-    const selectedClipIdsRef = useRef(selectedClipIds);
-    const trackIdsRef = useRef(trackIds);
+    }), [
+        onPlayheadChange,
+        onEditCursorChange,
+        onClipSelect,
+        onClipSelectionChange,
+        onClipMove,
+        onClipResize,
+        onClipFades,
+        onDropBrowserItem,
+        onClipFadeCurves,
+        onDoubleClickTrack,
+        onOpenMidiClip,
+        onTrackSelect,
+        onMarqueeSelectionStart,
+        onMarqueeSelectionChange,
+    ]);
+    const { propsRef, callbacksRef, selectedClipIdsRef, trackIdsRef } = useTimelineCallbackRefs(
+        props,
+        callbacks,
+        selectedClipIds,
+        trackIds,
+    );
     useTimelineCommandBusBindings({
         commandBusRef,
         callbacksRef,
@@ -236,50 +216,8 @@ export const Timeline = (props: TimelineProps) => {
             const endFrames = beatToFrame(loop.end, currentBpm, currentSampleRate);
             useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
         };
-    }, []);
+    }, [propsRef]);
     const throttledLoopCommitRef = useRef<ReturnType<typeof throttle> | null>(null);
-    useEffect(() => {
-        propsRef.current = props;
-    }, [props]);
-    useEffect(() => {
-        callbacksRef.current = {
-            onPlayheadChange,
-            onEditCursorChange,
-            onClipSelect,
-            onClipSelectionChange,
-            onClipMove,
-            onClipResize,
-            onClipFades,
-            onDropBrowserItem,
-            onClipFadeCurves,
-            onDoubleClickTrack,
-            onOpenMidiClip,
-            onTrackSelect,
-            onMarqueeSelectionStart,
-            onMarqueeSelectionChange,
-        };
-    }, [
-        onPlayheadChange,
-        onEditCursorChange,
-        onClipSelect,
-        onClipSelectionChange,
-        onClipMove,
-        onClipResize,
-        onClipFades,
-        onDropBrowserItem,
-        onClipFadeCurves,
-        onDoubleClickTrack,
-        onOpenMidiClip,
-        onTrackSelect,
-        onMarqueeSelectionStart,
-        onMarqueeSelectionChange,
-    ]);
-    useEffect(() => {
-        selectedClipIdsRef.current = selectedClipIds;
-    }, [selectedClipIds]);
-    useEffect(() => {
-        trackIdsRef.current = trackIds;
-    }, [trackIds]);
     useEffect(() => {
         const throttled = throttle(() => {
             const pending = pendingLoopRef.current;
@@ -357,7 +295,7 @@ export const Timeline = (props: TimelineProps) => {
         const targetPpb = viewportWidth / (paddedEnd - paddedStart);
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-    }, [fitHorizontalToken, beatsPerBar, engineRef]);
+    }, [fitHorizontalToken, beatsPerBar, engineRef, propsRef]);
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -378,7 +316,7 @@ export const Timeline = (props: TimelineProps) => {
             }
         });
         return unsub;
-    }, [engineRef]);
+    }, [engineRef, propsRef]);
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;

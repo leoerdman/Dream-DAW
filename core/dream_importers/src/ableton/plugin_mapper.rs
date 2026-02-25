@@ -1,16 +1,16 @@
 use dream_models::midi::SamplerConfig;
 use dream_models::project::{DeviceNode, PluginSlot, Project};
 use std::path::Path;
-
+pub use super::plugin_mapper_external_meta::{
+    ExternalPluginMeta, apply_external_plugin_meta, parse_external_plugin_meta,
+};
 use super::xml_helpers::*;
-
 pub fn canonical_internal_plugin_for_import(
     plugin_id: &str,
     plugin_name: &str,
 ) -> Option<(&'static str, &'static str, &'static str)> {
     let pid = plugin_id.trim().to_lowercase();
     let pname = plugin_name.trim().to_lowercase();
-
     let is_vst = pid == "plugindevice" || pid == "auplugindevice";
     if !is_vst {
         match pid.as_str() {
@@ -60,7 +60,6 @@ pub fn canonical_internal_plugin_for_import(
             "noisemachine" => {
                 return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
             }
-
             "midipitcher" => return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect")),
             "mxdevicescale" | "midichord" => {
                 return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
@@ -74,7 +73,6 @@ pub fn canonical_internal_plugin_for_import(
             "mxdevicerandom" | "midiarpeggiator" | "midirandom" => {
                 return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
             }
-
             "originalsimpler" | "multisampler" | "drumcell" | "instrumentimpulse" => {
                 return Some(("internal://instrument/sampler", "Sampler", "instrument"));
             }
@@ -87,11 +85,9 @@ pub fn canonical_internal_plugin_for_import(
                     "instrument",
                 ));
             }
-
             _ => {}
         }
     }
-
     if is_vst {
         match pname.as_str() {
             "span" | "youlean loudness meter" | "loudness meter" | "psyscope" => {
@@ -131,10 +127,8 @@ pub fn canonical_internal_plugin_for_import(
             _ => return None,
         }
     }
-
     None
 }
-
 pub fn canonical_internal_from_plugin_device_node(
     device: roxmltree::Node<'_, '_>,
     preferred_name: &str,
@@ -148,7 +142,6 @@ pub fn canonical_internal_from_plugin_device_node(
         }
         raw.trim().to_string()
     }
-
     fn push_candidate(out: &mut Vec<String>, value: Option<String>) {
         if let Some(v) = value {
             let t = v.trim();
@@ -157,18 +150,15 @@ pub fn canonical_internal_from_plugin_device_node(
             }
         }
     }
-
     if let Some(mapped) = canonical_internal_plugin_for_import("PluginDevice", preferred_name) {
         return Some(mapped);
     }
-
     let mut candidates = Vec::<String>::new();
     let preferred = preferred_name.trim();
     if !preferred.is_empty() {
         candidates.push(preferred.to_string());
         candidates.push(strip_known_preset_ext(preferred));
     }
-
     push_candidate(&mut candidates, node_child_value(device, "UserName"));
     push_candidate(
         &mut candidates,
@@ -236,7 +226,6 @@ pub fn canonical_internal_from_plugin_device_node(
             }
         }
     }
-
     let rel = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
@@ -255,7 +244,6 @@ pub fn canonical_internal_from_plugin_device_node(
             candidates.push(strip_known_preset_ext(token));
         }
     }
-
     let abs = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("Path"))
@@ -277,7 +265,6 @@ pub fn canonical_internal_from_plugin_device_node(
             candidates.push(stem.trim().to_string());
         }
     }
-
     let mut seen = std::collections::HashSet::<String>::new();
     for candidate in candidates {
         let trimmed = candidate.trim();
@@ -288,7 +275,6 @@ pub fn canonical_internal_from_plugin_device_node(
         if !seen.insert(key.clone()) {
             continue;
         }
-
         if let Some(mapped) = canonical_internal_plugin_for_import("PluginDevice", trimmed) {
             return Some(mapped);
         }
@@ -302,10 +288,8 @@ pub fn canonical_internal_from_plugin_device_node(
             return Some(mapped);
         }
     }
-
     None
 }
-
 pub fn normalize_internal_plugins_for_import(project: &mut Project) {
     fn canonical_from_missing_slot_name(
         display_name: &str,
@@ -329,7 +313,6 @@ pub fn normalize_internal_plugins_for_import(project: &mut Project) {
         }
         canonical_internal_plugin_for_import(&normalized, primary)
     }
-
     for track in &mut project.tracks {
         if let Some(inst) = &mut track.instrument {
             let pid = inst.plugin_id();
@@ -363,7 +346,6 @@ pub fn normalize_internal_plugins_for_import(project: &mut Project) {
         }
     }
 }
-
 fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
     fn canonical_from_missing_slot_name(
         display_name: &str,
@@ -387,7 +369,6 @@ fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
         }
         canonical_internal_plugin_for_import(&normalized, primary)
     }
-
     if depth > 16 {
         log::warn!("[normalize_effect_node] Recursion depth limit reached, skipping nested rack");
         return;
@@ -421,7 +402,6 @@ fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
         }
     }
 }
-
 pub fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
     let normalized = ableton_name
         .chars()
@@ -447,7 +427,6 @@ pub fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
         format!("missing://{kind}/{slug}"),
     ))
 }
-
 pub fn encode_missing_meta(raw: &str) -> String {
     raw.chars()
         .map(|ch| {
@@ -459,7 +438,6 @@ pub fn encode_missing_meta(raw: &str) -> String {
         })
         .collect::<String>()
 }
-
 pub struct MissingExternalPluginSlotSpec<'a> {
     pub kind: &'a str,
     pub preferred_name: &'a str,
@@ -471,7 +449,6 @@ pub struct MissingExternalPluginSlotSpec<'a> {
     pub is_placeholder: bool,
     pub meta: Option<&'a ExternalPluginMeta>,
 }
-
 pub fn make_missing_external_plugin_slot_with_metadata(
     spec: MissingExternalPluginSlotSpec<'_>,
 ) -> DeviceNode {
@@ -495,7 +472,6 @@ pub fn make_missing_external_plugin_slot_with_metadata(
         "placeholder={}",
         if spec.is_placeholder { "1" } else { "0" }
     ));
-
     let detail_text = details.join("; ");
     let display_name = if detail_text.is_empty() {
         format!("Plugin Not Found: {}", spec.preferred_name.trim())
@@ -506,7 +482,6 @@ pub fn make_missing_external_plugin_slot_with_metadata(
             detail_text
         )
     };
-
     let normalized = spec
         .preferred_name
         .chars()
@@ -527,7 +502,6 @@ pub fn make_missing_external_plugin_slot_with_metadata(
     } else {
         normalized
     };
-
     let mut query = Vec::new();
     query.push(format!(
         "name={}",
@@ -567,7 +541,6 @@ pub fn make_missing_external_plugin_slot_with_metadata(
         "placeholder={}",
         if spec.is_placeholder { "1" } else { "0" }
     ));
-
     let plugin_id = format!("missing://{}/{slug}?{}", spec.kind, query.join("&"));
     let mut slot = PluginSlot::new(display_name, plugin_id);
     if let Some(meta) = spec.meta {
@@ -575,203 +548,12 @@ pub fn make_missing_external_plugin_slot_with_metadata(
     }
     DeviceNode::Single(slot)
 }
-
-#[derive(Default)]
-pub struct ExternalPluginMeta {
-    pub format: Option<String>,
-    pub uid: Option<String>,
-    pub preset_name: Option<String>,
-    pub program_number: Option<i32>,
-    pub parameter_count: Option<i32>,
-    pub stored_all_parameters: Option<bool>,
-    pub plugin_version: Option<String>,
-    pub state_blob: Option<String>,
-    pub state_blob_kind: Option<String>,
-    pub preset_blob: Option<String>,
-    pub preset_blob_kind: Option<String>,
-}
-
-pub fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPluginMeta {
-    fn node_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
-        node.descendants()
-            .find(|n| n.is_element() && n.has_tag_name(tag))
-            .and_then(|n| n.attribute("Value"))
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-    fn parse_uid(info: roxmltree::Node<'_, '_>) -> Option<String> {
-        if let Some(uid) = info
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("UniqueId"))
-            .and_then(|n| n.attribute("Value"))
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-        {
-            return Some(uid);
-        }
-        let mut parts = Vec::new();
-        for field in info.descendants().filter(|n| {
-            n.is_element()
-                && n.tag_name().name().starts_with("Fields.")
-                && n.attribute("Value").is_some()
-        }) {
-            if let Some(v) = field.attribute("Value") {
-                parts.push(v.trim().to_string());
-            }
-        }
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join(":"))
-        }
-    }
-    fn maybe_blob_text(node: roxmltree::Node<'_, '_>) -> Option<String> {
-        if let Some(value) = node.attribute("Value") {
-            let trimmed = value.trim();
-            if trimmed.len() >= 32 {
-                return Some(trimmed.to_string());
-            }
-        }
-        node.text()
-            .map(str::trim)
-            .filter(|s| s.len() >= 32)
-            .map(ToString::to_string)
-    }
-    fn extract_blob(node: roxmltree::Node<'_, '_>, tag_hints: &[&str]) -> Option<(String, String)> {
-        let mut best: Option<(String, String)> = None;
-        for desc in node.descendants().filter(|n| n.is_element()) {
-            let tag = desc.tag_name().name();
-            let tag_lc = tag.to_ascii_lowercase();
-            if !tag_hints
-                .iter()
-                .any(|hint| tag_lc.contains(&hint.to_ascii_lowercase()))
-            {
-                continue;
-            }
-            if let Some(candidate) = maybe_blob_text(desc) {
-                let replace = best
-                    .as_ref()
-                    .map(|(_, current)| candidate.len() > current.len())
-                    .unwrap_or(true);
-                if replace {
-                    best = Some((tag.to_string(), candidate));
-                }
-            }
-        }
-        best
-    }
-
-    let mut meta = ExternalPluginMeta::default();
-    let vst3_info = device
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"));
-    let vst2_info = device
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"));
-    let au_info = device
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("AuPluginInfo"));
-
-    if let Some(info) = vst3_info {
-        meta.format = Some("vst3".to_string());
-        meta.uid = parse_uid(info);
-        meta.plugin_version = node_value(info, "Version")
-            .or_else(|| node_value(info, "PlugVersion"))
-            .or_else(|| node_value(info, "SdkVersion"));
-    } else if let Some(info) = vst2_info {
-        meta.format = Some("vst2".to_string());
-        meta.uid = parse_uid(info);
-        meta.plugin_version =
-            node_value(info, "Version").or_else(|| node_value(info, "PlugVersion"));
-    } else if let Some(info) = au_info {
-        meta.format = Some("au".to_string());
-        meta.uid = parse_uid(info).or_else(|| node_value(info, "ComponentId"));
-        meta.plugin_version = node_value(info, "Version");
-    }
-
-    let preset_node = device
-        .descendants()
-        .find(|n| n.is_element() && n.has_tag_name("Vst3Preset"))
-        .or_else(|| {
-            device
-                .descendants()
-                .find(|n| n.is_element() && n.has_tag_name("VstPreset"))
-        });
-    if let Some(preset) = preset_node {
-        meta.preset_name = node_value(preset, "Name");
-        meta.program_number = node_value(preset, "ProgramNumber")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v as i32);
-        meta.parameter_count = node_value(preset, "ParameterCount")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v as i32);
-        meta.stored_all_parameters = node_value(preset, "StoredAllParameters")
-            .as_deref()
-            .and_then(parse_bool_value);
-        meta.plugin_version =
-            node_value(preset, "PluginVersion").or_else(|| meta.plugin_version.clone());
-        if let Some((kind, blob)) = extract_blob(
-            preset,
-            &[
-                "chunk",
-                "presetdata",
-                "programdata",
-                "buffer",
-                "data",
-                "state",
-            ],
-        ) {
-            meta.preset_blob_kind = Some(kind);
-            meta.preset_blob = Some(blob);
-        }
-    } else {
-        meta.parameter_count = node_value(device, "NumberOfParameters")
-            .as_deref()
-            .and_then(parse_i64_value)
-            .map(|v| v as i32);
-    }
-
-    if let Some((kind, blob)) = extract_blob(
-        device,
-        &[
-            "pluginstate",
-            "processorstate",
-            "controllerstate",
-            "vststate",
-            "chunk",
-            "statebuffer",
-        ],
-    ) {
-        meta.state_blob_kind = Some(kind);
-        meta.state_blob = Some(blob);
-    }
-
-    meta
-}
-
-pub fn apply_external_plugin_meta(slot: &mut PluginSlot, meta: &ExternalPluginMeta) {
-    slot.external_format = meta.format.clone();
-    slot.external_uid = meta.uid.clone();
-    slot.external_preset_name = meta.preset_name.clone();
-    slot.external_program_number = meta.program_number;
-    slot.external_parameter_count = meta.parameter_count;
-    slot.external_stored_all_parameters = meta.stored_all_parameters;
-    slot.external_plugin_version = meta.plugin_version.clone();
-    slot.external_state_blob = meta.state_blob.clone();
-    slot.external_state_blob_kind = meta.state_blob_kind.clone();
-    slot.external_preset_blob = meta.preset_blob.clone();
-    slot.external_preset_blob_kind = meta.preset_blob_kind.clone();
-}
-
 pub fn normalize_plugin_key(raw: &str) -> String {
     raw.chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_lowercase())
         .collect()
 }
-
 pub struct ExternalPluginIndex {
     pub by_name: std::collections::HashMap<String, String>,
     pub by_stem: std::collections::HashMap<String, String>,
@@ -779,7 +561,6 @@ pub struct ExternalPluginIndex {
     pub by_normalized: std::collections::HashMap<String, String>,
     pub by_uid: std::collections::HashMap<String, String>,
 }
-
 impl ExternalPluginIndex {
     pub fn from_maps(
         by_name: std::collections::HashMap<String, String>,
@@ -796,14 +577,12 @@ impl ExternalPluginIndex {
             by_uid,
         }
     }
-
     pub fn build() -> Self {
         let mut by_name = std::collections::HashMap::new();
         let mut by_stem = std::collections::HashMap::new();
         let mut by_file_name = std::collections::HashMap::new();
         let mut by_normalized = std::collections::HashMap::new();
         let mut by_uid = std::collections::HashMap::new();
-
         for desc in dream_plugins::PluginScanner::new().scan_all() {
             let path_str = desc.path.to_string_lossy().to_string();
             let name_key = desc.name.to_lowercase();
@@ -814,7 +593,6 @@ impl ExternalPluginIndex {
                     .entry(normalized_name)
                     .or_insert_with(|| path_str.clone());
             }
-
             let stem_key = desc
                 .path
                 .file_stem()
@@ -835,7 +613,6 @@ impl ExternalPluginIndex {
                         .or_insert_with(|| path_str.clone());
                 }
             }
-
             let file_key = desc
                 .path
                 .file_name()
@@ -845,7 +622,6 @@ impl ExternalPluginIndex {
             if !file_key.is_empty() {
                 by_file_name.entry(file_key).or_insert(path_str);
             }
-
             if let Some(uid) = desc.unique_id.as_ref() {
                 let uid_trimmed = uid.trim();
                 if !uid_trimmed.is_empty() {
@@ -860,7 +636,6 @@ impl ExternalPluginIndex {
                 }
             }
         }
-
         log::info!(
             "[ALS Import] ExternalPluginIndex built: {} by_name, {} by_stem, {} by_file_name, {} by_normalized, {} by_uid",
             by_name.len(),
@@ -869,7 +644,6 @@ impl ExternalPluginIndex {
             by_normalized.len(),
             by_uid.len()
         );
-
         Self {
             by_name,
             by_stem,
@@ -878,7 +652,6 @@ impl ExternalPluginIndex {
             by_uid,
         }
     }
-
     pub fn resolve_by_name(&self, name: &str) -> Option<String> {
         let key = name.trim().to_lowercase();
         if key.is_empty() {
@@ -890,11 +663,9 @@ impl ExternalPluginIndex {
                 candidates.push(s);
             }
         };
-
         push_unique(key.clone());
         push_unique(key.replace('-', " "));
         push_unique(key.replace('_', " "));
-
         let mut simplified = key.clone();
         for suffix in [
             " plugin",
@@ -909,7 +680,6 @@ impl ExternalPluginIndex {
             simplified = simplified.replace(suffix, "");
         }
         push_unique(simplified.trim().to_string());
-
         if key.contains("reastream") {
             push_unique("reastream".to_string());
         }
@@ -924,7 +694,6 @@ impl ExternalPluginIndex {
             push_unique("synthesizervstudio2".to_string());
             push_unique("synthesizervstudio".to_string());
         }
-
         for candidate in &candidates {
             if let Some(path) = self.by_name.get(candidate) {
                 return Some(path.clone());
@@ -936,7 +705,6 @@ impl ExternalPluginIndex {
                 return Some(path.clone());
             }
         }
-
         for candidate in &candidates {
             let normalized = normalize_plugin_key(candidate);
             if normalized.is_empty() {
@@ -956,7 +724,6 @@ impl ExternalPluginIndex {
         }
         None
     }
-
     pub fn resolve_by_uid(&self, uid: &str) -> Option<String> {
         let raw = uid.trim();
         if raw.is_empty() {
@@ -979,7 +746,6 @@ impl ExternalPluginIndex {
             .map(|(_, v)| v.clone())
     }
 }
-
 impl Default for ExternalPluginIndex {
     fn default() -> Self {
         Self::from_maps(
@@ -991,14 +757,12 @@ impl Default for ExternalPluginIndex {
         )
     }
 }
-
 pub fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
     if let Some(user_name) = node_child_value(device, "UserName")
         && !user_name.trim().is_empty()
     {
         return user_name.trim().to_string();
     }
-
     let rel = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
@@ -1018,7 +782,6 @@ pub fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: 
             return tail;
         }
     }
-
     let abs = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("Path"))
@@ -1037,6 +800,5 @@ pub fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: 
             return tail;
         }
     }
-
     fallback_tag.to_string()
 }

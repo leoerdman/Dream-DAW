@@ -7,7 +7,7 @@ export const modalStyle: CSSProperties = {
     borderRadius: 'var(--radius-2xl)',
     border: 'var(--space-px) solid var(--color-divider)',
     display: 'flex', overflow: 'hidden', boxShadow: 'var(--shadow-panel)',
-    fontFamily: 'var(--font-role-body)',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif',
     WebkitFontSmoothing: 'antialiased',
     MozOsxFontSmoothing: 'grayscale',
 };

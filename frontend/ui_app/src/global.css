@@ -266,10 +266,9 @@ body::after {
 }
 
 /* Legacy timeline ornament.
-   Runtime arrangement timeline no longer uses this pseudo-layer directly;
-   production timeline ornament is rendered by `.timeline-layer-bg` inside
-   the Timeline component to avoid stacking conflicts with canvas grid lines. */
-.theme-ornament-timeline::after {
+   Disabled by default to prevent accidental double-layering with canvas grid.
+   Enable only on dedicated legacy surfaces via [data-legacy-timeline-ornament="on"]. */
+.theme-ornament-timeline[data-legacy-timeline-ornament="on"]::after {
    content: "";
    position: absolute;
    inset: 0;

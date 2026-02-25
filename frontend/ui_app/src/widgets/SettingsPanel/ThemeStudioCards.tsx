@@ -29,7 +29,7 @@ export function ThemeStudioCards({ selectedThemeOption, applyPreset }: ThemeStud
                                 <div style={{ position: 'absolute', left: 8, top: 8, width: 8, height: 8, borderRadius: '50%', background: preview.accent, boxShadow: `0 0 10px ${preview.accent}` }} />
                             </div>
                             <div style={{ padding: 'var(--space-2)' }}>
-                                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-text-primary)' }}>
+                                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
                                     {preset.label}
                                 </div>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{preview.note}</div>

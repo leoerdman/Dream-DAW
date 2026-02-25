@@ -17,7 +17,7 @@ export const SettingRow = ({ label, children }: { label: string; children: React
 export const FolderRow = ({ label, path, onBrowse }: { label: string; path: string; onBrowse?: () => void }) => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-2-5) 0' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-medium)' as unknown as number, color: 'var(--color-text-primary)' }}>{label}</div>
+            <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-primary)' }}>{label}</div>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 2, fontFamily: 'var(--font-role-data)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{path}</div>
         </div>
         <button onClick={onBrowse} style={actionBtnSmStyle}>Browse…</button>

@@ -93,9 +93,10 @@ impl LimiterProcessor {
             // the limiter's release ~2.2× faster than the specified ms value,
             // causing overly aggressive release that pumps on transient-heavy
             // material (drums, vocal consonants).
-            self.release_coeff = (-2.2 / (self.release_ms * 0.001 * sr)).exp();
-            self.fast_release = (-2.2 / (5.0 * 0.001 * sr)).exp(); // 5ms fast
-            self.slow_release = (-2.2 / (200.0 * 0.001 * sr)).exp(); // 200ms slow
+            // AUD-228 FIX: Use shared SSOT envelope_coeff helper.
+            self.release_coeff = crate::processors::envelope_coeff(self.release_ms, sr);
+            self.fast_release = crate::processors::envelope_coeff(5.0, sr);   // 5ms fast
+            self.slow_release = crate::processors::envelope_coeff(200.0, sr); // 200ms slow
             self.la_samples =
                 ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
         }

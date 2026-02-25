@@ -296,8 +296,12 @@ impl TimeSignature {
         if self.denominator == 0 {
             return 4;
         }
-        // BUG-058 FIX: Ensure at least 1 beat per bar for unusual signatures (e.g. 1/16).
-        ((self.numerator as u16 * 4 / self.denominator as u16) as u8).max(1)
+        // Ensure at least 1 beat per bar for unusual signatures (e.g. 1/16).
+        // We intentionally use floor division here to keep quarter-note beat grid
+        // compatible with existing transport/editor semantics (e.g. 7/8 => 3 beats).
+        let n = self.numerator as u16 * 4;
+        let d = self.denominator as u16;
+        ((n / d) as u8).max(1)
     }
 
     /// Returns a display string (e.g., "4/4", "6/8").

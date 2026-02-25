@@ -31,6 +31,7 @@ pub mod markers;
 pub mod normalization;
 pub mod parser;
 pub mod plugin_mapper;
+pub mod plugin_mapper_external_meta;
 pub mod project_import;
 pub mod rack_parser;
 pub mod routing;

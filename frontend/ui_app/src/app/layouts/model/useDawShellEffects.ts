@@ -18,7 +18,6 @@ interface AlsImportSummaryPayload {
     warped_with_source_frames: number;
     unresolved_missing_labels: string[];
 }
-
 export function useDawShellGlobalShortcuts(args: {
     setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setExportOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -173,7 +172,6 @@ export function useTauriFileDropImport(importFile: ImportFileFn, importingRef: R
                 unlisten = combinedUnlisten;
             }
         };
-
         void setup();
         return () => {
             cancelled = true;
@@ -276,12 +274,15 @@ export function useAlsImportSummaryStatus(): void {
             const fn = await listen<AlsImportSummaryPayload>('als_import_summary', (event) => {
                 const p = event.payload;
                 const autoResolved = p.auto_resolved_internal + p.auto_resolved_external;
+                const unresolvedCount = Math.max(0, p.missing_slots_after);
                 const status = useStatusStore.getState();
                 const baseMsg =
-                    `ALS: ${p.project_name} | tracks ${p.track_count} | missing ${p.missing_slots_before}→${p.missing_slots_after} | auto ${autoResolved} | warped ${p.warped_clip_count} (${p.warp_marker_count} markers)`;
-                if (p.missing_slots_after > 0) {
+                    `ALS: ${p.project_name} | tracks ${p.track_count} | missing ${p.missing_slots_before}→${p.missing_slots_after} | auto ${autoResolved} | warp ${p.warped_clip_count} clips/${p.warp_marker_count} markers | source-frames ${p.warped_with_source_frames}`;
+                if (unresolvedCount > 0) {
                     const labels = (p.unresolved_missing_labels ?? []).slice(0, 3);
-                    const details = labels.length > 0 ? ` | unresolved: ${labels.join(', ')}` : '';
+                    const details = labels.length > 0
+                        ? ` | unresolved ${unresolvedCount}: ${labels.join(', ')}${unresolvedCount > labels.length ? ', …' : ''}`
+                        : ` | unresolved ${unresolvedCount}`;
                     status.setError(`${baseMsg}${details}`);
                     return;
                 }

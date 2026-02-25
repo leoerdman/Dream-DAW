@@ -20,3 +20,4 @@ pub mod recording;
 pub mod render_callback;
 pub mod sampler;
 mod sampler_osc;
+pub mod essence_synth;

@@ -522,11 +522,11 @@ impl PluginHostState {
             );
             self.unbind_slot_instance(slot_id);
         }
-        if let Some(existing) =
-            self.bind_slot_to_existing_instance_for_plugin_id(slot_id, plugin_id)?
-        {
-            return Ok(existing);
-        }
+        // CRITICAL MIDI/STATE ISOLATION FIX:
+        // Never reuse an already-loaded runtime instance across different slots,
+        // even when plugin_id matches. Shared instances cause cross-track state
+        // bleed (e.g., MIDI from one track sounding on another track using the
+        // same plugin model). Each slot must own an isolated plugin instance.
         let descriptor = self.resolve_descriptor(plugin_id)?;
         if descriptor.format == PluginFormat::CLAP {
             return Err(format!(

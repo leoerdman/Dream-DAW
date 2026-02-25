@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::render_callback::soft_clip;
-// BUG-007 FIX: compute_peak/compute_rms removed — metering now in finalize_output_and_publish only.
+use dream_ipc::metering::{compute_peak, compute_rms};
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
@@ -80,8 +80,8 @@ pub(super) fn process_master_runtime_fx_and_gain(
     master_gain_target: f32,
     master_gain_current: &mut f32,
     master_gain_smooth: f32,
-    // BUG-007 FIX: render_ctx and graph_peak_decay removed — metering
-    // is now done exclusively in finalize_output_and_publish().
+    render_ctx: &mut RenderContext,
+    graph_peak_decay: f32,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
@@ -108,7 +108,6 @@ pub(super) fn process_master_runtime_fx_and_gain(
                         sample_rate: sample_rate_f64,
                         position_samples: playhead_pos,
                         tempo: bpm,
-                        // Keep master insert effects in sync with DAW transport.
                         is_playing,
                         is_recording: false,
                         time_sig_numerator: i32::from(time_sig_numerator),
@@ -121,20 +120,15 @@ pub(super) fn process_master_runtime_fx_and_gain(
                     external_right[..n].copy_from_slice(&graph_out_right[..n]);
                     let mut out_slices: [&mut [f32]; 2] =
                         [&mut external_left[..n], &mut external_right[..n]];
-                    // BUG-AUD-306 FIX: Check process result. On error, leave
-                    // graph_out untouched (passthrough) instead of copying stale
-                    // external buffers back into the master output.
-                    let process_result = host.process_with_sidechain(
+                    let _ = host.process_with_sidechain(
                         &main_inputs,
                         None,
                         &mut out_slices,
                         n,
                         empty_midi,
                     );
-                    if process_result.is_ok() {
-                        graph_out_left[..n].copy_from_slice(&external_left[..n]);
-                        graph_out_right[..n].copy_from_slice(&external_right[..n]);
-                    }
+                    graph_out_left[..n].copy_from_slice(&external_left[..n]);
+                    graph_out_right[..n].copy_from_slice(&external_right[..n]);
                 }
             }
         } else if !master_device_chain.is_empty() {
@@ -158,11 +152,20 @@ pub(super) fn process_master_runtime_fx_and_gain(
         graph_out_right[i] *= *master_gain_current;
     }
 
-    // BUG-007 FIX: Removed redundant master metering here.
-    // finalize_output_and_publish() already performs authoritative post-soft-clip
-    // metering on the final output. The pre-soft-clip measurement here was:
-    // (a) immediately overwritten by finalize_output, and
-    // (b) wasting ~4μs per buffer on compute_rms/compute_peak.
+    let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
+    let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
+    let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
+    let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
+    render_ctx.meter_bank.master_left().store_rms(rms_l);
+    render_ctx.meter_bank.master_right().store_rms(rms_r);
+    render_ctx
+        .meter_bank
+        .master_left()
+        .store_peak_decay(peak_l, graph_peak_decay);
+    render_ctx
+        .meter_bank
+        .master_right()
+        .store_peak_decay(peak_r, graph_peak_decay);
 }
 
 pub(super) fn interleave_graph_output(
@@ -259,24 +262,23 @@ pub(super) fn mix_preview_audio(
                         let p_left = preview_data[p_idx];
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
-                            // BUG-006 FIX: Don't soft_clip here — finalize_output_and_publish does it once.
-                            data[d_idx] += (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
+                            data[d_idx] +=
+                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
                         } else {
-                            data[d_idx] += p_left;
+                            data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += p_right;
+                                data[d_idx + 1] += soft_clip(p_right);
                             }
                         }
                     }
                 }
                 let new_cursor = cursor + mix_frames * preview_channels;
-                // BUG-005 FIX: Use unconditional store instead of compare_exchange.
-                // The audio thread is the only writer; CAS failure means another thread
-                // wrote (e.g. reset to 0 on new preview), which we should respect by
-                // NOT overwriting. However, the old `let _ = ...` silently discarded
-                // failures, causing audio to re-play the same chunk. Using store is
-                // correct because the audio thread owns progression.
-                preview_cursor.store(new_cursor, Ordering::Release);
+                let _ = preview_cursor.compare_exchange(
+                    cursor,
+                    new_cursor,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                );
             } else {
                 let mut src_pos = cursor_frame as f64;
                 for f in 0..frame_count {
@@ -299,14 +301,12 @@ pub(super) fn mix_preview_audio(
                     let d_idx = f * channels;
                     if d_idx < data.len() {
                         if channels == 1 {
-                            // BUG-A002 FIX: Don't soft_clip here — finalize_output_and_publish
-                            // applies it to the entire buffer. Previously only the resampled
-                            // path soft-clipped, causing inconsistent gain staging vs direct.
-                            data[d_idx] += (p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2;
+                            data[d_idx] +=
+                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
                         } else {
-                            data[d_idx] += p_left;
+                            data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {
-                                data[d_idx + 1] += p_right;
+                                data[d_idx + 1] += soft_clip(p_right);
                             }
                         }
                     }
@@ -314,10 +314,12 @@ pub(super) fn mix_preview_audio(
                 }
                 let new_cursor_frame = src_pos.ceil() as usize;
                 let new_cursor = (new_cursor_frame * preview_channels).min(total);
-                // BUG-A003 FIX: Use unconditional store instead of compare_exchange,
-                // matching the direct-path fix (BUG-005). CAS failure caused the cursor
-                // to get stuck when preview was reset externally (new file loaded).
-                preview_cursor.store(new_cursor, Ordering::Release);
+                let _ = preview_cursor.compare_exchange(
+                    cursor,
+                    new_cursor,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                );
             }
         }
     }
@@ -336,19 +338,15 @@ pub(super) fn finalize_output_and_publish(
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {
         let mut drops = 0u32;
-        // STAGE1-FIX-002 (P1): Only feed the first n*channels samples.
-        // data[] can be longer than the rendered region (cpal padding);
-        // iterating all of it sent garbage to the spectrum analyzer.
-        let active_data = &data[..n * channels];
         if channels >= 2 {
-            for frame in active_data.chunks_exact(channels) {
+            for frame in data.chunks_exact(channels) {
                 let mono = (frame[0] + frame[1]) * 0.5;
                 if producer.push(mono).is_err() {
                     drops += 1;
                 }
             }
         } else if channels == 1 {
-            for &sample in active_data.iter() {
+            for &sample in data.iter() {
                 if producer.push(sample).is_err() {
                     drops += 1;
                 }
@@ -367,10 +365,7 @@ pub(super) fn finalize_output_and_publish(
         let mut peak_r = 0.0f32;
         let mut frames = 0usize;
 
-        // BUG-A001 FIX: Iterate only the active region, not the full data[] slice.
-        // cpal buffers may be larger than n*channels; the padding contains
-        // uninitialized/stale data that caused ghost peaks in master metering.
-        for frame in data[..n * channels].chunks_exact(channels) {
+        for frame in data.chunks_exact(channels) {
             let l = frame[0];
             let r = frame[1];
             sum_sq_l += (l as f64) * (l as f64);
@@ -400,32 +395,6 @@ pub(super) fn finalize_output_and_publish(
                 .meter_bank
                 .master_right()
                 .store_peak_decay(linear_to_db(peak_r), master_decay);
-        }
-    } else if channels == 1 {
-        // BUG-007 FIX: Mono outputs now get RMS/peak metering.
-        let mut sum_sq = 0.0f64;
-        let mut peak = 0.0f32;
-        let mono_data = &data[..n];
-        for &s in mono_data {
-            sum_sq += (s as f64) * (s as f64);
-            peak = peak.max(s.abs());
-        }
-        if n > 0 {
-            let rms = (sum_sq / n as f64).sqrt() as f32;
-            let master_decay = peak_decay_for_block(sample_rate_f64, n);
-            let rms_db = linear_to_db(rms);
-            let peak_db = linear_to_db(peak);
-            // Mirror mono signal to both L/R master meters.
-            render_ctx.meter_bank.master_left().store_rms(rms_db);
-            render_ctx.meter_bank.master_right().store_rms(rms_db);
-            render_ctx
-                .meter_bank
-                .master_left()
-                .store_peak_decay(peak_db, master_decay);
-            render_ctx
-                .meter_bank
-                .master_right()
-                .store_peak_decay(peak_db, master_decay);
         }
     }
 }

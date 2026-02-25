@@ -25,6 +25,8 @@ export function TrackInspectorMasterRow({
             trackHeight={masterRowHeight}
             isSelected={selectedTrackId === 'master'}
             isPrimarySelected={selectedTrackId === 'master'}
+            isHeaderSelected={logic.headerSelectedTrackIdSet.has('master')}
+            isHeaderPrimarySelected={selectedTrackId === 'master' && logic.headerSelectedTrackIdSet.has('master')}
             isCollapsed={false}
             depth={0}
             isRenaming={false}
@@ -33,7 +35,13 @@ export function TrackInspectorMasterRow({
             onRenameCommit={() => { }}
             onRenameCancel={() => { }}
             onClick={() => {
+                logic.clearHeaderSelection();
                 logic.applySelection([], 'master');
+            }}
+            onHeaderClick={(e) => {
+                e.stopPropagation();
+                logic.applySelection([], 'master', { preserveCursor: true });
+                logic.applyHeaderSelection(['master']);
             }}
             onToggleMute={() => { }}
             onToggleSolo={() => { }}

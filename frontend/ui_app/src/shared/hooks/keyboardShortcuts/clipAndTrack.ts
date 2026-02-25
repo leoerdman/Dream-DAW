@@ -95,10 +95,10 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
 
     if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
         if ((inDeviceRack && selectedDeviceId.length > 0) || inPianoRoll || getScopedEditorElement(e, 'track-inspector')) return true;
+        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+        if (targets.length === 0) return false;
         e.preventDefault();
         e.stopPropagation();
-        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-        if (targets.length === 0) return true;
         try {
             const responses = await Promise.all(targets.map((id) => engine.deleteClipWithDeltas(id)));
             await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut-delete');

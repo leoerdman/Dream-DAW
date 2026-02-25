@@ -18,8 +18,8 @@ type Args = {
 };
 
 type Result = {
-    handleSelectTrack: (id: string) => void;
-    handleSelectTracks: (ids: string[], primaryId: string) => void;
+    handleSelectTrack: (id: string, options?: { preserveCursor?: boolean }) => void;
+    handleSelectTracks: (ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => void;
     handleMarqueeSelectionStart: () => void;
     handleClipSelect: (clipId: string, isShift?: boolean, isCtrl?: boolean) => void;
     handleTimelineClipSelectionChange: (ids: string[]) => void;
@@ -36,23 +36,27 @@ export function useArrangementSelectionHandlers({
     setMarqueeSelection,
     queuedStartBeatRef,
 }: Args): Result {
-    const handleSelectTrack = useCallback((id: string) => {
+    const handleSelectTrack = useCallback((id: string, options?: { preserveCursor?: boolean }) => {
         setSelectedTrackId(id);
         setSelectedTrackIds(id && id !== 'master' ? [id] : []);
-        const index = trackIds.indexOf(id);
-        if (index >= 0) {
-            setEditCursorTrackIndex(index);
+        if (!options?.preserveCursor) {
+            const index = trackIds.indexOf(id);
+            if (index >= 0) {
+                setEditCursorTrackIndex(index);
+            }
         }
         setSelectedClipIds([]);
     }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, trackIds]);
 
-    const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
+    const handleSelectTracks = useCallback((ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => {
         const cleaned = Array.from(new Set(ids)).filter((trackId) => trackId && trackId !== 'master');
         setSelectedTrackIds(cleaned);
         setSelectedTrackId(primaryId);
-        const index = trackIds.indexOf(primaryId);
-        if (index >= 0) {
-            setEditCursorTrackIndex(index);
+        if (!options?.preserveCursor) {
+            const index = trackIds.indexOf(primaryId);
+            if (index >= 0) {
+                setEditCursorTrackIndex(index);
+            }
         }
         setSelectedClipIds([]);
     }, [setEditCursorTrackIndex, setSelectedClipIds, setSelectedTrackId, setSelectedTrackIds, trackIds]);

@@ -8,6 +8,8 @@ interface TrackRowHeaderProps {
     trackHeight: number;
     isMaster: boolean;
     isGroup: boolean;
+    isHeaderSelected: boolean;
+    isHeaderPrimarySelected: boolean;
     isCollapsed: boolean;
     isRenaming: boolean;
     renameValue: string;
@@ -20,12 +22,15 @@ interface TrackRowHeaderProps {
     onRenameCancel: () => void;
     onToggleCollapse?: () => void;
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
+    onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export function TrackRowHeader({
     track,
     isMaster,
     isGroup,
+    isHeaderSelected,
+    isHeaderPrimarySelected,
     isCollapsed,
     isRenaming,
     renameValue,
@@ -38,6 +43,7 @@ export function TrackRowHeader({
     onRenameCancel,
     onToggleCollapse,
     onHeaderPointerDown,
+    onHeaderClick,
 }: TrackRowHeaderProps) {
     const renameInputRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
@@ -61,6 +67,7 @@ export function TrackRowHeader({
     return (
         <div
             onPointerDown={onHeaderPointerDown}
+            onClick={onHeaderClick}
             style={{
                 width: layout.headerColWidth,
                 minWidth: layout.headerColWidth,
@@ -91,6 +98,11 @@ export function TrackRowHeader({
                     justifyContent: 'center',
                     padding: `var(--space-0-5) ${mixerFocusMode ? 8 : 6}px var(--space-0-5) ${basePaddingLeft}px`,
                     background: headerBgColor,
+                    boxShadow: isHeaderPrimarySelected
+                        ? 'inset 0 0 0 var(--token-size-px-2) color-mix(in srgb, var(--color-text-bright) 90%, transparent)'
+                        : isHeaderSelected
+                            ? 'inset 0 0 0 var(--space-px) color-mix(in srgb, var(--color-text-bright) 70%, transparent)'
+                            : 'none',
                     gap: 1,
                     position: 'relative',
                     boxSizing: 'border-box',

@@ -225,6 +225,15 @@ void main() {
     float leftHL = smoothstep(3.0, 0.0, pixelPos.x) * 0.15;
     color = mix(color, vec3(1.0), leftHL * velNorm);
 
+    // Always-visible outline: gray normally, white when selected.
+    float outlineOuter = sdfRoundedRect(pixelPos - center, halfSize - vec2(0.0), radius);
+    float outlineInner = sdfRoundedRect(pixelPos - center, halfSize - vec2(2.0), max(0.0, radius - 1.0));
+    float outline = (1.0 - smoothstep(-1.0, 0.5, outlineOuter)) * smoothstep(-1.0, 0.5, outlineInner);
+    vec3 outlineColor = mix(vec3(0.72), vec3(1.0), v_selected > 0.5 ? 1.0 : 0.0);
+    float outlineStrength = mix(0.72, 0.98, v_selected > 0.5 ? 1.0 : 0.0);
+    color = mix(color, outlineColor, outline * outlineStrength);
+    alpha = max(alpha, outline * 0.9);
+
     if (v_selected > 0.5) {
         float outerDist = sdfRoundedRect(pixelPos - center, halfSize - vec2(0.0), radius);
         float innerDist = sdfRoundedRect(pixelPos - center, halfSize - vec2(3.0), max(0.0, radius - 1.5));

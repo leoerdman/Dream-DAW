@@ -16,6 +16,8 @@ interface TrackRowProps {
     displayNum?: number;
     isSelected: boolean;
     isPrimarySelected?: boolean;
+    isHeaderSelected?: boolean;
+    isHeaderPrimarySelected?: boolean;
     isCollapsed: boolean;
     depth: number;
     isRenaming: boolean;
@@ -34,6 +36,7 @@ interface TrackRowProps {
     onInputChange?: (inputId: string) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
+    onHeaderClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
     isGroupDropTarget?: boolean;
     groupStripeColor?: string;
     layout: TrackRowLayoutMetrics;
@@ -53,6 +56,8 @@ export const TrackRow = ({
     displayNum,
     isSelected,
     isPrimarySelected = false,
+    isHeaderSelected = false,
+    isHeaderPrimarySelected = false,
     isCollapsed,
     depth,
     isRenaming,
@@ -71,6 +76,7 @@ export const TrackRow = ({
     onInputChange,
     onContextMenu,
     onHeaderPointerDown,
+    onHeaderClick,
     isGroupDropTarget = false,
     groupStripeColor,
     layout,
@@ -168,6 +174,8 @@ export const TrackRow = ({
                 trackHeight={trackHeight}
                 isMaster={isMaster}
                 isGroup={isGroup}
+                isHeaderSelected={isHeaderSelected}
+                isHeaderPrimarySelected={isHeaderPrimarySelected}
                 isCollapsed={isCollapsed}
                 isRenaming={isRenaming}
                 renameValue={renameValue}
@@ -180,6 +188,7 @@ export const TrackRow = ({
                 onRenameCancel={onRenameCancel}
                 onToggleCollapse={onToggleCollapse}
                 onHeaderPointerDown={onHeaderPointerDown}
+                onHeaderClick={onHeaderClick}
             />
 
             <TrackRowRouting

@@ -1,11 +1,9 @@
-import { memo, useState, useCallback, useEffect } from 'react';
-import { TOTAL_KEYS, ROOT_NOTES } from '@/widgets/PianoRoll/model/pianoRollConfig';
+import { memo, useCallback, useEffect } from 'react';
 import { PianoRollToolbar } from '@/widgets/PianoRoll/ui/PianoRollToolbar';
 import { PianoRollSidebarPanel } from '@/widgets/PianoRoll/ui/PianoRollSidebar';
 import { PianoKeyboard } from '@/widgets/PianoRoll/ui/PianoKeyboard';
 import { PianoRollGridViewport } from '@/widgets/PianoRoll/ui/PianoRollGridViewport';
 import { usePianoRollLogic } from '@/widgets/PianoRoll/model/usePianoRollLogic';
-import { usePianoRollGPU } from '@/widgets/PianoRoll/model/usePianoRollGPU';
 import type { PianoRollProps } from '@/widgets/PianoRoll/model/pianoRollTypes';
 
 export type { MidiNote, PianoRollTool } from '@/widgets/PianoRoll/model/pianoRollConfig';
@@ -52,7 +50,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setZoomOverrideH,
         playheadBeat,
         pixelsPerBeat,
-        totalBeats,
         clipBeats,
         canvasWidth,
         canvasHeight,
@@ -61,8 +58,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         gridLines,
         rulerBeatLabels,
         pianoKeys,
-        currentGridInterval,
-        beatsPerBar,
         clipDurationLabel,
         pitchToY,
         handleGridClick,
@@ -82,7 +77,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         readLaneValue,
         auditionNote,
         notes,
-        ghostNotes,
         color,
         onNotesChange,
         onGenerateVariation,
@@ -94,70 +88,15 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setGridDivision,
     } = usePianoRollLogic(props);
 
-    const [scrollX, setScrollX] = useState(0);
-    const [scrollY, setScrollY] = useState(0);
-    const [isPanelResizing, setIsPanelResizing] = useState(false);
-
     const handleGridScroll = useCallback(() => {
-        if (isPanelResizing) return;
-        const el = scrollRef.current;
-        if (!el) return;
-        setScrollX(el.scrollLeft);
-        setScrollY(el.scrollTop);
-    }, [isPanelResizing, scrollRef]);
-
-    useEffect(() => {
-        const onStart = () => setIsPanelResizing(true);
-        const onEnd = () => setIsPanelResizing(false);
-        window.addEventListener('dream:bottom-panel-resize-start', onStart);
-        window.addEventListener('dream:bottom-panel-resize-end', onEnd);
-        return () => {
-            window.removeEventListener('dream:bottom-panel-resize-start', onStart);
-            window.removeEventListener('dream:bottom-panel-resize-end', onEnd);
-        };
+        // Scroll sync is handled in usePianoRollViewport (single render path SSOT).
     }, []);
-
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        el.addEventListener('scroll', handleGridScroll, { passive: true });
-        handleGridScroll();
-        return () => el.removeEventListener('scroll', handleGridScroll);
-    }, [handleGridScroll, scrollRef]);
 
     useEffect(() => {
         requestAnimationFrame(() => {
             editorRootRef.current?.focus({ preventScroll: true });
         });
     }, [editorRootRef, trackIndex, clipStartBeat, clipBeats]);
-
-    // Convert full-pitch scaleSet to pitch-class Set<0-11> for GPU shader
-    const scalePitchClasses = scaleSet
-        ? new Set<number>(Array.from(scaleSet).map(p => p % 12))
-        : undefined;
-
-    const { gpuCanvasRef, gpuAvailable } = usePianoRollGPU({
-        notes,
-        ghostNotes,
-        selectedNotes,
-        canvasWidth,
-        canvasHeight,
-        pixelsPerBeat,
-        noteHeight,
-        color,
-        scrollX,
-        scrollY,
-        beatsPerBar,
-        gridInterval: currentGridInterval > 0 ? currentGridInterval : 0.25,
-        totalBeats,
-        totalPitches: TOTAL_KEYS,
-        highlightScale,
-        scaleRoot: ROOT_NOTES.indexOf(rootNote),
-        scaleNotes: scalePitchClasses,
-        playheadBeat,
-        clipBeats,
-        paused: isPanelResizing,
-    });
 
     return (
         <div
@@ -243,8 +182,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     scrollRef={scrollRef}
                     gridViewportRef={gridViewportRef}
                     noteCanvasRef={noteCanvasRef}
-                    gpuCanvasRef={gpuCanvasRef}
-                    gpuAvailable={gpuAvailable}
                     canvasWidth={canvasWidth}
                     canvasHeight={canvasHeight}
                     clipBeats={clipBeats}

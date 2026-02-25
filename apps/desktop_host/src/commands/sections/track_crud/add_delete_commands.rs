@@ -75,6 +75,11 @@ async fn add_track_with_deltas_cmd(
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
+    let inserted_track = project
+        .tracks
+        .iter()
+        .find(|t| t.id == result.track_id)
+        .map(|t| (t.color_hex.clone(), t.color.hex().to_string(), t.parent_track_id));
     refresh_runtime_after_track_topology_change(
         &mut project,
         &clip_pool_state,
@@ -84,14 +89,24 @@ async fn add_track_with_deltas_cmd(
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 
-    Ok(TrackManagementDeltaResponse {
-        deltas: vec![dream_models::delta::ProjectDelta::TrackAdded {
+    let mut deltas = vec![dream_models::delta::ProjectDelta::TrackAdded {
             track_index: result.track_index,
             track_id: result.track_id,
             name: result.name,
             track_type: track_type_string,
-        }],
-    })
+    }];
+    if let Some((color_hex, color_fallback_hex, parent_track_id)) = inserted_track {
+        deltas.push(dream_models::delta::ProjectDelta::TrackColorChanged {
+            track_id: result.track_id,
+            color: color_hex.unwrap_or(color_fallback_hex),
+        });
+        deltas.push(dream_models::delta::ProjectDelta::TrackParentChanged {
+            track_id: result.track_id,
+            parent_track_id,
+        });
+    }
+
+    Ok(TrackManagementDeltaResponse { deltas })
 }
 
 /// Deletes a track by index. Pushes undo snapshot before mutation.

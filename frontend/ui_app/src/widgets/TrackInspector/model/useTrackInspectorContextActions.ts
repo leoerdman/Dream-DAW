@@ -10,8 +10,8 @@ interface UseTrackInspectorContextActionsParams {
     getTrackIndex: (id: string) => number;
     setLocalOverrides: React.Dispatch<React.SetStateAction<Record<string, Partial<TrackData>>>>;
     setLocalSelectedTrackIds: React.Dispatch<React.SetStateAction<Set<string> | null>>;
-    onSelectTrack?: (id: string) => void;
-    onSelectTracks?: (ids: string[], primaryId: string) => void;
+    onSelectTrack?: (id: string, options?: { preserveCursor?: boolean }) => void;
+    onSelectTracks?: (ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => void;
     renameTrackAction: (index: number, name: string) => Promise<void> | void;
 }
 export function useTrackInspectorContextActions({

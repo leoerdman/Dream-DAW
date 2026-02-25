@@ -18,8 +18,6 @@ interface PianoRollGridViewportProps {
     scrollRef: MutableRefObject<HTMLDivElement | null>;
     gridViewportRef: MutableRefObject<HTMLDivElement | null>;
     noteCanvasRef: RefObject<HTMLCanvasElement | null>;
-    gpuCanvasRef: RefObject<HTMLCanvasElement | null>;
-    gpuAvailable: boolean;
     canvasWidth: number;
     canvasHeight: number;
     clipBeats: number;
@@ -57,8 +55,6 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
     scrollRef,
     gridViewportRef,
     noteCanvasRef,
-    gpuCanvasRef,
-    gpuAvailable,
     canvasWidth,
     canvasHeight,
     clipBeats,
@@ -112,35 +108,31 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     <div style={{ position: 'absolute', top: 0, left: clipBeats * pixelsPerBeat - 2, width: 2, height: RULER_HEIGHT, background: color, opacity: 0.85 }} />
                 </div>
 
-                {gpuAvailable ? (
-                    <canvas ref={gpuCanvasRef} width={canvasWidth} height={canvasHeight} style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, width: canvasWidth, height: canvasHeight, pointerEvents: 'none' }} />
-                ) : (
-                    <svg width={canvasWidth} height={canvasHeight} style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, pointerEvents: 'none' }}>
-                        {visiblePitches.map((pitch, i) => {
-                            const black = isBlackKey(pitch);
-                            const inScale = scaleSet ? scaleSet.has(pitch) : true;
-                            const isRoot = highlightScale && ((pitch % 12) === ROOT_NOTES.indexOf(rootNote));
-                            const isC = pitch % 12 === 0;
-                            let fill: string;
-                            if (highlightScale) {
-                                if (isRoot) fill = `${color}20`;
-                                else if (inScale) fill = black ? `${color}0c` : `${color}0a`;
-                                else fill = black ? 'var(--token-color-hex-111111)' : 'var(--token-color-hex-161616)';
-                            } else {
-                                fill = black ? 'var(--color-piano-black-row)' : 'var(--color-piano-white-row)';
-                            }
-                            return (
-                                <g key={`row-${i}`}>
-                                    <rect x={0} y={i * noteHeight} width={canvasWidth} height={noteHeight} fill={fill} />
-                                    <line x1={0} y1={(i + 1) * noteHeight} x2={canvasWidth} y2={(i + 1) * noteHeight} stroke={isC ? 'var(--color-piano-c-line)' : 'var(--color-border-subtle)'} strokeWidth={isC ? 1 : 0.5} />
-                                </g>
-                            );
-                        })}
-                        {gridLines.map((gl, idx) => (
-                            <line key={`v-${idx}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45} />
-                        ))}
-                    </svg>
-                )}
+                <svg width={canvasWidth} height={canvasHeight} style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, pointerEvents: 'none' }}>
+                    {visiblePitches.map((pitch, i) => {
+                        const black = isBlackKey(pitch);
+                        const inScale = scaleSet ? scaleSet.has(pitch) : true;
+                        const isRoot = highlightScale && ((pitch % 12) === ROOT_NOTES.indexOf(rootNote));
+                        const isC = pitch % 12 === 0;
+                        let fill: string;
+                        if (highlightScale) {
+                            if (isRoot) fill = `${color}20`;
+                            else if (inScale) fill = black ? `${color}0c` : `${color}0a`;
+                            else fill = black ? 'var(--token-color-hex-111111)' : 'var(--token-color-hex-161616)';
+                        } else {
+                            fill = black ? 'var(--color-piano-black-row)' : 'var(--color-piano-white-row)';
+                        }
+                        return (
+                            <g key={`row-${i}`}>
+                                <rect x={0} y={i * noteHeight} width={canvasWidth} height={noteHeight} fill={fill} />
+                                <line x1={0} y1={(i + 1) * noteHeight} x2={canvasWidth} y2={(i + 1) * noteHeight} stroke={isC ? 'var(--color-piano-c-line)' : 'var(--color-border-subtle)'} strokeWidth={isC ? 1 : 0.5} />
+                            </g>
+                        );
+                    })}
+                    {gridLines.map((gl, idx) => (
+                        <line key={`v-${idx}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45} />
+                    ))}
+                </svg>
 
                 <div
                     onClick={handleGridClick}
@@ -148,9 +140,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     onMouseDown={handleGridMouseDown}
                     style={{ position: 'absolute', top: RULER_HEIGHT, left: 0, width: canvasWidth, height: canvasHeight, cursor: tool === 'draw' || tool === 'paint' ? 'crosshair' : 'default' }}
                 >
-                    {!gpuAvailable && (
-                        <canvas ref={noteCanvasRef} style={{ position: 'absolute', left: 0, top: 0, width: canvasWidth, height: canvasHeight, pointerEvents: 'none' }} />
-                    )}
+                    <canvas ref={noteCanvasRef} style={{ position: 'absolute', left: 0, top: 0, width: canvasWidth, height: canvasHeight, pointerEvents: 'none' }} />
 
                     {notes.map((note) => {
                         const x = note.startBeat * pixelsPerBeat;
@@ -165,7 +155,24 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                                 onMouseDown={(e) => handleNoteDrag(e, note.id)}
                                 onMouseMove={(e) => handleNoteMouseMove(e, note.id)}
                                 onMouseLeave={() => setHoveredNoteEdge(null)}
-                                style={{ position: 'absolute', left: x, top: y + 1, width: Math.max(4, w - 1), height: noteHeight - 2, background: 'transparent', borderRadius: 'var(--radius-xs)', cursor: tool === 'draw' ? 'pointer' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'), zIndex: isSelected ? 5 : 2, pointerEvents: tool === 'paint' ? 'none' : 'auto' }}
+                                style={{
+                                    position: 'absolute',
+                                    left: x,
+                                    top: y + 1,
+                                    width: Math.max(4, w - 1),
+                                    height: noteHeight - 2,
+                                    background: 'transparent',
+                                    borderRadius: 'var(--radius-xs)',
+                                    border: isSelected
+                                        ? '1.5px solid var(--color-text-on-accent)'
+                                        : '1px solid color-mix(in srgb, var(--color-text-secondary) 75%, transparent)',
+                                    boxShadow: isSelected
+                                        ? '0 0 0 1px color-mix(in srgb, var(--color-text-on-accent) 45%, transparent)'
+                                        : 'none',
+                                    cursor: tool === 'draw' ? 'pointer' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
+                                    zIndex: isSelected ? 5 : 2,
+                                    pointerEvents: tool === 'paint' ? 'none' : 'auto',
+                                }}
                             />
                         );
                     })}
@@ -182,7 +189,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     )}
                 </div>
 
-                {!gpuAvailable && playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
+                {playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
                     <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)', pointerEvents: 'none', boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-255-255-255-0d45)' }} />
                 )}
 

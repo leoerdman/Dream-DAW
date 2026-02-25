@@ -14,8 +14,8 @@ import { useTrackInspectorHeightSync } from '@/widgets/TrackInspector/model/useT
 export interface UseTrackInspectorLogicProps {
     selectedTrackId: string;
     selectedTrackIds?: string[];
-    onSelectTrack: (id: string) => void;
-    onSelectTracks?: (ids: string[], primaryId: string) => void;
+    onSelectTrack: (id: string, options?: { preserveCursor?: boolean }) => void;
+    onSelectTracks?: (ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => void;
     trackHeight?: number;
     rulerHeight?: number;
     mixerFocusMode?: boolean;
@@ -66,6 +66,7 @@ export function useTrackInspectorLogic({
 
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
+    const [headerSelectedTrackIdSet, setHeaderSelectedTrackIdSet] = useState<Set<string>>(new Set());
     const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
     const [rowHeightOverrides, setRowHeightOverrides] = useState<Record<string, number>>({});
     const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string> | null>(null);
@@ -76,11 +77,29 @@ export function useTrackInspectorLogic({
         return [];
     }, [selectedTrackIdsProp, localSelectedTrackIds, selectedTrackId]);
     const selectedTrackIdSet = useMemo(() => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')), [effectiveSelectedTrackIds]);
-    const applySelection = useCallback((ids: string[], primaryId: string) => {
+    const applyHeaderSelection = useCallback((ids: string[]) => {
+        const cleaned = Array.from(new Set(ids)).filter((id) => Boolean(id));
+        setHeaderSelectedTrackIdSet(new Set(cleaned));
+    }, []);
+    const clearHeaderSelection = useCallback(() => {
+        setHeaderSelectedTrackIdSet((prev) => (prev.size === 0 ? prev : new Set()));
+    }, []);
+    useEffect(() => {
+        const valid = new Set(['master', ...trackIds]);
+        setHeaderSelectedTrackIdSet((prev) => {
+            if (prev.size === 0) return prev;
+            const next = new Set<string>();
+            for (const id of prev) {
+                if (valid.has(id)) next.add(id);
+            }
+            return next.size === prev.size ? prev : next;
+        });
+    }, [trackIds]);
+    const applySelection = useCallback((ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => {
         const cleaned = Array.from(new Set(ids)).filter((id) => id && id !== 'master');
-        if (onSelectTracks) onSelectTracks(cleaned, primaryId);
+        if (onSelectTracks) onSelectTracks(cleaned, primaryId, options);
         else setLocalSelectedTrackIds(new Set(cleaned));
-        onSelectTrack(primaryId);
+        onSelectTrack(primaryId, options);
     }, [onSelectTrack, onSelectTracks]);
     const {
         trackActiveStates,
@@ -238,6 +257,7 @@ export function useTrackInspectorLogic({
         trackById,
         visibleTrackIndexById,
         selectedTrackIdSet,
+        headerSelectedTrackIdSet,
         collapsedGroups,
         rowHeightsByTrackId,
         contextMenu,
@@ -253,6 +273,8 @@ export function useTrackInspectorLogic({
         getTrackIndex,
         getDepth,
         applySelection,
+        applyHeaderSelection,
+        clearHeaderSelection,
         setLastClickedTrackId,
         setRenameValue,
         setContextMenu,

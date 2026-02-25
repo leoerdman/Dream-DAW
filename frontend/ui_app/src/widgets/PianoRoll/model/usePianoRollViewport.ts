@@ -136,45 +136,80 @@ export function usePianoRollViewport({
         if (!grid) return;
         const nh = noteHeightRef.current;
         const currentNotes = notesSnapshotRef.current;
+
+        const centerToNotes = () => {
+            let focusPitch: number;
+            if (currentNotes.length > 0) {
+                const sorted = currentNotes.map((n) => n.pitch).sort((a, b) => a - b);
+                const mid = Math.floor(sorted.length / 2);
+                focusPitch = sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+            } else {
+                focusPitch = DEFAULT_FOCUS_PITCH;
+            }
+            if (!visiblePitches.includes(focusPitch)) {
+                focusPitch = visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
+            }
+            const targetY = pitchToY(focusPitch);
+            if (targetY >= 0) {
+                const centered = Math.max(0, targetY - grid.clientHeight * 0.5 + nh * 0.5);
+                grid.scrollTop = centered;
+                if (keyboard) keyboard.scrollTop = centered;
+            }
+
+            if (currentNotes.length > 0) {
+                let minBeat = Infinity;
+                let maxBeat = -Infinity;
+                for (const note of currentNotes) {
+                    minBeat = Math.min(minBeat, note.startBeat);
+                    maxBeat = Math.max(maxBeat, note.startBeat + note.durationBeats);
+                }
+                if (Number.isFinite(minBeat) && Number.isFinite(maxBeat)) {
+                    const noteSpan = Math.max(0.25, maxBeat - minBeat);
+                    const padBeats = Math.max(0.125, noteSpan * 0.2);
+                    const centerBeat = (minBeat + maxBeat) * 0.5;
+                    const targetLeft = Math.max(0, (centerBeat - padBeats) * pixelsPerBeatRef.current - grid.clientWidth * 0.5);
+                    grid.scrollLeft = targetLeft;
+                }
+            }
+        };
+
         requestAnimationFrame(() => {
             const saved = scrollByClipKey.get(clipViewportKey);
             if (saved) {
                 grid.scrollTop = saved.top;
                 grid.scrollLeft = saved.left;
                 if (keyboard) keyboard.scrollTop = saved.top;
-            } else {
-                let focusPitch: number;
-                if (currentNotes.length > 0) {
-                    const sorted = currentNotes.map((n) => n.pitch).sort((a, b) => a - b);
-                    const mid = Math.floor(sorted.length / 2);
-                    focusPitch = sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
-                } else {
-                    focusPitch = DEFAULT_FOCUS_PITCH;
-                }
-                if (!visiblePitches.includes(focusPitch)) {
-                    focusPitch = visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
-                }
-                const targetY = pitchToY(focusPitch);
-                if (targetY < 0) return;
-                const centered = Math.max(0, targetY - grid.clientHeight * 0.5 + nh * 0.5);
-                grid.scrollTop = centered;
-                if (keyboard) keyboard.scrollTop = centered;
 
                 if (currentNotes.length > 0) {
-                    let minBeat = Infinity;
-                    let maxBeat = -Infinity;
+                    let minY = Infinity;
+                    let maxY = -Infinity;
+                    let minX = Infinity;
+                    let maxX = -Infinity;
                     for (const note of currentNotes) {
-                        minBeat = Math.min(minBeat, note.startBeat);
-                        maxBeat = Math.max(maxBeat, note.startBeat + note.durationBeats);
+                        const y = pitchToY(note.pitch);
+                        if (y < 0) continue;
+                        minY = Math.min(minY, y);
+                        maxY = Math.max(maxY, y + nh);
+                        minX = Math.min(minX, note.startBeat * pixelsPerBeatRef.current);
+                        maxX = Math.max(maxX, (note.startBeat + note.durationBeats) * pixelsPerBeatRef.current);
                     }
-                    if (Number.isFinite(minBeat) && Number.isFinite(maxBeat)) {
-                        const noteSpan = Math.max(0.25, maxBeat - minBeat);
-                        const padBeats = Math.max(0.125, noteSpan * 0.2);
-                        const centerBeat = (minBeat + maxBeat) * 0.5;
-                        const targetLeft = Math.max(0, (centerBeat - padBeats) * pixelsPerBeatRef.current - grid.clientWidth * 0.5);
-                        grid.scrollLeft = targetLeft;
+
+                    if (Number.isFinite(minY) && Number.isFinite(maxY) && Number.isFinite(minX) && Number.isFinite(maxX)) {
+                        const viewTop = grid.scrollTop;
+                        const viewBottom = grid.scrollTop + grid.clientHeight;
+                        const viewLeft = grid.scrollLeft;
+                        const viewRight = grid.scrollLeft + grid.clientWidth;
+                        const verticallyVisible = maxY >= viewTop + 4 && minY <= viewBottom - 4;
+                        const horizontallyVisible = maxX >= viewLeft + 4 && minX <= viewRight - 4;
+                        if (!verticallyVisible || !horizontallyVisible) {
+                            centerToNotes();
+                        }
+                    } else {
+                        centerToNotes();
                     }
                 }
+            } else {
+                centerToNotes();
             }
         });
     }, [clipLengthBeats, clipStartBeat, clipViewportKey, keyboardScrollRef, pitchToY, scrollRef, trackIndex, visiblePitches, pixelsPerBeatRef]);

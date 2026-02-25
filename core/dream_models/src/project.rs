@@ -337,147 +337,76 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
 
     let key = plugin_id.trim().to_lowercase();
 
-    if key.starts_with("internal://effect/") {
-        let resolved = match key.as_str() {
-            "internal://effect/eq"
-            | "internal://effect/eq8"
-            | "internal://effect/eqeight"
-            | "internal://effect/eq3"
-            | "internal://effect/eqthree"
-            | "internal://effect/eq-eight"
-            | "internal://effect/channel-eq"
-            | "internal://effect/eq-three" => Some(FX_EQ),
-            "internal://effect/compressor"
-            | "internal://effect/glue-compressor"
-            | "internal://effect/multiband-dynamics"
-            | "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
-            "internal://effect/delay"
-            | "internal://effect/echo"
-            | "internal://effect/simple-delay"
-            | "internal://effect/filter-delay"
-            | "internal://effect/grain-delay"
-            | "internal://effect/beat-repeat"
-            | "internal://effect/looper"
-            | "internal://effect/spectral-time" => Some(FX_DELAY),
-            "internal://effect/reverb"
-            | "internal://effect/hybrid-reverb"
-            | "internal://effect/corpus"
-            | "internal://effect/resonators"
-            | "internal://effect/spectral-resonator" => Some(FX_REVERB),
-            "internal://effect/chorus" => Some(FX_CHORUS),
-            "internal://effect/utility"
-            | "internal://effect/tuner"
-            | "internal://effect/external-audio-effect"
-            | "internal://effect/auto-shift"
-            | "internal://effect/shifter" => Some(FX_UTILITY),
-            "internal://effect/saturator"
-            | "internal://effect/drum-buss"
-            | "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
-            "internal://effect/limiter" => Some(FX_LIMITER),
-            "internal://effect/gate" => Some(FX_GATE),
-            "internal://effect/auto-filter" | "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
-            "internal://effect/phaser" | "internal://effect/phaser-flanger" => Some(FX_PHASER),
-            "internal://effect/flanger" => Some(FX_FLANGER),
-            "internal://effect/distortion"
-            | "internal://effect/amp"
-            | "internal://effect/cabinet"
-            | "internal://effect/overdrive"
-            | "internal://effect/pedal"
-            | "internal://effect/roar"
-            | "internal://effect/erosion" => Some(FX_DISTORTION),
-            "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
-            "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
-            "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
-            "internal://effect/analyzer" | "internal://effect/spectrum" => Some(FX_ANALYZER),
+    if !key.starts_with("internal://effect/") {
+        // Legacy project compatibility: older sessions may store compact EQ ids
+        // instead of canonical `internal://effect/*`.
+        return match key.as_str() {
+            "eq"
+            | "eq8"
+            | "eqeight"
+            | "eq3"
+            | "eqthree"
+            | "eq eight"
+            | "eq three"
+            | "channel eq"
+            | "channeleq" => Some(FX_EQ),
             _ => None,
         };
-        if resolved.is_some() {
-            return resolved;
-        }
     }
 
-    if key.contains("eq eight")
-        || key.contains("eq8")
-        || key.contains("eq3")
-        || key.contains("channel eq")
-        || key == "eq"
-        || key.contains(" equalizer ")
-        || key.starts_with("equalizer ")
-        || key.ends_with(" equalizer")
-    {
-        return Some(FX_EQ);
+    match key.as_str() {
+        "internal://effect/eq"
+        | "internal://effect/eq8"
+        | "internal://effect/eqeight"
+        | "internal://effect/eq3"
+        | "internal://effect/eqthree"
+        | "internal://effect/eq-eight"
+        | "internal://effect/channel-eq"
+        | "internal://effect/eq-three" => Some(FX_EQ),
+        "internal://effect/compressor"
+        | "internal://effect/glue-compressor"
+        | "internal://effect/multiband-dynamics"
+        | "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
+        "internal://effect/delay"
+        | "internal://effect/echo"
+        | "internal://effect/simple-delay"
+        | "internal://effect/filter-delay"
+        | "internal://effect/grain-delay"
+        | "internal://effect/beat-repeat"
+        | "internal://effect/looper"
+        | "internal://effect/spectral-time" => Some(FX_DELAY),
+        "internal://effect/reverb"
+        | "internal://effect/hybrid-reverb"
+        | "internal://effect/corpus"
+        | "internal://effect/resonators"
+        | "internal://effect/spectral-resonator" => Some(FX_REVERB),
+        "internal://effect/chorus" => Some(FX_CHORUS),
+        "internal://effect/utility"
+        | "internal://effect/tuner"
+        | "internal://effect/external-audio-effect"
+        | "internal://effect/auto-shift"
+        | "internal://effect/shifter" => Some(FX_UTILITY),
+        "internal://effect/saturator"
+        | "internal://effect/drum-buss"
+        | "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
+        "internal://effect/limiter" => Some(FX_LIMITER),
+        "internal://effect/gate" => Some(FX_GATE),
+        "internal://effect/auto-filter" | "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
+        "internal://effect/phaser" | "internal://effect/phaser-flanger" => Some(FX_PHASER),
+        "internal://effect/flanger" => Some(FX_FLANGER),
+        "internal://effect/distortion"
+        | "internal://effect/amp"
+        | "internal://effect/cabinet"
+        | "internal://effect/overdrive"
+        | "internal://effect/pedal"
+        | "internal://effect/roar"
+        | "internal://effect/erosion" => Some(FX_DISTORTION),
+        "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+        "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+        "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+        "internal://effect/analyzer" | "internal://effect/spectrum" => Some(FX_ANALYZER),
+        _ => None,
     }
-    if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
-        return Some(FX_COMPRESSOR);
-    }
-    if key.contains("delay") || key.contains("echo") || key.contains("ping pong") {
-        return Some(FX_DELAY);
-    }
-    if key.contains("reverb") || key.contains("hybrid reverb") {
-        return Some(FX_REVERB);
-    }
-    if key.contains("chorus") || key.contains("chorus-ensemble") {
-        return Some(FX_CHORUS);
-    }
-    if key.contains("saturator") || key.contains("drum buss") || key.contains("dynamic tube") {
-        return Some(FX_SATURATOR);
-    }
-    if key.contains("limiter") {
-        return Some(FX_LIMITER);
-    }
-    // AUD-282 FIX: "gate" matches "aggregate", "delegate" etc.
-    // Use word-boundary-aware matching to prevent false positives.
-    if key == "gate"
-        || key.starts_with("gate ")
-        || key.ends_with(" gate")
-        || key.contains(" gate ")
-        || key.contains("noise gate")
-    {
-        return Some(FX_GATE);
-    }
-    if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
-        return Some(FX_AUTO_FILTER);
-    }
-    if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
-        return Some(FX_AUTO_PAN);
-    }
-    if key.contains("noise-machine")
-        || key.contains("noisemachine")
-        || key.contains("noise machine")
-    {
-        return Some(FX_NOISE_MACHINE);
-    }
-    if key.contains("phaser") || key.contains("phaser-flanger") {
-        return Some(FX_PHASER);
-    }
-    if key.contains("flanger") {
-        return Some(FX_FLANGER);
-    }
-    if key.contains("distortion")
-        || key.contains("overdrive")
-        || key.contains("pedal")
-        || key.contains("cabinet")
-        // AUD-281 FIX: "amp" matches "sample", "example", "trampoline" etc.
-        // Use word-boundary matching to prevent false positives.
-        || key == "amp"
-        || key.starts_with("amp ")
-        || key.ends_with(" amp")
-        || key.contains(" amp ")
-        || key.contains("guitar amp")
-        || key.contains("amp sim")
-    {
-        return Some(FX_DISTORTION);
-    }
-    if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
-        return Some(FX_BITCRUSHER);
-    }
-    if key.contains("utility") || key.contains("tuner") || key.contains("shifter") {
-        return Some(FX_UTILITY);
-    }
-    if key.contains("analyzer") || key.contains("spectrum") {
-        return Some(FX_ANALYZER);
-    }
-    None
 }
 
 // ── Plugin Slot ────────────────────────────────────────────────────────

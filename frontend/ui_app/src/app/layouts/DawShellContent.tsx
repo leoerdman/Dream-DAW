@@ -26,8 +26,8 @@ interface DawShellContentProps {
     tracksEntity: EntityState<ProjectTrack>;
     selectedTrackId: string;
     selectedTrackIds: string[];
-    handleSelectTrack: (trackId: string) => void;
-    handleSelectTracks: (trackIds: string[], primaryId: string) => void;
+    handleSelectTrack: (trackId: string, options?: { preserveCursor?: boolean }) => void;
+    handleSelectTracks: (trackIds: string[], primaryId: string, options?: { preserveCursor?: boolean }) => void;
     trackHeightBase: number;
     collapsedGroups: Set<string>;
     toggleGroupCollapse: (trackId: string) => void;

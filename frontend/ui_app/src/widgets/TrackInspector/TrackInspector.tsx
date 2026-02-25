@@ -7,8 +7,8 @@ import { TrackInspectorTrackList } from '@/widgets/TrackInspector/ui/TrackInspec
 interface TrackInspectorProps {
     selectedTrackId: string;
     selectedTrackIds?: string[];
-    onSelectTrack: (id: string) => void;
-    onSelectTracks?: (ids: string[], primaryId: string) => void;
+    onSelectTrack: (id: string, options?: { preserveCursor?: boolean }) => void;
+    onSelectTracks?: (ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => void;
     trackHeight?: number;
     rulerHeight?: number;
     mixerFocusMode?: boolean;

@@ -219,20 +219,16 @@ pub fn soft_clip(sample: f32) -> f32 {
     // AUD-10X FIX: The previous tanh limiter allowed signals to reach 1.5.
     // CoreAudio and CPAL hard-clip f32 outputs strictly at 1.0. Thus, the old
     // soft_clip actually permitted destructive digital clipping for loud signals!
-    // This fast rational soft-clipper applies 0% compression below THRESH
+    // This fast rational soft-clipper applies 0% compression below 0.8 (-1.9 dBFS)
     // and C1-smoothly limits excess to form a strict, mathematical 1.0 ceiling.
-    //
-    // BUG-042 FIX: Raised threshold from 0.8 (-1.9 dBFS) to 0.95 (-0.45 dBFS).
-    // Professional mastering limiters target -0.3 dBFS (peaks ~0.93). The old 0.8
-    // threshold silently compressed limiter output, destroying its precision.
-    const THRESH: f32 = 0.95;
-    const BETA: f32 = 1.0 - THRESH; // 0.05
+    const THRESH: f32 = 0.8;
+    const BETA: f32 = 1.0 - THRESH; // 0.2
 
     if abs <= THRESH {
-        sample // 100% transparent below -0.45 dBFS
+        sample // 100% transparent below -1.9 dBFS
     } else {
         let excess = abs - THRESH;
-        // Rational curve mapping [THRESH, inf) to [THRESH, 1.0] with slope=1.0 at THRESH
+        // Rational curve mapping [0.8, inf) to [0.8, 1.0] with slope=1.0 at THRESH
         let mapped = THRESH + (BETA * excess) / (BETA + excess);
         sample.signum() * mapped
     }
@@ -405,23 +401,25 @@ impl RenderContext {
                 if clip.duration.sample_frame <= 0 {
                     ZERO_DURATION_CLIP_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-                // BUG-A01/A02 FIX: `warp_source_duration_frames` is in source-domain
-                // frames. To compute a correct playback rate, we need both source and
-                // timeline values in the SAME frame domain. We store the raw source
-                // value here and normalize it to timeline domain inside the pool block
-                // where we know the actual source sample rate.
-                let clip_source_len_raw = if clip.warp_source_duration_frames > 0 {
+                let clip_source_len = if clip.warp_source_duration_frames > 0 {
                     clip.warp_source_duration_frames as f64
                 } else {
-                    // A02: Fallback 0 signals "resolve from pool later".
-                    0.0
+                    clip.duration.sample_frame.max(1) as f64
                 };
-                let is_warped = clip.is_warped
-                    && (clip_source_len_raw > 1.0 || clip.warp_source_duration_frames <= 0);
+                let is_warped = clip.is_warped && clip_source_len > 1.0;
 
-                // F03 FIX: Clamp pitch_shift_semitones to sane range to prevent overflow.
-                let clamped_pitch = clip.pitch_shift_semitones.clamp(-48.0, 48.0);
-                let pitch_multiplier = 2.0_f64.powf(clamped_pitch / 12.0);
+                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+
+                let mut playback_rate = if is_warped {
+                    let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
+                    // If true time-pitch independence is required, rubberband must be integrated.
+                    // For now, Warp mode pitch shift also accelerates read rate (like tape).
+                    rate * pitch_multiplier
+                } else {
+                    pitch_multiplier
+                };
+
+                playback_rate = playback_rate.clamp(0.125, 8.0);
 
                 let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
                     WarpResampleMode::Standard
@@ -446,24 +444,7 @@ impl RenderContext {
                     let source_to_timeline_ratio =
                         audio.sample_rate.max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
-                    // BUG-A01 FIX: Normalize clip_source_len to timeline domain so
-                    // the ratio source_len / timeline_len is dimensionally correct.
-                    let clip_source_len_timeline = if clip_source_len_raw > 1.0 {
-                        // Convert source frames → timeline frames
-                        clip_source_len_raw / source_to_timeline_ratio.max(0.001)
-                    } else {
-                        // A02 FIX: warp_source_duration_frames was 0 → derive from
-                        // actual source file length in timeline domain.
-                        let src_frames = audio.left().len().max(1) as f64;
-                        src_frames / source_to_timeline_ratio.max(0.001)
-                    };
-
                     if is_warped {
-                        // Recompute playback_rate with SR-normalized values.
-                        let warp_rate =
-                            (clip_source_len_timeline / clip_timeline_len).clamp(0.125, 8.0);
-                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
-
                         let clip_local_timeline_start =
                             (ac.source_start_frame - clip.source_offset.sample_frame).max(0) as f64;
                         let source_start = (clip.source_offset.sample_frame.max(0) as f64)
@@ -517,23 +498,7 @@ impl RenderContext {
                     let source_to_timeline_ratio =
                         window.sample_rate().max(1) as f64 / self.timeline_sample_rate.max(1.0);
 
-                    // BUG-A01/PARITY FIX: Same SR normalization as pool path.
-                    // When warp_source_duration_frames is unset, derive source length
-                    // from streaming window total_frames() instead of clip_timeline_len.
-                    // Using timeline len here underestimates/overestimates warp ratio
-                    // for imported clips and makes streaming playback diverge from pool.
-                    let clip_source_len_timeline_s = if clip_source_len_raw > 1.0 {
-                        clip_source_len_raw / source_to_timeline_ratio.max(0.001)
-                    } else {
-                        let src_frames = window.total_frames().max(1) as f64;
-                        src_frames / source_to_timeline_ratio.max(0.001)
-                    };
-
                     if is_warped {
-                        let warp_rate =
-                            (clip_source_len_timeline_s / clip_timeline_len).clamp(0.125, 8.0);
-                        let playback_rate = (warp_rate * pitch_multiplier).clamp(0.125, 8.0);
-
                         // MEGA-01 FIX: Derive timeline offset safely from source_start_frame
                         // to prevent desyncs when playhead wraps across a loop boundary.
                         let clip_local_timeline_start =
@@ -702,23 +667,13 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        let requested_frame_count = output.len() / self.channels.max(1);
-        // Guard all fixed RT buffers against oversized backend callbacks.
-        // If the backend ever requests more frames than our preallocated pools,
-        // we render a safe prefix and keep the remainder as silence.
-        let process_frame_count = requested_frame_count
-            .min(self.master_bus.left().len())
-            .min(MAX_BUFFER_FRAMES);
-
-        // Always start from silence to avoid stale data when a short/invalid
-        // callback writes fewer frames than the host output span.
-        output.fill(0.0);
+        let frame_count = output.len() / self.channels.max(1);
 
         // Phase 1: Fill track slots with Audio Clips.
-        self.read_audio_clips_into_tracks_simple(process_frame_count, clips_per_track, clip_pool);
+        self.read_audio_clips_into_tracks_simple(frame_count, clips_per_track, clip_pool);
 
         // Phase 2: Apply DeviceChain (FX) and ChannelStrip (Gain/Pan) for standalone rendering
-        let track_decay = peak_decay_for_block(self.sample_rate, process_frame_count);
+        let track_decay = peak_decay_for_block(self.sample_rate, frame_count);
         for track_idx in 0..self.track_slots.len() {
             let slot = &mut self.track_slots[track_idx];
             if !slot.active {
@@ -726,21 +681,21 @@ impl RenderContext {
             }
             if !slot.device_chain.is_empty() {
                 slot.device_chain.process_stereo(
-                    &mut slot.buf_left[..process_frame_count],
-                    &mut slot.buf_right[..process_frame_count],
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
                     self.sample_rate as f32,
                 );
             }
             slot.strip.process_stereo(
-                &mut slot.buf_left[..process_frame_count],
-                &mut slot.buf_right[..process_frame_count],
+                &mut slot.buf_left[..frame_count],
+                &mut slot.buf_right[..frame_count],
             );
 
             if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
-                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..process_frame_count]));
-                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..process_frame_count]));
-                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..process_frame_count]));
-                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..process_frame_count]));
+                let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
+                let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
+                let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
+                let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
 
                 meter_l.store_rms(rms_l);
                 meter_r.store_rms(rms_r);
@@ -761,14 +716,14 @@ impl RenderContext {
                 continue;
             }
             master_bus.add_stereo(
-                &slot.buf_left[..process_frame_count],
-                &slot.buf_right[..process_frame_count],
+                &slot.buf_left[..frame_count],
+                &slot.buf_right[..frame_count],
             );
         }
 
         // ── 6. Write master output ──────────────────────────────────
-        let master_l = &self.master_bus.left()[..process_frame_count];
-        let master_r = &self.master_bus.right()[..process_frame_count];
+        let master_l = &self.master_bus.left()[..frame_count];
+        let master_r = &self.master_bus.right()[..frame_count];
 
         // Master metering
         let m_rms_l = linear_to_db(compute_rms(master_l));
@@ -776,7 +731,7 @@ impl RenderContext {
         let m_peak_l = linear_to_db(compute_peak(master_l));
         let m_peak_r = linear_to_db(compute_peak(master_r));
 
-        let master_decay = peak_decay_for_block(self.sample_rate, process_frame_count);
+        let master_decay = peak_decay_for_block(self.sample_rate, frame_count);
         self.meter_bank.master_left().store_rms(m_rms_l);
         self.meter_bank.master_right().store_rms(m_rms_r);
         self.meter_bank
@@ -788,9 +743,9 @@ impl RenderContext {
 
         // AUD-043 FIX: Precompute safe frame count to avoid per-frame branch.
         let safe_frames = if self.channels >= 2 {
-            (output.len() / self.channels).min(process_frame_count)
+            (output.len() / self.channels).min(frame_count)
         } else {
-            process_frame_count
+            frame_count
         };
         // AUD-078 FIX: Stereo-specialized interleave (most common case).
         if self.channels == 2 {

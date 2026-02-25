@@ -19,7 +19,7 @@ export function isTrackActive(
     if (!track) return false;
 
     // 1. Explicit Mute always wins
-    if (track.is_mute) {
+    if (track.is_disabled) {
         return false;
     }
 

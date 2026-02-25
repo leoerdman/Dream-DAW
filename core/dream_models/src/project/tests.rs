@@ -79,7 +79,7 @@ fn project_serialization_roundtrip() {
 fn output_enabled_from_model_defaults_true_without_lane() {
     let track = Track::new("T");
     assert!(track.output_enabled_from_model());
-    assert!(!track.effective_mute_from_model());
+    assert!(!track.effective_disabled_from_model());
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn output_enabled_from_model_reads_static_lane() {
         }],
     });
     assert!(!track.output_enabled_from_model());
-    assert!(track.effective_mute_from_model());
+    assert!(track.effective_disabled_from_model());
 }
 
 // ── New Sprint 13 tests ────────────────────────────────────────────

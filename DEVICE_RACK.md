@@ -70,7 +70,71 @@ pub trait DeviceProcessor: Send {
 }
 ```
 
-### 2. Device Kinds (Metadata, Not Architecture)
+### 2. Device Group (Ableton-Style Rack)
+
+A `DeviceGroup` is itself a `DeviceProcessor`. It contains one or more
+parallel `DeviceChain`s and exposes **macro knobs** mapped to child parameters.
+Groups can be nested infinitely — a group can contain groups.
+
+```
+┌─────────────────── DeviceGroup ("Bass Rack") ──────────────────┐
+│                                                                │
+│  Macro 1: Filter ──→ chain[0].slot[2].param[0]                │
+│  Macro 2: Drive  ──→ chain[0].slot[1].param[3]                │
+│  Macro 3: Width  ──→ chain[1].slot[0].param[1]                │
+│                                                                │
+│  ┌─── Chain A ────────────────────────────┐                   │
+│  │ [Synth] → [Distortion] → [AutoFilter] │ ─┐                │
+│  └────────────────────────────────────────┘  │                │
+│                                              ├─→ SUM → OUT   │
+│  ┌─── Chain B ────────────────────────────┐  │                │
+│  │ [Synth] → [Chorus] → [Utility]        │ ─┘                │
+│  └────────────────────────────────────────┘                   │
+│                                                                │
+│  Zone routing: Chain A = C0–B3, Chain B = C4–C8              │
+└────────────────────────────────────────────────────────────────┘
+```
+
+```rust
+/// A DeviceGroup is a DeviceProcessor that contains parallel chains.
+/// This is the runtime equivalent of project model's `DeviceRack`.
+struct DeviceGroupSlot {
+    chains: Vec<DeviceChain>,          // parallel processing chains
+    macro_controls: [MacroState; 16],  // mapped to child params
+    zone_settings: Vec<ZoneSettings>,  // per-chain key/vel routing
+    is_bypassed: bool,
+    name: String,
+}
+
+/// Macro knob → child parameter mapping (resolved at setup time).
+struct MacroMapping {
+    chain_index: usize,
+    slot_index: usize,
+    param_index: u32,
+    min_value: f64,
+    max_value: f64,
+}
+
+struct MacroState {
+    value: f64,
+    mappings: Vec<MacroMapping>,
+}
+
+impl DeviceProcessor for DeviceGroupSlot {
+    fn process(&mut self, left: &mut [f32], right: &mut [f32], ..) -> ProcessResult {
+        // 1. Apply macro → child param mappings
+        // 2. Process each chain into scratch buffers
+        // 3. Sum chain outputs (respecting chain volume/pan)
+        // 4. Write summed result to left/right
+    }
+}
+```
+
+Because `DeviceGroupSlot` implements `DeviceProcessor`, it slots into
+`DeviceChain` like any other device. The audio callback doesn't know or
+care that it's a group — it just calls `.process()`.
+
+### 3. Device Kinds (Metadata, Not Architecture)
 
 ```rust
 pub enum DeviceKind {
@@ -82,6 +146,8 @@ pub enum DeviceKind {
     InternalInstrument,
     /// External instrument plugin (Serum, Vital, etc.)
     ExternalInstrument { instance_id: Uuid },
+    /// Device group with parallel chains and macro knobs
+    Group { chain_count: usize },
 }
 ```
 
@@ -92,7 +158,7 @@ pub enum DeviceKind {
 
 It is **never** used for branching in the audio callback.
 
-### 3. Two Concrete Implementations
+### 4. Three Concrete Implementations
 
 ```rust
 /// Wraps a DspProcessor (internal effect) as a DeviceProcessor.
@@ -114,7 +180,7 @@ struct ExternalDeviceSlot {
 }
 ```
 
-### 4. The Device Chain (Replaces `InsertEffectsChain`)
+### 5. The Device Chain (Replaces `InsertEffectsChain`)
 
 ```rust
 pub struct DeviceChain {
@@ -239,8 +305,10 @@ pub enum EngineCommand {
 | Trait for all devices | `DeviceProcessor` | `dream_dsp::device_slot` |
 | Internal effect wrapper | `InternalDeviceSlot` | `dream_dsp::device_slot` |
 | External plugin wrapper | `ExternalDeviceSlot` | `dream_dsp::device_slot` |
+| Device group (rack) | `DeviceGroupSlot` | `dream_dsp::device_slot` |
 | Serial processing chain | `DeviceChain` | `dream_dsp::device_chain` |
 | Classification enum | `DeviceKind` | `dream_dsp::device_slot` |
+| Macro state | `MacroState` / `MacroMapping` | `dream_dsp::device_slot` |
 | Per-track runtime slot | `TrackSlot.device_chain` | `dream_engine::render_callback` |
 | Master chain | `master_device_chain` | `audio_thread_runner.rs` |
 | Project model node | `DeviceNode::Single / Rack` | `dream_models::project` |
@@ -271,12 +339,12 @@ pub enum EngineCommand {
 | **Phase 3** | Simplify audio callback to single process loop | High — core RT path |
 | **Phase 4** | Remove `ExternalFxRuntimeSlot`, `SharedExternalFxSnapshot` | Medium — removes dead code |
 | **Phase 5** | Add `ReorderDevice` command + PDC foundation | Low — additive |
+| **Phase 6** | Implement `DeviceGroupSlot` with parallel chains + macro knobs | Medium — recursive composition |
 
 ---
 
 ## Non-Goals (Explicit Scope Boundaries)
 
-- **Parallel rack rendering** — future work, separate from this refactor
 - **Plugin state undo/redo** — orthogonal to device chain architecture
 - **CLAP/AU format support** — `PluginInstance` trait already abstracts this
 - **Wet/dry mix** — can be added per-`DeviceProcessor` later

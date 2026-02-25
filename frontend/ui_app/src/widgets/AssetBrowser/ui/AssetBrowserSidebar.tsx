@@ -72,7 +72,7 @@ export const AssetBrowserSidebar = memo(function AssetBrowserSidebar({
                     return (
                         <button key={cat.id} onClick={handleAddFolder} style={addFolderButtonStyle}>
                             <span style={sectionIconCellStyle}><BrowserGlyph name={cat.icon} size={12} /></span>
-                            <span>Add Fol…</span>
+                            <span>{cat.title}</span>
                         </button>
                     );
                 }
@@ -126,7 +126,7 @@ const sectionButtonStyle: React.CSSProperties = {
     padding: 'var(--token-size-px-3) var(--space-1-5) var(--token-size-px-3) var(--space-3)',
     background: 'none',
     border: 'none',
-    color: 'var(--token-color-hex-ffffff)',
+    color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-sm)',
     fontWeight: 'var(--font-weight-bold)',
     textTransform: 'uppercase',
@@ -155,7 +155,7 @@ const addFolderButtonStyle: React.CSSProperties = {
     padding: 'var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-3)',
     background: 'transparent',
     border: 'none',
-    color: 'var(--token-color-hex-ffffff)',
+    color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-base)',
     fontWeight: 'var(--font-weight-semibold)',
     textAlign: 'left',
@@ -172,7 +172,7 @@ const categoryButtonStyle: React.CSSProperties = {
     width: '100%',
     padding: 'var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-3)',
     border: 'none',
-    color: 'var(--token-color-hex-ffffff)',
+    color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-base)',
     textAlign: 'left',
     cursor: 'pointer',
@@ -186,7 +186,7 @@ const categoryIconStyle: React.CSSProperties = {
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
-    color: 'var(--token-color-hex-ffffff)',
+    color: 'var(--color-text-primary)',
 };
 
 const categoryLabelStyle: React.CSSProperties = {

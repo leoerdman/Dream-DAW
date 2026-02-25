@@ -38,7 +38,7 @@ export const DELTA_APPLIED_TOOLS = new Set([
     'merge_clips',
     'set_track_volume',
     'set_track_pan',
-    'set_track_mute',
+    'set_track_disabled',
     'set_track_solo',
     'set_track_color',
     'set_track_instrument',

@@ -44,7 +44,7 @@ export function createTrackProjectActions(
     | 'setTrackSendLevel'
     | 'setMasterVolume'
     | 'flushTrackControlFinals'
-    | 'setTrackMute'
+    | 'setTrackDisabled'
     | 'setTrackSolo'
     | 'addTrack'
     | 'deleteTrack'
@@ -209,16 +209,16 @@ export function createTrackProjectActions(
             }
         },
 
-        setTrackMute: async (trackIndex: number, muted: boolean) => {
+        setTrackDisabled: async (trackIndex: number, disabled: boolean) => {
             set((s) => {
                 const trackId = s.tracks.allIds[trackIndex];
                 const track = trackId ? s.tracks.byId[trackId] : null;
-                if (!track || track.is_mute === muted) return s;
-                return patchTrackByIndex(s, trackIndex, { is_mute: muted });
+                if (!track || track.is_disabled === disabled) return s;
+                return patchTrackByIndex(s, trackIndex, { is_disabled: disabled });
             });
             try {
-                const response = await engine.setTrackMuteWithDeltas(trackIndex, muted);
-                await get().applyProjectDeltas(response.deltas, 'setTrackMute');
+                const response = await engine.setTrackDisabledWithDeltas(trackIndex, disabled);
+                await get().applyProjectDeltas(response.deltas, 'setTrackDisabled');
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

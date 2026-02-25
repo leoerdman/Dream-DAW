@@ -349,19 +349,19 @@ fn update_track(
         }
     }
 
-    if let Some(muted) = update.muted {
+    if let Some(disabled) = update.disabled {
         let result = execute_orchestrator_command(
             &project_state,
             &dream_orchestrator::commands::SetTrackDisabledByIndexCommand {
                 track_index: update.track_index,
-                muted,
+                disabled,
             },
         )?;
         if let Err(e) = push_command(
             &handle,
             EngineCommand::SetTrackDisabled {
                 track_index: update.track_index,
-                muted: result.muted,
+                disabled: result.disabled,
             },
         ) {
             log::error!("[update_track] SetTrackDisabled dropped: {e}");

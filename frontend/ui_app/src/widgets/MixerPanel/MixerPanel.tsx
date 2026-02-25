@@ -14,7 +14,7 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
     const tracksEntity = useEngineStore((s) => s.tracks);
     const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
     const setTrackPan = useEngineStore((s) => s.setTrackPan);
-    const setTrackMute = useEngineStore((s) => s.setTrackMute);
+    const setTrackDisabled = useEngineStore((s) => s.setTrackDisabled);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
 
     return (
@@ -45,7 +45,7 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
                         onSelect={() => onSelectTrack(trackId)}
                         onVolumeChange={(gain) => setTrackVolume(index, gain)}
                         onPanChange={(pan) => setTrackPan(index, pan)}
-                        onToggleMute={() => setTrackMute(index, !track.is_mute)}
+                        onToggleDisabled={() => setTrackDisabled(index, !track.is_disabled)}
                         onToggleSolo={() => setTrackSolo(index, !track.is_solo)}
                     />
                 );

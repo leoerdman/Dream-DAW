@@ -62,8 +62,9 @@ export function flattenFolderBrowserItems(params: {
         const sizeKb = Math.round(f.size_bytes / 1024);
         const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
         const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
+        const stablePathKey = f.path || `${f.name}-${i}`;
         return {
-            id: `folder-${i}`,
+            id: `folder-${stablePathKey}`,
             name: f.name,
             type: fileTypeToItemType(f.file_type),
             format: f.extension || undefined,

@@ -37,6 +37,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const [folderScanError, setFolderScanError] = useState<string | null>(null);
     const [pluginFiles, setPluginFiles] = useState<BrowserFileEntry[]>([]);
     const [pluginScanNonce, setPluginScanNonce] = useState(0);
+    const [libraryScanNonce, setLibraryScanNonce] = useState(0);
     const [pluginScanned, setPluginScanned] = useState(false);
     const [folderItems, setFolderItems] = useState<BrowserFileEntry[]>([]);
     const [folderScanPath, setFolderScanPath] = useState<string | null>(null);
@@ -123,6 +124,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
         folderScanError, setFolderScanError,
         pluginFiles, setPluginFiles,
         pluginScanNonce, setPluginScanNonce,
+        libraryScanNonce, setLibraryScanNonce,
         pluginScanned, setPluginScanned,
         folderItems, setFolderItems,
         folderScanPath, setFolderScanPath,

@@ -217,6 +217,8 @@ fn scan_plugin_folders(
     let user_vst = home.join("Library/Audio/Plug-Ins/VST").to_string_lossy().to_string();
     let user_vst3 = home.join("Library/Audio/Plug-Ins/VST3").to_string_lossy().to_string();
     let user_au = home.join("Library/Audio/Plug-Ins/Components").to_string_lossy().to_string();
+    let clap_path = "/Library/Audio/Plug-Ins/CLAP".to_string();
+    let user_clap = home.join("Library/Audio/Plug-Ins/CLAP").to_string_lossy().to_string();
 
     let all_paths: Vec<(&str, &str)> = paths.iter()
         .map(|(p, t)| (p.as_str(), *t))
@@ -224,6 +226,8 @@ fn scan_plugin_folders(
             (user_vst.as_str(), "VST2"),
             (user_vst3.as_str(), "VST3"),
             (user_au.as_str(), "AU"),
+            (clap_path.as_str(), "CLAP"),
+            (user_clap.as_str(), "CLAP"),
         ])
         .collect();
 

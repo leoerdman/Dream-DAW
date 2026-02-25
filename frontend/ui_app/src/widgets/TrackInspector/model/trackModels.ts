@@ -7,7 +7,7 @@ export interface TrackData {
     color: string;
     volume: number;
     pan: number;
-    isMuted: boolean;
+    isDisabled: boolean;
     isSoloed: boolean;
     isArmed: boolean;
     vuLevel: number;
@@ -59,7 +59,7 @@ export function mapProjectTrack(
         color: pt.color,
         volume: pt.volume,
         pan: pt.pan,
-        isMuted: pt.is_mute,
+        isDisabled: pt.is_disabled,
         isSoloed: pt.is_solo,
         isArmed: pt.is_armed,
         vuLevel,

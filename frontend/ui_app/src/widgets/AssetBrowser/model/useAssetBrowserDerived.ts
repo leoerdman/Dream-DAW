@@ -49,10 +49,10 @@ export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
         return [
             ...staticWithCollections,
             { id: 'sec-folders', title: 'Folders', icon: 'hard-drive', kind: 'section' },
-            { id: 'userLibrary', title: 'User Lib…', icon: 'user', kind: 'leaf' },
-            { id: 'currentProject', title: 'Current…', icon: 'file', kind: 'leaf' },
+            { id: 'userLibrary', title: 'User Library', icon: 'user', kind: 'leaf' },
+            { id: 'currentProject', title: 'Current Project', icon: 'file', kind: 'leaf' },
             ...folderCats,
-            { id: 'addFolder', title: 'Add Fol…', icon: 'folder-plus', kind: 'leaf' },
+            { id: 'addFolder', title: 'Add Folder', icon: 'folder-plus', kind: 'leaf' },
         ];
     }, [params.collectionLabels, params.userFolders]);
 
@@ -139,4 +139,3 @@ export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
         selectedPluginLetter,
     };
 }
-

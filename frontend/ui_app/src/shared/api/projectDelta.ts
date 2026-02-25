@@ -25,7 +25,7 @@ export type ProjectDelta =
     | { kind: 'ClipRenamed'; data: { clip_id: string; new_name: string } }
     | { kind: 'TrackVolumeChanged'; data: { track_id: string; volume: number } }
     | { kind: 'TrackPanChanged'; data: { track_id: string; pan: number } }
-    | { kind: 'TrackMuteChanged'; data: { track_id: string; muted: boolean } }
+    | { kind: 'TrackDisabledChanged'; data: { track_id: string; muted: boolean } }
     | { kind: 'TrackSoloChanged'; data: { track_id: string; soloed: boolean } }
     | { kind: 'TrackArmChanged'; data: { track_index: number; armed: boolean } }
     | { kind: 'TrackRoutingChanged'; data: { track_id: string; output_destination_id: string | null } }

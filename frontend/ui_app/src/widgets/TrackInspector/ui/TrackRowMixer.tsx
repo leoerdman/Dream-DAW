@@ -13,7 +13,7 @@ interface TrackRowMixerProps {
     isActive: boolean;
     mixerFocusMode: boolean;
     layout: TrackRowLayoutMetrics;
-    onToggleMute: () => void;
+    onToggleDisabled: () => void;
     onToggleSolo: () => void;
     onToggleArm: () => void;
     onVolumeChange?: (gain: number) => void;
@@ -30,13 +30,13 @@ export function TrackRowMixer({
     isActive,
     mixerFocusMode,
     layout,
-    onToggleMute,
+    onToggleDisabled,
     onToggleSolo,
     onToggleArm,
     onVolumeChange,
     onPanChange,
 }: TrackRowMixerProps) {
-    const isMeterActive = !track.isMuted && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
+    const isMeterActive = !track.isDisabled && (!anySoloed || track.isSoloed || track.type === 'group' || track.type === 'master');
     const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
 
     return (
@@ -59,7 +59,7 @@ export function TrackRowMixer({
             {!isMaster ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: layout.muteSoloColWidth, minWidth: layout.muteSoloColWidth }}>
                     <button
-                        onClick={(e) => { e.stopPropagation(); onToggleMute(); }}
+                        onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
                         title={isActive ? 'Disable track' : 'Enable track'}
                         style={{
                             width: layout.muteSoloColWidth,

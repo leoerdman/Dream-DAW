@@ -30,7 +30,7 @@ export const SessionWorkspace = ({
     onSelectTrack: (trackId: string) => void;
 }) => {
     const meters = useEngineStore((s) => s.meters);
-    const setTrackMute = useEngineStore((s) => s.setTrackMute);
+    const setTrackDisabled = useEngineStore((s) => s.setTrackDisabled);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
     const setTrackPan = useEngineStore((s) => s.setTrackPan);
@@ -211,7 +211,7 @@ export const SessionWorkspace = ({
                     tracks={tracks}
                     meters={meters}
                     applyProjectDeltas={applyProjectDeltas}
-                    setTrackMute={setTrackMute}
+                    setTrackDisabled={setTrackDisabled}
                     setTrackSolo={setTrackSolo}
                     setTrackVolume={setTrackVolume}
                     setTrackPan={setTrackPan}

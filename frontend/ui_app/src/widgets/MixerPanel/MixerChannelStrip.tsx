@@ -13,7 +13,7 @@ interface ChannelStripProps {
     onSelect: () => void;
     onVolumeChange: (gain: number) => void;
     onPanChange: (pan: number) => void;
-    onToggleMute: () => void;
+    onToggleDisabled: () => void;
     onToggleSolo: () => void;
 }
 
@@ -24,7 +24,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     onSelect,
     onVolumeChange,
     onPanChange,
-    onToggleMute,
+    onToggleDisabled,
     onToggleSolo,
 }: ChannelStripProps) {
     const faderRef = useRef<HTMLDivElement>(null);
@@ -37,7 +37,7 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const headerTextColor = getContrastColor(trackColor) === 'black'
         ? 'var(--token-color-hex-000000)'
         : 'var(--color-text-bright)';
-    const isMuted = track.is_mute;
+    const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
     const isMidi = track.track_type === 'midi';
 
@@ -146,8 +146,8 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
             <MixerChannelPeakLabel trackIndex={trackIndex} />
             <div style={{ display: 'flex', flexDirection: 'row', gap: 2, padding: '3px 4px', justifyContent: 'center', flexShrink: 0, borderTop: '1px solid var(--color-divider-light)' }}>
                 <button onClick={(e) => { e.stopPropagation(); onToggleSolo(); }} title="Solo" style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)', color: isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)', transition: 'background 80ms ease' }}>S</button>
-                <button onClick={(e) => { e.stopPropagation(); onToggleMute(); }} title={isMuted ? 'Unmute' : 'Mute'} style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: !isMuted ? 'var(--color-status-success)' : 'color-mix(in srgb, var(--color-warning) 45%, var(--surface-elevated))', color: !isMuted ? 'var(--color-text-on-color)' : 'var(--color-text-bright)', transition: 'background 80ms ease' }}>
-                    {!isMuted ? trackIndex + 1 : 'M'}
+                <button onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }} title={isDisabled ? 'Enable' : 'Disable'} style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: !isDisabled ? 'var(--color-status-success)' : 'color-mix(in srgb, var(--color-warning) 45%, var(--surface-elevated))', color: !isDisabled ? 'var(--color-text-on-color)' : 'var(--color-text-bright)', transition: 'background 80ms ease' }}>
+                    {!isDisabled ? trackIndex + 1 : 'M'}
                 </button>
             </div>
         </div>

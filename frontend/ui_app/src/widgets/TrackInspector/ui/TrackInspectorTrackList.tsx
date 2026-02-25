@@ -263,7 +263,7 @@ export function TrackInspectorTrackList({
                                     logic.setLastClickedTrackId(track.id);
                                     logic.setLastHeaderClickedTrackId(track.id);
                                 }}
-                                onToggleMute={() => logic.toggleMute(track.id)}
+                                onToggleDisabled={() => logic.toggleDisabled(track.id)}
                                 onToggleSolo={() => logic.toggleSolo(track.id)}
                                 onToggleArm={() => logic.toggleArm(track.id)}
                                 onToggleCollapse={isGroup ? () => logic.toggleGroupCollapse(track.id) : undefined}

@@ -1392,7 +1392,7 @@ impl Track {
     ///
     /// A track is treated as muted if either explicit mute is on, or
     /// Ableton import marked it as `mixer.output_enabled = 0`.
-    pub fn effective_mute_from_model(&self) -> bool {
+    pub fn effective_disabled_from_model(&self) -> bool {
         self.is_disabled || !self.output_enabled_from_model()
     }
 

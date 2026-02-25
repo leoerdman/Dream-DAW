@@ -77,7 +77,7 @@ fn get_audio_chain_audit(
         if track.track_type == TrackType::Group {
             group_track_count = group_track_count.saturating_add(1);
         }
-        let effective_mute = track.effective_mute_from_model();
+        let effective_mute = track.effective_disabled_from_model();
         if effective_mute {
             muted_track_count = muted_track_count.saturating_add(1);
         }

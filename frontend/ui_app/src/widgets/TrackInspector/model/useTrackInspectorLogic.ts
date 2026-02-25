@@ -36,7 +36,7 @@ export function useTrackInspectorLogic({
     const {
         trackIds,
         tracksByIdState,
-        engineSetTrackMute,
+        engineSetTrackDisabled,
         engineSetTrackSolo,
         engineSetTrackVolume,
         engineSetTrackPan,
@@ -47,7 +47,7 @@ export function useTrackInspectorLogic({
     } = useEngineStore(useShallow((s) => ({
         trackIds: s.tracks.allIds,
         tracksByIdState: s.tracks.byId,
-        engineSetTrackMute: s.setTrackMute,
+        engineSetTrackDisabled: s.setTrackDisabled,
         engineSetTrackSolo: s.setTrackSolo,
         engineSetTrackVolume: s.setTrackVolume,
         engineSetTrackPan: s.setTrackPan,
@@ -157,7 +157,7 @@ export function useTrackInspectorLogic({
         onToggleGroupCollapseProp,
     });
     const {
-        toggleMute,
+        toggleDisabled,
         toggleSolo,
         toggleArm,
         setTrackOutput,
@@ -166,7 +166,7 @@ export function useTrackInspectorLogic({
         tracks,
         selectedTrackIdSet,
         getTrackIndex,
-        engineSetTrackMute,
+        engineSetTrackDisabled,
         engineSetTrackSolo,
         setLocalOverrides,
     });
@@ -308,7 +308,7 @@ export function useTrackInspectorLogic({
         setRenameValue,
         setContextMenu,
         setColorPickerState,
-        toggleMute,
+        toggleDisabled,
         toggleSolo,
         toggleArm,
         toggleGroupCollapse,

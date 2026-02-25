@@ -510,14 +510,14 @@ export class CanvasClipRenderer {
         const maxTextW = w - textPad * 2;
         if (maxTextW > 4 && headerH > 8) {
             const contrastColor = getContrastColor(clip.color);
-            const isMutedVisual = clip.muted || isTrackMuted;
+            const isDisabledVisual = clip.muted || isTrackMuted;
             ctx.font = CLIP_LABEL_FONT;
             const label = this._truncateTextToWidth(ctx, clip.name, maxTextW);
             if (label) {
-                ctx.fillStyle = isMutedVisual
+                ctx.fillStyle = isDisabledVisual
                     ? rgba(210, 215, 223, 1)
                     : (contrastColor === 'black' ? rgba(0, 0, 0, 1) : rgba(255, 255, 255, 1));
-                ctx.globalAlpha *= isMutedVisual ? 0.95 : 0.9;
+                ctx.globalAlpha *= isDisabledVisual ? 0.95 : 0.9;
                 ctx.textBaseline = 'middle';
                 ctx.textAlign = 'left';
                 const textX = x + textPad;

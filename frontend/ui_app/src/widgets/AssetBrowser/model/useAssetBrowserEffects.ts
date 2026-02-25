@@ -37,6 +37,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         setSampleScanLoading,
         setSampleScanError,
         setRealFiles,
+        libraryScanNonce,
         pluginScanNonce,
         pluginScanned,
         setPluginScanError,
@@ -149,7 +150,8 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         setLeftPaneWidth(Math.max(84, Math.min(180, settings.browserLeftPaneWidth || 92)));
     }, [settingsLoaded, settings.browserShowSizeColumn, settings.browserShowTypeColumn, settings.browserLeftPaneWidth, setLeftPaneWidth, setShowSizeColumn, setShowTypeColumn]);
     useEffect(() => {
-        if (!isSamplesCategory || scanTriggeredRef.current) return;
+        if (!isSamplesCategory) return;
+        if (scanTriggeredRef.current && libraryScanNonce === 0) return;
         let cancelled = false;
         const timerId = setTimeout(() => {
             if (cancelled) return;
@@ -184,7 +186,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
                 });
         }, 300);
         return () => { cancelled = true; clearTimeout(timerId); };
-    }, [isSamplesCategory, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading, statusError]);
+    }, [isSamplesCategory, libraryScanNonce, scanTriggeredRef, setRealFiles, setSampleScanError, setSampleScanLoading, statusError]);
     useEffect(() => {
         const needsPluginCatalog = selectedCategoryId === 'plugins'
             || selectedCategoryId === 'all'

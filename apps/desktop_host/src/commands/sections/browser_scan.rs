@@ -18,7 +18,7 @@ const AUDIO_EXTENSIONS: &[&str] = &[
 
 /// Plugin bundle extensions recognized by the browser.
 const PLUGIN_EXTENSIONS: &[&str] = &[
-    "vst", "vst3", "component", "au", "aaxplugin",
+    "vst", "vst3", "component", "au", "clap", "aaxplugin",
 ];
 
 /// Project file extensions recognized by the browser.

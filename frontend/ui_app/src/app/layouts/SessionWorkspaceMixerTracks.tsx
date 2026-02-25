@@ -12,7 +12,7 @@ interface SessionWorkspaceMixerTracksProps {
         tracks: Array<[{ peak: number }, { peak: number }] | undefined>;
     };
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
-    setTrackMute: (trackIndex: number, muted: boolean) => Promise<unknown>;
+    setTrackDisabled: (trackIndex: number, muted: boolean) => Promise<unknown>;
     setTrackSolo: (trackIndex: number, soloed: boolean) => Promise<unknown>;
     setTrackVolume: (trackIndex: number, volume: number) => Promise<unknown>;
     setTrackPan: (trackIndex: number, pan: number) => Promise<unknown>;
@@ -22,7 +22,7 @@ export function SessionWorkspaceMixerTracks({
     tracks,
     meters,
     applyProjectDeltas,
-    setTrackMute,
+    setTrackDisabled,
     setTrackSolo,
     setTrackVolume,
     setTrackPan,
@@ -58,9 +58,9 @@ export function SessionWorkspaceMixerTracks({
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                 <button
                                     type="button"
-                                    style={sessionMixerBtnStyle(track.is_mute)}
-                                    onClick={() => { void setTrackMute(trackIndex, !track.is_mute); }}
-                                    title={track.is_mute ? 'Unmute track' : 'Mute track'}
+                                    style={sessionMixerBtnStyle(track.is_disabled)}
+                                    onClick={() => { void setTrackDisabled(trackIndex, !track.is_disabled); }}
+                                    title={track.is_disabled ? 'Unmute track' : 'Mute track'}
                                 >
                                     <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
                                 </button>

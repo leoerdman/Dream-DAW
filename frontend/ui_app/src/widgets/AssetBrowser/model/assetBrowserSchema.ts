@@ -26,7 +26,7 @@ export interface BrowserItem {
     slotHint?: 'instrument' | 'effect' | 'auto';
     durationSeconds?: number;
     sizeBytes?: number;
-    pluginSource?: 'internal' | 'vst2' | 'vst3' | 'au' | 'external';
+    pluginSource?: 'internal' | 'vst2' | 'vst3' | 'au' | 'clap' | 'external';
     _depth?: number;
     _expanded?: boolean;
     _loading?: boolean;
@@ -47,7 +47,7 @@ export const STATIC_CATEGORIES: BrowserCategory[] = [
     { id: 'drums', title: 'Drums', icon: 'drum', kind: 'leaf' },
     { id: 'instruments', title: 'Instruments', icon: 'piano', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: 'plug', kind: 'leaf' },
-    { id: 'audioEffects', title: 'Audio Eff…', icon: 'sliders', kind: 'leaf' },
+    { id: 'audioEffects', title: 'Audio Effects', icon: 'sliders', kind: 'leaf' },
     { id: 'midiEffects', title: 'MIDI Effects', icon: 'music', kind: 'leaf' },
 ];
 
@@ -82,7 +82,7 @@ export const INTERNAL_MIDI_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_ITEMS.f
 );
 
 export const PLUGIN_SOURCE_ORDER: Array<NonNullable<BrowserItem['pluginSource']>> = [
-    'internal', 'vst3', 'vst2', 'au', 'external',
+    'internal', 'vst3', 'vst2', 'au', 'clap', 'external',
 ];
 
 export const PLUGIN_SOURCE_LABEL: Record<NonNullable<BrowserItem['pluginSource']>, string> = {
@@ -90,5 +90,6 @@ export const PLUGIN_SOURCE_LABEL: Record<NonNullable<BrowserItem['pluginSource']
     vst3: 'VST3',
     vst2: 'VST2',
     au: 'Audio Unit',
+    clap: 'CLAP',
     external: 'External',
 };

@@ -49,6 +49,7 @@ export function useAssetBrowserRuntimeEffects({
         setSampleScanLoading: state.setSampleScanLoading,
         setSampleScanError: state.setSampleScanError,
         setRealFiles: state.setRealFiles,
+        libraryScanNonce: state.libraryScanNonce,
         pluginScanNonce: state.pluginScanNonce,
         pluginScanned: state.pluginScanned,
         setPluginScanError: state.setPluginScanError,

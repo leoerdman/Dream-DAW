@@ -184,6 +184,8 @@ export const FilterPill = ({
 }) => (
     <button
         onClick={() => onChange((value + 1) % options.length)}
+        aria-label={options[value]}
+        title={options[value]}
         style={{
             background: value > 0 ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
             color: value > 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',

@@ -39,6 +39,7 @@ export interface UseAssetBrowserEffectsParams {
     setSampleScanLoading: SetState<boolean>;
     setSampleScanError: SetState<string | null>;
     setRealFiles: SetState<AudioFileEntry[]>;
+    libraryScanNonce: number;
     pluginScanNonce: number;
     pluginScanned: boolean;
     setPluginScanError: SetState<string | null>;

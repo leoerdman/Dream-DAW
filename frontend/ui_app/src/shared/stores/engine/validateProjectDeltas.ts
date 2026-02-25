@@ -22,7 +22,7 @@ const KNOWN_DELTA_KINDS = new Set<string>([
     'ClipRenamed',
     'TrackVolumeChanged',
     'TrackPanChanged',
-    'TrackMuteChanged',
+    'TrackDisabledChanged',
     'TrackSoloChanged',
     'TrackArmChanged',
     'TrackRoutingChanged',

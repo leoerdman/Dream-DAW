@@ -76,7 +76,7 @@ export function useTrackInspectorDerivedState({
             color: 'var(--token-color-hex-6b7280)',
             volume: masterVolume,
             pan: 0,
-            isMuted: false,
+            isDisabled: false,
             isSoloed: false,
             isArmed: false,
             vuLevel: Math.max(masterVuL, masterVuR),

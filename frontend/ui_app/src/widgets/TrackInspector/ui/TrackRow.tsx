@@ -26,7 +26,7 @@ interface TrackRowProps {
     onRenameCommit: () => void;
     onRenameCancel: () => void;
     onClick: (e: React.MouseEvent<HTMLDivElement>) => void;
-    onToggleMute: () => void;
+    onToggleDisabled: () => void;
     onToggleSolo: () => void;
     onToggleArm: () => void;
     onToggleCollapse?: () => void;
@@ -66,7 +66,7 @@ export const TrackRow = ({
     onRenameCommit,
     onRenameCancel,
     onClick,
-    onToggleMute,
+    onToggleDisabled,
     onToggleSolo,
     onToggleArm,
     onToggleCollapse,
@@ -104,7 +104,7 @@ export const TrackRow = ({
             type,
             volume: track.volume,
             pan: track.pan,
-            isMuted: track.is_mute,
+            isDisabled: track.is_disabled,
             isSoloed: track.is_solo,
             isArmed: track.is_armed,
             input: track.input || 'none',
@@ -210,7 +210,7 @@ export const TrackRow = ({
                 isActive={isActive}
                 mixerFocusMode={mixerFocusMode}
                 layout={layout}
-                onToggleMute={onToggleMute}
+                onToggleDisabled={onToggleDisabled}
                 onToggleSolo={onToggleSolo}
                 onToggleArm={onToggleArm}
                 onVolumeChange={onVolumeChange}

@@ -30,6 +30,7 @@ export const VirtualListHeader = memo(function VirtualListHeader({
                     const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                     setColumnMenuPos((prev) => (prev ? null : { x: rect.left, y: rect.bottom + 2 }));
                 }}
+                aria-label="Toggle column visibility menu"
                 style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-text-secondary)',
                     display: 'inline-flex', alignItems: 'center', flexShrink: 0,

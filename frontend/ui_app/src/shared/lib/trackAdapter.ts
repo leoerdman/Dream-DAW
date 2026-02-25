@@ -108,7 +108,7 @@ export interface ProjectTrack {
     pan: number;
     send_a: number;
     send_b: number;
-    is_mute: boolean;
+    is_disabled: boolean;
     is_solo: boolean;
     is_armed: boolean;
     height: number;
@@ -146,7 +146,7 @@ type RawBackendTrack = Record<string, unknown> & {
     color_hex?: string | null;
     volume?: number;
     pan?: number;
-    is_mute?: boolean;
+    is_disabled?: boolean;
     is_solo?: boolean;
     is_armed?: boolean;
     height?: number;
@@ -210,7 +210,7 @@ export function adaptTrack(raw: RawBackendTrack): ProjectTrack {
         pan: raw.pan ?? 0.0,
         send_a: readSend('send.A'),
         send_b: readSend('send.B'),
-        is_mute: Boolean(raw.is_mute ?? false),
+        is_disabled: Boolean(raw.is_disabled ?? false),
         is_solo: Boolean(raw.is_solo ?? false),
         is_armed: Boolean(raw.is_armed ?? false),
         height: Number(raw.height ?? 80),

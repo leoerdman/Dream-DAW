@@ -48,8 +48,8 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
         patchTrack(state, delta.data.track_id, { pan: delta.data.pan });
         return true;
     }
-    if (delta.kind === 'TrackMuteChanged') {
-        patchTrack(state, delta.data.track_id, { is_mute: delta.data.muted });
+    if (delta.kind === 'TrackDisabledChanged') {
+        patchTrack(state, delta.data.track_id, { is_disabled: delta.data.disabled });
         return true;
     }
     if (delta.kind === 'TrackSoloChanged') {
@@ -185,7 +185,7 @@ export function applyTrackDelta(state: DeltaWorkingState, delta: ProjectDelta, e
             pan: 0,
             send_a: 0,
             send_b: 0,
-            is_mute: false,
+            is_disabled: false,
             is_solo: false,
             is_armed: false,
             height: 80,

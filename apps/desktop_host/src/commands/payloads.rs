@@ -57,7 +57,7 @@ pub struct TrackStateUpdate {
     pub track_index: u16,
     pub volume: Option<f32>,
     pub pan: Option<f32>,
-    pub muted: Option<bool>,
+    pub disabled: Option<bool>,
     pub soloed: Option<bool>,
 }
 

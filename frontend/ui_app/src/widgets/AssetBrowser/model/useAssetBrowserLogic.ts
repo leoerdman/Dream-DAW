@@ -52,12 +52,14 @@ export function useAssetBrowserLogic() {
         setShowTypeColumn,
         setCollapsedSections,
         setPluginScanNonce,
+        setLibraryScanNonce,
         setPluginScanError,
         setExpandedFolders,
         setLoadingFolders,
         setFolderChildrenCache,
         setUserFolders,
         setSelectedCategoryId,
+        scanTriggeredRef,
         enterNonceRef,
         previewEnabled,
         previewRequestToken,
@@ -148,6 +150,11 @@ export function useAssetBrowserLogic() {
         setPluginScanNonce((prev) => prev + 1);
     }, [setPluginScanNonce]);
 
+    const triggerLibraryScan = useCallback(() => {
+        scanTriggeredRef.current = false;
+        setLibraryScanNonce((prev) => prev + 1);
+    }, [scanTriggeredRef, setLibraryScanNonce]);
+
     const handleSetPluginFolder = useCallback(async (target: 'vst2Path' | 'vst3Path') => {
         try {
             const picked = await engineApi.pickFolder();
@@ -235,6 +242,7 @@ export function useAssetBrowserLogic() {
         handleItemEnter,
         pluginBrowserItems,
         triggerPluginScan,
+        triggerLibraryScan,
         focusResults,
         setItemRowRef,
         getAudioDurationSec,

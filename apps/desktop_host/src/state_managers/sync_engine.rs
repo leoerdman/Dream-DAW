@@ -582,7 +582,7 @@ pub fn sync_track_mix_state_from_project(
             handle,
             EngineCommand::SetTrackDisabled {
                 track_index: idx,
-                muted: track.effective_mute_from_model(),
+                disabled: track.effective_disabled_from_model(),
             },
         )?;
         push_command(

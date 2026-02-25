@@ -44,7 +44,7 @@ export const AssetSearchInput = memo(function AssetSearchInput({
         <input
             ref={searchRef}
             type="text"
-            placeholder="Search… (⌘F)"
+            placeholder="Search… (Ctrl/Cmd+F)"
             value={localQuery}
             onChange={handleChange}
             onKeyDown={handleBrowserKeyDown}
@@ -155,42 +155,45 @@ export const VirtualFileList = memo(function VirtualFileList({
     const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
 
     // BUG-23 FIX: virtualize plugin rows too
-    const pluginTotalHeight = useMemo(() => {
-        return pluginGroupedRows.reduce((h, row) =>
-            h + (row.kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT), 0);
+    const pluginLayout = useMemo(() => {
+        const offsets: number[] = new Array(pluginGroupedRows.length);
+        let totalHeight = 0;
+        for (let i = 0; i < pluginGroupedRows.length; i += 1) {
+            offsets[i] = totalHeight;
+            totalHeight += pluginGroupedRows[i].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
+        }
+        return { offsets, totalHeight };
     }, [pluginGroupedRows]);
 
     const visiblePluginRows = useMemo(() => {
         if (selectedCategoryId !== 'plugins') return [];
-        let accH = 0;
         let startI = 0;
         let endI = pluginGroupedRows.length;
         const viewTop = scrollTop;
         const viewBottom = scrollTop + containerHeight;
-        // find start
-        for (let i = 0; i < pluginGroupedRows.length; i++) {
-            const rh = pluginGroupedRows[i].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
-            if (accH + rh >= viewTop - OVERSCAN * PLUGIN_ROW_HEIGHT) { startI = i; break; }
-            accH += rh;
+        const overscanPx = OVERSCAN * PLUGIN_ROW_HEIGHT;
+        const startThreshold = Math.max(0, viewTop - overscanPx);
+        const endThreshold = viewBottom + overscanPx;
+
+        while (startI < pluginGroupedRows.length) {
+            const rowTop = pluginLayout.offsets[startI];
+            const rowHeight = pluginGroupedRows[startI].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
+            if (rowTop + rowHeight >= startThreshold) break;
+            startI += 1;
         }
-        // find end
-        let accH2 = accH;
-        for (let i = startI; i < pluginGroupedRows.length; i++) {
-            const rh = pluginGroupedRows[i].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
-            accH2 += rh;
-            if (accH2 > viewBottom + OVERSCAN * PLUGIN_ROW_HEIGHT) { endI = i + 1; break; }
+
+        endI = startI;
+        while (endI < pluginGroupedRows.length) {
+            const rowTop = pluginLayout.offsets[endI];
+            if (rowTop > endThreshold) break;
+            endI += 1;
         }
-        return pluginGroupedRows.slice(startI, endI).map((row, vi) => ({
+
+        return pluginGroupedRows.slice(startI, endI).map((row, localIndex) => ({
             row,
-            offsetTop: (() => {
-                let h = 0;
-                for (let j = 0; j < startI + vi; j++) {
-                    h += pluginGroupedRows[j].kind === 'header' ? PLUGIN_HEADER_HEIGHT : PLUGIN_ROW_HEIGHT;
-                }
-                return h;
-            })(),
+            offsetTop: pluginLayout.offsets[startI + localIndex],
         }));
-    }, [pluginGroupedRows, scrollTop, containerHeight, selectedCategoryId]);
+    }, [PLUGIN_HEADER_HEIGHT, PLUGIN_ROW_HEIGHT, OVERSCAN, containerHeight, pluginGroupedRows, pluginLayout.offsets, scrollTop, selectedCategoryId]);
 
     return (
         <div
@@ -211,6 +214,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                 showTypeColumn={showTypeColumn}
                 showSizeColumn={showSizeColumn}
                 setColumnMenuPos={setColumnMenuPos}
+                itemCount={items.length}
             />
             <ScanStatus scanLoading={scanLoading} scanError={scanError} />
             {/* Virtual scroll container */}
@@ -240,7 +244,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                         ))}
                     </div>
                 ) : (
-                    <div style={{ height: pluginTotalHeight + 20, position: 'relative' }}>
+                    <div style={{ height: pluginLayout.totalHeight + 20, position: 'relative' }}>
                         {visiblePluginRows.map(({ row, offsetTop }) => {
                             if (row.kind === 'header') {
                                 return (

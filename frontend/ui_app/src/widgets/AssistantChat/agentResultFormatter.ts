@@ -13,7 +13,7 @@ export function formatToolResult(name: string, resultJson: string): string {
             case 'transport_play': return '▶ Playing';
             case 'transport_stop': return '⏹ Stopped';
             case 'set_bpm': return `BPM → ${data.bpm}`;
-            case 'set_track_mute': return data.muted ? '🔇 Muted' : '🔊 Unmuted';
+            case 'set_track_disabled': return data.muted ? '🔇 Muted' : '🔊 Unmuted';
             case 'set_track_solo': return data.soloed ? '🔆 Soloed' : '○ Unsoloed';
             case 'set_track_volume': return `Volume → ${Math.round(data.volume * 100)}%`;
             case 'set_track_pan': return `Pan → ${data.pan > 0 ? `R${Math.round(data.pan * 100)}` : data.pan < 0 ? `L${Math.round(-data.pan * 100)}` : 'C'}`;

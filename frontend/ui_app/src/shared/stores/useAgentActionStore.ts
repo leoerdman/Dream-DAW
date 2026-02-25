@@ -61,7 +61,7 @@ const TOOL_LABELS: Record<string, string> = {
     seek_to_beat: '⏩ Seeking…',
     set_track_volume: '🔊 Volume adjusted',
     set_track_pan: '🔄 Pan adjusted',
-    set_track_mute: '🔇 Mute toggled',
+    set_track_disabled: '🔇 Mute toggled',
     set_track_solo: '🎧 Solo toggled',
     add_track: '➕ Track added',
     rename_track: '✏️ Track renamed',

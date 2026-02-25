@@ -3,7 +3,7 @@ import { safeStorage } from '@/shared/lib/safeStorage';
 
 export type CollectionId = 'collection-red' | 'collection-yellow' | 'collection-green';
 export type BrowserItemType = 'audio' | 'instrument' | 'audioEffect' | 'midiEffect' | 'plugin' | 'folder' | 'project' | 'preset' | 'other';
-export type PluginSource = 'internal' | 'vst2' | 'vst3' | 'au' | 'external';
+export type PluginSource = 'internal' | 'vst2' | 'vst3' | 'au' | 'clap' | 'external';
 export type BrowserItemLike = {
     id: string;
     name: string;
@@ -80,6 +80,7 @@ export function detectPluginSource(raw: string): PluginSource {
     // BUG-93 FIX: check vst3 BEFORE vst2 to avoid false matches
     if (/\.vst3(?:\b|$)/.test(norm) || /\bvst3\b/.test(norm)) return 'vst3';
     if (/\.component(?:\b|$)/.test(norm) || /\baudio\s*unit\b/.test(norm)) return 'au';
+    if (/\.clap(?:\b|$)/.test(norm) || /\bclap\b/.test(norm)) return 'clap';
     if (/\.vst(?:\b|$)/.test(norm) || /\bvst2?\b/.test(norm)) return 'vst2';
     return 'external';
 }

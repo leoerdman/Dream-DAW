@@ -143,7 +143,7 @@ export const TOOL_DEFS_CORE_A: AssistantToolDefinition[] = [
     {
         type: 'function' as const,
         function: {
-            name: 'set_track_mute',
+            name: 'set_track_disabled',
             description: 'Mute or unmute a track. Index is 0-based.',
             parameters: {
                 type: 'object',

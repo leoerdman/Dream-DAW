@@ -351,7 +351,7 @@ impl OfflineRenderer {
 
         for (i, track) in project.tracks.iter().enumerate() {
             is_explicit_solo[i] = track.is_solo;
-            is_explicit_mute[i] = track.effective_mute_from_model();
+            is_explicit_mute[i] = track.effective_disabled_from_model();
         }
 
         let any_solo = is_explicit_solo.iter().any(|&s| s);

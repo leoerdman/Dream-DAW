@@ -30,7 +30,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                                 logic.setPluginSourceFilter(next);
                             }}
                         />
-                        <button onClick={logic.triggerPluginScan} style={pluginActionButtonStyle} title="Rescan installed plugins">Rescan</button>
+                        <button onClick={logic.triggerPluginScan} style={pluginActionButtonStyle} title="Rescan installed plugins" disabled={logic.pluginScanLoading}>Rescan</button>
                         <button onClick={() => { void logic.handleSetPluginFolder('vst2Path'); }} style={pluginActionButtonStyle} title="Select VST2 folder">Import VST2 Folder</button>
                         <button onClick={() => { void logic.handleSetPluginFolder('vst3Path'); }} style={pluginActionButtonStyle} title="Select VST3 folder">Import VST3 Folder</button>
                     </>
@@ -43,6 +43,11 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                 )}
                 <FilterPill options={SORT_FILTERS as unknown as string[]} value={logic.sortFilter} onChange={logic.setSortFilter} />
                 <FilterPill options={SIZE_FILTERS as unknown as string[]} value={logic.sizeFilter} onChange={logic.setSizeFilter} />
+                {logic.selectedCategoryId !== 'plugins' && (
+                    <button onClick={logic.triggerLibraryScan} style={pluginActionButtonStyle} title="Rescan sample library">
+                        Rescan Library
+                    </button>
+                )}
             </div>
 
             {logic.selectedCategoryId === 'plugins' && (
@@ -70,6 +75,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                                     color: logic.selectedPluginLetter === letter ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                                 }}
                                 title={`Jump to ${letter}`}
+                                aria-label={`Jump to plugins starting with ${letter}`}
                             >
                                 {letter}
                             </button>

@@ -43,7 +43,7 @@ export function TrackInspectorMasterRow({
                 logic.applySelection([], 'master', { preserveCursor: true });
                 logic.applyHeaderSelection(['master']);
             }}
-            onToggleMute={() => { }}
+            onToggleDisabled={() => { }}
             onToggleSolo={() => { }}
             onToggleArm={() => { }}
             onVolumeChange={(gain: number) => {

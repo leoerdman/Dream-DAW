@@ -7,7 +7,7 @@ interface UseTrackInspectorTrackActionsArgs {
     tracks: TrackData[];
     selectedTrackIdSet: Set<string>;
     getTrackIndex: (id: string) => number;
-    engineSetTrackMute: (trackIndex: number, muted: boolean) => Promise<void>;
+    engineSetTrackDisabled: (trackIndex: number, muted: boolean) => Promise<void>;
     engineSetTrackSolo: (trackIndex: number, soloed: boolean) => Promise<void>;
     setLocalOverrides: React.Dispatch<React.SetStateAction<Record<string, Partial<TrackData>>>>;
 }
@@ -16,18 +16,18 @@ export function useTrackInspectorTrackActions({
     tracks,
     selectedTrackIdSet,
     getTrackIndex,
-    engineSetTrackMute,
+    engineSetTrackDisabled,
     engineSetTrackSolo,
     setLocalOverrides,
 }: UseTrackInspectorTrackActionsArgs) {
-    const toggleMute = useCallback((id: string) => {
+    const toggleDisabled = useCallback((id: string) => {
         const track = tracks.find((t) => t.id === id);
         if (!track) return;
         const idx = getTrackIndex(id);
-        const newMuted = !track.isMuted;
-        if (idx >= 0) void engineSetTrackMute(idx, newMuted);
-        setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isMuted: newMuted } }));
-    }, [tracks, getTrackIndex, engineSetTrackMute, setLocalOverrides]);
+        const newMuted = !track.isDisabled;
+        if (idx >= 0) void engineSetTrackDisabled(idx, newMuted);
+        setLocalOverrides((prev) => ({ ...prev, [id]: { ...prev[id], isDisabled: newMuted } }));
+    }, [tracks, getTrackIndex, engineSetTrackDisabled, setLocalOverrides]);
 
     const toggleSolo = useCallback((id: string) => {
         const selected = selectedTrackIdSet.has(id)
@@ -101,7 +101,7 @@ export function useTrackInspectorTrackActions({
     }, [setLocalOverrides]);
 
     return {
-        toggleMute,
+        toggleDisabled,
         toggleSolo,
         toggleArm,
         setTrackOutput,

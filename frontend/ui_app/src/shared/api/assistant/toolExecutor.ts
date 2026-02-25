@@ -83,7 +83,7 @@ async function executeToolInner(
                     type: t.track_type,
                     volume: t.volume,
                     pan: t.pan,
-                    muted: t.is_mute,
+                    muted: t.is_disabled,
                     soloed: t.is_solo,
                     armed: t.is_armed,
                     color: t.color,
@@ -159,8 +159,8 @@ async function executeToolInner(
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-pan');
             return JSON.stringify({ trackIndex: args.trackIndex, pan: pan });
         }
-        case 'set_track_mute': {
-            const response = await engineApi.setTrackMuteWithDeltas(args.trackIndex as number, args.muted as boolean);
+        case 'set_track_disabled': {
+            const response = await engineApi.setTrackDisabledWithDeltas(args.trackIndex as number, args.muted as boolean);
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'agent-set-track-mute');
             return JSON.stringify({ trackIndex: args.trackIndex, muted: args.muted });
         }
@@ -1040,7 +1040,7 @@ async function executeToolInner(
                     name: t.name,
                     type: t.track_type,
                     color: t.color,
-                    muted: t.is_mute,
+                    muted: t.is_disabled,
                     soloed: t.is_solo,
                     volume: Math.round(t.volume * 100),
                     clipCount: trackClips.length,
@@ -1081,7 +1081,7 @@ export function buildSystemPrompt(): string {
                     ? ` → ${outputDestinationId}`
                     : '';
             const flags = [
-                t.is_mute ? '🔇MUTED' : '',
+                t.is_disabled ? '🔇MUTED' : '',
                 t.is_solo ? '🔆SOLO' : '',
                 t.is_armed ? '🔴ARMED' : '',
             ].filter(Boolean).join(' ');

@@ -3,6 +3,7 @@ use super::super::*;
 use super::command_dispatch::{
     DeferredTopologyCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
+use crate::essence_synth::EssenceSynthEngine;
 use crate::sampler::AdsrParams;
 
 pub(super) const MASTER_TRACK_INDEX: u16 = u16::MAX;
@@ -32,6 +33,7 @@ pub(super) struct CommandDrainContext<'a> {
     pub render_ctx: &'a mut RenderContext,
     pub sampler_engines: &'a mut [SamplerEngine],
     pub sample_rack_engines: &'a mut [SampleRackEngine],
+    pub essence_engines: &'a mut [EssenceSynthEngine],
     pub midi_note_states: &'a mut [MidiNoteMapState],
     pub vst3_flush_per_track: &'a mut [bool; MAX_TRACKS],
     pub vst3_rt_midi_queue: &'a mut [Vec<MidiEvent>],
@@ -292,6 +294,9 @@ pub(super) fn drain_commands(
                 if bypassed && idx < ctx.sample_rack_engines.len() {
                     ctx.sample_rack_engines[idx].all_notes_off();
                 }
+                if bypassed && idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].all_notes_off();
+                }
                 if bypassed && idx < MAX_TRACKS {
                     ctx.vst3_flush_per_track[idx] = true;
                 }
@@ -347,6 +352,121 @@ pub(super) fn drain_commands(
                     pad.set_filter_cutoff(cutoff);
                 }
             }
+            // ── Essence Synth Commands ────────────────────────────────
+            EngineCommand::SetEssenceWaveform1 { track_index, waveform } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_waveform_1(waveform);
+                }
+            }
+            EngineCommand::SetEssenceWaveform2 { track_index, waveform } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_waveform_2(waveform);
+                }
+            }
+            EngineCommand::SetEssenceOsc1Volume { track_index, volume } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_osc1_volume(volume);
+                }
+            }
+            EngineCommand::SetEssenceOsc2Volume { track_index, volume } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_osc2_volume(volume);
+                }
+            }
+            EngineCommand::SetEssenceOsc1Enabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_osc1_enabled(enabled);
+                }
+            }
+            EngineCommand::SetEssenceOsc2Enabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_osc2_enabled(enabled);
+                }
+            }
+            EngineCommand::SetEssenceDetuneCents { track_index, cents } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_detune_cents(cents);
+                }
+            }
+            EngineCommand::SetEssenceSubLevel { track_index, level } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_sub_level(level);
+                }
+            }
+            EngineCommand::SetEssencePulseWidth { track_index, width } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_pulse_width(width);
+                }
+            }
+            EngineCommand::SetEssenceFilterCutoff { track_index, cutoff } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_filter_cutoff(cutoff);
+                }
+            }
+            EngineCommand::SetEssenceFilterResonance { track_index, resonance } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_filter_resonance(resonance);
+                }
+            }
+            EngineCommand::SetEssenceFilterType { track_index, filter_type } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_filter_type(filter_type);
+                }
+            }
+            EngineCommand::SetEssenceLfoRate { track_index, rate } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_lfo_rate(rate);
+                }
+            }
+            EngineCommand::SetEssenceLfoDepth { track_index, depth } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_lfo_depth(depth);
+                }
+            }
+            EngineCommand::SetEssenceLfoTarget { track_index, target } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_lfo_target(target);
+                }
+            }
+            EngineCommand::SetEssenceAdsr {
+                track_index,
+                attack,
+                decay,
+                sustain,
+                release,
+            } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_adsr(AdsrParams {
+                        attack: attack as f64,
+                        decay: decay as f64,
+                        sustain: sustain as f64,
+                        release: release as f64,
+                    });
+                }
+            }
+            EngineCommand::SetEssenceVolume { track_index, volume } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_volume(volume);
+                }
+            }
+
             EngineCommand::Shutdown => {
                 *ctx.is_playing = false;
                 *ctx.test_tone_phase = 0.0;
@@ -355,6 +475,9 @@ pub(super) fn drain_commands(
                     if idx < ctx.vst3_rt_midi_queue.len() {
                         ctx.vst3_rt_midi_queue[idx].clear();
                     }
+                }
+                for engine in ctx.essence_engines.iter_mut() {
+                    engine.all_notes_off();
                 }
                 ctx.vst3_flush_per_track.fill(true);
             }

@@ -609,6 +609,7 @@ impl PluginHostState {
             .map(|map| map.values().any(|id| *id == instance_id))
             .unwrap_or(false)
     }
+    #[allow(dead_code)]
     pub(crate) fn bind_slot_to_existing_instance_for_plugin_id(
         &self,
         slot_id: Uuid,

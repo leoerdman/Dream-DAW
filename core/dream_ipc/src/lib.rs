@@ -153,6 +153,51 @@ pub enum EngineCommand {
         cutoff: f32,
     },
 
+    // ── Essence Synth (Wave Synth) Control ───────────────────────────
+    // Dedicated commands for the standalone EssenceSynthEngine.
+    // Completely independent from SamplerEngine.
+
+    /// Set Essence OSC 1 waveform (0=Sine, 1=Triangle, 2=Saw, 3=Square).
+    SetEssenceWaveform1 { track_index: u16, waveform: u8 },
+    /// Set Essence OSC 2 waveform.
+    SetEssenceWaveform2 { track_index: u16, waveform: u8 },
+    /// Set Essence OSC 1 volume (0.0–1.0).
+    SetEssenceOsc1Volume { track_index: u16, volume: f32 },
+    /// Set Essence OSC 2 volume (0.0–1.0).
+    SetEssenceOsc2Volume { track_index: u16, volume: f32 },
+    /// Enable/disable Essence OSC 1.
+    SetEssenceOsc1Enabled { track_index: u16, enabled: bool },
+    /// Enable/disable Essence OSC 2.
+    SetEssenceOsc2Enabled { track_index: u16, enabled: bool },
+    /// Set Essence detune between OSC 1 and OSC 2 in cents.
+    SetEssenceDetuneCents { track_index: u16, cents: f32 },
+    /// Set Essence sub oscillator level (0.0–1.0).
+    SetEssenceSubLevel { track_index: u16, level: f32 },
+    /// Set Essence pulse width (0.05–0.95).
+    SetEssencePulseWidth { track_index: u16, width: f32 },
+    /// Set Essence filter cutoff in Hz (20–20000).
+    SetEssenceFilterCutoff { track_index: u16, cutoff: f32 },
+    /// Set Essence filter resonance (0.0–0.99).
+    SetEssenceFilterResonance { track_index: u16, resonance: f32 },
+    /// Set Essence filter type (0=LP, 1=HP, 2=BP, 3=Notch).
+    SetEssenceFilterType { track_index: u16, filter_type: u8 },
+    /// Set Essence LFO rate in Hz.
+    SetEssenceLfoRate { track_index: u16, rate: f32 },
+    /// Set Essence LFO depth (0.0–1.0).
+    SetEssenceLfoDepth { track_index: u16, depth: f32 },
+    /// Set Essence LFO target (0=FilterCutoff, 1=Pitch, 2=Volume).
+    SetEssenceLfoTarget { track_index: u16, target: u8 },
+    /// Set Essence ADSR envelope.
+    SetEssenceAdsr {
+        track_index: u16,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    },
+    /// Set Essence master volume (0.0–2.0).
+    SetEssenceVolume { track_index: u16, volume: f32 },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

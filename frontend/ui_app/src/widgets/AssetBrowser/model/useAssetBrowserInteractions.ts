@@ -109,15 +109,19 @@ export function useKeyboardInteractions({
         }
         if (e.key !== 'Enter') return;
         e.preventDefault();
-        const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;
-        if (!selected) return;
         if (activeEl === searchRef.current) {
-            if (!selectedItemId) setSelectedItemId(selected.id);
+            const first = items[0] ?? null;
+            if (!first) return;
+            // Enter in search is a focus/selection step, not an apply step.
+            setSelectedItemId(first.id);
+            if (previewEnabled) syncPreviewForItem(first);
             focusResults();
             return;
         }
+        const selected = items.find((it) => it.id === selectedItemId) ?? items[0] ?? null;
+        if (!selected) return;
         void handleItemEnter(selected);
-    }, [fileListRef, focusResults, handleItemEnter, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, searchRef, selectedCategoryId, selectedItemId, setDebouncedQuery, setSelectedItemId]);
+    }, [fileListRef, focusResults, handleItemEnter, items, jumpToPluginLetter, moveSelection, pluginLetterAnchors, previewEnabled, searchRef, selectedCategoryId, selectedItemId, setDebouncedQuery, setSelectedItemId, syncPreviewForItem]);
 
     return { jumpToPluginLetter, focusResults, handleBrowserKeyDown };
 }

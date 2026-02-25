@@ -57,10 +57,12 @@ pub(super) fn render_instrument_sources(
 
         // INSTRUMENT EXCLUSION: A track uses EITHER the sample-based engines
         // (Sampler + SampleRack) OR the Essence Synth oscillator — never both.
-        // When the sampler has a loaded sample, suppress the Essence Synth to
-        // prevent an oscillator waveform from layering on top of the sample.
+        // CRITICAL FIX: Essence Synth must be EXPLICITLY enabled for the track.
+        // Empty tracks (no sampler, no rack, no VST, no essence) must NOT play.
         let sampler_active_instrument = engine.has_sample();
-        let use_essence = !sampler_active_instrument;
+        let rack_has_samples = rack.has_any_sample();
+        let essence_explicitly_enabled = essence.as_ref().map_or(false, |e| e.is_enabled());
+        let use_essence = essence_explicitly_enabled && !sampler_active_instrument && !rack_has_samples;
 
         let midi_loop_region = render_ctx
             .loop_region

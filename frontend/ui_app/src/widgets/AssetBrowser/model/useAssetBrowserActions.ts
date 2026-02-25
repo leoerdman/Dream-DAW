@@ -145,6 +145,14 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
 
     const getTrackById = useCallback((trackId: string) => tracks.byId[trackId] ?? null, [tracks.byId]);
     const getTrackIndexById = useCallback((trackId: string) => tracks.allIds.indexOf(trackId), [tracks.allIds]);
+    const hasTimelineClipsOnTrack = useCallback((trackIndex: number) => {
+        const { clips } = useEngineStore.getState();
+        for (const clipId of clips.allIds) {
+            const clip = clips.byId[clipId];
+            if (clip?.trackIndex === trackIndex) return true;
+        }
+        return false;
+    }, []);
 
     const resolveEffectInsertIndex = useCallback((track: ProjectTrack): number | undefined => {
         const selectedTrackId = dreamGlobals.getSelectedTrackId();
@@ -216,8 +224,36 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
                 statusClear();
                 return;
             }
+
             const trackIndex = getTrackIndexById(track.id);
             if (trackIndex < 0) return;
+
+            // UX rule: on an empty audio track, treat Enter on sample as "create Sampler + assign sample".
+            if (track.track_type === 'Audio') {
+                const hasSampler = !!track.instrument && /sampler/i.test(`${track.instrument.plugin_id} ${track.instrument.name}`);
+                const isEmptyAudioTrack = !track.instrument && !hasTimelineClipsOnTrack(trackIndex);
+                if (hasSampler || isEmptyAudioTrack) {
+                    try {
+                        if (!hasSampler) {
+                            const addSampler = await engineApi.addPluginToTrackWithDeltas(
+                                track.id,
+                                'internal://instrument/sampler',
+                                'Sampler',
+                                'instrument',
+                            );
+                            await useEngineStore.getState().applyProjectDeltas(addSampler.deltas, 'asset-browser:add-sampler-audio-track');
+                        }
+                        const setSample = await engineApi.setSamplerSampleWithDeltas(track.id, item.path);
+                        await useEngineStore.getState().applyProjectDeltas(setSample.deltas, 'asset-browser:set-sampler-sample-audio-track');
+                        statusClear();
+                        return;
+                    } catch (samplerErr) {
+                        // Fallback to classic audio import if sampler placement isn't supported on this track.
+                        console.warn('[AssetBrowser] Sampler assignment fallback to audio import:', samplerErr);
+                    }
+                }
+            }
+
             const store = useEngineStore.getState();
             const bpm = store.projectBpm || store.transport.bpm || 120;
             const sampleRate = resolveSampleRate(store.projectSampleRate, store.transport.sample_rate);
@@ -231,7 +267,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             console.error('[AssetBrowser] Enter action failed:', err);
             statusError(`Asset Browser: failed to import item: ${String(err)}`);
         }
-    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack, resolveEffectInsertIndex, statusClear, statusError]);
+    }, [enterNonceRef, getTrackIndexById, hasTimelineClipsOnTrack, resolveSelectedTrack, resolveEffectInsertIndex, statusClear, statusError]);
 
     return { handleItemEnter };
 }

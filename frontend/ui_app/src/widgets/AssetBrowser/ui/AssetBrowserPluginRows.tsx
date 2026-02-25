@@ -13,7 +13,7 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
             gap: 8, padding: 'var(--space-1) var(--space-2)',
             background: 'color-mix(in srgb, var(--color-bg-header) 84%, var(--surface-1))',
             borderBottom: 'var(--space-px) solid var(--color-divider-light)', borderTop: 'var(--space-px) solid var(--color-divider-light)',
-            position: 'sticky', top: 24, zIndex: 'var(--z-local)',
+            position: 'relative',
         }}>
             <span style={{
                 color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)',

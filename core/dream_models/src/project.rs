@@ -340,6 +340,16 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_DRUM_BUSS: u8 = 20;
     const FX_DYNAMIC_TUBE: u8 = 21;
     const FX_PHASER_FLANGER: u8 = 22;
+    const FX_AMP: u8 = 23;
+    const FX_CABINET: u8 = 24;
+    const FX_HYBRID_REVERB: u8 = 25;
+    const FX_EROSION: u8 = 26;
+    const FX_PEDAL: u8 = 27;
+    const FX_ROAR: u8 = 28;
+    const FX_MULTIBAND_DYNAMICS: u8 = 29;
+    const FX_GRAIN_DELAY: u8 = 30;
+    const FX_CORPUS: u8 = 31;
+    const FX_SPECTRAL_TIME: u8 = 32;
 
     let key = plugin_id.trim().to_lowercase();
 
@@ -350,12 +360,12 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
             "eq"
             | "eq8"
             | "eqeight"
-            | "eq3"
+            | "eq eight" => Some(FX_EQ),
+            "eq3"
             | "eqthree"
-            | "eq eight"
             | "eq three"
             | "channel eq"
-            | "channeleq" => Some(FX_EQ),
+            | "channeleq" => Some(FX_CHANNEL_EQ),
             _ => None,
         };
     }
@@ -364,26 +374,21 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         "internal://effect/eq"
         | "internal://effect/eq8"
         | "internal://effect/eqeight"
-        | "internal://effect/eq3"
+        | "internal://effect/eq-eight" => Some(FX_EQ),
+        "internal://effect/eq3"
         | "internal://effect/eqthree"
-        | "internal://effect/eq-eight"
-        | "internal://effect/eq-three" => Some(FX_EQ),
-        "internal://effect/channel-eq" => Some(FX_CHANNEL_EQ),
+        | "internal://effect/eq-three"
+        | "internal://effect/channel-eq" => Some(FX_CHANNEL_EQ),
         "internal://effect/compressor"
-        | "internal://effect/glue-compressor"
-        | "internal://effect/multiband-dynamics" => Some(FX_COMPRESSOR),
+        | "internal://effect/glue-compressor" => Some(FX_COMPRESSOR),
         "internal://effect/transient-shaper" => Some(FX_TRANSIENT_SHAPER),
         "internal://effect/delay"
         | "internal://effect/echo"
         | "internal://effect/simple-delay"
         | "internal://effect/filter-delay"
-        | "internal://effect/grain-delay"
         | "internal://effect/beat-repeat"
-        | "internal://effect/looper"
-        | "internal://effect/spectral-time" => Some(FX_DELAY),
+        | "internal://effect/looper" => Some(FX_DELAY),
         "internal://effect/reverb"
-        | "internal://effect/hybrid-reverb"
-        | "internal://effect/corpus"
         | "internal://effect/resonators"
         | "internal://effect/spectral-resonator" => Some(FX_REVERB),
         "internal://effect/chorus" => Some(FX_CHORUS),
@@ -401,13 +406,18 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         "internal://effect/phaser" => Some(FX_PHASER),
         "internal://effect/phaser-flanger" => Some(FX_PHASER_FLANGER),
         "internal://effect/flanger" => Some(FX_FLANGER),
-        "internal://effect/distortion"
-        | "internal://effect/amp"
-        | "internal://effect/cabinet"
-        | "internal://effect/pedal"
-        | "internal://effect/roar"
-        | "internal://effect/erosion" => Some(FX_DISTORTION),
+        "internal://effect/distortion" => Some(FX_DISTORTION),
+        "internal://effect/pedal" => Some(FX_PEDAL),
+        "internal://effect/roar" => Some(FX_ROAR),
+        "internal://effect/erosion" => Some(FX_EROSION),
+        "internal://effect/amp" => Some(FX_AMP),
+        "internal://effect/cabinet" => Some(FX_CABINET),
+        "internal://effect/hybrid-reverb" => Some(FX_HYBRID_REVERB),
         "internal://effect/overdrive" => Some(FX_OVERDRIVE),
+        "internal://effect/multiband-dynamics" => Some(FX_MULTIBAND_DYNAMICS),
+        "internal://effect/grain-delay" => Some(FX_GRAIN_DELAY),
+        "internal://effect/corpus" => Some(FX_CORPUS),
+        "internal://effect/spectral-time" => Some(FX_SPECTRAL_TIME),
         "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
         "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
         "internal://effect/auto-pan" => Some(FX_AUTO_PAN),

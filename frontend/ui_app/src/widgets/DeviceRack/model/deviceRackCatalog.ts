@@ -12,8 +12,8 @@ export const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlo
     'internal://instrument/sampler': 'sampler',
     'internal://instrument/sample-rack': 'sample_rack',
     'internal://effect/eq-eight': 'eq',
-    'internal://effect/channel-eq': 'eq',
-    'internal://effect/eq-three': 'eq',
+    'internal://effect/channel-eq': 'bandEq',
+    'internal://effect/eq-three': 'bandEq',
     'internal://effect/compressor': 'compressor',
     'internal://effect/glue-compressor': 'compressor',
     'internal://effect/multiband-dynamics': 'compressor',
@@ -98,6 +98,14 @@ export const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
         midfreq: 12, mid: 13, midq: 14,
         highfreq: 24, high: 25, highq: 26,
         out: 32,
+    },
+    bandEq: {
+        // Backend ChannelEqProcessor: 3-band EQ with LR4 crossovers
+        // Indices 0-2: low/mid/high gain, 3-4: xover freqs, 5-7: kills, 8: output
+        low: 0, mid: 1, high: 2,
+        lowfreq: 3, highfreq: 4,
+        lowkill: 5, midkill: 6, highkill: 7,
+        out: 8,
     },
     utility: { gain: 0, pan: 1, width: 2, mono: 3 },
     compressor: {

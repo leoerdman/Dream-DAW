@@ -389,9 +389,11 @@ fn builtin_effect_mapping_supports_internal_eq_alias_ids() {
         builtin_effect_type_from_plugin_id("internal://effect/eq8"),
         expected_eq_type
     );
+    // eq-three maps to FX_CHANNEL_EQ (3-band Band EQ), not FX_EQ (8-band parametric)
+    let expected_band_eq_type = builtin_effect_type_from_plugin_id("internal://effect/channel-eq");
     assert_eq!(
         builtin_effect_type_from_plugin_id("internal://effect/eqthree"),
-        expected_eq_type
+        expected_band_eq_type
     );
 }
 
@@ -400,7 +402,8 @@ fn builtin_effect_mapping_supports_legacy_plain_eq_ids_only() {
     let expected_eq_type = builtin_effect_type_from_plugin_id("internal://effect/eq-eight");
     assert_eq!(builtin_effect_type_from_plugin_id("eq"), expected_eq_type);
     assert_eq!(builtin_effect_type_from_plugin_id("eq8"), expected_eq_type);
-    assert_eq!(builtin_effect_type_from_plugin_id("channel eq"), expected_eq_type);
+    let expected_band_eq_type = builtin_effect_type_from_plugin_id("internal://effect/channel-eq");
+    assert_eq!(builtin_effect_type_from_plugin_id("channel eq"), expected_band_eq_type);
     assert_eq!(
         builtin_effect_type_from_plugin_id("/Library/Audio/Plug-Ins/VST3/FabFilter Pro-Q 4.vst3"),
         None

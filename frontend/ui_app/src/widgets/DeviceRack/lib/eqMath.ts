@@ -56,7 +56,13 @@ export function xToFreq(x: number): number {
 }
 
 export function gainToY(gain: number): number {
-    return VB_H / 2 - (Math.max(-24, Math.min(24, gain)) / 24) * (VB_H / 2 - 10);
+    // CURVE FIX: Allow curves to extend beyond ±24dB for natural HP/LP rolloff
+    // visualization. Old code hard-clamped at -24dB causing curves to "drag
+    // along the floor". The SVG viewport clips anything below the viewBox
+    // boundary, giving a clean visual roll-off effect.
+    // Soft-limit at -96dB prevents rendering artefacts from extreme values.
+    const softGain = Math.max(-96, Math.min(24, gain));
+    return VB_H / 2 - (softGain / 24) * (VB_H / 2 - 10);
 }
 
 export function isFilterOnlyType(ft: string): boolean {

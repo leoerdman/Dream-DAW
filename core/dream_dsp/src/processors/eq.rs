@@ -64,7 +64,15 @@ impl EqBand {
             freq,
             gain_db,
             q,
-            enabled: !matches!(filter_type, BiquadType::Highpass | BiquadType::Lowpass),
+            // CRITICAL FIX: Default enable state MUST match frontend presets
+            // (deviceParamPresets.ts) to avoid silent mismatch — no initial
+            // param sync occurs when a device is first created.
+            //
+            // Frontend defaults: B0En=1 (HP on), B1-6En=0 (off), B7En=1 (LP on).
+            // Previous code had these INVERTED: HP/LP off, parametric bands on.
+            // Result: user sees HP/LP as "active" in UI but backend filter is
+            // disabled → EQ has zero effect on audio.
+            enabled: matches!(filter_type, BiquadType::Highpass | BiquadType::Lowpass),
             filter_type,
         }
     }

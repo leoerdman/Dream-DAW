@@ -428,6 +428,14 @@ impl SampleRackEngine {
         self.pads.get_mut(index)
     }
 
+    /// Returns `true` if ANY pad in the rack has a sample loaded.
+    /// Used by instrument exclusion logic to suppress Essence Synth when
+    /// the track has a sample-based rack instrument assigned.
+    #[inline]
+    pub fn has_any_sample(&self) -> bool {
+        self.pads.iter().any(|pad| pad.has_sample())
+    }
+
     /// Trigger a note-on event. Routes MIDI pitch to the corresponding pad.
     #[inline]
     pub fn note_on(&mut self, note: u8, velocity: u8) {

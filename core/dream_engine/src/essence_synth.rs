@@ -148,6 +148,12 @@ pub struct EssenceSynthEngine {
     // ── Voice Pool ──
     voices: [EssenceVoice; ESSENCE_MAX_VOICES],
 
+    // ── Activation Guard ──
+    /// Whether this synth is explicitly enabled for this track.
+    /// Defaults to `false` — empty tracks won’t produce sound from MIDI clips.
+    /// Set to `true` when the user assigns the Essence Synth instrument.
+    enabled: bool,
+
     // ── Global Parameters ──
     /// ADSR envelope parameters.
     adsr_params: AdsrParams,
@@ -200,6 +206,7 @@ impl EssenceSynthEngine {
         let voices = std::array::from_fn(|_| EssenceVoice::new(sample_rate));
         Self {
             voices,
+            enabled: false,
             adsr_params: AdsrParams {
                 attack: 0.01,
                 decay: 0.2,
@@ -377,9 +384,25 @@ impl EssenceSynthEngine {
         self.voices.iter().any(|v| v.active)
     }
 
-    /// Whether this synth is active (always true — Essence is always available).
+    /// Whether this synth is enabled (explicitly assigned to this track).
+    /// Empty tracks default to disabled, preventing phantom sound.
     pub fn is_active(&self) -> bool {
-        true
+        self.enabled
+    }
+
+    /// Whether this synth is explicitly enabled for this track.
+    #[inline]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Enable or disable the Essence Synth for this track.
+    /// Called when the user assigns/removes the Essence Synth instrument.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.all_notes_off();
+        }
     }
 
     // ── Render Pipeline ────────────────────────────────────────────────

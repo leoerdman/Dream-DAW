@@ -223,8 +223,12 @@ pub(super) fn drain_commands(
                     // EssenceSynth is oscillator-based. Never fire both.
                     let sampler_has_sample = idx < ctx.sampler_engines.len()
                         && ctx.sampler_engines[idx].has_sample();
+                    let rack_has_samples = idx < ctx.sample_rack_engines.len()
+                        && ctx.sample_rack_engines[idx].has_any_sample();
                     let use_essence = !sampler_has_sample
-                        && idx < ctx.essence_engines.len();
+                        && !rack_has_samples
+                        && idx < ctx.essence_engines.len()
+                        && ctx.essence_engines[idx].is_enabled();
 
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_on(pitch, velocity);
@@ -247,8 +251,12 @@ pub(super) fn drain_commands(
                     // INSTRUMENT EXCLUSION: Mirror the note-on logic.
                     let sampler_has_sample = idx < ctx.sampler_engines.len()
                         && ctx.sampler_engines[idx].has_sample();
+                    let rack_has_samples = idx < ctx.sample_rack_engines.len()
+                        && ctx.sample_rack_engines[idx].has_any_sample();
                     let use_essence = !sampler_has_sample
-                        && idx < ctx.essence_engines.len();
+                        && !rack_has_samples
+                        && idx < ctx.essence_engines.len()
+                        && ctx.essence_engines[idx].is_enabled();
 
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_off(pitch);
@@ -389,6 +397,9 @@ pub(super) fn drain_commands(
             EngineCommand::SetEssenceWaveform1 { track_index, waveform } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    // Auto-enable: receiving a synth param means the UI has assigned
+                    // the Essence Synth instrument to this track.
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_waveform_1(waveform);
                 }
             }

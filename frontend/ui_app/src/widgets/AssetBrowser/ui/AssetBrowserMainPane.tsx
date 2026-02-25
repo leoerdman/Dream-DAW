@@ -184,7 +184,7 @@ const pluginStatsRowStyle: React.CSSProperties = {
     padding: 'var(--space-0-5) var(--space-2)',
     borderBottom: 'var(--space-px) solid var(--color-divider-light)',
     background: 'var(--color-bg-header)',
-    fontSize: 'var(--font-size-2xs)',
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-tertiary)',
     fontFamily: 'var(--font-role-data)',
 };

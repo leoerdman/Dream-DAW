@@ -283,6 +283,16 @@ pub enum BuiltinEffectType {
     DrumBuss = 20,
     DynamicTube = 21,
     PhaserFlanger = 22,
+    Amp = 23,
+    Cabinet = 24,
+    HybridReverb = 25,
+    Erosion = 26,
+    Pedal = 27,
+    Roar = 28,
+    MultibandDynamics = 29,
+    GrainDelay = 30,
+    Corpus = 31,
+    SpectralTime = 32,
 }
 
 impl BuiltinEffectType {
@@ -312,6 +322,16 @@ impl BuiltinEffectType {
             20 => Some(Self::DrumBuss),
             21 => Some(Self::DynamicTube),
             22 => Some(Self::PhaserFlanger),
+            23 => Some(Self::Amp),
+            24 => Some(Self::Cabinet),
+            25 => Some(Self::HybridReverb),
+            26 => Some(Self::Erosion),
+            27 => Some(Self::Pedal),
+            28 => Some(Self::Roar),
+            29 => Some(Self::MultibandDynamics),
+            30 => Some(Self::GrainDelay),
+            31 => Some(Self::Corpus),
+            32 => Some(Self::SpectralTime),
             _ => None,
         }
     }
@@ -379,6 +399,36 @@ impl BuiltinEffectType {
             Self::PhaserFlanger => Box::new(
                 super::processors::phaser_flanger::PhaserFlangerProcessor::new(sample_rate),
             ),
+            Self::Amp => Box::new(
+                super::processors::amp::AmpProcessor::new(sample_rate),
+            ),
+            Self::Cabinet => Box::new(
+                super::processors::cabinet::CabinetProcessor::new(sample_rate),
+            ),
+            Self::HybridReverb => Box::new(
+                super::processors::hybrid_reverb::HybridReverbProcessor::new(sample_rate),
+            ),
+            Self::Erosion => Box::new(
+                super::processors::erosion::ErosionProcessor::new(sample_rate),
+            ),
+            Self::Pedal => Box::new(
+                super::processors::pedal::PedalProcessor::new(sample_rate),
+            ),
+            Self::Roar => Box::new(
+                super::processors::roar::RoarProcessor::new(sample_rate),
+            ),
+            Self::MultibandDynamics => Box::new(
+                super::processors::multiband_dynamics::MultibandDynamicsProcessor::new(sample_rate),
+            ),
+            Self::GrainDelay => Box::new(
+                super::processors::grain_delay::GrainDelayProcessor::new(sample_rate),
+            ),
+            Self::Corpus => Box::new(
+                super::processors::corpus::CorpusProcessor::new(sample_rate),
+            ),
+            Self::SpectralTime => Box::new(
+                super::processors::spectral_time::SpectralTimeProcessor::new(sample_rate),
+            ),
         };
         Box::new(SmoothedProcessor::new(*self, inner, sample_rate))
     }
@@ -394,18 +444,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=22u8 {
+        for i in 0..=32u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(23).is_none());
+        assert!(BuiltinEffectType::from_u8(33).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=22u8 {
+        for i in 0..=32u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

@@ -101,7 +101,7 @@ export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
         trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: Math.max(0, Math.min(127, Math.round(pitch))),
     });
-export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
 export const BuiltinEffectType: {
     Eq: BuiltinEffectType;
     Compressor: BuiltinEffectType;
@@ -120,6 +120,19 @@ export const BuiltinEffectType: {
     NoiseMachine: BuiltinEffectType;
     AutoPan: BuiltinEffectType;
     Analyzer: BuiltinEffectType;
+    // Wave 3 — Unique Processors
+    ChannelEq: BuiltinEffectType;
+    Overdrive: BuiltinEffectType;
+    TransientShaper: BuiltinEffectType;
+    DrumBuss: BuiltinEffectType;
+    DynamicTube: BuiltinEffectType;
+    PhaserFlanger: BuiltinEffectType;
+    Amp: BuiltinEffectType;
+    Cabinet: BuiltinEffectType;
+    HybridReverb: BuiltinEffectType;
+    Erosion: BuiltinEffectType;
+    Pedal: BuiltinEffectType;
+    Roar: BuiltinEffectType;
 } = {
     Eq: 0,
     Compressor: 1,
@@ -138,6 +151,19 @@ export const BuiltinEffectType: {
     NoiseMachine: 14,
     AutoPan: 15,
     Analyzer: 16,
+    // Wave 3 — Unique Processors
+    ChannelEq: 17,
+    Overdrive: 18,
+    TransientShaper: 19,
+    DrumBuss: 20,
+    DynamicTube: 21,
+    PhaserFlanger: 22,
+    Amp: 23,
+    Cabinet: 24,
+    HybridReverb: 25,
+    Erosion: 26,
+    Pedal: 27,
+    Roar: 28,
 };
 export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
     invoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });

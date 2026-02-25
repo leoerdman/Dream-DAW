@@ -3,6 +3,7 @@ export type { PluginParam } from '@/widgets/DeviceRack/StandardPluginControls';
 
 export type DeviceEffectType =
     | 'eq'
+    | 'bandEq'
     | 'compressor'
     | 'delay'
     | 'reverb'

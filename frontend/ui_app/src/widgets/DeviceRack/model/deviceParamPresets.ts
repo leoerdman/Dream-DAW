@@ -58,6 +58,18 @@ export const DEVICE_PARAM_PRESETS: Record<
         { name: 'High', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'HighQ', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
     ],
+    bandEq: [
+        // ChannelEqProcessor: 3-band EQ with LR4 crossovers
+        { name: 'Low', value: 0, min: -60, max: 6, suffix: 'dB', step: 0.1 },       // 0
+        { name: 'Mid', value: 0, min: -60, max: 6, suffix: 'dB', step: 0.1 },       // 1
+        { name: 'High', value: 0, min: -60, max: 6, suffix: 'dB', step: 0.1 },      // 2
+        { name: 'LowFreq', value: 250, min: 60, max: 500, suffix: 'Hz', step: 1 },  // 3
+        { name: 'HighFreq', value: 4000, min: 2000, max: 16000, suffix: 'Hz', step: 1 }, // 4
+        { name: 'LowKill', value: 0, min: 0, max: 1, suffix: '', step: 1 },         // 5
+        { name: 'MidKill', value: 0, min: 0, max: 1, suffix: '', step: 1 },         // 6
+        { name: 'HighKill', value: 0, min: 0, max: 1, suffix: '', step: 1 },        // 7
+        { name: 'Out', value: 0, min: -24, max: 12, suffix: 'dB', step: 0.1 },      // 8
+    ],
     compressor: [
         { name: 'Thr', value: -18, min: -60, max: 0, suffix: 'dB', step: 0.1 },       // 0
         { name: 'Ratio', value: 4, min: 1, max: 20, suffix: ':1', step: 0.1 },        // 1

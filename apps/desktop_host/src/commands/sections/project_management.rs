@@ -356,26 +356,27 @@ fn open_project(
         )?;
     }
 
-    // ALS projects often rely on external instrument slots (e.g. Serum) on
-    // MIDI tracks. Lazy activation leaves those tracks silent until the user
-    // manually opens/fixes each plugin. For ALS import, eagerly activate
-    // external plugin slots best-effort so imported tracks are audible
-    // immediately after open.
-    if importing_als {
-        match eager_activate_external_plugins(
-            plugin_host_state.clone(),
-            project_state.clone(),
-            clip_pool_state.clone(),
-        ) {
-            Ok(stats) => {
-                log::info!("[ALS Import] Eager external plugin activation: {}", stats);
-            }
-            Err(err) => {
-                log::warn!(
-                    "[ALS Import] Eager external plugin activation failed (non-fatal): {}",
-                    err
-                );
-            }
+    // ── Eagerly activate external plugins on project open ──────────
+    // External instrument/effect slots MUST be loaded into the runtime
+    // so they receive process() calls in the audio callback. Without this,
+    // `rebuild_external_fx_snapshot` produces slots with `instance_id: None`
+    // and audio/MIDI silently never reaches any VST/AU plugin.
+    //
+    // Previously gated behind `importing_als` only, leaving native .ddpj
+    // projects with dead plugin slots until manually opened from the UI.
+    match eager_activate_external_plugins(
+        plugin_host_state.clone(),
+        project_state.clone(),
+        clip_pool_state.clone(),
+    ) {
+        Ok(stats) => {
+            log::info!("[OpenProject] Eager external plugin activation: {}", stats);
+        }
+        Err(err) => {
+            log::warn!(
+                "[OpenProject] Eager external plugin activation failed (non-fatal): {}",
+                err
+            );
         }
     }
 

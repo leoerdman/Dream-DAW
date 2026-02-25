@@ -863,18 +863,20 @@ export const addPluginToTrack = (
     pluginId: string,
     pluginName: string,
     slot: 'instrument' | 'effect' | 'auto' = 'auto',
+    insertIndex?: number,
 ) =>
     invoke<void>('add_plugin_to_track_cmd', {
-        payload: { trackId, pluginId, pluginName, slot },
+        payload: { trackId, pluginId, pluginName, slot, insertIndex: insertIndex ?? null },
     });
 export const addPluginToTrackWithDeltas = (
     trackId: string,
     pluginId: string,
     pluginName: string,
     slot: 'instrument' | 'effect' | 'auto' = 'auto',
+    insertIndex?: number,
 ) =>
     invoke<DeltaMutationResponse>('add_plugin_to_track_with_deltas_cmd', {
-        payload: { trackId, pluginId, pluginName, slot },
+        payload: { trackId, pluginId, pluginName, slot, insertIndex: insertIndex ?? null },
     });
 export const removePluginFromTrack = (trackId: string, slotId: string) =>
     invoke<void>('remove_plugin_from_track_cmd', {

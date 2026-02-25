@@ -85,6 +85,17 @@ pub struct SpectrumAnalyzer {
 }
 
 impl SpectrumAnalyzer {
+    #[inline]
+    fn sanitize_sample_rate(sr: f32) -> f32 {
+        // Guard invalid sample rates from external config/API to avoid NaN
+        // frequency bins and unstable log-mapping in compute().
+        if !sr.is_finite() || sr <= 0.0 {
+            44_100.0
+        } else {
+            sr.max(8_000.0)
+        }
+    }
+
     /// Create a new spectrum analyzer for the given sample rate
     pub fn new(sample_rate: f32) -> Self {
         let mut planner = FftPlanner::<f32>::new();
@@ -106,7 +117,7 @@ impl SpectrumAnalyzer {
             fft_buffer: vec![Complex::default(); FFT_SIZE],
             hann_window,
             smoothed: [FLOOR_DB; OUTPUT_BINS],
-            sample_rate,
+            sample_rate: Self::sanitize_sample_rate(sample_rate),
             sequence: AtomicU64::new(0),
             fft_plan,
             last_compute_ns: 0,
@@ -230,7 +241,7 @@ impl SpectrumAnalyzer {
 
     /// Update the sample rate (e.g., when project settings change)
     pub fn set_sample_rate(&mut self, sr: f32) {
-        self.sample_rate = sr;
+        self.sample_rate = Self::sanitize_sample_rate(sr);
     }
 
     /// Reset the analyzer state (clear ring buffer and smoothed values)

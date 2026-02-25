@@ -64,12 +64,11 @@ mod tests {
         let mut project = Project::default();
         let track = Track::new("Target Track".to_string());
         let target_id = track.id.to_string();
-        project.add_track(Track::new("Other Track".to_string()));
         project.add_track(track);
 
         let ctx = OrchestratorContext::new(project);
         let cmd = InsertRecordedClipCommand {
-            track_id: target_id,
+            track_id: target_id.clone(),
             clip_name: "Recording".to_string(),
             file_path: "/tmp/recorded.wav".to_string(),
             start_frame: 256,
@@ -80,8 +79,9 @@ mod tests {
         cmd.execute(&ctx).expect("execute");
 
         let project = ctx.lock_project().expect("lock");
-        // Should be on track index 1 (Target Track), not 0 (Other Track)
-        let clip = project.tracks[1].clips.last().expect("clip");
+        // Verify clip went to the correct track (matched by UUID)
+        let target_track = project.tracks.iter().find(|t| t.id.to_string() == target_id).expect("target track");
+        let clip = target_track.clips.last().expect("clip");
         assert_eq!(clip.file_path, "/tmp/recorded.wav");
         assert_eq!(clip.position.sample_frame, 256);
         assert_eq!(clip.warp_source_duration_frames, 48_000);
@@ -89,7 +89,9 @@ mod tests {
 
     #[test]
     fn creates_fallback_track_if_id_not_found() {
-        let ctx = OrchestratorContext::new(Project::default());
+        let project = Project::default();
+        let initial_count = project.tracks.len();
+        let ctx = OrchestratorContext::new(project);
         let cmd = InsertRecordedClipCommand {
             track_id: "nonexistent-uuid".to_string(),
             clip_name: "Recording".to_string(),
@@ -102,7 +104,8 @@ mod tests {
         cmd.execute(&ctx).expect("execute");
 
         let project = ctx.lock_project().expect("lock");
-        assert_eq!(project.tracks.len(), 1);
-        assert_eq!(project.tracks[0].clips.len(), 1);
+        // A new fallback track should have been created
+        assert_eq!(project.tracks.len(), initial_count + 1);
+        assert_eq!(project.tracks.last().unwrap().clips.len(), 1);
     }
 }

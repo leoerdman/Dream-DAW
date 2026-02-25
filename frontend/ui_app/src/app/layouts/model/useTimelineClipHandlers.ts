@@ -4,7 +4,6 @@ import { beatDurationToFrames, beatToFrame } from '@/shared/lib/audioMath';
 import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { toEntityState } from '@/shared/stores/engine/storeHelpers';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 
@@ -53,21 +52,26 @@ export function useTimelineClipHandlers({
     const pruneGhostClip = useCallback((clipId: string) => {
         if (!clipId) return;
         useEngineStore.setState((s) => {
-            const existsInList = s.timelineClips.some((clip) => clip.id === clipId);
-            const existsInMap = Boolean(s.clipsById[clipId]);
-            if (!existsInList && !existsInMap) return s;
+            const canonicalById = Object.keys(s.clips.byId).length > 0 ? s.clips.byId : s.clipsById;
+            if (!canonicalById[clipId]) return s;
 
+            const nextClipIds = s.clips.allIds.filter((id) => id !== clipId);
+            const nextClipsEntityById = { ...canonicalById };
+            delete nextClipsEntityById[clipId];
             const nextTimelineClips = normalizeTimelineClips(
-                s.timelineClips.filter((clip) => clip.id !== clipId),
+                nextClipIds
+                    .map((id) => nextClipsEntityById[id])
+                    .filter((clip): clip is TimelineClip => Boolean(clip)),
             );
-            const nextClipsById = Object.fromEntries(
-                nextTimelineClips.map((clip) => [clip.id, clip]),
-            );
+            const nextClipsById = Object.fromEntries(nextTimelineClips.map((clip) => [clip.id, clip]));
 
             return {
                 timelineClips: nextTimelineClips,
                 clipsById: nextClipsById,
-                clips: toEntityState(nextTimelineClips),
+                clips: {
+                    byId: nextClipsById,
+                    allIds: nextTimelineClips.map((clip) => clip.id),
+                },
             };
         });
         setSelectedClipIds((prev) => prev.filter((id) => id !== clipId));
@@ -87,13 +91,14 @@ export function useTimelineClipHandlers({
         const bpm = projectBpm || transportBpm || 120;
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
-        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
+        const liveExists = Boolean(liveClip);
         if (!liveExists) {
             pruneGhostClip(clipId);
             return;
         }
 
-        const dragged = timelineClipsForView.find((clip) => clip.id === clipId);
+        const dragged = liveClip ?? timelineClipsForView.find((clip) => clip.id === clipId);
         if (!dragged) {
             pruneGhostClip(clipId);
             return;
@@ -151,7 +156,10 @@ export function useTimelineClipHandlers({
             const deltaBeat = newStartBeat - dragged.startBeat;
             const deltaTrack = newTrackIndex - dragged.trackIndex;
             const seen = new Set<string>();
-            const selectedClips = timelineClipsForView.filter((clip) => {
+            const selectedClips = selectedClipIds
+                .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                .filter((clip): clip is TimelineClip => Boolean(clip))
+                .filter((clip) => {
                 if (!selectedSet.has(clip.id)) return false;
                 if (seen.has(clip.id)) return false;
                 seen.add(clip.id);
@@ -202,7 +210,7 @@ export function useTimelineClipHandlers({
 
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
         const liveState = useEngineStore.getState();
-        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        const liveExists = Boolean(liveState.clips.byId[clipId] ?? liveState.clipsById[clipId]);
         if (!liveExists) {
             pruneGhostClip(clipId);
             return;
@@ -228,7 +236,7 @@ export function useTimelineClipHandlers({
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         const liveState = useEngineStore.getState();
-        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        const liveExists = Boolean(liveState.clips.byId[clipId] ?? liveState.clipsById[clipId]);
         if (!liveExists) {
             pruneGhostClip(clipId);
             return;

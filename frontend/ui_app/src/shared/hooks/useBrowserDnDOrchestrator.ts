@@ -25,6 +25,22 @@ const resolvePluginSlot = (
     return 'effect';
 };
 
+const getSelectedRackDeviceId = (): string => {
+    if (typeof document === 'undefined') return '';
+    const rackScope = document.querySelector<HTMLElement>('[data-keyboard-scope="device-rack"]');
+    return rackScope?.dataset?.selectedDeviceId ?? '';
+};
+
+const resolveEffectInsertIndex = (track: ProjectTrack, slot: 'instrument' | 'effect'): number | undefined => {
+    if (slot !== 'effect') return undefined;
+    const selectedTrackId = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
+    if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
+    const selectedDeviceId = getSelectedRackDeviceId();
+    if (!selectedDeviceId) return undefined;
+    const selectedEffectIndex = track.effects.findIndex((effect) => effect?.id === selectedDeviceId);
+    return selectedEffectIndex >= 0 ? selectedEffectIndex + 1 : undefined;
+};
+
 export const useBrowserDnDOrchestrator = ({
     tracks,
     projectBpm,
@@ -60,11 +76,18 @@ export const useBrowserDnDOrchestrator = ({
         const track = getTrackById(trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
+        const insertIndex = resolveEffectInsertIndex(track, slot);
         let lastErr: unknown = null;
         const attempts = buildPluginSlotAttempts(slot);
         for (const attempt of attempts) {
             try {
-                const response = await engineApi.addPluginToTrackWithDeltas(track.id, item.path, item.name, attempt);
+                const response = await engineApi.addPluginToTrackWithDeltas(
+                    track.id,
+                    item.path,
+                    item.name,
+                    attempt,
+                    insertIndex,
+                );
                 await applyProjectDeltas(response.deltas, 'browser-dnd:add-plugin');
                 lastErr = null;
                 break;

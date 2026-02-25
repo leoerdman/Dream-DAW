@@ -63,7 +63,8 @@ fn add_plugin_to_track_impl(
         external_audio_inputs,
         external_supports_sidechain_input,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?
+    .with_insert_index(payload.insert_index);
     let cmd_result = execute_orchestrator_command(&project_state, &cmd)?;
     let new_slot_id = cmd_result.slot_id;
     let use_instrument = cmd_result.placed_as_instrument;

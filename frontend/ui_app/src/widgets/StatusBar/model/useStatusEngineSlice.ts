@@ -6,7 +6,7 @@ export const useStatusEngineSlice = () =>
         const h = s.projectHistory;
         return {
             isPlaying: s.transport.is_playing,
-            positionSeconds: s.transport.position_seconds,
+            positionBeats: s.transport.position_beats ?? 0,
             bpm: s.projectBpm || s.transport.bpm || 120,
             connected: s.connected,
             projectSampleRate: s.projectSampleRate,

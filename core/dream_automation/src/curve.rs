@@ -130,18 +130,21 @@ impl AutomationCurve {
     /// Real-time safe — binary search + arithmetic only.
     #[inline]
     pub fn evaluate(&self, position: i64) -> f64 {
-        if self.points.is_empty() {
+        let Some(first) = self.points.first() else {
             return self.default_value;
-        }
+        };
+        let Some(last) = self.points.last() else {
+            return self.default_value;
+        };
 
         // Before first point
-        if position <= self.points.first().unwrap().position {
-            return self.points.first().unwrap().value;
+        if position <= first.position {
+            return first.value;
         }
 
         // After last point
-        if position >= self.points.last().unwrap().position {
-            return self.points.last().unwrap().value;
+        if position >= last.position {
+            return last.value;
         }
 
         // Binary search for the segment

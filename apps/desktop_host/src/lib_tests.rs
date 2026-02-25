@@ -1,6 +1,4 @@
-#![cfg(test)]
-
 #[test]
 fn desktop_host_test_module_compiles() {
-    assert!(true);
+    // Smoke test: module links and test harness initializes.
 }

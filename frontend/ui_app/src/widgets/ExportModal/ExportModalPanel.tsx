@@ -35,6 +35,8 @@ interface ExportModalPanelProps {
     tailMs: number;
     setTailMs: (v: number) => void;
     bounceError: string | null;
+    canBounce: boolean;
+    bounceDisabledReason: string | null;
     onBounce: () => void;
 }
 
@@ -57,12 +59,14 @@ export function ExportModalPanel({
     tailMs,
     setTailMs,
     bounceError,
+    canBounce,
+    bounceDisabledReason,
     onBounce,
 }: ExportModalPanelProps) {
     return (
         <div style={{ zIndex: 'var(--z-modal-content)' as unknown as number, width: 'min(440px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--color-bg-panel)', border: 'var(--space-px) solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)', padding: 24, boxShadow: '0 var(--space-4) var(--space-16) var(--color-overlay-dark)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
+                <h2 id="export-audio-title" style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Export Audio</h2>
                 <button
                     onClick={isSubmitting ? undefined : onClose}
                     disabled={isSubmitting}
@@ -150,6 +154,21 @@ export function ExportModalPanel({
                     {bounceError}
                 </div>
             )}
+            {!bounceError && bounceDisabledReason && (
+                <div
+                    role="status"
+                    style={{
+                        padding: 'var(--space-2) var(--space-3)',
+                        background: 'color-mix(in srgb, var(--color-status-warning) 12%, transparent)',
+                        border: 'var(--space-px) solid color-mix(in srgb, var(--color-status-warning) 35%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-sm)',
+                        color: 'var(--color-text-primary)',
+                    }}
+                >
+                    {bounceDisabledReason}
+                </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
                 <button
@@ -161,8 +180,8 @@ export function ExportModalPanel({
                 </button>
                 <button
                     onClick={onBounce}
-                    disabled={isSubmitting}
-                    style={{ padding: 'var(--space-2) var(--space-5)', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: isSubmitting ? 'not-allowed' : 'pointer', opacity: isSubmitting ? 0.5 : 1, transition: 'all var(--transition-fast)' }}
+                    disabled={isSubmitting || !canBounce}
+                    style={{ padding: 'var(--space-2) var(--space-5)', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: isSubmitting || !canBounce ? 'not-allowed' : 'pointer', opacity: isSubmitting || !canBounce ? 0.5 : 1, transition: 'all var(--transition-fast)' }}
                 >
                     {isSubmitting ? 'Starting...' : 'Bounce'}
                 </button>

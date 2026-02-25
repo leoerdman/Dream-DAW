@@ -262,21 +262,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 reason,
                 unhandledDeltaKinds,
             });
-            // Force convergence to a canonical state when local delta reducers miss kinds.
-            if (!reason.includes(':snapshot-recovery')) {
-                try {
-                    const snapshot = await engine.getProjectSnapshotDelta();
-                    if (Array.isArray(snapshot?.deltas) && snapshot.deltas.length > 0) {
-                        await get().applyProjectDeltas(snapshot.deltas, `${reason}:snapshot-recovery`);
-                    }
-                } catch (recoveryError) {
-                    console.error('[engine-store] snapshot recovery failed', {
-                        reason,
-                        unhandledDeltaKinds,
-                        recoveryError,
-                    });
-                }
-            }
         }
 
         if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {

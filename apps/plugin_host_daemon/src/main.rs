@@ -19,6 +19,7 @@
 //   5. Store processed_seq (Release) to signal completion to host
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -283,54 +284,68 @@ fn main() {
                             continue;
                         }
 
-                        if !loaded_instances.contains_key(&instance_id) {
-                            let name = path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("Unknown")
-                                .to_string();
-                            let descriptor = PluginDescriptor::new(
-                                name,
-                                "Unknown Vendor",
-                                PluginFormat::VST3,
-                                PluginCategory::Effect,
-                                path,
-                            );
-                            match Vst3Instance::load(descriptor) {
-                                Ok(mut inst) => {
-                                    if let Err(e) =
-                                        inst.activate(sample_rate, max_block_size as usize)
-                                    {
+                        match loaded_instances.entry(instance_id) {
+                            Entry::Occupied(occupied) => {
+                                // Idempotent load: return the current capabilities instead of
+                                // silently ignoring duplicate load requests.
+                                let evt = PluginHostEventMessage::Loaded {
+                                    instance_id,
+                                    latency_samples: occupied.get().latency_samples(),
+                                    supports_editor: occupied.get().supports_editor(),
+                                };
+                                if let Ok(json) = serde_json::to_string(&evt) {
+                                    println!("{json}");
+                                }
+                            }
+                            Entry::Vacant(vacant) => {
+                                let name = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("Unknown")
+                                    .to_string();
+                                let descriptor = PluginDescriptor::new(
+                                    name,
+                                    "Unknown Vendor",
+                                    PluginFormat::VST3,
+                                    PluginCategory::Effect,
+                                    path,
+                                );
+                                match Vst3Instance::load(descriptor) {
+                                    Ok(mut inst) => {
+                                        if let Err(e) =
+                                            inst.activate(sample_rate, max_block_size as usize)
+                                        {
+                                            log::error!(
+                                                "[plugin_host_daemon] activate failed: {} — {}",
+                                                instance_id,
+                                                e
+                                            );
+                                        }
+                                        let latency = inst.latency_samples();
+                                        let editor = inst.supports_editor();
+                                        vacant.insert(Box::new(inst));
+                                        let evt = PluginHostEventMessage::Loaded {
+                                            instance_id,
+                                            latency_samples: latency,
+                                            supports_editor: editor,
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&evt) {
+                                            println!("{json}");
+                                        }
+                                    }
+                                    Err(e) => {
                                         log::error!(
-                                            "[plugin_host_daemon] activate failed: {} — {}",
+                                            "[plugin_host_daemon] load failed: {} — {}",
                                             instance_id,
                                             e
                                         );
-                                    }
-                                    let latency = inst.latency_samples();
-                                    let editor = inst.supports_editor();
-                                    loaded_instances.insert(instance_id, Box::new(inst));
-                                    let evt = PluginHostEventMessage::Loaded {
-                                        instance_id,
-                                        latency_samples: latency,
-                                        supports_editor: editor,
-                                    };
-                                    if let Ok(json) = serde_json::to_string(&evt) {
-                                        println!("{json}");
-                                    }
-                                }
-                                Err(e) => {
-                                    log::error!(
-                                        "[plugin_host_daemon] load failed: {} — {}",
-                                        instance_id,
-                                        e
-                                    );
-                                    let evt = PluginHostEventMessage::Error {
-                                        instance_id: Some(instance_id),
-                                        message: format!("Plugin load failed: {e}"),
-                                    };
-                                    if let Ok(json) = serde_json::to_string(&evt) {
-                                        println!("{json}");
+                                        let evt = PluginHostEventMessage::Error {
+                                            instance_id: Some(instance_id),
+                                            message: format!("Plugin load failed: {e}"),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&evt) {
+                                            println!("{json}");
+                                        }
                                     }
                                 }
                             }

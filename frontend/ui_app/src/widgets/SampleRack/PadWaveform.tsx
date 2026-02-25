@@ -7,11 +7,12 @@ export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePat
     useEffect(() => {
         if (!samplePath) {
             let cancelled = false;
-            queueMicrotask(() => {
+            const rafId = requestAnimationFrame(() => {
                 if (!cancelled) setPeaks(null);
             });
             return () => {
                 cancelled = true;
+                cancelAnimationFrame(rafId);
             };
         }
 
@@ -67,4 +68,3 @@ export const PadWaveform = memo(function PadWaveform({ samplePath }: { samplePat
         </svg>
     );
 });
-

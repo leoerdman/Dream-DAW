@@ -156,6 +156,17 @@ export const ExportModal = ({
         };
     }, [exportRange, selectedRange, loopStartBeat, loopEndBeat, projectExtent, bpm]);
 
+    const bounceDisabledReason = useMemo(() => {
+        if (exportRange === 'selected' && !selectedRange) {
+            return 'Select at least one clip or marquee range to export "Selected".';
+        }
+        if (!Number.isFinite(rangeInfo.durationBeats) || rangeInfo.durationBeats <= 0) {
+            return 'Nothing to export: selected range is empty.';
+        }
+        return null;
+    }, [exportRange, selectedRange, rangeInfo.durationBeats]);
+    const canBounce = bounceDisabledReason === null;
+
     useEffect(() => {
         if (hasMarquee && exportRange !== 'selected') {
             setExportRange('selected');
@@ -165,6 +176,10 @@ export const ExportModal = ({
     }, [exportRange, hasSelection, hasMarquee]);
 
     const handleBounce = useCallback(async () => {
+        if (!canBounce) {
+            setBounceError(bounceDisabledReason ?? 'Invalid export range.');
+            return;
+        }
         setBounceError(null);
         setIsSubmitting(true);
 
@@ -188,7 +203,7 @@ export const ExportModal = ({
                 bitDepth: format === 'wav' ? bitDepth : 24,
                 range: exportRange,
                 normalize,
-                tailMs,
+                tailMs: Math.max(0, Math.min(5000, tailMs)),
                 format,
             };
 
@@ -206,7 +221,7 @@ export const ExportModal = ({
         } finally {
             setIsSubmitting(false);
         }
-    }, [exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate]);
+    }, [canBounce, bounceDisabledReason, exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate]);
 
     // BUG-51 FIX: Memoize rangeOptions to avoid re-creating array every render.
     // MUST be before the early-return to satisfy Rules of Hooks (constant hook count).
@@ -222,7 +237,7 @@ export const ExportModal = ({
     if (!isOpen) return null;
 
     return (
-        <ModalOverlay open={isOpen} onBackdropClick={isSubmitting ? undefined : onClose}>
+        <ModalOverlay open={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} labelId="export-audio-title">
             <ExportModalPanel
                 isSubmitting={isSubmitting}
                 onClose={onClose}
@@ -242,6 +257,8 @@ export const ExportModal = ({
                 tailMs={tailMs}
                 setTailMs={setTailMs}
                 bounceError={bounceError}
+                canBounce={canBounce}
+                bounceDisabledReason={bounceDisabledReason}
                 onBounce={handleBounce}
             />
         </ModalOverlay>

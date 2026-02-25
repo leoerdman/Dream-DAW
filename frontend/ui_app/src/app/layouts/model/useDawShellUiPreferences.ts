@@ -44,7 +44,7 @@ export function useDawShellUiPreferences(args: DawShellUiPreferencesArgs): void 
         useAutomationStore.setState({
             globalVisible: Boolean(settings.transportAutomationVisible),
         });
-        queueMicrotask(() => setFollowPlayhead(Boolean(settings.transportFollowPlayhead)));
+        setFollowPlayhead(Boolean(settings.transportFollowPlayhead));
         uiPrefsHydratedRef.current = true;
     }, [settingsLoaded, settings, setFollowPlayhead]);
 

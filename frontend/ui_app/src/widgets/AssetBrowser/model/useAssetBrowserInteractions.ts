@@ -32,14 +32,20 @@ export function useKeyboardInteractions({
     syncPreviewForItem,
     handleItemEnter,
 }: KeyboardInteractionsParams) {
+    const scrollRowIntoView = useCallback((id: string) => {
+        requestAnimationFrame(() => {
+            itemRowRefs.current[id]?.scrollIntoView({ block: 'nearest' });
+        });
+    }, [itemRowRefs]);
+
     const jumpToPluginLetter = useCallback((letter: string) => {
         const targetId = pluginLetterAnchors.itemByLetter[letter];
         if (!targetId) return;
         const targetItem = items.find((it) => it.id === targetId) ?? null;
         setSelectedItemId(targetId);
         syncPreviewForItem(targetItem);
-        queueMicrotask(() => itemRowRefs.current[targetId]?.scrollIntoView({ block: 'nearest' }));
-    }, [itemRowRefs, items, pluginLetterAnchors, setSelectedItemId, syncPreviewForItem]);
+        scrollRowIntoView(targetId);
+    }, [items, pluginLetterAnchors, scrollRowIntoView, setSelectedItemId, syncPreviewForItem]);
 
     const moveSelection = useCallback((delta: number) => {
         if (items.length === 0) return;
@@ -56,7 +62,7 @@ export function useKeyboardInteractions({
         setSelectedItemId(next.id);
         if (previewEnabled) syncPreviewForItem(next);
         if (selectedCategoryId === 'plugins') {
-            queueMicrotask(() => itemRowRefs.current[next.id]?.scrollIntoView({ block: 'nearest' }));
+            scrollRowIntoView(next.id);
             return;
         }
         const ROW_HEIGHT = 28;
@@ -67,7 +73,7 @@ export function useKeyboardInteractions({
         const headerOffset = 24;
         if (itemTop < el.scrollTop + headerOffset) el.scrollTop = itemTop - headerOffset;
         else if (itemBottom > el.scrollTop + el.clientHeight) el.scrollTop = itemBottom - el.clientHeight;
-    }, [fileListRef, itemRowRefs, items, previewEnabled, selectedCategoryId, selectedItemId, setSelectedItemId, syncPreviewForItem]);
+    }, [fileListRef, items, previewEnabled, scrollRowIntoView, selectedCategoryId, selectedItemId, setSelectedItemId, syncPreviewForItem]);
 
     const focusResults = useCallback(() => fileListRef.current?.focus(), [fileListRef]);
 
@@ -181,8 +187,8 @@ export function usePreviewSync({
                 .then((peaks) => {
                     if (previewRequestTokenRef.current !== token) return;
                     setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
-                    if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
-                        audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
+                    if (peaks.sample_rate > 0 && peaks.total_samples > 0 && item.path) {
+                        audioDurationSecRef.current[item.path] = peaks.total_samples / peaks.sample_rate;
                     }
                 })
                 .catch(() => {

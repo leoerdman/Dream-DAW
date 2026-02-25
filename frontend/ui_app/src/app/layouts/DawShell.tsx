@@ -50,7 +50,7 @@ type MainViewMode = 'arrangement' | 'session';
 
 export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [selectedTrackId, setSelectedTrackId] = useState('');
+    const [selectedTrackId, setSelectedTrackId] = useState('master');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
     const selectedTrackIdRef = useRef(selectedTrackId);
     const selectedTrackIdsRef = useRef(selectedTrackIds);
@@ -251,15 +251,14 @@ export const DawShell = () => {
         [selectedClipIdsForView],
     );
     useEffect(() => {
-        if (tracksEntity.allIds.length === 0) {
-            if (selectedTrackId !== 'master') setSelectedTrackId('master');
-            return;
-        }
-        const exists = Boolean(tracksEntity.byId[selectedTrackId]);
-        if (!exists) {
-            setSelectedTrackId(tracksEntity.allIds[0]);
-        }
+        if (tracksEntity.allIds.length === 0) return selectedTrackId !== 'master' ? setSelectedTrackId('master') : undefined;
+        if (!tracksEntity.byId[selectedTrackId]) setSelectedTrackId(tracksEntity.allIds[0]);
     }, [tracksEntity, selectedTrackId]);
+    useEffect(() => {
+        if (selectedTrackIds.length === 0) return;
+        const next = selectedTrackIds.filter((id) => tracksEntity.byId[id] !== undefined);
+        if (next.length !== selectedTrackIds.length) setSelectedTrackIds(next);
+    }, [selectedTrackIds, tracksEntity.allIds, tracksEntity.byId]);
     const {
         panelInfo,
         collapsedGroups,
@@ -530,11 +529,11 @@ export const DawShell = () => {
                 assistantOpen={assistantOpen}
                 onAssistantClose={() => {
                     setAssistantOpen(false);
-                    try { localStorage.setItem('dream-daw:assistant-open', '0'); } catch { /* quota */ }
+                    writeAssistantOpenPref(false);
                 }}
                 onAssistantOpen={() => {
                     setAssistantOpen(true);
-                    try { localStorage.setItem('dream-daw:assistant-open', '1'); } catch { /* quota */ }
+                    writeAssistantOpenPref(true);
                 }}
                 onSelectClips={setSelectedClipIds}
                 missingAssetsOpen={missingAssetsOpen}

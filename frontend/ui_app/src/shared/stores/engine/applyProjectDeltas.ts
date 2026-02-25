@@ -9,7 +9,7 @@ import { applyPluginDelta } from './delta/pluginDeltaHandlers';
 import { applyTrackDelta } from './delta/trackDeltaHandlers';
 // BUG-009/010 FIX: Import reset functions for module-level state cleanup.
 import { resetTelemetryModuleState } from './actionsTelemetry';
-import { clearTrackControlCaches } from './actionsTrackProject';
+import { clearTrackControlCaches } from './actionsTrackProjectThrottle';
 import type {
     DeltaApplyResult,
     DeltaApplyState,

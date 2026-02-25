@@ -13,7 +13,6 @@
  */
 
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-import { secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStatusEngineSlice } from './model/useStatusEngineSlice';
 import { StatusGroup, StatusLabel, StatusText, StatusValue } from './ui/statusBarParts';
@@ -52,8 +51,7 @@ export const StatusBar = ({
     };
     // Live engine data
     const {
-        positionSeconds,
-        bpm,
+        positionBeats,
         latestHistory,
         projectHistory,
     } = useStatusEngineSlice();
@@ -67,7 +65,7 @@ export const StatusBar = ({
     const historyRef = useRef<HTMLDivElement | null>(null);
 
     // BUG-32 FIX: Use prop timeSigNum instead of hardcoded 4.
-    const totalBeats = secondsToBeat(positionSeconds, bpm);
+    const totalBeats = positionBeats;
     const beatsPerBar = Math.max(1, timeSigNum);
     const bar = Math.floor(totalBeats / beatsPerBar) + 1;
     const beat = Math.floor(totalBeats % beatsPerBar) + 1;

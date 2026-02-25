@@ -154,8 +154,8 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             )}
 
                             {/* Waveform or pad name */}
-                            {hasSample ? (
-                                <PadWaveform samplePath={p!.sample_path} />
+                            {hasSample && p?.sample_path ? (
+                                <PadWaveform samplePath={p.sample_path} />
                             ) : null}
                             <span style={{
                                 fontSize: hasSample ? 8 : 9, fontWeight: 600,

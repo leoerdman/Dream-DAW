@@ -1,8 +1,7 @@
 import throttle from 'lodash.throttle';
 import * as engine from '@/shared/api/engine';
 
-type AnyFn = (...args: unknown[]) => unknown;
-export type ThrottledFn<T extends AnyFn> = T & { cancel(): void; flush(): void };
+export type ThrottledFn<T> = T & { cancel(): void; flush(): void };
 
 export const throttledVolumeSends = new Map<number, ThrottledFn<(volume: number) => void>>();
 export const throttledPanSends = new Map<number, ThrottledFn<(pan: number) => void>>();

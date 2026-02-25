@@ -92,6 +92,7 @@ pub struct AddPluginToTrackCommand {
     pub canonical_slot_hint: Option<String>, // "instrument" | "effect"
     pub external_audio_inputs: Option<u32>,
     pub external_supports_sidechain_input: Option<bool>,
+    pub insert_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,7 +147,14 @@ impl AddPluginToTrackCommand {
             canonical_slot_hint: canonical_slot_hint.map(|s| s.to_string()),
             external_audio_inputs,
             external_supports_sidechain_input,
+            insert_index: None,
         })
+    }
+
+    #[must_use]
+    pub fn with_insert_index(mut self, insert_index: Option<usize>) -> Self {
+        self.insert_index = insert_index;
+        self
     }
 }
 
@@ -214,7 +222,7 @@ impl Command for AddPluginToTrackCommand {
                 dream_graph::routing::device_chain::DeviceChain::insert_effect(
                     track,
                     plugin_slot,
-                    None,
+                    self.insert_index,
                 );
         }
 
@@ -251,6 +259,7 @@ mod tests {
             canonical_slot_hint: Some("instrument".to_string()),
             external_audio_inputs: None,
             external_supports_sidechain_input: None,
+            insert_index: None,
         };
         let result = ctx.execute(&cmd).unwrap();
 
@@ -274,6 +283,7 @@ mod tests {
             canonical_slot_hint: Some("effect".to_string()),
             external_audio_inputs: None,
             external_supports_sidechain_input: None,
+            insert_index: None,
         };
         let result = ctx.execute(&cmd).unwrap();
         assert!(!result.placed_as_instrument);

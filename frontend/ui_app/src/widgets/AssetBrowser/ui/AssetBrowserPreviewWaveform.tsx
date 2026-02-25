@@ -37,48 +37,33 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
         canvas.style.height = `${h}px`;
         ctx.scale(dpr, dpr);
 
+        const style = getComputedStyle(container);
+        const bgColor = style.getPropertyValue('--color-bg-elevated').trim() || 'var(--color-bg-elevated)';
+        const accentColor = style.getPropertyValue('--color-accent-primary').trim() || 'var(--color-accent-primary)';
+        const guideColor = style.getPropertyValue('--color-text-secondary').trim() || 'var(--color-text-secondary)';
+
         ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.30)';
+        ctx.fillStyle = bgColor;
+        ctx.globalAlpha = 0.3;
         ctx.beginPath();
         ctx.roundRect(0, 0, w, h, 4);
         ctx.fill();
+        ctx.globalAlpha = 1;
 
         const mid = h / 2;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.strokeStyle = guideColor;
+        ctx.globalAlpha = 0.25;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(0, mid);
         ctx.lineTo(w, mid);
         ctx.stroke();
-
-        const accentRaw = getComputedStyle(container).getPropertyValue('--color-accent-primary').trim();
-        const accentColor = accentRaw || '#00bfff';
+        ctx.globalAlpha = 1;
 
         const peakCount = peaks.length;
         const barWidth = w / peakCount;
-        const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        const parseColorToRgb = (color: string): [number, number, number] => {
-            const tmp = document.createElement('canvas').getContext('2d');
-            if (!tmp) return [0, 191, 255];
-            tmp.fillStyle = color;
-            const parsed = tmp.fillStyle;
-            if (parsed.startsWith('#')) {
-                const hex = parsed.slice(1);
-                return [
-                    parseInt(hex.slice(0, 2), 16),
-                    parseInt(hex.slice(2, 4), 16),
-                    parseInt(hex.slice(4, 6), 16),
-                ];
-            }
-            const m = parsed.match(/(\d+)/g);
-            return m ? [+m[0], +m[1], +m[2]] : [0, 191, 255];
-        };
-        const [ar, ag, ab] = parseColorToRgb(accentColor);
-        gradient.addColorStop(0, `rgba(${ar}, ${ag}, ${ab}, 0.90)`);
-        gradient.addColorStop(0.45, `rgba(${ar}, ${ag}, ${ab}, 0.60)`);
-        gradient.addColorStop(0.55, `rgba(${ar}, ${ag}, ${ab}, 0.60)`);
-        gradient.addColorStop(1, `rgba(${ar}, ${ag}, ${ab}, 0.90)`);
-        ctx.fillStyle = gradient;
+        ctx.fillStyle = accentColor;
+        ctx.globalAlpha = 0.8;
 
         for (let i = 0; i < peakCount; i += 1) {
             const p = peaks[i];
@@ -90,6 +75,7 @@ export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; hei
             const bh = Math.max(1, y2 - y1);
             ctx.fillRect(x, y1, Math.max(0.8, barWidth - 0.3), bh);
         }
+        ctx.globalAlpha = 1;
     }, [peaks, height, containerWidth]);
 
     return (

@@ -126,6 +126,18 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
     const getTrackById = useCallback((trackId: string) => tracks.byId[trackId] ?? null, [tracks.byId]);
     const getTrackIndexById = useCallback((trackId: string) => tracks.allIds.indexOf(trackId), [tracks.allIds]);
 
+    const resolveEffectInsertIndex = useCallback((track: ProjectTrack): number | undefined => {
+        const selectedTrackId = (window as { __dreamSelectedTrackId?: string }).__dreamSelectedTrackId;
+        if (!selectedTrackId || selectedTrackId !== track.id) return undefined;
+        const rackScope = typeof document !== 'undefined'
+            ? document.querySelector<HTMLElement>('[data-keyboard-scope="device-rack"]')
+            : null;
+        const selectedDeviceId = rackScope?.dataset?.selectedDeviceId ?? '';
+        if (!selectedDeviceId) return undefined;
+        const selectedEffectIndex = track.effects.findIndex((effect) => effect?.id === selectedDeviceId);
+        return selectedEffectIndex >= 0 ? selectedEffectIndex + 1 : undefined;
+    }, []);
+
     const resolveSelectedTrack = useCallback(() => {
         // BUG-44: window.__dreamSelectedTrackId is the canonical mechanism
         // set by useArrangementTrackViewModel — kept for now until store migration
@@ -149,12 +161,22 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
             if (item.type === 'plugin') {
                 const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
                 const fallback: 'instrument' | 'effect' = primary === 'instrument' ? 'effect' : 'instrument';
+                const insertIndex =
+                    (primary === 'effect' || primary === 'auto')
+                        ? resolveEffectInsertIndex(track)
+                        : undefined;
                 let lastErr: unknown = null;
                 const attempts: Array<'instrument' | 'effect' | 'auto'> = [];
                 for (const slot of [primary, 'auto', fallback] as const) if (!attempts.includes(slot)) attempts.push(slot);
                 for (const attempt of attempts) {
                     try {
-                        const response = await engineApi.addPluginToTrackWithDeltas(track.id, item.path, item.name, attempt);
+                        const response = await engineApi.addPluginToTrackWithDeltas(
+                            track.id,
+                            item.path,
+                            item.name,
+                            attempt,
+                            insertIndex,
+                        );
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'asset-browser:add-plugin');
                         lastErr = null;
                         break;
@@ -187,7 +209,7 @@ export function useItemEnterAction({ tracks, enterNonceRef }: ItemEnterParams) {
         } catch (err) {
             console.error('[AssetBrowser] Enter action failed:', err);
         }
-    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack]);
+    }, [enterNonceRef, getTrackIndexById, resolveSelectedTrack, resolveEffectInsertIndex]);
 
     return { handleItemEnter };
 }

@@ -143,10 +143,11 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: lineLeft(playheadLineX, 3),
+                            left: `calc(var(--master-playhead-x, ${playheadLineX}px) - 1.5px)`,
                             width: 3,
                             background: 'var(--color-timeline-playhead-glow)',
                             pointerEvents: 'none',
+                            opacity: `var(--master-playhead-visible, ${playheadVisible ? 1 : 0})`,
                         }}
                     />
                     <div
@@ -154,10 +155,11 @@ export function TimelineMasterLane({
                             position: 'absolute',
                             top: 0,
                             bottom: 0,
-                            left: lineLeft(playheadLineX, 1),
+                            left: `calc(var(--master-playhead-x, ${playheadLineX}px) - 0.5px)`,
                             width: 1,
                             background: 'var(--color-timeline-playhead)',
                             pointerEvents: 'none',
+                            opacity: `var(--master-playhead-visible, ${playheadVisible ? 1 : 0})`,
                         }}
                     />
                 </>

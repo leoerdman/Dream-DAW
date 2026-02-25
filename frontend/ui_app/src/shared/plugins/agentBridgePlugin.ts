@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Dream DAW - Agent Bridge (Vite Plugin)
  *
@@ -14,6 +13,12 @@ import type { Plugin } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const BRIDGE_PORT = 5180;
+const MAX_BRIDGE_MESSAGE_BYTES = 64 * 1024;
+
+type AgentBridgeIncomingMessage = {
+    type?: string;
+    message?: string;
+};
 
 export function agentBridgePlugin(): Plugin {
     let wss: WebSocketServer | null = null;
@@ -39,7 +44,15 @@ export function agentBridgePlugin(): Plugin {
                 ws.on('message', (raw: Buffer | string) => {
                     try {
                         const text = typeof raw === 'string' ? raw : raw.toString('utf-8');
-                        const data = JSON.parse(text);
+                        if (text.length > MAX_BRIDGE_MESSAGE_BYTES) {
+                            console.warn(`  🌉 Agent Bridge: payload too large (${text.length} bytes), ignored`);
+                            return;
+                        }
+                        const data = JSON.parse(text) as AgentBridgeIncomingMessage;
+                        if (data?.type !== 'send' || typeof data.message !== 'string') {
+                            console.warn('  🌉 Agent Bridge: invalid payload shape');
+                            return;
+                        }
                         console.log('  \u{1F309} Agent Bridge ← received:', JSON.stringify(data).slice(0, 120));
 
                         // Relay to all frontend clients via Vite HMR
@@ -59,7 +72,7 @@ export function agentBridgePlugin(): Plugin {
             });
 
             // Listen for frontend responses and relay back to external clients
-            server.ws.on('agent-bridge:response', (data: any) => {
+            server.ws.on('agent-bridge:response', (data: unknown) => {
                 if (!wss) return;
                 const msg = JSON.stringify(data);
                 for (const client of wss.clients) {

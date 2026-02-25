@@ -100,22 +100,9 @@ export const Timeline = (props: TimelineProps) => {
     };
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
     const [arrangementWidth, setArrangementWidth] = useState(800);
-    const [masterFrame, setMasterFrame] = useState(() => ({
-        playheadBeat: useEngineStore.getState().transport.position_beats ?? 0,
-        scrollX: 0,
-        pixelsPerBeat: 0,
-        viewportWidth: 0,
-    }));
-    const liveViewport = engineRef.current?.viewport;
-    const effectiveScrollX = masterFrame.scrollX || (liveViewport ? liveViewport.scrollX : viewportState.scrollX);
-    const effectiveViewportWidth = masterFrame.viewportWidth > 0
-        ? Math.max(1, masterFrame.viewportWidth)
-        : liveViewport
-            ? Math.max(1, liveViewport.viewportWidth)
-        : Math.max(1, viewportState.viewportWidth || arrangementWidth);
-    const effectivePixelsPerBeat = masterFrame.pixelsPerBeat > 0
-        ? masterFrame.pixelsPerBeat
-        : (viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat);
+    const effectiveScrollX = viewportState.scrollX;
+    const effectiveViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
+    const effectivePixelsPerBeat = viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat;
     const effectiveSnapBeatsValue = useMemo(
         () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat),
         [gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat],
@@ -124,7 +111,8 @@ export const Timeline = (props: TimelineProps) => {
         () => buildMasterLaneGridStyle(),
         [],
     );
-    const playheadX = masterFrame.playheadBeat * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
+    const playheadX = transportBeat * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const loopStartX = loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const loopEndX = loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const playheadLineX = snapTimelineX(playheadX);
@@ -276,22 +264,16 @@ export const Timeline = (props: TimelineProps) => {
         const engine = engineRef.current;
         if (!engine) return;
         engine.onFrameDrawn = (snapshot) => {
-            setMasterFrame((prev) => {
-                if (
-                    Math.abs(prev.playheadBeat - snapshot.playheadBeat) < 1e-6
-                    && Math.abs(prev.scrollX - snapshot.scrollX) < 0.01
-                    && Math.abs(prev.pixelsPerBeat - snapshot.pixelsPerBeat) < 0.0001
-                    && Math.abs(prev.viewportWidth - snapshot.viewportWidth) < 0.5
-                ) {
-                    return prev;
-                }
-                return {
-                    playheadBeat: snapshot.playheadBeat,
-                    scrollX: snapshot.scrollX,
-                    pixelsPerBeat: snapshot.pixelsPerBeat,
-                    viewportWidth: snapshot.viewportWidth,
-                };
-            });
+            const lane = masterLaneRef.current;
+            if (!lane) return;
+            const x = snapTimelineX(
+                snapshot.playheadBeat * snapshot.pixelsPerBeat
+                - snapshot.scrollX
+                + MASTER_LANE_ALIGNMENT_OFFSET_PX,
+            );
+            const visible = x >= -10 && x <= snapshot.viewportWidth + 10 ? '1' : '0';
+            lane.style.setProperty('--master-playhead-x', `${x}px`);
+            lane.style.setProperty('--master-playhead-visible', visible);
         };
         return () => {
             if (engine.onFrameDrawn) engine.onFrameDrawn = undefined;

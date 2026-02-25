@@ -1,19 +1,9 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { StoreApi } from 'zustand';
 import * as engine from '@/shared/api/engine';
-import type {
-    MeteringSnapshot,
-    PluginCrashEvent,
-    PluginRecoveryEvent,
-    PluginSandboxSnapshot,
-    TransportState,
-} from '@/shared/api/engine';
+import type { MeteringSnapshot, PluginCrashEvent, PluginRecoveryEvent, PluginSandboxSnapshot, TransportState } from '@/shared/api/engine';
 import { decodeMetersBinaryPacket } from '@/shared/lib/binaryMeters';
-import {
-    METER_STATE_UPDATE_EVERY_TICKS,
-    patchSandboxInstancesById,
-    PROJECT_HISTORY_SYNC_EVERY_TICKS,
-} from '@/shared/stores/engine/storeHelpers';
+import { METER_STATE_UPDATE_EVERY_TICKS, patchSandboxInstancesById, PROJECT_HISTORY_SYNC_EVERY_TICKS } from '@/shared/stores/engine/storeHelpers';
 import { smoothMeterSnapshot } from '@/shared/stores/engine/actionsTelemetrySmoothing';
 import { enqueuePendingStoreUpdate, payloadToUint8Array } from '@/shared/stores/engine/actionsTelemetryQueue';
 import { createPluginEditorActions } from '@/shared/stores/engine/actionsTelemetryEditors';
@@ -39,9 +29,6 @@ let latestMeters: MeteringSnapshot | null = null;
 let smoothedMeters: MeteringSnapshot | null = null;
 let lastMeterTickMs = 0;
 
-// BUG-009 FIX: Reset module-level telemetry state on project reload.
-// These variables persist across project loads because they live at
-// module scope — they must be explicitly cleared when a new project is loaded.
 export function resetTelemetryModuleState(): void {
     bpmPendingUntil = 0;
     meterFrameCounter = 0;
@@ -51,7 +38,6 @@ export function resetTelemetryModuleState(): void {
 }
 
 export function markBpmPending(ms: number): void {
-    // BUG-021 FIX: Use performance.now() — monotonic clock immune to NTP/DST.
     bpmPendingUntil = performance.now() + ms;
 }
 
@@ -108,16 +94,11 @@ export function createTelemetryActions(
                                 || prev.loop_end !== effectiveTransport.loop_end;
 
                             if (transportChanged) {
-                                // BUG-014 FIX: Assign properties directly instead of
-                                // spread accumulation. Eliminates 2-3 intermediate objects
-                                // per telemetry tick (30Hz = 60-90 garbage objects/sec).
                                 telemetryUpdate.transport = effectiveTransport;
                                 telemetryUpdate.connected = true;
                                 telemetryUpdate.lastError = null;
                             }
 
-                            // Performance metrics (sent every tick — DSP load refreshes at 30fps,
-                            // CPU/RAM updates ~1/s but cached values are always included)
                             const perf = event.payload.performance;
                             telemetryUpdate.performance = {
                                 cpuUsage: perf.cpu_usage,

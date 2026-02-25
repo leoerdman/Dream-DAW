@@ -9,6 +9,7 @@ type DeviceRackDropTrack = {
     id: string;
     track_type?: string;
     instrument?: unknown;
+    effects?: Array<{ id?: string }>;
 } | null;
 
 export function useDeviceRackDnD(
@@ -96,12 +97,23 @@ export function useDeviceRackDnD(
                                 : targetTrack.track_type === 'Midi' && !targetTrack.instrument
                                     ? 'instrument'
                                     : 'effect';
+                    let insertIndex: number | undefined;
+                    if (slot === 'effect') {
+                        const selectedDeviceId = rackRef.current?.dataset?.selectedDeviceId ?? '';
+                        if (selectedDeviceId && Array.isArray(targetTrack.effects)) {
+                            const selectedEffectIndex = targetTrack.effects.findIndex(
+                                (effect) => effect?.id === selectedDeviceId,
+                            );
+                            if (selectedEffectIndex >= 0) insertIndex = selectedEffectIndex + 1;
+                        }
+                    }
 
                     const response = await engineApi.addPluginToTrackWithDeltas(
                         targetTrack.id,
                         dragging.path,
                         dragging.name,
                         slot,
+                        insertIndex,
                     );
                     await applyProjectDeltasRef.current(response.deltas, 'device-rack:dnd-add-plugin');
                 }

@@ -6,7 +6,7 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { TrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import {
-    clearTrackControlCaches,
+    clearTrackControlCaches as clearTrackControlCachesLocal,
     getPendingMasterVolume,
     pendingPanValues,
     pendingVolumeValues,
@@ -17,7 +17,7 @@ import {
     throttledVolumeSends,
     type ThrottledFn,
 } from '@/shared/stores/engine/actionsTrackProjectThrottle';
-
+export { clearTrackControlCachesLocal as clearTrackControlCaches };
 function patchTrackByIndex(
     state: EngineStore,
     trackIndex: number,
@@ -244,7 +244,7 @@ export function createTrackProjectActions(
         addTrack: async (name?: string) => {
             try {
                 const response = await engine.addTrackWithDeltas(name);
-                clearTrackControlCaches();
+                clearTrackControlCachesLocal();
                 await get().applyProjectDeltas(response.deltas, 'addTrack');
                 set({ lastError: null });
             } catch (e) {
@@ -255,7 +255,7 @@ export function createTrackProjectActions(
         deleteTrack: async (index: number) => {
             try {
                 const response = await engine.deleteTrackWithDeltas(index);
-                clearTrackControlCaches();
+                clearTrackControlCachesLocal();
                 await get().applyProjectDeltas(response.deltas, 'deleteTrack');
                 set({ lastError: null });
             } catch (e) {

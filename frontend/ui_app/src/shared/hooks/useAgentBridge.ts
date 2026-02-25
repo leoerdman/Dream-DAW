@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Dream DAW - useAgentBridge hook
  *
@@ -30,13 +29,25 @@ interface AgentBridgeOptions {
 // ── Module-level dedup lock ─────────────────────────────────────────────
 // Prevents StrictMode double-mount and HMR re-registration from
 // creating multiple handlers (which would fan out 1 message → N API calls).
-let _activeHandler: ((data: any) => void) | null = null;
+type AgentBridgeMessage = {
+    type?: string;
+    message?: string;
+};
+
+type HmrBus = {
+    on(event: string, cb: (data: unknown) => void): void;
+    off?(event: string, cb: (data: unknown) => void): void;
+    send(event: string, data: unknown): void;
+};
+
+let _activeHandler: ((data: unknown) => void) | null = null;
 let _isProcessing = false; // Synchronous lock — React state is async and racy
 
 /** Sends an agent response event back to external bridge clients via Vite HMR */
 export function sendBridgeResponse(data: Record<string, unknown>): void {
-    if (import.meta.hot) {
-        import.meta.hot.send('agent-bridge:response', data);
+    const hmr = import.meta.hot as unknown as HmrBus | undefined;
+    if (hmr) {
+        hmr.send('agent-bridge:response', data);
     }
 }
 
@@ -64,19 +75,21 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
     }, [onRemoteMessage]);
 
     useEffect(() => {
-        if (!import.meta.hot) return;
+        const hmr = import.meta.hot as unknown as HmrBus | undefined;
+        if (!hmr) return;
 
         // ── Tear down any stale handler from previous mount / HMR cycle ──
         if (_activeHandler) {
             // Vite exposes .off() on the HMR client since v5
             try {
-                (import.meta.hot as any).off?.('agent-bridge:message', _activeHandler);
+                hmr.off?.('agent-bridge:message', _activeHandler);
             } catch { /* older Vite — no .off(), we rely on dedup lock */ }
             _activeHandler = null;
         }
 
-        const handler = (data: any) => {
-            if (data?.type === 'send' && typeof data.message === 'string') {
+        const handler = (data: unknown) => {
+            const msg = data as AgentBridgeMessage;
+            if (msg?.type === 'send' && typeof msg.message === 'string') {
                 // ── Synchronous dedup lock (React setState is async/racy) ──
                 if (_isProcessing || isStreamingRef.current) {
                     sendBridgeResponse({
@@ -86,18 +99,26 @@ export function useAgentBridge({ onRemoteMessage, isStreaming }: AgentBridgeOpti
                     return;
                 }
                 _isProcessing = true; // Lock BEFORE async sendMessage fires
-                onMessageRef.current(data.message);
+                try {
+                    onMessageRef.current(msg.message);
+                } catch (err) {
+                    _isProcessing = false;
+                    sendBridgeResponse({
+                        type: 'error',
+                        message: err instanceof Error ? err.message : String(err),
+                    });
+                }
             }
         };
 
         _activeHandler = handler;
-        import.meta.hot.on('agent-bridge:message', handler);
+        hmr.on('agent-bridge:message', handler);
 
         return () => {
             // Proper cleanup — remove THIS handler
             if (_activeHandler === handler) {
                 try {
-                    (import.meta.hot as any).off?.('agent-bridge:message', handler);
+                    hmr.off?.('agent-bridge:message', handler);
                 } catch { /* fallback: dedup lock handles it */ }
                 _activeHandler = null;
             }

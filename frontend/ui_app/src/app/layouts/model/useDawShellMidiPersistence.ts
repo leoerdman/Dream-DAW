@@ -22,6 +22,13 @@ interface UseDawShellMidiPersistenceArgs {
     applyProjectDeltas: (deltas: engineApi.ProjectDelta[], reason?: string) => Promise<void>;
 }
 
+function makeUiId(prefix: string, index: number): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `${prefix}_${crypto.randomUUID()}`;
+    }
+    return `${prefix}_${Date.now()}_${index}`;
+}
+
 export function useDawShellMidiPersistence({
     timelineClips,
     trackIds,
@@ -160,7 +167,7 @@ export function useDawShellMidiPersistence({
             });
 
             const normalizedForUi: MidiNote[] = variedNotes.map((note, idx) => ({
-                id: `ai_${Date.now()}_${idx}`,
+                id: makeUiId('ai', idx),
                 pitch: note.pitch,
                 velocity: note.velocity,
                 startBeat: note.startBeat,

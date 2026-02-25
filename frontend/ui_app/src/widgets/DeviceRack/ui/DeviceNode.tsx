@@ -95,7 +95,6 @@ export const DeviceNode = ({
     return (
         <div
             className="device-node"
-            data-effect={device.effectType}
             draggable={canReorder}
             onMouseDownCapture={(e) => {
                 lastPointerTargetRef.current = e.target as HTMLElement;

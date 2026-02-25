@@ -18,14 +18,16 @@ use dream_engine::recording::RecordingSession;
 /// Runtime state for live recording sessions.
 pub(crate) struct RecordingRuntime {
     pub(crate) session: Mutex<Option<RecordingSession>>,
-    pub(crate) armed_track_index: Mutex<Option<usize>>,
+    // BUG-029 FIX: Use track UUID instead of index for topology-safe recording.
+    // If tracks are added/deleted/reordered during recording, the index becomes stale.
+    pub(crate) armed_track_id: Mutex<Option<String>>,
 }
 
 impl RecordingRuntime {
     pub(crate) fn new() -> Self {
         Self {
             session: Mutex::new(None),
-            armed_track_index: Mutex::new(None),
+            armed_track_id: Mutex::new(None),
         }
     }
 }

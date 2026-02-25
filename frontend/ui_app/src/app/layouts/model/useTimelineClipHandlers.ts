@@ -86,9 +86,18 @@ export function useTimelineClipHandlers({
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
         const bpm = projectBpm || transportBpm || 120;
         const sampleRate = projectSampleRate;
+        const liveState = useEngineStore.getState();
+        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        if (!liveExists) {
+            pruneGhostClip(clipId);
+            return;
+        }
 
         const dragged = timelineClipsForView.find((clip) => clip.id === clipId);
-        if (!dragged) return;
+        if (!dragged) {
+            pruneGhostClip(clipId);
+            return;
+        }
 
         const selectedSet = new Set(selectedClipIds);
         const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
@@ -125,17 +134,17 @@ export function useTimelineClipHandlers({
             } catch (err) {
                 if (isClipNotFoundError(err)) {
                     pruneGhostClip(id);
+                    return null;
                 }
                 throw err;
             }
         };
 
         const run = async () => {
-            const collectedDeltas: ProjectDelta[] = [];
             if (!moveAsGroup) {
                 const response = await moveOne(clipId, newStartBeat, newTrackIndex);
-                collectedDeltas.push(...response.deltas);
-                await applyProjectDeltas(collectedDeltas, 'clip-move');
+                if (!response) return;
+                await applyProjectDeltas(response.deltas, 'clip-move');
                 return;
             }
 
@@ -148,17 +157,25 @@ export function useTimelineClipHandlers({
                 seen.add(clip.id);
                 return true;
             });
+            const moveErrors: string[] = [];
             for (const clip of selectedClips) {
                 const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
                 const targetTrack = snapToVisibleTrack(
                     Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack)),
                     deltaTrack > 0 ? 1 : (deltaTrack < 0 ? -1 : 0),
                 );
-                const response = await moveOne(clip.id, targetBeat, targetTrack);
-                collectedDeltas.push(...response.deltas);
+                try {
+                    const response = await moveOne(clip.id, targetBeat, targetTrack);
+                    if (!response) continue;
+                    // Apply per-clip deltas immediately to keep UI consistent even if
+                    // later clips in the same group fail validation/not-found checks.
+                    await applyProjectDeltas(response.deltas, 'clip-move-group');
+                } catch (err) {
+                    moveErrors.push(err instanceof Error ? err.message : String(err));
+                }
             }
-            if (collectedDeltas.length > 0) {
-                await applyProjectDeltas(collectedDeltas, 'clip-move-group');
+            if (moveErrors.length > 0) {
+                throw new Error(`Group move completed with ${moveErrors.length} error(s): ${moveErrors.join('; ')}`);
             }
         };
 
@@ -168,6 +185,7 @@ export function useTimelineClipHandlers({
             })
             .catch((err) => {
                 console.error('[DawShell] moveClip failed:', err);
+                if (isClipNotFoundError(err)) return;
                 useStatusStore.getState().setError(`Clip move failed: ${err instanceof Error ? err.message : String(err)}`);
             });
     }, [
@@ -183,6 +201,12 @@ export function useTimelineClipHandlers({
     ]);
 
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
+        const liveState = useEngineStore.getState();
+        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        if (!liveExists) {
+            pruneGhostClip(clipId);
+            return;
+        }
         const bpm = projectBpm || transportBpm || 120;
         const sampleRate = projectSampleRate;
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
@@ -195,6 +219,7 @@ export function useTimelineClipHandlers({
             .catch((err) => {
                 if (isClipNotFoundError(err)) {
                     pruneGhostClip(clipId);
+                    return;
                 }
                 console.error('[DawShell] resizeClip failed:', err);
                 useStatusStore.getState().setError(`Clip resize failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -202,6 +227,12 @@ export function useTimelineClipHandlers({
     }, [applyProjectDeltas, projectBpm, projectSampleRate, pruneGhostClip, transportBpm]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
+        const liveState = useEngineStore.getState();
+        const liveExists = Boolean(liveState.clipsById[clipId] || liveState.timelineClips.some((clip) => clip.id === clipId));
+        if (!liveExists) {
+            pruneGhostClip(clipId);
+            return;
+        }
         void engineApi
             .setClipFadesWithDeltas(clipId, Math.max(0, Math.round(fadeInFrames)), Math.max(0, Math.round(fadeOutFrames)))
             .then(async (response) => {
@@ -210,6 +241,7 @@ export function useTimelineClipHandlers({
             .catch((err) => {
                 if (isClipNotFoundError(err)) {
                     pruneGhostClip(clipId);
+                    return;
                 }
                 console.error('[DawShell] setClipFades failed:', err);
             });

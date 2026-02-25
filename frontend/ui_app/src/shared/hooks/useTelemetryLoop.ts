@@ -149,13 +149,13 @@ export function useTelemetryLoop(
                                 const [left, right] = tracks[i];
                                 const level = Math.max(left.rms, right.rms);
 
-                        // Convert from dB to linear (0-1 range)
-                        // dB range: -60 to 0, map to 0 to 1
-                        const dbMin = -60;
-                        const clamped = Math.min(1, Math.max(0, (level - dbMin) / -dbMin));
+                                // Convert from dB to linear (0-1 range)
+                                // dB range: -60 to 0, map to 0 to 1
+                                const dbMin = -60;
+                                const clamped = Math.min(1, Math.max(0, (level - dbMin) / -dbMin));
 
-                        el.style.transform = `scaleY(${clamped})`;
-                        el.style.transformOrigin = 'bottom';
+                                el.style.transform = `scaleY(${clamped})`;
+                                el.style.transformOrigin = 'bottom';
 
                                 // Color: green → yellow → red
                                 if (left.clipping || right.clipping) {

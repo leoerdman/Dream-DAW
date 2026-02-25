@@ -84,10 +84,6 @@
 
    /* ── Effect Tints ── */
    --color-effect-eq: var(--color-effect-eq);
-   --color-effect-compressor: var(--color-effect-compressor);
-   --color-effect-delay: var(--color-effect-delay);
-   --color-effect-reverb: var(--color-effect-reverb);
-   --color-effect-utility: var(--color-effect-utility);
 
    /* ── Browser Categories ── */
    --color-browser-audio: var(--color-browser-audio);

@@ -100,7 +100,22 @@ export const Timeline = (props: TimelineProps) => {
     };
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
     const [arrangementWidth, setArrangementWidth] = useState(800);
-    const effectivePixelsPerBeat = viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat;
+    const [masterFrame, setMasterFrame] = useState(() => ({
+        playheadBeat: useEngineStore.getState().transport.position_beats ?? 0,
+        scrollX: 0,
+        pixelsPerBeat: 0,
+        viewportWidth: 0,
+    }));
+    const liveViewport = engineRef.current?.viewport;
+    const effectiveScrollX = masterFrame.scrollX || (liveViewport ? liveViewport.scrollX : viewportState.scrollX);
+    const effectiveViewportWidth = masterFrame.viewportWidth > 0
+        ? Math.max(1, masterFrame.viewportWidth)
+        : liveViewport
+            ? Math.max(1, liveViewport.viewportWidth)
+        : Math.max(1, viewportState.viewportWidth || arrangementWidth);
+    const effectivePixelsPerBeat = masterFrame.pixelsPerBeat > 0
+        ? masterFrame.pixelsPerBeat
+        : (viewportState.ppb > 0 ? viewportState.ppb : pixelsPerBeat);
     const effectiveSnapBeatsValue = useMemo(
         () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat),
         [gridDivision, beatsPerBar, gridTriplet, effectivePixelsPerBeat],
@@ -109,33 +124,31 @@ export const Timeline = (props: TimelineProps) => {
         () => buildMasterLaneGridStyle(),
         [],
     );
-    const masterGridViewportWidth = Math.max(1, viewportState.viewportWidth || arrangementWidth);
-    const transportBeat = useEngineStore((s) => s.transport.position_beats ?? 0);
-    const playheadX = transportBeat * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const loopStartX = loopStart * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
-    const loopEndX = loopEnd * effectivePixelsPerBeat - viewportState.scrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const playheadX = masterFrame.playheadBeat * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const loopStartX = loopStart * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
+    const loopEndX = loopEnd * effectivePixelsPerBeat - effectiveScrollX + MASTER_LANE_ALIGNMENT_OFFSET_PX;
     const playheadLineX = snapTimelineX(playheadX);
     const loopStartLineX = snapTimelineX(loopStartX);
     const loopEndLineX = snapTimelineX(loopEndX);
     const loopLeftX = Math.min(loopStartLineX, loopEndLineX);
     const loopRightX = Math.max(loopStartLineX, loopEndLineX);
-    const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < masterGridViewportWidth;
-    const playheadVisible = playheadX >= -10 && playheadX <= masterGridViewportWidth + 10;
+    const loopVisible = loopEnabled && loopRightX > 0 && loopLeftX < effectiveViewportWidth;
+    const playheadVisible = playheadX >= -10 && playheadX <= effectiveViewportWidth + 10;
     const masterLaneGridLines = useMemo(
         () => buildMasterLaneGridLines(
             effectivePixelsPerBeat,
             beatsPerBar,
             effectiveSnapBeatsValue,
-            viewportState.scrollX,
-            masterGridViewportWidth,
+            effectiveScrollX,
+            effectiveViewportWidth,
             MASTER_LANE_ALIGNMENT_OFFSET_PX,
         ),
         [
             beatsPerBar,
             effectivePixelsPerBeat,
             effectiveSnapBeatsValue,
-            masterGridViewportWidth,
-            viewportState.scrollX,
+            effectiveScrollX,
+            effectiveViewportWidth,
         ],
     );
     const rootRef = useRef<HTMLDivElement | null>(null);
@@ -259,6 +272,31 @@ export const Timeline = (props: TimelineProps) => {
         observer.observe(node);
         return () => observer.disconnect();
     }, []);
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        engine.onFrameDrawn = (snapshot) => {
+            setMasterFrame((prev) => {
+                if (
+                    Math.abs(prev.playheadBeat - snapshot.playheadBeat) < 1e-6
+                    && Math.abs(prev.scrollX - snapshot.scrollX) < 0.01
+                    && Math.abs(prev.pixelsPerBeat - snapshot.pixelsPerBeat) < 0.0001
+                    && Math.abs(prev.viewportWidth - snapshot.viewportWidth) < 0.5
+                ) {
+                    return prev;
+                }
+                return {
+                    playheadBeat: snapshot.playheadBeat,
+                    scrollX: snapshot.scrollX,
+                    pixelsPerBeat: snapshot.pixelsPerBeat,
+                    viewportWidth: snapshot.viewportWidth,
+                };
+            });
+        };
+        return () => {
+            if (engine.onFrameDrawn) engine.onFrameDrawn = undefined;
+        };
+    }, [engineRef]);
     useTimelineClipSync({
         engineRef,
         clips,
@@ -426,7 +464,7 @@ export const Timeline = (props: TimelineProps) => {
                 masterLaneRef={masterLaneRef}
                 trackHeight={normalizedTrackHeight}
                 masterLaneGridStyle={masterLaneGridStyle}
-                masterGridViewportWidth={masterGridViewportWidth}
+                masterGridViewportWidth={effectiveViewportWidth}
                 masterLaneGridLines={masterLaneGridLines}
                 loopVisible={loopVisible}
                 loopLeftX={loopLeftX}

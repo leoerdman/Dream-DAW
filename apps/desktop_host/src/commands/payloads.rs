@@ -66,6 +66,8 @@ pub struct AddPluginToTrackPayload {
     pub plugin_id: String,
     pub plugin_name: String,
     pub slot: String, // "instrument" | "effect" | "auto"
+    #[serde(default)]
+    pub insert_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

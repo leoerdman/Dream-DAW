@@ -20,6 +20,16 @@ async fn start_recording_cmd(
         &dream_orchestrator::queries::ResolveArmedTrackIndexQuery,
     )?;
 
+    // BUG-029 FIX: Resolve track UUID at recording start (topology-safe).
+    let armed_track_id = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .get(armed_track_index)
+            .map(|t| t.id.to_string())
+            .ok_or_else(|| format!("Armed track index {armed_track_index} out of range"))?
+    };
+
     let output_dir = std::env::temp_dir().join("dream_daw_recordings");
     let start_frame = handle.master_clock.position();
     let file_name = format!(
@@ -55,10 +65,11 @@ async fn start_recording_cmd(
         .session
         .lock()
         .map_err(|e| e.to_string())? = Some(session);
+    // BUG-029 FIX: Store track UUID instead of index.
     *recording_runtime
-        .armed_track_index
+        .armed_track_id
         .lock()
-        .map_err(|e| e.to_string())? = Some(armed_track_index);
+        .map_err(|e| e.to_string())? = Some(armed_track_id);
 
     Ok(())
 }
@@ -78,12 +89,13 @@ async fn stop_recording_cmd(
         .take()
         .ok_or_else(|| "No active recording session".to_string())?;
 
-    let armed_idx = recording_runtime
-        .armed_track_index
+    // BUG-029 FIX: Read track UUID instead of index.
+    let armed_track_id = recording_runtime
+        .armed_track_id
         .lock()
         .map_err(|e| e.to_string())?
         .take()
-        .ok_or_else(|| "Missing armed track index".to_string())?;
+        .ok_or_else(|| "Missing armed track ID".to_string())?;
 
     let result = session
         .stop()
@@ -104,7 +116,8 @@ async fn stop_recording_cmd(
 
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::InsertRecordedClipCommand {
-        track_index: armed_idx,
+        // BUG-029 FIX: Use track UUID instead of index.
+        track_id: armed_track_id,
         clip_name: "Recording".to_string(),
         file_path: path.clone(),
         start_frame: result.start_frame,

@@ -13,6 +13,13 @@ import {
 import { useSessionWorkspaceState } from './model/useSessionWorkspaceState';
 export { EmptyClipEditor, SampleClipEditor } from './ClipEditors';
 
+function makeSessionClipId(trackId: string, sceneIndex: number): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `sess_${trackId}_${sceneIndex}_${crypto.randomUUID()}`;
+    }
+    return `sess_${trackId}_${sceneIndex}_${Date.now()}`;
+}
+
 export const SessionWorkspace = ({
     tracks,
     selectedTrackId,
@@ -108,7 +115,7 @@ export const SessionWorkspace = ({
                                                 }}
                                                 onDoubleClick={() => {
                                                     if (clip) return;
-                                                    const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
+                                                    const id = makeSessionClipId(track.id, sceneIndex);
                                                     setSessionClips((prev) => ({
                                                         ...prev,
                                                         [slotKey(track.id, sceneIndex)]: {

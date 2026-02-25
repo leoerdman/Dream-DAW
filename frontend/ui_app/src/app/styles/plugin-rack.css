@@ -41,56 +41,6 @@
     background: var(--color-bg-node);
 }
 
-/* ── Color Stripe (var(--token-size-px-3) top bar per effect type) ─────────────── */
-
-.device-node::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--daw-color-stripe-width);
-    background: var(--device-tint, var(--color-control-tint));
-    border-radius: var(--node-border-radius) var(--node-border-radius) 0 0;
-    /* Hidden by default — shown when [data-effect] attribute is present */
-    display: none;
-}
-
-/* Effect-type color stripes — display:block enables the stripe */
-.device-node[data-effect]::before {
-    /* BUG FIX: Was `display: none` which killed the color stripe.
-       The ::before pseudo-element needs `display: block` to be visible. */
-    display: block;
-}
-
-.device-node[data-effect="eq"]::before {
-    --device-tint: var(--color-effect-eq);
-}
-
-.device-node[data-effect="compressor"]::before {
-    --device-tint: var(--color-effect-compressor);
-}
-
-.device-node[data-effect="delay"]::before {
-    --device-tint: var(--color-effect-delay);
-}
-
-.device-node[data-effect="reverb"]::before {
-    --device-tint: var(--color-effect-reverb);
-}
-
-.device-node[data-effect="chorus"]::before {
-    --device-tint: var(--color-effect-chorus);
-}
-
-.device-node[data-effect="utility"]::before {
-    --device-tint: var(--color-effect-utility);
-}
-
-.device-node[data-effect="vst"]::before {
-    --device-tint: var(--color-effect-vst);
-}
-
 /* ─────────────────────────────────────────────────────────────
    NODE HEADER
    ───────────────────────────────────────────────────────────── */

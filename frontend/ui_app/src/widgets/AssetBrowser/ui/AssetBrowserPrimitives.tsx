@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef, useState } from 'react';
-import type { PeakPair } from '@/shared/api/engine';
+import { memo } from 'react';
+export { PreviewWaveform } from './AssetBrowserPreviewWaveform';
 
 export type BrowserGlyphName =
     | 'star'
@@ -199,86 +199,3 @@ export const FilterPill = ({
         {options[value]}
     </button>
 );
-
-export const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; height?: number }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [containerWidth, setContainerWidth] = useState(0);
-
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-        const ro = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                setContainerWidth(Math.floor(entry.contentRect.width));
-            }
-        });
-        ro.observe(container);
-        setContainerWidth(Math.floor(container.getBoundingClientRect().width));
-        return () => ro.disconnect();
-    }, []);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        const container = containerRef.current;
-        if (!canvas || !container || peaks.length === 0 || containerWidth <= 0) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const dpr = window.devicePixelRatio || 1;
-        const w = containerWidth;
-        const h = height;
-
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        canvas.style.width = `${w}px`;
-        canvas.style.height = `${h}px`;
-        ctx.scale(dpr, dpr);
-
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'color-mix(in srgb, black 30%, transparent)';
-        ctx.beginPath();
-        ctx.roundRect(0, 0, w, h, 4);
-        ctx.fill();
-
-        const mid = h / 2;
-        ctx.strokeStyle = 'color-mix(in srgb, white 6%, transparent)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(0, mid);
-        ctx.lineTo(w, mid);
-        ctx.stroke();
-
-        const peakCount = peaks.length;
-        const barWidth = w / peakCount;
-        const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        gradient.addColorStop(0, 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)');
-        gradient.addColorStop(0.45, 'color-mix(in srgb, var(--color-accent-primary) 60%, transparent)');
-        gradient.addColorStop(0.55, 'color-mix(in srgb, var(--color-accent-primary) 60%, transparent)');
-        gradient.addColorStop(1, 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)');
-        ctx.fillStyle = gradient;
-
-        for (let i = 0; i < peakCount; i++) {
-            const { min, max } = peaks[i];
-            const x = i * barWidth;
-            const yMax = mid - max * mid;
-            const yMin = mid - min * mid;
-            const barH = Math.max(1, yMin - yMax);
-            ctx.fillRect(x, yMax, Math.max(0.8, barWidth - 0.3), barH);
-        }
-    }, [peaks, height, containerWidth]);
-
-    return (
-        <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', borderRadius: 'var(--radius-md)' }}>
-            <canvas
-                ref={canvasRef}
-                style={{
-                    display: 'block',
-                    width: '100%',
-                    height,
-                }}
-            />
-        </div>
-    );
-};

@@ -8,7 +8,8 @@ use dream_models::time::AbsoluteTime;
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub struct InsertRecordedClipCommand {
-    pub track_index: usize,
+    // BUG-029 FIX: Use track UUID instead of index for topology-safe recording.
+    pub track_id: String,
     pub clip_name: String,
     pub file_path: String,
     pub start_frame: i64,
@@ -22,10 +23,17 @@ impl Command for InsertRecordedClipCommand {
     fn execute(&self, ctx: &OrchestratorContext) -> OrchestratorResult<()> {
         let mut project = ctx.lock_project()?;
 
-        while project.tracks.len() <= self.track_index {
-            let track_num = project.tracks.len() + 1;
-            project.add_track(Track::new(format!("Track {track_num}")));
-        }
+        // BUG-029 FIX: Find track by UUID instead of indexing by position.
+        // If the track was deleted during recording, create a new one as fallback.
+        let track_index = project
+            .tracks
+            .iter()
+            .position(|t| t.id.to_string() == self.track_id)
+            .unwrap_or_else(|| {
+                let idx = project.tracks.len();
+                project.add_track(Track::new(format!("Recording Track {}", idx + 1)));
+                idx
+            });
 
         let project_sr = project.sample_rate.max(1.0);
         let source_sr = self.source_sample_rate.max(1) as f64;
@@ -40,7 +48,7 @@ impl Command for InsertRecordedClipCommand {
         );
         clip.warp_source_duration_frames = self.source_total_frames.max(1);
 
-        project.tracks[self.track_index].clips.push(clip);
+        project.tracks[track_index].clips.push(clip);
         Ok(())
     }
 }
@@ -52,10 +60,16 @@ mod tests {
     use dream_models::project::Project;
 
     #[test]
-    fn inserts_recording_and_extends_tracks() {
-        let ctx = OrchestratorContext::new(Project::default());
+    fn inserts_recording_on_existing_track_by_id() {
+        let mut project = Project::default();
+        let track = Track::new("Target Track".to_string());
+        let target_id = track.id.to_string();
+        project.add_track(Track::new("Other Track".to_string()));
+        project.add_track(track);
+
+        let ctx = OrchestratorContext::new(project);
         let cmd = InsertRecordedClipCommand {
-            track_index: 2,
+            track_id: target_id,
             clip_name: "Recording".to_string(),
             file_path: "/tmp/recorded.wav".to_string(),
             start_frame: 256,
@@ -66,10 +80,29 @@ mod tests {
         cmd.execute(&ctx).expect("execute");
 
         let project = ctx.lock_project().expect("lock");
-        assert!(project.tracks.len() > 2);
-        let clip = project.tracks[2].clips.last().expect("clip");
+        // Should be on track index 1 (Target Track), not 0 (Other Track)
+        let clip = project.tracks[1].clips.last().expect("clip");
         assert_eq!(clip.file_path, "/tmp/recorded.wav");
         assert_eq!(clip.position.sample_frame, 256);
         assert_eq!(clip.warp_source_duration_frames, 48_000);
+    }
+
+    #[test]
+    fn creates_fallback_track_if_id_not_found() {
+        let ctx = OrchestratorContext::new(Project::default());
+        let cmd = InsertRecordedClipCommand {
+            track_id: "nonexistent-uuid".to_string(),
+            clip_name: "Recording".to_string(),
+            file_path: "/tmp/recorded.wav".to_string(),
+            start_frame: 0,
+            source_total_frames: 44_100,
+            source_sample_rate: 44_100,
+        };
+
+        cmd.execute(&ctx).expect("execute");
+
+        let project = ctx.lock_project().expect("lock");
+        assert_eq!(project.tracks.len(), 1);
+        assert_eq!(project.tracks[0].clips.len(), 1);
     }
 }

@@ -5,37 +5,18 @@ import type { EngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { buildTrackStatePatch } from '@/shared/stores/engine/storeHelpers';
 import type { TrackStatePatch } from '@/shared/stores/engine/storeHelpers';
-
-// BUG-007 FIX: Proper type for lodash‑throttled functions (includes cancel/flush).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ThrottledFn<T extends (...args: any[]) => any> = T & { cancel(): void; flush(): void };
-const throttledVolumeSends = new Map<number, ThrottledFn<(volume: number) => void>>();
-const throttledPanSends = new Map<number, ThrottledFn<(pan: number) => void>>();
-const pendingVolumeValues = new Map<number, number>();
-const pendingPanValues = new Map<number, number>();
-// BUG-008 FIX: Throttled send level functions to prevent IPC flooding during fader drag.
-const throttledSendLevelSends = new Map<string, ThrottledFn<(value: number) => void>>();
-let pendingMasterVolume: number | null = null;
-
-const throttledMasterVolumeSend = throttle((volume: number) => {
-    void engine.setMasterVolume(volume);
-}, 16);
-
-// BUG-013 FIX: Cancel internal throttle timers before clearing maps.
-// Without this, stale timeouts fire after the map is cleared, sending
-// IPC calls for tracks that may no longer exist.
-// BUG-010 FIX: Exported so project snapshot handler can call it on project reload.
-export function clearTrackControlCaches(): void {
-    for (const fn of throttledVolumeSends.values()) fn.cancel();
-    for (const fn of throttledPanSends.values()) fn.cancel();
-    for (const fn of throttledSendLevelSends.values()) fn.cancel();
-    throttledVolumeSends.clear();
-    throttledPanSends.clear();
-    throttledSendLevelSends.clear();
-    pendingVolumeValues.clear();
-    pendingPanValues.clear();
-    pendingMasterVolume = null;
-}
+import {
+    clearTrackControlCaches,
+    getPendingMasterVolume,
+    pendingPanValues,
+    pendingVolumeValues,
+    setPendingMasterVolume,
+    throttledMasterVolumeSend,
+    throttledPanSends,
+    throttledSendLevelSends,
+    throttledVolumeSends,
+    type ThrottledFn,
+} from '@/shared/stores/engine/actionsTrackProjectThrottle';
 
 function patchTrackByIndex(
     state: EngineStore,
@@ -186,7 +167,7 @@ export function createTrackProjectActions(
                 // BUG-014 FIX: Clamp to 12.0 (SSOT with ChannelStrip max),
                 // was 2.0 which silently clipped master boost above +6dB.
                 const clamped = Math.max(0, Math.min(12, volume));
-                pendingMasterVolume = clamped;
+                setPendingMasterVolume(clamped);
                 set({ masterVolume: clamped });
                 throttledMasterVolumeSend(clamped);
             } catch (e) {
@@ -215,12 +196,13 @@ export function createTrackProjectActions(
                         await get().applyProjectDeltas(response.deltas, 'flushTrackControlFinals-pan');
                     }),
                 ]);
+                const pendingMasterVolume = getPendingMasterVolume();
                 if (pendingMasterVolume != null) {
                     await engine.setMasterVolume(pendingMasterVolume);
                 }
                 pendingVolumeValues.clear();
                 pendingPanValues.clear();
-                pendingMasterVolume = null;
+                setPendingMasterVolume(null);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });

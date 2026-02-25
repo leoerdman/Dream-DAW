@@ -905,21 +905,9 @@
    --color-control-tint: #999999;
    /* controlTint: white 0.60 */
 
-   /* ── Effect Type Tints (from DarkTheme — 7 types) ─────── */
+   /* ── Effect Type Tints ─────────────────────────────────── */
    --color-effect-eq: #5a8cd9;
    /* effectEQ: rgb(0.35, 0.55, 0.85) */
-   --color-effect-compressor: #b36640;
-   /* effectCompressor: rgb(0.70, 0.40, 0.25) */
-   --color-effect-delay: #66a673;
-   /* effectDelay: rgb(0.40, 0.65, 0.45) */
-   --color-effect-reverb: #8c66bf;
-   /* effectReverb: rgb(0.55, 0.40, 0.75) */
-   --color-effect-chorus: #a6804d;
-   /* effectChorus: rgb(0.65, 0.50, 0.30) */
-   --color-effect-utility: #808080;
-   /* effectUtility: white 0.50 */
-   --color-effect-vst: #339966;
-   /* effectVST: rgb(0.20, 0.60, 0.40) */
 
    /* ── Browser Category Colors (from DarkTheme) ────────────── */
    --color-browser-default: #8c8066;
@@ -1122,12 +1110,6 @@
 
    /* ── Effect Type Tints (light) ── */
    --color-effect-eq: #3a6cbf;
-   --color-effect-compressor: #995533;
-   --color-effect-delay: #4a8f5a;
-   --color-effect-reverb: #7a52a6;
-   --color-effect-chorus: #8f6a33;
-   --color-effect-utility: #666666;
-   --color-effect-vst: #267a4d;
 
    /* ── Browser Category Colors (light) ── */
    --color-browser-default: #6b6050;
@@ -1316,12 +1298,6 @@
    --color-control-tint: #9fbeae;
 
    --color-effect-eq: #4da6e3;
-   --color-effect-compressor: #c78f52;
-   --color-effect-delay: #4dc775;
-   --color-effect-reverb: #8c7bd1;
-   --color-effect-chorus: #6ac7c7;
-   --color-effect-utility: #8ca89a;
-   --color-effect-vst: #4dc7b0;
 
    --color-browser-default: #9ec3a7;
    --color-browser-audio: #e4c367;

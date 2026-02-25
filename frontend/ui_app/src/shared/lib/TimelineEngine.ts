@@ -91,6 +91,7 @@ export class TimelineEngine {
     onDoubleClickClip?: (clipId: string, trackIndex: number) => void;
     onTrackSelect?: (trackIndex: number) => void;
     onViewportFlush?: (snapshot: ViewportSnapshot) => void;
+    onFrameDrawn?: (snapshot: { playheadBeat: number; scrollX: number; pixelsPerBeat: number; viewportWidth: number }) => void;
     onScrollTop?: (scrollTop: number) => void;
     onLoopChange?: (loop: LoopRegion) => void;
     onClipBoxSelection?: (clipIds: string[]) => void;
@@ -419,6 +420,12 @@ export class TimelineEngine {
             this._sampleRate,
             this._bpm,
         );
+        this.onFrameDrawn?.({
+            playheadBeat: this._playheadBeat,
+            scrollX: this._viewport.scrollX,
+            pixelsPerBeat: this._viewport.pixelsPerBeat,
+            viewportWidth: this._viewport.viewportWidth,
+        });
     }
 
     private _tick = (): void => {

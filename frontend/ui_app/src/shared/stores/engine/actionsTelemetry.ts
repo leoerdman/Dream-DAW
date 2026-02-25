@@ -14,6 +14,7 @@ import {
     patchSandboxInstancesById,
     PROJECT_HISTORY_SYNC_EVERY_TICKS,
 } from '@/shared/stores/engine/storeHelpers';
+import { smoothMeterSnapshot } from '@/shared/stores/engine/actionsTelemetrySmoothing';
 import { enqueuePendingStoreUpdate, payloadToUint8Array } from '@/shared/stores/engine/actionsTelemetryQueue';
 import { createPluginEditorActions } from '@/shared/stores/engine/actionsTelemetryEditors';
 import type { EngineStore } from '@/shared/stores/useEngineStore';
@@ -37,67 +38,6 @@ let meterFrameCounter = 0;
 let latestMeters: MeteringSnapshot | null = null;
 let smoothedMeters: MeteringSnapshot | null = null;
 let lastMeterTickMs = 0;
-
-const METER_FLOOR_DB = -160;
-const DEFAULT_METER_DELTA_SEC = 1 / 30;
-const PEAK_ATTACK_TAU_SEC = 0.012;
-const PEAK_RELEASE_TAU_SEC = 0.22;
-const RMS_ATTACK_TAU_SEC = 0.08;
-const RMS_RELEASE_TAU_SEC = 0.35;
-
-function alphaFromTau(dtSec: number, tauSec: number): number {
-    if (!Number.isFinite(dtSec) || dtSec <= 0) return 1;
-    if (!Number.isFinite(tauSec) || tauSec <= 0) return 1;
-    return 1 - Math.exp(-dtSec / tauSec);
-}
-
-function smoothDb(nextDb: number, prevDb: number, attackAlpha: number, releaseAlpha: number): number {
-    if (!Number.isFinite(nextDb)) return prevDb;
-    if (!Number.isFinite(prevDb)) return nextDb;
-    const alpha = nextDb >= prevDb ? attackAlpha : releaseAlpha;
-    const smoothed = prevDb + (nextDb - prevDb) * alpha;
-    if (!Number.isFinite(smoothed)) return nextDb;
-    return Math.max(METER_FLOOR_DB, smoothed);
-}
-
-function smoothMeterReading(
-    prev: MeteringSnapshot['master_left'] | undefined,
-    next: MeteringSnapshot['master_left'],
-    dtSec: number,
-): MeteringSnapshot['master_left'] {
-    const prevRms = prev?.rms ?? METER_FLOOR_DB;
-    const prevPeak = prev?.peak ?? METER_FLOOR_DB;
-    const peakAttack = alphaFromTau(dtSec, PEAK_ATTACK_TAU_SEC);
-    const peakRelease = alphaFromTau(dtSec, PEAK_RELEASE_TAU_SEC);
-    const rmsAttack = alphaFromTau(dtSec, RMS_ATTACK_TAU_SEC);
-    const rmsRelease = alphaFromTau(dtSec, RMS_RELEASE_TAU_SEC);
-
-    return {
-        rms: smoothDb(next.rms, prevRms, rmsAttack, rmsRelease),
-        peak: smoothDb(next.peak, prevPeak, peakAttack, peakRelease),
-        // clipping is event-like — keep raw edge responsiveness
-        clipping: next.clipping,
-    };
-}
-
-function smoothMeterSnapshot(
-    prev: MeteringSnapshot | null,
-    next: MeteringSnapshot,
-    dtSec: number,
-): MeteringSnapshot {
-    const tracks: MeteringSnapshot['tracks'] = next.tracks.map((track, i) => {
-        const prevTrack = prev?.tracks[i];
-        return [
-            smoothMeterReading(prevTrack?.[0], track[0], dtSec),
-            smoothMeterReading(prevTrack?.[1], track[1], dtSec),
-        ];
-    });
-    return {
-        tracks,
-        master_left: smoothMeterReading(prev?.master_left, next.master_left, dtSec),
-        master_right: smoothMeterReading(prev?.master_right, next.master_right, dtSec),
-    };
-}
 
 // BUG-009 FIX: Reset module-level telemetry state on project reload.
 // These variables persist across project loads because they live at
@@ -202,11 +142,13 @@ export function createTelemetryActions(
                             const packet = payloadToUint8Array(event.payload);
                             const decodedMeters = decodeMetersBinaryPacket(packet);
                             const nowMs = performance.now();
-                            const dtSec = lastMeterTickMs > 0
-                                ? Math.max(1 / 240, Math.min(0.25, (nowMs - lastMeterTickMs) / 1000))
-                                : DEFAULT_METER_DELTA_SEC;
-                            lastMeterTickMs = nowMs;
-                            const nextMeters = smoothMeterSnapshot(smoothedMeters, decodedMeters, dtSec);
+                            const { snapshot: nextMeters, nextTickMs } = smoothMeterSnapshot(
+                                smoothedMeters,
+                                decodedMeters,
+                                nowMs,
+                                lastMeterTickMs,
+                            );
+                            lastMeterTickMs = nextTickMs;
                             smoothedMeters = nextMeters;
                             latestMeters = nextMeters;
                             enqueuePendingStoreUpdate(set, {

@@ -330,7 +330,7 @@ pub struct DeviceGroupSlot {
     /// Whether this group is bypassed.
     bypassed: bool,
     /// Cached sample rate.
-    sample_rate: f32,
+    _sample_rate: f32,
     /// Pre-allocated scratch buffers for parallel chain processing.
     scratch_left: Vec<f32>,
     scratch_right: Vec<f32>,
@@ -379,7 +379,7 @@ impl DeviceGroupSlot {
             chains: Vec::with_capacity(MAX_GROUP_CHAINS),
             macros: std::array::from_fn(|_| MacroState::default()),
             bypassed: false,
-            sample_rate,
+            _sample_rate: sample_rate,
             scratch_left: vec![0.0; GROUP_MAX_FRAMES],
             scratch_right: vec![0.0; GROUP_MAX_FRAMES],
             sum_left: vec![0.0; GROUP_MAX_FRAMES],

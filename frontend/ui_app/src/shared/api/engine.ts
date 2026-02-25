@@ -101,7 +101,7 @@ export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
         trackIndex: Math.max(0, Math.round(trackIndex)),
         pitch: Math.max(0, Math.min(127, Math.round(pitch))),
     });
-export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
+export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34;
 export const BuiltinEffectType: {
     Eq: BuiltinEffectType;
     Compressor: BuiltinEffectType;
@@ -133,6 +133,12 @@ export const BuiltinEffectType: {
     Erosion: BuiltinEffectType;
     Pedal: BuiltinEffectType;
     Roar: BuiltinEffectType;
+    MultibandDynamics: BuiltinEffectType;
+    GrainDelay: BuiltinEffectType;
+    Corpus: BuiltinEffectType;
+    SpectralTime: BuiltinEffectType;
+    GlueCompressor: BuiltinEffectType;
+    FilterDelay: BuiltinEffectType;
 } = {
     Eq: 0,
     Compressor: 1,
@@ -164,6 +170,12 @@ export const BuiltinEffectType: {
     Erosion: 26,
     Pedal: 27,
     Roar: 28,
+    MultibandDynamics: 29,
+    GrainDelay: 30,
+    Corpus: 31,
+    SpectralTime: 32,
+    GlueCompressor: 33,
+    FilterDelay: 34,
 };
 export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
     invoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });

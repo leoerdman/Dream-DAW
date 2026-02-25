@@ -11,6 +11,7 @@ use dream_dsp::device_slot::DeviceProcessor;
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+#[allow(dead_code)]
 pub(super) enum DeferredDeviceChainCmd {
     /// Add a built-in DSP effect.
     AddInternal {

@@ -72,7 +72,7 @@ impl SamplerVoice {
 
     /// Start playing a note.
     ///
-    /// `sr_ratio` is `sourcedevice_sample_rate / devicedevice_sample_rate` — applied to
+    /// `sr_ratio` is `source_sample_rate / device_sample_rate` — applied to
     /// `pitch_ratio` so samples play at the correct pitch on any device.
     #[inline]
     pub fn trigger(&mut self, note: u8, velocity: u8, root_note: u8, sr_ratio: f64) {
@@ -409,7 +409,7 @@ pub struct SampleRackEngine {
     pads: [SamplerEngine; 16],
     /// Master volume (0.0–2.0).
     pub volume: f32,
-    device_sample_rate: f64,
+    _device_sample_rate: f64,
 }
 
 impl SampleRackEngine {
@@ -418,7 +418,7 @@ impl SampleRackEngine {
         Self {
             pads: std::array::from_fn(|_| SamplerEngine::new(sample_rate)),
             volume: 1.0,
-            device_sample_rate: sample_rate,
+            _device_sample_rate: sample_rate,
         }
     }
 

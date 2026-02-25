@@ -128,81 +128,108 @@ fn classify_file_type(ext: &str) -> &'static str {
     }
 }
 
+/// Iterative plugin scanner — uses an explicit work queue instead of recursion
+/// to prevent stack overflow (SIGILL) on the main thread. The Tauri IPC thread
+/// has a limited stack and `canonicalize()` / `realpath` syscalls consume
+/// significant stack space per frame.
 fn collect_plugins_recursive(
     dir: &std::path::Path,
     plugin_type: &str,
-    depth: u32,
+    _depth: u32,
     max_depth: u32,
     seen: &mut std::collections::HashSet<String>,
     entries: &mut Vec<BrowserFileEntry>,
 ) {
-    if depth > max_depth {
-        return;
-    }
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(err) => {
-            log::debug!("[Browser] Failed to read plugin path '{}': {}", dir.display(), err);
-            return;
-        }
-    };
+    use std::collections::VecDeque;
 
-    for entry in read_dir.flatten() {
-        let entry_path = entry.path();
-        let file_name = entry.file_name().to_string_lossy().to_string();
-        if file_name.starts_with('.') {
+    // Work queue: (directory_path, current_depth)
+    let mut queue: VecDeque<(std::path::PathBuf, u32)> = VecDeque::new();
+    queue.push_back((dir.to_path_buf(), 0));
+
+    while let Some((current_dir, depth)) = queue.pop_front() {
+        if depth > max_depth {
             continue;
         }
 
-        let ext = entry_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        let ext_lower = ext.to_lowercase();
-        let is_plugin = PLUGIN_EXTENSIONS.contains(&ext_lower.as_str());
+        // Resolve symlinks and detect directory cycles via canonical path.
+        // Use the raw path as fallback if canonicalize fails (e.g. broken symlink).
+        let canonical = current_dir.canonicalize().unwrap_or_else(|_| current_dir.clone());
+        let canonical_str = canonical.to_string_lossy().to_string();
+        if !seen.insert(canonical_str.clone()) {
+            log::debug!(
+                "[Browser] Skipping already-visited directory: {}",
+                canonical_str
+            );
+            continue;
+        }
 
-        if is_plugin {
-            let path_str = entry_path.to_string_lossy().to_string();
-            if seen.contains(&path_str) {
+        let read_dir = match std::fs::read_dir(&current_dir) {
+            Ok(rd) => rd,
+            Err(err) => {
+                log::debug!(
+                    "[Browser] Failed to read plugin path '{}': {}",
+                    current_dir.display(),
+                    err
+                );
                 continue;
             }
-            seen.insert(path_str.clone());
+        };
 
-            let display_name = file_name
-                .rsplit_once('.')
-                .map(|(n, _)| n.to_string())
-                .unwrap_or_else(|| file_name.clone());
+        for entry in read_dir.flatten() {
+            let entry_path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') {
+                continue;
+            }
 
-            let metadata = std::fs::metadata(&entry_path).ok();
-            let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
-            let modified_at = metadata
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs().to_string())
-                .unwrap_or_default();
+            let ext = entry_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let ext_lower = ext.to_lowercase();
+            let is_plugin_bundle = PLUGIN_EXTENSIONS.contains(&ext_lower.as_str());
 
-            entries.push(BrowserFileEntry {
-                name: display_name,
-                path: path_str,
-                size_bytes,
-                modified_at,
-                extension: plugin_type.to_string(),
-                file_type: "plugin".to_string(),
-                is_directory: false,
-                duration_seconds: None,
-            });
-            continue;
-        }
+            if is_plugin_bundle {
+                // On macOS, .vst3 / .vst / .component / .au / .clap are directory
+                // bundles. Treat them as leaf plugin files — do NOT recurse into them.
+                let resolved = entry_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| entry_path.clone());
+                let path_str = resolved.to_string_lossy().to_string();
+                if !seen.insert(path_str.clone()) {
+                    continue;
+                }
 
-        if entry_path.is_dir() {
-            collect_plugins_recursive(
-                &entry_path,
-                plugin_type,
-                depth + 1,
-                max_depth,
-                seen,
-                entries,
-            );
+                let display_name = file_name
+                    .rsplit_once('.')
+                    .map(|(n, _)| n.to_string())
+                    .unwrap_or_else(|| file_name.clone());
+
+                let metadata = std::fs::metadata(&entry_path).ok();
+                let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+                let modified_at = metadata
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs().to_string())
+                    .unwrap_or_default();
+
+                entries.push(BrowserFileEntry {
+                    name: display_name,
+                    path: path_str,
+                    size_bytes,
+                    modified_at,
+                    extension: plugin_type.to_string(),
+                    file_type: "plugin".to_string(),
+                    is_directory: false,
+                    duration_seconds: None,
+                });
+                continue;
+            }
+
+            // Enqueue plain directories for processing (NOT plugin bundles).
+            if entry_path.is_dir() {
+                queue.push_back((entry_path, depth + 1));
+            }
         }
     }
 }

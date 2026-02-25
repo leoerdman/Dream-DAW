@@ -381,13 +381,11 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         | "internal://effect/eqthree"
         | "internal://effect/eq-three"
         | "internal://effect/channel-eq" => Some(FX_CHANNEL_EQ),
-        "internal://effect/compressor"
-        | "internal://effect/glue-compressor" => Some(FX_COMPRESSOR),
+        "internal://effect/compressor" => Some(FX_COMPRESSOR),
         "internal://effect/transient-shaper" => Some(FX_TRANSIENT_SHAPER),
         "internal://effect/delay"
         | "internal://effect/echo"
         | "internal://effect/simple-delay"
-        | "internal://effect/filter-delay"
         | "internal://effect/beat-repeat"
         | "internal://effect/looper" => Some(FX_DELAY),
         "internal://effect/reverb"
@@ -422,7 +420,7 @@ pub fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         "internal://effect/spectral-time" => Some(FX_SPECTRAL_TIME),
         "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
         "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
-        "internal://effect/saturator" => Some(FX_SATURATOR),
+
         "internal://effect/glue-compressor" | "internal://effect/glue" => Some(FX_GLUE_COMPRESSOR),
         "internal://effect/filter-delay" => Some(FX_FILTER_DELAY),
         "internal://effect/auto-pan" => Some(FX_AUTO_PAN),

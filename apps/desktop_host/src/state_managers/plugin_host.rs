@@ -838,6 +838,7 @@ impl PluginHostState {
         }
         Ok(instance_id)
     }
+    #[allow(dead_code)]
     pub(crate) fn close_in_sandbox(&self, plugin_key: &str) -> Result<(), String> {
         let maybe_id = self
             .loaded_sandbox_by_key
@@ -946,6 +947,7 @@ impl PluginHostState {
             }
         }
     }
+    #[allow(dead_code)]
     pub(crate) fn set_sandbox_parameter(
         &self,
         plugin_key: &str,

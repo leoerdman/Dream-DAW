@@ -78,6 +78,7 @@ pub(super) fn oscillator_sample_blep(
 
 /// Fallback for contexts where we don't track per-osc triangle state
 /// (e.g. sub oscillator which is always square).
+#[allow(dead_code)]
 #[inline]
 pub(super) fn oscillator_sample_blep_stateless(waveform: Waveform, phase: f64, dt: f64) -> f32 {
     let mut dummy = 0.0;

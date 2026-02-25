@@ -19,7 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::device_slot::{
-    DeviceProcessor, InternalDeviceSlot, ProcessContext, ProcessResult,
+    DeviceProcessor, InternalDeviceSlot, ProcessContext,
 };
 use crate::dsp_processor::BuiltinEffectType;
 

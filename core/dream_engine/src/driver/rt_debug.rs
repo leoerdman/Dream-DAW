@@ -97,6 +97,7 @@ impl SharedRtDebugStats {
     /// Records the DSP load percentage from the audio callback.
     /// Called unconditionally every callback — the ~20ns `Instant::now()` overhead
     /// is negligible vs. the typical 200–2000µs render budget.
+    #[allow(dead_code)]
     pub(crate) fn record_dsp_load(&self, load_percent: f32) {
         let clamped = load_percent.clamp(0.0, 100.0);
         self.dsp_load_percent

@@ -92,8 +92,10 @@ pub fn handle_overlaps(track: &mut Track, target: &AudioClip) {
         let clip_start = track.clips[i].position.sample_frame;
         let clip_end = track.clips[i].end_position().sample_frame;
 
+        // DUP-04 FIX: Use `continue` instead of `break` to handle unsorted input safely.
         if clip_start >= target_end {
-            break;
+            i += 1;
+            continue;
         }
 
         if clip_end > target_start {
@@ -150,8 +152,10 @@ pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip) {
         let clip_start = track.midi_clips[i].position.sample_frame;
         let clip_end = track.midi_clips[i].end_position().sample_frame;
 
+        // DUP-04 FIX: Use `continue` instead of `break` to handle unsorted input safely.
         if clip_start >= target_end {
-            break;
+            i += 1;
+            continue;
         }
 
         if clip_end > target_start {
@@ -162,19 +166,74 @@ pub fn handle_midi_overlaps(track: &mut Track, target: &MidiClip) {
                 let mut right_half = track.midi_clips[i].clone();
                 track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
 
+                // DUP-01 FIX: Trim left half notes — remove/truncate those beyond new boundary.
+                let left_boundary = target_start - clip_start;
+                track.midi_clips[i].notes.retain_mut(|note| {
+                    if note.start_frame >= left_boundary {
+                        return false;
+                    }
+                    let note_end = note.start_frame + note.duration_frames;
+                    if note_end > left_boundary {
+                        note.duration_frames = (left_boundary - note.start_frame).max(1);
+                    }
+                    true
+                });
+
                 let right_duration = clip_end - target_end;
                 right_half.id = Uuid::new_v4();
                 right_half.position = AbsoluteTime::new(target_end);
                 right_half.duration = AbsoluteTime::new(right_duration);
 
+                // DUP-01 FIX: Adjust right half notes — shift start_frame and remove notes
+                // that belong entirely to the removed middle section or left half.
+                let right_origin = target_end - clip_start;
+                right_half.notes.retain_mut(|note| {
+                    if note.start_frame + note.duration_frames <= right_origin {
+                        return false;
+                    }
+                    if note.start_frame < right_origin {
+                        note.duration_frames -= right_origin - note.start_frame;
+                        note.start_frame = 0;
+                    } else {
+                        note.start_frame -= right_origin;
+                    }
+                    note.duration_frames >= 1
+                });
+
                 track.midi_clips.insert(i + 1, right_half);
                 i += 2;
                 continue;
             } else if clip_start >= target_start && clip_start < target_end {
+                // DUP-01 FIX: Adjust notes when trimming left edge of MIDI clip.
+                let delta = target_end - clip_start;
                 track.midi_clips[i].position = AbsoluteTime::new(target_end);
                 track.midi_clips[i].duration = AbsoluteTime::new(clip_end - target_end);
+                track.midi_clips[i].notes.retain_mut(|note| {
+                    if note.start_frame + note.duration_frames <= delta {
+                        return false;
+                    }
+                    if note.start_frame < delta {
+                        note.duration_frames -= delta - note.start_frame;
+                        note.start_frame = 0;
+                    } else {
+                        note.start_frame -= delta;
+                    }
+                    note.duration_frames >= 1
+                });
             } else if clip_end > target_start && clip_end <= target_end {
-                track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+                // DUP-01 FIX: Trim notes when truncating right edge of MIDI clip.
+                let new_dur = target_start - clip_start;
+                track.midi_clips[i].duration = AbsoluteTime::new(new_dur);
+                track.midi_clips[i].notes.retain_mut(|note| {
+                    if note.start_frame >= new_dur {
+                        return false;
+                    }
+                    let note_end = note.start_frame + note.duration_frames;
+                    if note_end > new_dur {
+                        note.duration_frames = (new_dur - note.start_frame).max(1);
+                    }
+                    true
+                });
             }
 
             if track.midi_clips[i].duration.sample_frame < MIN_CLIP_FRAMES {

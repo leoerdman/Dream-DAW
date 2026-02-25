@@ -50,6 +50,7 @@ use dream_dsp::dsp_processor::BuiltinEffectType;
 use crate::driver::ExternalFxRuntimeSlot;
 use crate::driver::midi_dispatcher::clamp_midi_pitch;
 use crate::render_callback::{RenderContext, soft_clip};
+use crate::essence_synth::EssenceSynthEngine;
 use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine};
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -1014,6 +1015,7 @@ impl OfflineBouncer {
             // ── Configure SamplerEngine ──────────────────────────
             let mut engine = SamplerEngine::new(sample_rate);
             let mut rack = SampleRackEngine::new(sample_rate);
+            let mut essence = EssenceSynthEngine::new(sample_rate);
             let mut has_sample = false;
 
             if let Some(cfg) = &sampler_cfg {
@@ -1038,6 +1040,24 @@ impl OfflineBouncer {
                         );
                     }
                 }
+
+                // Configure EssenceSynthEngine from the same SamplerConfig
+                essence.set_adsr(AdsrParams {
+                    attack: cfg.attack,
+                    decay: cfg.decay,
+                    sustain: cfg.sustain,
+                    release: cfg.release,
+                });
+                essence.set_volume(cfg.volume.clamp(0.0, 2.0) as f32);
+                essence.set_filter_cutoff(cfg.filter_cutoff as f32);
+                essence.set_filter_resonance(cfg.filter_resonance as f32);
+                essence.set_filter_type(cfg.filter_type);
+                essence.set_lfo_rate(cfg.lfo_rate as f32);
+                essence.set_lfo_depth(cfg.lfo_depth as f32);
+                essence.set_lfo_target(cfg.lfo_target);
+                essence.set_detune_cents(cfg.detune_cents as f32);
+                essence.set_sub_level(cfg.sub_level as f32);
+                essence.set_pulse_width(cfg.pulse_width as f32);
             }
 
             if let Some(cfg) = &rack_cfg {
@@ -1127,7 +1147,7 @@ impl OfflineBouncer {
                     }
                 }
 
-                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active {
+                if !schedule_scratch.is_empty() || engine.has_active_voices() || rack_active || essence.has_active_voices() {
                     // Convert scheduled notes to instantaneous events (same logic as driver.rs).
                     let mut events: Vec<(usize, u8, u8, u8)> = Vec::new(); // (frame, kind, pitch, velocity)
                     for event in &schedule_scratch {
@@ -1171,6 +1191,13 @@ impl OfflineBouncer {
                                 &mut chunk_right[cursor..cursor + seg],
                                 seg,
                             );
+                            if essence.has_active_voices() {
+                                essence.render(
+                                    &mut chunk_left[cursor..cursor + seg],
+                                    &mut chunk_right[cursor..cursor + seg],
+                                    seg,
+                                );
+                            }
                             cursor += seg;
                         } else if frame > cursor {
                             cursor = frame;
@@ -1179,9 +1206,11 @@ impl OfflineBouncer {
                         if kind == 0 {
                             engine.note_off(pitch);
                             rack.note_off(pitch);
+                            essence.note_off(pitch);
                         } else {
                             engine.note_on(pitch, velocity);
                             rack.note_on(pitch, velocity);
+                            essence.note_on(pitch, velocity);
                         }
                     }
 
@@ -1200,6 +1229,13 @@ impl OfflineBouncer {
                             &mut chunk_right[cursor..cursor + rem],
                             rem,
                         );
+                        if essence.has_active_voices() {
+                            essence.render(
+                                &mut chunk_left[cursor..cursor + rem],
+                                &mut chunk_right[cursor..cursor + rem],
+                                rem,
+                            );
+                        }
                     }
                 }
 

@@ -388,6 +388,72 @@ fn set_internal_plugin_param_cmd(
         })?;
     }
 
+    // ── Essence Synth param dispatch ──────────────────────────────────
+    // Map orchestrator result fields to standalone SetEssence* commands.
+    let eidx = track_index as u16;
+    if let Some(wf) = result.sampler_waveform {
+        push_command(&handle, EngineCommand::SetEssenceWaveform1 { track_index: eidx, waveform: wf })?;
+    }
+    if let Some(wf2) = result.sampler_waveform2 {
+        push_command(&handle, EngineCommand::SetEssenceWaveform2 { track_index: eidx, waveform: wf2 })?;
+    }
+    if let Some(vol) = result.sampler_osc1_volume {
+        push_command(&handle, EngineCommand::SetEssenceOsc1Volume { track_index: eidx, volume: vol })?;
+    }
+    if let Some(vol) = result.sampler_osc2_volume {
+        push_command(&handle, EngineCommand::SetEssenceOsc2Volume { track_index: eidx, volume: vol })?;
+    }
+    if let Some(enabled) = result.sampler_osc1_enabled {
+        push_command(&handle, EngineCommand::SetEssenceOsc1Enabled { track_index: eidx, enabled })?;
+    }
+    if let Some(enabled) = result.sampler_osc2_enabled {
+        push_command(&handle, EngineCommand::SetEssenceOsc2Enabled { track_index: eidx, enabled })?;
+    }
+    if let Some(cents) = result.sampler_detune_cents {
+        push_command(&handle, EngineCommand::SetEssenceDetuneCents { track_index: eidx, cents })?;
+    }
+    if let Some(level) = result.sampler_sub_level {
+        push_command(&handle, EngineCommand::SetEssenceSubLevel { track_index: eidx, level })?;
+    }
+    if let Some(pw) = result.sampler_pulse_width {
+        push_command(&handle, EngineCommand::SetEssencePulseWidth { track_index: eidx, width: pw })?;
+    }
+    if let Some(cutoff) = result.sampler_filter_cutoff {
+        push_command(&handle, EngineCommand::SetEssenceFilterCutoff { track_index: eidx, cutoff })?;
+    }
+    if let Some(res) = result.sampler_filter_resonance {
+        push_command(&handle, EngineCommand::SetEssenceFilterResonance { track_index: eidx, resonance: res })?;
+    }
+    if let Some(ft) = result.sampler_filter_type {
+        push_command(&handle, EngineCommand::SetEssenceFilterType { track_index: eidx, filter_type: ft })?;
+    }
+    if let Some(rate) = result.sampler_lfo_rate {
+        push_command(&handle, EngineCommand::SetEssenceLfoRate { track_index: eidx, rate })?;
+    }
+    if let Some(depth) = result.sampler_lfo_depth {
+        push_command(&handle, EngineCommand::SetEssenceLfoDepth { track_index: eidx, depth })?;
+    }
+    if let Some(target) = result.sampler_lfo_target {
+        push_command(&handle, EngineCommand::SetEssenceLfoTarget { track_index: eidx, target })?;
+    }
+    // Essence ADSR: also set via the synth.attack/decay/sustain/release keys
+    // which are handled by sampler_command_needed (above). Forward to Essence too.
+    if sampler_command_needed
+        && let Some(cfg) = &sampler_cfg_for_rt
+    {
+        push_command(&handle, EngineCommand::SetEssenceAdsr {
+            track_index: eidx,
+            attack: cfg.attack as f32,
+            decay: cfg.decay as f32,
+            sustain: cfg.sustain as f32,
+            release: cfg.release as f32,
+        })?;
+        push_command(&handle, EngineCommand::SetEssenceVolume {
+            track_index: eidx,
+            volume: cfg.volume as f32,
+        })?;
+    }
+
     log::debug!(
         "[IPC] set_internal_plugin_param_cmd(track={}, slot={}, param={} value={})",
         payload.track_id,

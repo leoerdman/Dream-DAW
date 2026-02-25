@@ -2,17 +2,26 @@
 fn close_plugin_window_cmd(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    plugin_host_state.close_in_sandbox(&plugin_id)?;
-
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+    let Some(slot) = slot_states.first() else {
+        log::info!("[IPC] close_plugin_window({plugin_id}) -> no matched slots");
+        return Ok(());
+    };
+    if slot_states.len() > 1 {
+        log::warn!(
+            "[IPC] close_plugin_window({}) matched {} slots; closing slot {} only",
+            plugin_id,
+            slot_states.len(),
+            slot.slot_id
+        );
+    }
     let maybe_instance = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
+        .slot_instance_snapshot()
+        .get(&slot.slot_id)
         .copied();
-
     if let Some(instance_id) = maybe_instance {
         // CRITICAL: close_editor performs AppKit calls (NSWindow close, NSView
         // removed/release) that MUST happen on the main thread.
@@ -72,7 +81,6 @@ fn close_plugin_window_for_slot(
     if slot_state.plugin_id.starts_with("internal://") {
         return Ok(());
     }
-    let plugin_id = slot_state.plugin_id;
     let stored_blob = slot_state.external_state_blob;
 
     // Close editor on main thread (AppKit requirement)
@@ -130,14 +138,8 @@ fn close_plugin_window_for_slot(
         }
     }
 
-    // Also close sandbox-hosted editor if applicable.
-    if let Some(instance_id) = plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-    {
+    // Also ask sandbox supervisor to close editor for this exact slot instance.
+    if let Some(instance_id) = instance_id_opt {
         let mut supervisor = plugin_host_state
             .sandbox_supervisor
             .lock()

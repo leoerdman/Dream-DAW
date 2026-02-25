@@ -321,13 +321,16 @@ impl PluginHostState {
                 .loaded_sandbox_by_key
                 .lock()
                 .map_err(|e| e.to_string())?;
-            let had_sandbox_entry = sandbox_map.values().any(|id| *id == instance_id);
-            if had_sandbox_entry {
-                sandbox_map.retain(|_, id| *id != instance_id);
-                let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
-                let _ = supervisor.send_close_editor(instance_id);
-                supervisor.remove_instance(instance_id);
-            }
+            sandbox_map.retain(|_, id| *id != instance_id);
+        }
+        {
+            // Always try to detach sandbox runtime by instance id.
+            // Do not rely on plugin-key maps here because duplicate plugin
+            // paths can overwrite key entries while older sandbox instances
+            // are still alive and bound to different slots.
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            let _ = supervisor.send_close_editor(instance_id);
+            supervisor.remove_instance(instance_id);
         }
         let mut slot_map = self.slot_instance_map.load_full().as_ref().clone();
         slot_map.retain(|_, id| *id != instance_id);
@@ -914,6 +917,7 @@ impl PluginHostState {
             .map_err(|e| format!("Sandbox manual restart failed: {e}"))?;
         Ok(slot_ids)
     }
+    #[allow(dead_code)]
     pub(crate) fn open_sandbox_editor(&self, plugin_key: &str) -> Result<bool, String> {
         let maybe_id = self
             .loaded_sandbox_by_key

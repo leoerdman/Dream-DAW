@@ -60,7 +60,6 @@ impl Command for SetSamplerSampleCommand {
                 let pid = slot.plugin_id.to_ascii_lowercase();
                 pid.starts_with("internal://instrument/sampler")
                     || pid.starts_with("internal://instrument/wave-synth")
-                    || pid.starts_with("internal://instrument/simple-sine-synth")
             })
             .unwrap_or(false);
         if track.track_type != TrackType::Midi && !has_sampler_instrument {

@@ -261,6 +261,12 @@ impl AdsrEnvelope {
         matches!(self.stage, EnvelopeStage::Release | EnvelopeStage::Idle)
     }
 
+    /// Returns the current envelope level (for voice-steal priority comparisons).
+    #[inline]
+    pub fn level(&self) -> f64 {
+        self.level
+    }
+
     /// Reset to idle state.
     #[inline]
     pub fn reset(&mut self) {

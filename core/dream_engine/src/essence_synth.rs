@@ -335,8 +335,8 @@ impl EssenceSynthEngine {
             let b_releasing = b.envelope.is_releasing() as u8;
             b_releasing.cmp(&a_releasing).then_with(|| {
                 a.envelope
-                    .level
-                    .partial_cmp(&b.envelope.level)
+                    .level()
+                    .partial_cmp(&b.envelope.level())
                     .unwrap_or(std::cmp::Ordering::Greater)
             })
         });
@@ -473,27 +473,43 @@ impl EssenceSynthEngine {
 
                 let raw = osc1_sample * osc1_vol + osc2_sample * osc2_vol + sub_sample;
 
-                // ── SVF Filter ──
+                // ── SVF Filter (Linear Trapezoidal / Andy Simper topology) ──
                 let mod_cutoff = (cutoff * cutoff_mod).clamp(20.0, 20000.0);
-                let g = (std::f64::consts::PI * mod_cutoff / sr).tan();
-                let k = 2.0 - 2.0 * resonance.clamp(0.0, 0.99);
+                let g = (std::f64::consts::PI * mod_cutoff / sr).tan() as f32;
+                let k = (2.0 * (1.0 - resonance.clamp(0.0, 0.99))) as f32;
 
-                let s1 = voice.filter_state.s1 as f64;
-                let s2 = voice.filter_state.s2 as f64;
-                let input = raw as f64;
+                let ic1eq = voice.filter_state.ic1eq;
+                let ic2eq = voice.filter_state.ic2eq;
+                let input = raw;
 
-                let hp = (input - k * s1 - s2) / (1.0 + k * g + g * g);
-                let bp = hp * g + s1;
-                let lp = bp * g + s2;
+                let a1 = 1.0 / (1.0 + g * (g + k));
+                let a2 = g * a1;
+                let a3 = g * a2;
 
-                voice.filter_state.s1 = (bp + hp * g) as f32;
-                voice.filter_state.s2 = (lp + bp * g) as f32;
+                let v3 = input - ic2eq;
+                let v1 = a1 * ic1eq + a2 * v3;
+                let v2 = ic2eq + a2 * ic1eq + a3 * v3;
+
+                voice.filter_state.ic1eq = 2.0 * v1 - ic1eq;
+                voice.filter_state.ic2eq = 2.0 * v2 - ic2eq;
+
+                // Denormal flush
+                if voice.filter_state.ic1eq.abs() < 1e-18 {
+                    voice.filter_state.ic1eq = 0.0;
+                }
+                if voice.filter_state.ic2eq.abs() < 1e-18 {
+                    voice.filter_state.ic2eq = 0.0;
+                }
+
+                let lp = v2;
+                let bp = v1;
+                let hp = input - k * v1 - v2;
 
                 let filtered = match filter_type {
-                    SynthFilterType::Lowpass => lp as f32,
-                    SynthFilterType::Highpass => hp as f32,
-                    SynthFilterType::Bandpass => bp as f32,
-                    SynthFilterType::Notch => (lp + hp) as f32,
+                    SynthFilterType::Lowpass => lp,
+                    SynthFilterType::Highpass => hp,
+                    SynthFilterType::Bandpass => bp,
+                    SynthFilterType::Notch => lp + hp,
                 };
 
                 // ── Output ──

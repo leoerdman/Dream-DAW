@@ -84,10 +84,13 @@ impl Command for PasteDeviceToTrackCommand {
         if use_instrument {
             replaced_instrument_slot_id = track.instrument.as_ref().map(DeviceNode::id);
             let pid_lower = plugin_id.to_lowercase();
-            if (pid_lower.contains("sampler") || pid_lower.contains("wave-synth"))
-                && track.sampler.is_none()
-            {
+            let needs_sampler = pid_lower.contains("sampler") || pid_lower.contains("wave-synth");
+            if needs_sampler && track.sampler.is_none() {
                 track.sampler = Some(SamplerConfig::default());
+            } else if !needs_sampler && track.sampler.is_some() {
+                // DUP-05 FIX: Clear stale sampler config when replacing
+                // sampler instrument with non-sampler instrument.
+                track.sampler = None;
             }
             track.instrument = Some(self.pasted_node.clone());
             if let Some(inst) = &track.instrument {

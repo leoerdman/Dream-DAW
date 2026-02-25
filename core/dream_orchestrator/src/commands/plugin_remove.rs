@@ -62,7 +62,6 @@ impl Command for RemovePluginFromTrackCommand {
             let removed_lower = removed_plugin_id.to_lowercase();
             if removed_lower.starts_with("internal://instrument/sampler")
                 || removed_lower.starts_with("internal://instrument/wave-synth")
-                || removed_lower.starts_with("internal://instrument/simple-sine-synth")
             {
                 track.sampler = None;
             }

@@ -22,23 +22,6 @@ fn get_external_plugin_params(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
-    if plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .contains_key(&plugin_id)
-    {
-        return Ok(vec![ExternalPluginParamInfo {
-            index: 0,
-            name: "Gain".to_string(),
-            min: 0.0,
-            max: 2.0,
-            step: 0.001,
-            default_value: Some(1.0),
-            value: 1.0,
-        }]);
-    }
-
     let hints = execute_orchestrator_query(
         &project_state,
         &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
@@ -47,14 +30,19 @@ fn get_external_plugin_params(
     )?;
     let metadata_count = hints.metadata_count;
     let lane_name_hints = hints.lane_name_hints;
-
-    let Some(instance_id) = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-    else {
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+    let Some(slot) = slot_states.first() else {
+        return Ok(fallback_external_param_block(metadata_count));
+    };
+    if slot_states.len() > 1 {
+        log::warn!(
+            "[IPC] get_external_plugin_params({}) matched {} slots; reading slot {} only",
+            plugin_id,
+            slot_states.len(),
+            slot.slot_id
+        );
+    }
+    let Some(instance_id) = plugin_host_state.slot_instance_map.load().get(&slot.slot_id).copied() else {
         return Ok(fallback_external_param_block(metadata_count));
     };
 

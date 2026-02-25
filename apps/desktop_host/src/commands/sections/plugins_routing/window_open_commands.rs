@@ -10,49 +10,6 @@ fn resolve_plugin_slot_states_by_plugin_id(
     )
 }
 
-fn bind_instance_to_slot_states(
-    slot_states: &[dream_orchestrator::queries::PluginSlotState],
-    instance_id: Uuid,
-    plugin_host_state: &tauri::State<'_, PluginHostState>,
-) {
-    let bound = plugin_host_state.slot_instance_snapshot();
-    for slot in slot_states {
-        if let Some(existing) = bound.get(&slot.slot_id) {
-            if *existing == instance_id {
-                continue;
-            }
-            log::warn!(
-                "[IPC] Rebinding plugin slot {} from instance {} to {}",
-                slot.slot_id,
-                existing,
-                instance_id
-            );
-        }
-        plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
-    }
-}
-
-fn load_descriptor_in_process(
-    host: &mut dream_plugins::PluginHost,
-    descriptor: &dream_plugins::PluginDescriptor,
-) -> Result<Uuid, String> {
-    match descriptor.format {
-        PluginFormat::VST3 => host
-            .load_vst3(descriptor.clone())
-            .map_err(|e| format!("Failed to load VST3 plugin '{}': {e}", descriptor.name)),
-        PluginFormat::VST2 => host
-            .load_vst2(descriptor.clone())
-            .map_err(|e| format!("Failed to load VST2 plugin '{}': {e}", descriptor.name)),
-        PluginFormat::AudioUnit => host
-            .load_au(descriptor.clone())
-            .map_err(|e| format!("Failed to load AudioUnit plugin '{}': {e}", descriptor.name)),
-        other => Err(format!(
-            "Unsupported plugin format '{}' for '{}'",
-            other, descriptor.name
-        )),
-    }
-}
-
 #[tauri::command]
 fn open_plugin_window(
     plugin_id: String,
@@ -63,170 +20,41 @@ fn open_plugin_window(
 ) -> Result<(), String> {
     plugin_host_state.try_enable_sandbox_if_available();
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
-
-    if plugin_host_state.open_sandbox_editor(&plugin_id)? {
-        if let Some(instance_id) = plugin_host_state
-            .loaded_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .get(&plugin_id)
-            .copied()
-        {
-            bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
-            sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
-        }
-        log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
-        return Ok(());
-    }
-
-    if let Some(instance_id) = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-    {
-        bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
-        sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
-        let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
-        app.run_on_main_thread(move || {
-            let result = (|| {
-                let mut host = host_arc.lock().map_err(|e| e.to_string())?;
-                host.open_editor(instance_id)
-                    .map_err(|e| format!("Failed to open existing plugin editor: {e}"))
-            })();
-            let _ = tx.send(result);
-        })
-        .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
-        rx.recv()
-            .map_err(|e| format!("Failed to receive GUI open result: {e}"))??;
-        log::info!("[IPC] open_plugin_window({plugin_id}) -> reuse instance {instance_id}");
-        return Ok(());
-    }
-
-    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
-
-    let sandbox_eligible = descriptor.format == PluginFormat::VST3;
-    if sandbox_eligible && plugin_host_state.sandbox_enabled().unwrap_or(false) {
-        match plugin_host_state.open_in_sandbox(&plugin_id, descriptor.clone()) {
-            Ok(instance_id) => {
-                bind_instance_to_slot_states(&slot_states, instance_id, &plugin_host_state);
-                sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
-                log::info!(
-                    "[IPC] open_plugin_window({plugin_id}) -> sandbox instance {} ({})",
-                    instance_id,
-                    descriptor.path.display()
-                );
-                return Ok(());
-            }
-            Err(err) => {
-                if !PluginHostState::allow_unsandboxed_vst3() {
-                    return Err(format!(
-                        "Plugin sandbox failed for '{}': {}. In-process fallback is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
-                        descriptor.name,
-                        err
-                    ));
-                }
-                log::warn!(
-                    "[PluginSandbox] open_plugin_window({plugin_id}) sandbox failed: {}. Falling back to in-process host.",
-                    err
-                );
-            }
-        }
-    } else if sandbox_eligible && !PluginHostState::allow_unsandboxed_vst3() {
-        return Err(format!(
-            "Plugin sandbox is unavailable for '{}'. In-process fallback is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
-            descriptor.name
-        ));
-    }
-
-    // BUG-11 FIX: Reuse the descriptor from the first resolve call above.
-    // Previously there was a second `resolve_descriptor` call here, which
-    // wasted I/O and introduced a TOCTOU race if the bundle was modified.
-    let instance_id = if let Some(existing) = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-    {
-        existing
-    } else {
-        let slot_clone = slot_states.first().cloned();
-
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        let loaded = load_descriptor_in_process(&mut host, &descriptor)?;
-        
-        if let Some(slot) = slot_clone {
-            let mut slot_restore =
-                dream_models::project::PluginSlot::new(slot.name.clone(), slot.plugin_id.clone());
-            slot_restore.id = slot.slot_id;
-            slot_restore.supports_sidechain_input = slot.supports_sidechain_input;
-            slot_restore.external_parameter_count = slot.external_parameter_count;
-            slot_restore.external_state_blob = slot.external_state_blob.clone();
-            slot_restore.external_state_blob_kind = slot.external_state_blob_kind.clone();
-            slot_restore.external_preset_blob = slot.external_preset_blob.clone();
-            slot_restore.external_preset_blob_kind = slot.external_preset_blob_kind.clone();
-            if let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot_restore) {
-                log::warn!(
-                    "[PluginState] Could not restore imported state for '{}': {}",
-                    slot_restore.name,
-                    err
-                );
-            }
-        }
-        drop(host);
-
-        // BUG-12 FIX: Insert into loaded_by_key BEFORE scheduling the editor
-        // open. This prevents a second concurrent IPC call from loading a
-        // duplicate instance during the race window between plugin load and
-        // the original map insertion (which was after editor open).
-        plugin_host_state
-            .loaded_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert(plugin_id.clone(), loaded);
-        bind_instance_to_slot_states(&slot_states, loaded, &plugin_host_state);
-        sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
-
-        loaded
+    let Some(slot) = slot_states.first().cloned() else {
+        return Err(format!("No plugin slots found for plugin_id: {plugin_id}"));
     };
+    if slot_states.len() > 1 {
+        log::warn!(
+            "[IPC] open_plugin_window({}) matched {} slots; opening slot {} only to preserve per-slot instance isolation",
+            plugin_id,
+            slot_states.len(),
+            slot.slot_id
+        );
+    }
+
+    let instance_id =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
+    sync_external_fx_snapshot_from_state(&project_state, &clip_pool_state, &plugin_host_state)?;
+
     let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
     app.run_on_main_thread(move || {
         let result = (|| {
             let mut host = host_arc.lock().map_err(|e| e.to_string())?;
             host.open_editor(instance_id)
-                .map_err(|e| format!("Plugin loaded but editor failed to open: {e}"))
+                .map_err(|e| format!("Failed to open plugin editor: {e}"))
         })();
         let _ = tx.send(result);
     })
     .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
 
-    let editor_result = rx.recv()
-        .map_err(|e| format!("Failed to receive GUI open result: {e}"))?;
-
-    // BUG-12 FIX: If editor open fails, clean up the loaded_by_key entry
-    // and unload the instance. This prevents phantom entries that block
-    // future load attempts.
-    if let Err(ref err) = editor_result {
-        log::warn!(
-            "[IPC] open_plugin_window({plugin_id}) editor open failed, cleaning up: {err}"
-        );
-        if let Ok(mut map) = plugin_host_state.loaded_by_key.lock() {
-            map.remove(&plugin_id);
-        }
-        if let Ok(mut host) = plugin_host_state.host.lock() {
-            let _ = host.remove(instance_id);
-        }
-    }
-    editor_result?;
+    rx.recv()
+        .map_err(|e| format!("Failed to receive GUI open result: {e}"))??;
     log::info!(
-        "[IPC] open_plugin_window({plugin_id}) -> loaded {} instance {} ({})",
-        descriptor.format,
+        "[IPC] open_plugin_window({plugin_id}) -> opened slot {} instance {}",
+        slot.slot_id,
         instance_id,
-        descriptor.path.display()
     );
     Ok(())
 }
@@ -267,27 +95,49 @@ fn open_plugin_window_for_slot(
         return Err("Internal device has no native external editor".to_string());
     }
 
-    // If this plugin is currently hosted in sandbox, route editor open to the
-    // sandbox daemon first. This is the only path that opens the real native
-    // GUI for sandboxed instances.
-    let sandbox_result = plugin_host_state.open_sandbox_editor(&slot.plugin_id)?;
-    log::info!(
-        "[IPC] open_plugin_window_for_slot sandbox_editor_result={}",
-        sandbox_result
-    );
-    if sandbox_result {
+    // Slot-scoped sandbox open: never route by plugin_id, otherwise identical
+    // plugins on different slots can open the wrong instance editor.
+    if let Some(bound_instance) = plugin_host_state
+        .slot_instance_snapshot()
+        .get(&slot.slot_id)
+        .copied()
+    {
+        let sandbox_result = plugin_host_state
+            .sandbox_supervisor
+            .lock()
+            .map_err(|e| e.to_string())?
+            .send_open_editor(bound_instance)
+            .is_ok();
         log::info!(
-            "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox editor open",
-            track_id,
-            slot_id
+            "[IPC] open_plugin_window_for_slot slot-scoped sandbox open (slot={}, instance={}) => {}",
+            slot.slot_id,
+            bound_instance,
+            sandbox_result
         );
-        return Ok(());
+        if sandbox_result {
+            return Ok(());
+        }
     }
 
     let instance_id =
         plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
     plugin_host_state.publish_registry();
+    let sandbox_result = plugin_host_state
+        .sandbox_supervisor
+        .lock()
+        .map_err(|e| e.to_string())?
+        .send_open_editor(instance_id)
+        .is_ok();
+    if sandbox_result {
+        log::info!(
+            "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox editor open (instance={})",
+            track_id,
+            slot_id,
+            instance_id
+        );
+        return Ok(());
+    }
 
     // Restore per-slot saved state (preset, knob positions, etc.)
     if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {

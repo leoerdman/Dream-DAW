@@ -7,20 +7,11 @@ fn set_external_plugin_param_cmd(
     param_index: u32,
     value: f64,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    _project_state: tauri::State<'_, ProjectState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
-    if plugin_host_state.set_sandbox_parameter(&plugin_id, param_index, value)? {
-        return Ok(());
-    }
-
     let normalized = value.clamp(0.0, 1.0);
-    let maybe_instance_id = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied();
-    let Some(instance_id) = maybe_instance_id else {
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+    let Some(slot) = slot_states.first() else {
         log::debug!(
             "[IPC] set_external_plugin_param_cmd(plugin={}, idx={}, value={:.4}) skipped: plugin not active",
             plugin_id,
@@ -29,6 +20,19 @@ fn set_external_plugin_param_cmd(
         );
         return Ok(());
     };
+    if slot_states.len() > 1 {
+        log::warn!(
+            "[IPC] set_external_plugin_param_cmd({}) matched {} slots; applying to slot {} only",
+            plugin_id,
+            slot_states.len(),
+            slot.slot_id
+        );
+    }
+
+    let instance_id =
+        plugin_host_state.ensure_loaded_instance_for_slot(slot.slot_id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.slot_id, instance_id);
+
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let instance = host
         .get_mut(instance_id)

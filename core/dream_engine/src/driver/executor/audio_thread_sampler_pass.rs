@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::driver::midi_dispatcher::{ActiveMappedNote, clamp_midi_pitch, quantize_to_scale};
+use crate::essence_synth::EssenceSynthEngine;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 
 #[allow(clippy::too_many_arguments)]
@@ -9,6 +10,7 @@ pub(super) fn render_sampler_sources(
     render_ctx: &mut RenderContext,
     sampler_engines: &mut [SamplerEngine],
     sample_rack_engines: &mut [SampleRackEngine],
+    essence_engines: &mut [EssenceSynthEngine],
     midi_note_states: &mut [MidiNoteMapState],
     vst3_rt_midi_queue: &mut [Vec<MidiEvent>],
     rt_midi_uid_counter: &mut u64,
@@ -27,6 +29,9 @@ pub(super) fn render_sampler_sources(
         {
             sampler_engines[track_idx].all_notes_off();
             sample_rack_engines[track_idx].all_notes_off();
+            if track_idx < essence_engines.len() {
+                essence_engines[track_idx].all_notes_off();
+            }
             midi_note_states[track_idx].active_notes.clear();
             if track_idx < vst3_rt_midi_queue.len() {
                 vst3_rt_midi_queue[track_idx].clear();
@@ -43,6 +48,11 @@ pub(super) fn render_sampler_sources(
         let midi_track = &midi_snap[track_idx];
         let engine = &mut sampler_engines[track_idx];
         let rack = &mut sample_rack_engines[track_idx];
+        let mut essence = if track_idx < essence_engines.len() {
+            Some(&mut essence_engines[track_idx])
+        } else {
+            None
+        };
         let slot = &mut render_ctx.track_slots[track_idx];
 
         let midi_loop_region = render_ctx
@@ -75,10 +85,13 @@ pub(super) fn render_sampler_sources(
         let has_rt_midi =
             track_idx < vst3_rt_midi_queue.len() && !vst3_rt_midi_queue[track_idx].is_empty();
 
+        let essence_active = essence.as_ref().map_or(false, |e| e.has_active_voices());
+
         if slot.midi_schedule_scratch.is_empty()
             && !has_rt_midi
             && !engine.has_active_voices()
             && !rack_active
+            && !essence_active
         {
             continue;
         }
@@ -163,6 +176,15 @@ pub(super) fn render_sampler_sources(
                     &mut slot.buf_right[cursor..cursor + seg],
                     seg,
                 );
+                if let Some(ref mut ess) = essence {
+                    if ess.has_active_voices() {
+                        ess.render(
+                            &mut slot.buf_left[cursor..cursor + seg],
+                            &mut slot.buf_right[cursor..cursor + seg],
+                            seg,
+                        );
+                    }
+                }
                 cursor += seg;
             } else if frame > cursor {
                 cursor = frame;
@@ -182,6 +204,9 @@ pub(super) fn render_sampler_sources(
                 };
                 engine.note_off(off_pitch);
                 rack.note_off(off_pitch);
+                if let Some(ref mut ess) = essence {
+                    ess.note_off(off_pitch);
+                }
             } else {
                 let mut pitch_i16 = pitch as i16;
                 let mut velocity_i16 = velocity as i16;
@@ -223,6 +248,9 @@ pub(super) fn render_sampler_sources(
                     let previous = note_state.active_notes.swap_remove(pos);
                     engine.note_off(previous.mapped_pitch);
                     rack.note_off(previous.mapped_pitch);
+                    if let Some(ref mut ess) = essence {
+                        ess.note_off(previous.mapped_pitch);
+                    }
                 }
 
                 note_state.active_notes.push(ActiveMappedNote {
@@ -232,6 +260,9 @@ pub(super) fn render_sampler_sources(
                 });
                 engine.note_on(mapped_pitch, mapped_velocity);
                 rack.note_on(mapped_pitch, mapped_velocity);
+                if let Some(ref mut ess) = essence {
+                    ess.note_on(mapped_pitch, mapped_velocity);
+                }
             }
         }
 
@@ -249,6 +280,15 @@ pub(super) fn render_sampler_sources(
                 &mut slot.buf_right[cursor..fc],
                 rem,
             );
+            if let Some(ref mut ess) = essence {
+                if ess.has_active_voices() {
+                    ess.render(
+                        &mut slot.buf_left[cursor..fc],
+                        &mut slot.buf_right[cursor..fc],
+                        rem,
+                    );
+                }
+            }
         }
 
         if note_state.active_notes.len() > 128 {

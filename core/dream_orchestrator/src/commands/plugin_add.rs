@@ -189,8 +189,7 @@ impl Command for AddPluginToTrackCommand {
         let plugin_id_lower = self.plugin_id.to_lowercase();
         let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
         let is_wave_synth_instrument = plugin_id_lower
-            .starts_with("internal://instrument/wave-synth")
-            || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
+            .starts_with("internal://instrument/wave-synth");
 
         let mut slot_data = PluginSlot::new(self.plugin_name.clone(), self.plugin_id.clone());
         if !self.plugin_id.starts_with("internal://") {

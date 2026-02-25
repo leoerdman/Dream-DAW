@@ -2,26 +2,21 @@
 fn can_open_plugin_editor(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<PluginEditorCapability, String> {
-    if plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .contains_key(&plugin_id)
-    {
-        return Ok(PluginEditorCapability {
-            supported: true,
-            reason: None,
-        });
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
+    let instance_id = slot_states
+        .first()
+        .and_then(|slot| plugin_host_state.slot_instance_snapshot().get(&slot.slot_id).copied());
+    if slot_states.len() > 1 {
+        log::warn!(
+            "[IPC] can_open_plugin_editor({}) matched {} slots; probing slot {} only",
+            plugin_id,
+            slot_states.len(),
+            slot_states[0].slot_id
+        );
     }
-
-    if let Some(instance_id) = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-    {
+    if let Some(instance_id) = instance_id {
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
         let supported = host
             .supports_editor(instance_id)

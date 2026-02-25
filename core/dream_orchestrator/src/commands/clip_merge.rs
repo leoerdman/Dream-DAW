@@ -160,6 +160,19 @@ impl Command for MergeClipsCommand {
                     merged.add_note(moved);
                 }
             }
+            // DUP-07 FIX: Deduplicate notes at same pitch+start, keeping the longer one.
+            // Notes are already sorted by start_frame (via add_note), so dedup_by works.
+            merged.notes.dedup_by(|b, a| {
+                if a.pitch == b.pitch && a.start_frame == b.start_frame {
+                    // Keep whichever has the longer duration in slot `a` (the survivor).
+                    if b.duration_frames > a.duration_frames {
+                        a.duration_frames = b.duration_frames;
+                    }
+                    true
+                } else {
+                    false
+                }
+            });
 
             track.midi_clips.retain(|c| !ids.contains(&c.id));
             let insert_at = track

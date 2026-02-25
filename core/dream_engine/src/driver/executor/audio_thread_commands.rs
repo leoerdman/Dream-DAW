@@ -218,6 +218,9 @@ pub(super) fn drain_commands(
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_on(pitch, velocity);
                     }
+                    if idx < ctx.essence_engines.len() {
+                        ctx.essence_engines[idx].note_on(pitch, velocity);
+                    }
                 }
                 if idx < ctx.vst3_rt_midi_queue.len() {
                     enqueue_rt_vst3_note_on(&mut ctx.vst3_rt_midi_queue[idx], pitch, velocity);
@@ -232,6 +235,9 @@ pub(super) fn drain_commands(
                     }
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_off(pitch);
+                    }
+                    if idx < ctx.essence_engines.len() {
+                        ctx.essence_engines[idx].note_off(pitch);
                     }
                 }
                 if idx < ctx.vst3_rt_midi_queue.len() {

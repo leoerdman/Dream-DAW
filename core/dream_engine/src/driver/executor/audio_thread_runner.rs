@@ -1,5 +1,6 @@
 use super::super::*;
 use super::SharedRtDebugStats;
+use crate::essence_synth::EssenceSynthEngine;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use log::{error, info};
 use std::time::Instant;
@@ -135,6 +136,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut sample_rack_engines: Vec<SampleRackEngine> = (0..MAX_TRACKS)
         .map(|_| SampleRackEngine::new(sample_rate_f64))
         .collect();
+    let mut essence_engines: Vec<EssenceSynthEngine> = (0..MAX_TRACKS)
+        .map(|_| EssenceSynthEngine::new(sample_rate_f64))
+        .collect();
     let mut midi_note_states: Vec<MidiNoteMapState> = vec![MidiNoteMapState::default(); MAX_TRACKS];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut external_left = vec![0.0f32; MAX_BUFFER_FRAMES];
@@ -240,6 +244,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 render_ctx: &mut render_ctx,
                                 sampler_engines: &mut sampler_engines,
                                 sample_rack_engines: &mut sample_rack_engines,
+                                essence_engines: &mut essence_engines,
                                 midi_note_states: &mut midi_note_states,
                                 vst3_flush_per_track: &mut vst3_flush_per_track,
                                 vst3_rt_midi_queue: &mut vst3_rt_midi_queue,
@@ -391,6 +396,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             &mut render_ctx,
                             &mut sampler_engines,
                             &mut sample_rack_engines,
+                            &mut essence_engines,
                             &mut midi_note_states,
                             &mut vst3_rt_midi_queue,
                             &mut rt_midi_uid_counter,

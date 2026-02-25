@@ -477,8 +477,10 @@ pub fn duplicate_clip(
         .clips
         .binary_search_by(|c| c.position.cmp(&dup.position))
         .unwrap_or_else(|i| i);
-    track.clips.insert(insert_pos, dup.clone());
-    Ok(dup)
+    // DUP-06 FIX: Clone for return before move-insert to avoid extra alloc.
+    let ret = dup.clone();
+    track.clips.insert(insert_pos, dup);
+    Ok(ret)
 }
 /// Duplicates a MIDI clip, optionally at a specific destination position.
 pub fn duplicate_midi_clip(
@@ -505,8 +507,10 @@ pub fn duplicate_midi_clip(
         .midi_clips
         .binary_search_by(|c| c.position.cmp(&dup.position))
         .unwrap_or_else(|i| i);
-    track.midi_clips.insert(insert_pos, dup.clone());
-    Ok(dup)
+    // DUP-06 FIX: Clone for return before move-insert to avoid extra alloc.
+    let ret = dup.clone();
+    track.midi_clips.insert(insert_pos, dup);
+    Ok(ret)
 }
 // ── Move MIDI Clip ───────────────────────────────────────────────────────
 /// Moves a MIDI clip to a new track and/or position on the timeline.

@@ -59,15 +59,19 @@ impl Command for DuplicateClipCommand {
                 id: self.clip_id.to_string(),
             })?;
 
-        let (new_id, new_position_frames) =
-            match mutators::duplicate_clip(&mut project, self.clip_id, target_pos) {
-                Ok(dup) => (dup.id, dup.position.sample_frame),
-                Err(_) => {
-                    let dup =
-                        mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?;
-                    (dup.id, dup.position.sample_frame)
-                }
-            };
+        // DUP-03 FIX: Determine clip type explicitly instead of error-swallowing fallback.
+        let is_audio_clip = project.tracks[track_index]
+            .clips
+            .iter()
+            .any(|c| c.id == self.clip_id);
+
+        let (new_id, new_position_frames) = if is_audio_clip {
+            let dup = mutators::duplicate_clip(&mut project, self.clip_id, target_pos)?;
+            (dup.id, dup.position.sample_frame)
+        } else {
+            let dup = mutators::duplicate_midi_clip(&mut project, self.clip_id, target_pos)?;
+            (dup.id, dup.position.sample_frame)
+        };
 
         Ok(DuplicateClipResult {
             new_id,

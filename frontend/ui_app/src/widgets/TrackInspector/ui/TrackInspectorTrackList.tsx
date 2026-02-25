@@ -186,8 +186,8 @@ export function TrackInspectorTrackList({
                                     logic.clearHeaderSelection();
                                     if (e.shiftKey) {
                                         const anchorId =
-                                            logic.lastClickedTrackId && logic.lastClickedTrackId !== 'master'
-                                                ? logic.lastClickedTrackId
+                                            logic.lastHeaderClickedTrackId && logic.lastHeaderClickedTrackId !== 'master'
+                                                ? logic.lastHeaderClickedTrackId
                                                 : (selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null);
                                         const anchorIndex = anchorId ? (logic.visibleTrackIndexById.get(anchorId) ?? -1) : -1;
                                         const currentIndex = logic.visibleTrackIndexById.get(track.id) ?? -1;
@@ -217,10 +217,15 @@ export function TrackInspectorTrackList({
                                     }
                                     e.stopPropagation();
                                     if (e.shiftKey) {
-                                        const anchorId =
-                                            logic.lastClickedTrackId && logic.lastClickedTrackId !== 'master'
-                                                ? logic.lastClickedTrackId
-                                                : (selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null);
+                                        let anchorId: string | null = null;
+                                        if (logic.lastHeaderClickedTrackId && logic.lastHeaderClickedTrackId !== 'master') {
+                                            anchorId = logic.lastHeaderClickedTrackId;
+                                        } else if (selectedTrackId && selectedTrackId !== 'master') {
+                                            anchorId = selectedTrackId;
+                                        } else {
+                                            const selectedHeaderIds = Array.from(logic.headerSelectedTrackIdSet);
+                                            if (selectedHeaderIds.length > 0) anchorId = selectedHeaderIds[0];
+                                        }
                                         const anchorIndex = anchorId ? (logic.visibleTrackIndexById.get(anchorId) ?? -1) : -1;
                                         const currentIndex = logic.visibleTrackIndexById.get(track.id) ?? -1;
                                         if (anchorIndex >= 0 && currentIndex >= 0) {
@@ -234,17 +239,29 @@ export function TrackInspectorTrackList({
                                             logic.applyHeaderSelection([track.id]);
                                         }
                                     } else if (e.metaKey || e.ctrlKey) {
-                                        const next = new Set(logic.selectedTrackIdSet);
+                                        const next = new Set(logic.headerSelectedTrackIdSet);
                                         if (next.has(track.id)) next.delete(track.id);
                                         else next.add(track.id);
                                         const nextIds = Array.from(next);
-                                        logic.applySelection(nextIds, track.id, { preserveCursor: true });
+                                        const nextPrimaryId = nextIds.includes(track.id)
+                                            ? track.id
+                                            : (nextIds[nextIds.length - 1] ?? track.id);
+                                        logic.applySelection(nextIds, nextPrimaryId, { preserveCursor: true });
                                         logic.applyHeaderSelection(nextIds);
+
+                                        const preservedAnchor =
+                                            logic.lastHeaderClickedTrackId && nextIds.includes(logic.lastHeaderClickedTrackId)
+                                                ? logic.lastHeaderClickedTrackId
+                                                : (nextIds[0] ?? null);
+                                        logic.setLastHeaderClickedTrackId(preservedAnchor);
+                                        logic.setLastClickedTrackId(preservedAnchor);
+                                        return;
                                     } else {
                                         logic.applySelection([track.id], track.id, { preserveCursor: true });
                                         logic.applyHeaderSelection([track.id]);
                                     }
                                     logic.setLastClickedTrackId(track.id);
+                                    logic.setLastHeaderClickedTrackId(track.id);
                                 }}
                                 onToggleMute={() => logic.toggleMute(track.id)}
                                 onToggleSolo={() => logic.toggleSolo(track.id)}

@@ -989,6 +989,7 @@ export class TimelineEngine {
                     startClientX: e.clientX,
                     startClientY: e.clientY,
                     coMoverOrigins: coMovers.size > 0 ? coMovers : undefined,
+                    deferSingleSelectOnMouseUp: preserveMultiSelect,
                 };
                 break;
             }
@@ -1377,7 +1378,12 @@ export class TimelineEngine {
 
         switch (this._drag.mode) {
             case DragMode.ClipMoveArmed: {
-                if (this._drag.clipId && this._drag.coMoverOrigins && this._drag.coMoverOrigins.size > 0) {
+                if (
+                    this._drag.deferSingleSelectOnMouseUp
+                    && this._drag.clipId
+                    && this._drag.coMoverOrigins
+                    && this._drag.coMoverOrigins.size > 0
+                ) {
                     this.onClipClick?.(this._drag.clipId, false, false);
                 }
                 break;

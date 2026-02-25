@@ -67,7 +67,9 @@ export function useTrackInspectorLogic({
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string> | null>(null);
     const [headerSelectedTrackIdSet, setHeaderSelectedTrackIdSet] = useState<Set<string>>(new Set());
+    const keepHeaderSelectionOnNextTrackSelectionSyncRef = useRef(false);
     const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
+    const [lastHeaderClickedTrackId, setLastHeaderClickedTrackId] = useState<string | null>(null);
     const [rowHeightOverrides, setRowHeightOverrides] = useState<Record<string, number>>({});
     const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string> | null>(null);
     const effectiveSelectedTrackIds = useMemo(() => {
@@ -79,6 +81,7 @@ export function useTrackInspectorLogic({
     const selectedTrackIdSet = useMemo(() => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')), [effectiveSelectedTrackIds]);
     const applyHeaderSelection = useCallback((ids: string[]) => {
         const cleaned = Array.from(new Set(ids)).filter((id) => Boolean(id));
+        keepHeaderSelectionOnNextTrackSelectionSyncRef.current = true;
         setHeaderSelectedTrackIdSet(new Set(cleaned));
     }, []);
     const clearHeaderSelection = useCallback(() => {
@@ -95,10 +98,34 @@ export function useTrackInspectorLogic({
             return next.size === prev.size ? prev : next;
         });
     }, [trackIds]);
+    const trackSelectionSyncSignature = useMemo(
+        () => `${selectedTrackId}|${effectiveSelectedTrackIds.join(',')}`,
+        [selectedTrackId, effectiveSelectedTrackIds],
+    );
+    useEffect(() => {
+        if (keepHeaderSelectionOnNextTrackSelectionSyncRef.current) {
+            keepHeaderSelectionOnNextTrackSelectionSyncRef.current = false;
+            return;
+        }
+        clearHeaderSelection();
+    }, [trackSelectionSyncSignature, clearHeaderSelection]);
+    useEffect(() => {
+        const onWindowPointerDown = (e: PointerEvent) => {
+            if (headerSelectedTrackIdSet.size === 0) return;
+            const target = e.target as HTMLElement | null;
+            if (target?.closest?.('[data-track-header="true"]')) return;
+            clearHeaderSelection();
+        };
+        window.addEventListener('pointerdown', onWindowPointerDown, { capture: true });
+        return () => window.removeEventListener('pointerdown', onWindowPointerDown, { capture: true } as EventListenerOptions);
+    }, [headerSelectedTrackIdSet.size, clearHeaderSelection]);
     const applySelection = useCallback((ids: string[], primaryId: string, options?: { preserveCursor?: boolean }) => {
         const cleaned = Array.from(new Set(ids)).filter((id) => id && id !== 'master');
-        if (onSelectTracks) onSelectTracks(cleaned, primaryId, options);
-        else setLocalSelectedTrackIds(new Set(cleaned));
+        if (onSelectTracks) {
+            onSelectTracks(cleaned, primaryId, options);
+            return;
+        }
+        setLocalSelectedTrackIds(new Set(cleaned));
         onSelectTrack(primaryId, options);
     }, [onSelectTrack, onSelectTracks]);
     const {
@@ -276,6 +303,8 @@ export function useTrackInspectorLogic({
         applyHeaderSelection,
         clearHeaderSelection,
         setLastClickedTrackId,
+        lastHeaderClickedTrackId,
+        setLastHeaderClickedTrackId,
         setRenameValue,
         setContextMenu,
         setColorPickerState,

@@ -115,7 +115,7 @@ export const PluginSettingsPanel = ({
                     />
                 </div>
             )}
-            {device.supportsSidechain && (
+            {device.source === 'vst' && (
                 <div style={{ display: 'grid', gap: 4, width: 240, maxWidth: '100%' }}>
                     <span style={{
                         fontSize: 'var(--font-size-xs)',

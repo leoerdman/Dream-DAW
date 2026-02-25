@@ -1,39 +1,7 @@
-fn track_supports_live_preview(track: &dream_models::project::Track) -> bool {
-    use dream_models::project::TrackType;
-    if track.track_type == TrackType::Master {
-        return false;
-    }
-    track.track_type == TrackType::Midi || track.instrument.is_some()
-}
-
 fn resolve_preview_track_index(project: &dream_models::project::Project, requested: u16) -> u16 {
     let track_count = project.tracks.len();
-    if track_count == 0 {
-        return requested;
-    }
-    let req_idx = requested as usize;
-    if req_idx < track_count {
-        let req_track = &project.tracks[req_idx];
-        if track_supports_live_preview(req_track) {
-            return requested;
-        }
-    }
-    if let Some(idx) = project
-        .tracks
-        .iter()
-        .position(|t| t.is_armed && track_supports_live_preview(t))
-    {
-        return idx as u16;
-    }
-    if let Some(idx) = project.tracks.iter().position(track_supports_live_preview) {
-        return idx as u16;
-    }
-    if let Some(idx) = project.tracks.iter().position(|t| {
-        t.is_armed && t.track_type != dream_models::project::TrackType::Master
-    }) {
-        return idx as u16;
-    }
-    req_idx.min(track_count.saturating_sub(1)) as u16
+    if track_count == 0 { return 0; }
+    (requested as usize).min(track_count.saturating_sub(1)) as u16
 }
 
 /// Trigger a sampler note-on for live audition from Piano Roll.

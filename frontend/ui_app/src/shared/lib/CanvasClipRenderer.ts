@@ -400,28 +400,6 @@ export class CanvasClipRenderer {
             filtered.push(c);
         }
 
-        const trackPitchRange = new Map<number, { min: number; max: number }>();
-        for (const c of filtered) {
-            if (c.type !== 'midi' || !c.midiNotes || c.midiNotes.length === 0) continue;
-            let existing = trackPitchRange.get(c.trackIndex);
-            if (!existing) {
-                existing = { min: 127, max: 0 };
-                trackPitchRange.set(c.trackIndex, existing);
-            }
-            for (const n of c.midiNotes) {
-                if (n.pitch < existing.min) existing.min = n.pitch;
-                if (n.pitch > existing.max) existing.max = n.pitch;
-            }
-        }
-        for (const [, pr] of trackPitchRange) {
-            const span = pr.max - pr.min + 1;
-            if (span < 12) {
-                const pad = Math.ceil((12 - span) / 2);
-                pr.min = Math.max(0, pr.min - pad);
-                pr.max = Math.min(127, pr.max + pad);
-            }
-        }
-
         filtered.sort((a, b) => {
             const aPriority = a.primarySelected ? 2 : (a.selected ? 1 : 0);
             const bPriority = b.primarySelected ? 2 : (b.selected ? 1 : 0);
@@ -429,7 +407,7 @@ export class CanvasClipRenderer {
         });
 
         for (const clip of filtered) {
-            this._drawSingleClip(ctx, vp, clip, sampleRate, trackPitchRange.get(clip.trackIndex));
+            this._drawSingleClip(ctx, vp, clip, sampleRate);
         }
     }
 
@@ -438,7 +416,6 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         clip: TimelineClipData,
         sampleRate: number,
-        trackPitch?: { min: number; max: number },
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
@@ -500,7 +477,7 @@ export class CanvasClipRenderer {
             if (clip.type === 'audio' && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackMuted);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackMuted, trackPitch);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackMuted);
             }
         }
 
@@ -749,23 +726,13 @@ export class CanvasClipRenderer {
         bodyY: number,
         bodyH: number,
         muted: boolean,
-        trackPitch?: { min: number; max: number },
     ): void {
         if (!clip.midiNotes || clip.midiNotes.length === 0) return;
 
         const ppb = vp.pixelsPerBeat;
         const clipX = vp.beatsToScreenX(clip.startBeat);
-
-        const minPitch = trackPitch?.min ?? 60;
-        const maxPitch = trackPitch?.max ?? 72;
-        const pitchSlots = Math.max(1, maxPitch - minPitch + 1);
-
-        const noteH = Math.max(1, Math.min(4, Math.floor(bodyH / Math.max(1, pitchSlots))));
-        const rowGap = pitchSlots > 1
-            ? Math.max(0, Math.min(1, (bodyH - pitchSlots * noteH) / (pitchSlots - 1)))
-            : 0;
-        const contentH = pitchSlots * noteH + Math.max(0, pitchSlots - 1) * rowGap;
-        const topOffset = Math.max(0, (bodyH - contentH) / 2);
+        const midiRowStep = bodyH / 128;
+        const noteH = Math.max(1, midiRowStep);
 
         const contrastColor = getContrastColor(clip.color);
         ctx.fillStyle = muted
@@ -773,11 +740,11 @@ export class CanvasClipRenderer {
             : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));
 
         for (const note of clip.midiNotes) {
-            const clampedPitch = Math.max(minPitch, Math.min(maxPitch, note.pitch));
+            const clampedPitch = Math.max(0, Math.min(127, note.pitch));
             const noteX = clipX + note.startBeat * ppb;
             const noteW = Math.max(1, note.durationBeats * ppb);
-            const pitchIndexFromTop = maxPitch - clampedPitch;
-            const noteY = bodyY + topOffset + pitchIndexFromTop * (noteH + rowGap);
+            const pitchIndexFromTop = 127 - clampedPitch;
+            const noteY = bodyY + pitchIndexFromTop * midiRowStep;
 
             ctx.globalAlpha = 0.3 + (note.velocity / 127) * 0.7;
             ctx.fillRect(noteX, noteY, noteW, noteH);

@@ -29,7 +29,6 @@ export function TrackRowHeader({
     track,
     isMaster,
     isGroup,
-    isHeaderSelected,
     isHeaderPrimarySelected,
     isCollapsed,
     isRenaming,
@@ -66,6 +65,7 @@ export function TrackRowHeader({
 
     return (
         <div
+            data-track-header="true"
             onPointerDown={onHeaderPointerDown}
             onClick={onHeaderClick}
             style={{
@@ -100,9 +100,7 @@ export function TrackRowHeader({
                     background: headerBgColor,
                     boxShadow: isHeaderPrimarySelected
                         ? 'inset 0 0 0 var(--token-size-px-2) color-mix(in srgb, var(--color-text-bright) 90%, transparent)'
-                        : isHeaderSelected
-                            ? 'inset 0 0 0 var(--space-px) color-mix(in srgb, var(--color-text-bright) 70%, transparent)'
-                            : 'none',
+                        : 'none',
                     gap: 1,
                     position: 'relative',
                     boxSizing: 'border-box',

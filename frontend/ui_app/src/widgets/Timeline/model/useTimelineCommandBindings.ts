@@ -50,11 +50,10 @@ export function useTimelineCommandBusBindings({
                     break;
                 case 'clip-select':
                     if (command.isShift) {
-                        const prev = selectedClipIdsRef.current;
                         const currentClips = propsRef.current.clips ?? [];
                         const targetClip = currentClips.find((c) => c.id === command.clipId);
                         if (!targetClip) break;
-                        const anchorId = selectionAnchorClipIdRef.current ?? prev[0] ?? null;
+                        const anchorId = selectionAnchorClipIdRef.current ?? selectedClipIdsRef.current[0] ?? null;
                         if (!anchorId) {
                             callbacksRef.current.onClipSelect?.(command.clipId);
                             selectionAnchorClipIdRef.current = command.clipId;
@@ -66,17 +65,23 @@ export function useTimelineCommandBusBindings({
                             selectionAnchorClipIdRef.current = command.clipId;
                             break;
                         }
-                        const minBeat = Math.min(anchorClip.startBeat, targetClip.startBeat);
-                        const maxBeat = Math.max(anchorClip.startBeat + anchorClip.durationBeats, targetClip.startBeat + targetClip.durationBeats);
-                        const minTrack = Math.min(anchorClip.trackIndex, targetClip.trackIndex);
-                        const maxTrack = Math.max(anchorClip.trackIndex, targetClip.trackIndex);
-                        const next = currentClips
-                            .filter((c) => {
-                                if (c.trackIndex < minTrack || c.trackIndex > maxTrack) return false;
-                                const cEnd = c.startBeat + c.durationBeats;
-                                return cEnd > minBeat && c.startBeat < maxBeat;
-                            })
-                            .map((c) => c.id);
+
+                        const orderedClips = [...currentClips].sort((a, b) => {
+                            if (a.trackIndex !== b.trackIndex) return a.trackIndex - b.trackIndex;
+                            if (a.startBeat !== b.startBeat) return a.startBeat - b.startBeat;
+                            if (a.durationBeats !== b.durationBeats) return a.durationBeats - b.durationBeats;
+                            return a.id.localeCompare(b.id);
+                        });
+                        const anchorIndex = orderedClips.findIndex((c) => c.id === anchorClip.id);
+                        const targetIndex = orderedClips.findIndex((c) => c.id === targetClip.id);
+                        if (anchorIndex < 0 || targetIndex < 0) {
+                            callbacksRef.current.onClipSelect?.(command.clipId);
+                            selectionAnchorClipIdRef.current = command.clipId;
+                            break;
+                        }
+                        const startIndex = Math.min(anchorIndex, targetIndex);
+                        const endIndex = Math.max(anchorIndex, targetIndex);
+                        const next = orderedClips.slice(startIndex, endIndex + 1).map((c) => c.id);
                         callbacksRef.current.onClipSelectionChange?.(next);
                     } else if (command.isCtrl) {
                         const prev = selectedClipIdsRef.current;
@@ -84,7 +89,11 @@ export function useTimelineCommandBusBindings({
                             ? prev.filter((id) => id !== command.clipId)
                             : [...prev, command.clipId];
                         callbacksRef.current.onClipSelectionChange?.(next);
-                        selectionAnchorClipIdRef.current = next.length > 0 ? command.clipId : null;
+                        if (next.length === 0) {
+                            selectionAnchorClipIdRef.current = null;
+                        } else if (!selectionAnchorClipIdRef.current || !next.includes(selectionAnchorClipIdRef.current)) {
+                            selectionAnchorClipIdRef.current = next[0];
+                        }
                     } else {
                         callbacksRef.current.onClipSelect?.(command.clipId);
                         selectionAnchorClipIdRef.current = command.clipId;

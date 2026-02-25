@@ -84,6 +84,7 @@ export interface DragState {
     clipOriginalFadeOutCurve?: number;
     clipResizeAllowStretch?: boolean;
     coMoverOrigins?: Map<string, { beat: number; track: number }>;
+    deferSingleSelectOnMouseUp?: boolean;
 }
 
 export function clipDurationFramesFromTimeline(

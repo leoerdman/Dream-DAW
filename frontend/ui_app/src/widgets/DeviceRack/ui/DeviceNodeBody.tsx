@@ -69,25 +69,25 @@ export function DeviceNodeBody({
     const settingsPanel = (
         <Suspense fallback={null}>
             <PluginSettingsPanelLazy
-            device={device}
-            quickPresets={quickPresets}
-            onParamChange={onParamChange}
-            onParamGestureStart={onParamGestureStart}
-            onParamGestureEnd={onParamGestureEnd}
-            onApplyQuickPreset={onApplyQuickPreset}
-            onRandomize={onRandomize}
-            onReset={onReset}
-            onStoreSnapshot={onStoreSnapshot}
-            onRecallSnapshot={onRecallSnapshot}
-            onToggleSnapshot={onToggleSnapshot}
-            snapshotState={snapshotState}
-            onLoadSample={onLoadSample}
-            sidechainSourceTrackId={sidechainSourceTrackId}
-            sidechainOptions={sidechainOptions}
-            onSidechainSourceChange={onSidechainSourceChange}
-            runtimeStatus={runtimeStatus}
-            editorSupported={editorSupported}
-            editorReason={editorReason}
+                device={device}
+                quickPresets={quickPresets}
+                onParamChange={onParamChange}
+                onParamGestureStart={onParamGestureStart}
+                onParamGestureEnd={onParamGestureEnd}
+                onApplyQuickPreset={onApplyQuickPreset}
+                onRandomize={onRandomize}
+                onReset={onReset}
+                onStoreSnapshot={onStoreSnapshot}
+                onRecallSnapshot={onRecallSnapshot}
+                onToggleSnapshot={onToggleSnapshot}
+                snapshotState={snapshotState}
+                onLoadSample={onLoadSample}
+                sidechainSourceTrackId={sidechainSourceTrackId}
+                sidechainOptions={sidechainOptions}
+                onSidechainSourceChange={onSidechainSourceChange}
+                runtimeStatus={runtimeStatus}
+                editorSupported={editorSupported}
+                editorReason={editorReason}
             />
         </Suspense>
     );
@@ -110,14 +110,14 @@ export function DeviceNodeBody({
                 <div style={{ minHeight: 0 }}>
                     <Suspense fallback={null}>
                         <PluginGuiSurfaceLazy
-                        device={device}
-                        onParamChange={onParamChange}
-                        onParamGestureStart={onParamGestureStart}
-                        onParamGestureEnd={onParamGestureEnd}
-                        onApplyUtilityScene={onApplyUtilityScene}
-                        onDropSample={onDropSample}
-                        onLoadSample={onLoadSample}
-                        onParamContextMenu={onParamContextMenu}
+                            device={device}
+                            onParamChange={onParamChange}
+                            onParamGestureStart={onParamGestureStart}
+                            onParamGestureEnd={onParamGestureEnd}
+                            onApplyUtilityScene={onApplyUtilityScene}
+                            onDropSample={onDropSample}
+                            onLoadSample={onLoadSample}
+                            onParamContextMenu={onParamContextMenu}
                         />
                     </Suspense>
                 </div>
@@ -157,8 +157,11 @@ export function DeviceNodeBody({
                 gap: 'var(--space-1-5)',
             }}
         >
-            {/* BUG-45 FIX: Only show sidechain for VST devices that support it */}
-            {device.source === 'vst' && device.supportsSidechain && (
+            {/* Show sidechain selector for all VST devices. The VST3 scanner
+               cannot determine bus layout without loading the plugin, so
+               supportsSidechain is unreliable. The runtime safely ignores
+               sidechain input for plugins that don't expose a sidechain bus. */}
+            {device.source === 'vst' && (
                 <div data-no-drag style={{ display: 'grid', gap: 'var(--space-1)', width: '100%' }}>
                     <span
                         style={{

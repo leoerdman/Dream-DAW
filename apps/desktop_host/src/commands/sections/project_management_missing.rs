@@ -167,6 +167,14 @@ fn normalize_runtime_external_plugin_slots(
             slot.external_audio_inputs = Some(desc.audio_inputs);
             changed = true;
         }
+        // Backfill sidechain support flag from runtime descriptor.
+        // Older project files may have this field as None even though the
+        // plugin exposes a sidechain input bus (audio_inputs > 2).
+        let resolved_sidechain = Some(desc.audio_inputs > 2);
+        if slot.supports_sidechain_input != resolved_sidechain {
+            slot.supports_sidechain_input = resolved_sidechain;
+            changed = true;
+        }
         if changed {
             updated = updated.saturating_add(1);
         }

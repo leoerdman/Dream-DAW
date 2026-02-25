@@ -188,7 +188,7 @@ export const Timeline = (props: TimelineProps) => {
         commandBusRef,
         callbacksRef,
     });
-    useTimelineViewportSync({
+    const { hasPendingRestore } = useTimelineViewportSync({
         engineRef,
         viewportState,
         setTimelineLayout,
@@ -277,6 +277,9 @@ export const Timeline = (props: TimelineProps) => {
         selectedClipIdsRef,
     });
     useEffect(() => {
+        // Skip fit-to-clips when a viewport restore is pending — the saved
+        // viewport should take priority over auto-fit on project open.
+        if (hasPendingRestore.current) return;
         const engine = engineRef.current;
         if (!engine) return;
         const viewport = engine.viewport;

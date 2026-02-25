@@ -96,11 +96,11 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
             <div style={{ width: canvasWidth, height: RULER_HEIGHT + canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
                 <div style={{ position: 'sticky', top: 0, left: 0, width: canvasWidth, height: RULER_HEIGHT, zIndex: 'var(--z-sticky)', background: 'var(--color-bg-tertiary)', borderBottom: 'var(--space-px) solid var(--color-divider)', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 0, left: 0, width: clipBeats * pixelsPerBeat, height: 3, background: color, opacity: 0.65 }} />
-                    {rulerBeatLabels.map((label, idx) => (
-                        <span key={`ruler-${idx}`} style={{ position: 'absolute', left: label.x + 5, top: 6, fontSize: 'var(--font-size-2xs)', color: label.isBarStart ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: label.isBarStart ? 700 : 500, fontFamily: 'var(--font-role-data)', pointerEvents: 'none', userSelect: 'none' }}>{label.text}</span>
+                    {rulerBeatLabels.map((label) => (
+                        <span key={`ruler-${Math.round(label.x)}`} style={{ position: 'absolute', left: label.x + 5, top: 6, fontSize: 'var(--font-size-2xs)', color: label.isBarStart ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: label.isBarStart ? 700 : 500, fontFamily: 'var(--font-role-data)', pointerEvents: 'none', userSelect: 'none' }}>{label.text}</span>
                     ))}
-                    {gridLines.map((gl, idx) => (
-                        <div key={`tick-${idx}`} style={{ position: 'absolute', left: gl.x, bottom: 0, width: 1, height: gl.isBar ? 10 : 5, background: gl.isBar ? 'var(--color-grid-line-major)' : 'var(--color-grid-line)' }} />
+                    {gridLines.map((gl) => (
+                        <div key={`tick-${Math.round(gl.x)}`} style={{ position: 'absolute', left: gl.x, bottom: 0, width: 1, height: gl.isBar ? 10 : 5, background: gl.isBar ? 'var(--color-grid-line-major)' : 'var(--color-grid-line)' }} />
                     ))}
                     <div style={{ position: 'absolute', top: 0, left: clipBeats * pixelsPerBeat - 2, width: 2, height: RULER_HEIGHT, background: color, opacity: 0.85 }} />
                 </div>
@@ -128,8 +128,8 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                             </g>
                         );
                     })}
-                    {gridLines.map((gl, idx) => (
-                        <line key={`v-${idx}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45} />
+                    {gridLines.map((gl) => (
+                        <line key={`v-${Math.round(gl.x)}`} x1={gl.x} y1={0} x2={gl.x} y2={canvasHeight} stroke={gl.isBar ? 'var(--color-piano-bar)' : gl.isMainBeat ? 'var(--color-piano-beat)' : 'var(--color-border-subtle)'} strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45} />
                     ))}
                 </svg>
 

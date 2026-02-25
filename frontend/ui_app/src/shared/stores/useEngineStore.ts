@@ -63,7 +63,7 @@ export interface EngineStore {
     setTrackSendLevel: (trackIndex: number, send: 'A' | 'B', value: number) => Promise<void>;
     setMasterVolume: (volume: number) => Promise<void>;
     flushTrackControlFinals: () => Promise<void>;
-    setTrackDisabled: (trackIndex: number, muted: boolean) => Promise<void>;
+    setTrackDisabled: (trackIndex: number, disabled: boolean) => Promise<void>;
     setTrackSolo: (trackIndex: number, soloed: boolean) => Promise<void>;
     addTrack: (name?: string) => Promise<void>;
     deleteTrack: (index: number) => Promise<void>;

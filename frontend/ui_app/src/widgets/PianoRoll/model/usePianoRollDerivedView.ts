@@ -77,8 +77,10 @@ export function usePianoRollDerivedView({
         const lines: { x: number; isBar: boolean; label?: string; isMainBeat: boolean }[] = [];
         const epsilon = 1e-6;
         const visualStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const minPixelsBetweenSubdivisions = 12;
+        const stride = Math.max(1, Math.ceil(minPixelsBetweenSubdivisions / Math.max(1, visualStep * pixelsPerBeat)));
         const totalSteps = Math.ceil(totalBeats / visualStep);
-        for (let i = 0; i <= totalSteps; i++) {
+        for (let i = 0; i <= totalSteps; i += stride) {
             const beat = i * visualStep;
             if (beat > totalBeats + epsilon) break;
             const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < epsilon;
@@ -95,8 +97,9 @@ export function usePianoRollDerivedView({
 
     const rulerBeatLabels = useMemo(() => {
         const labels: Array<{ x: number; text: string; isBarStart: boolean }> = [];
+        const labelStrideBeats = Math.max(1, Math.ceil(48 / Math.max(1, pixelsPerBeat)));
         const maxBeat = Math.ceil(totalBeats + 1e-6);
-        for (let beat = 0; beat <= maxBeat; beat += 1) {
+        for (let beat = 0; beat <= maxBeat; beat += labelStrideBeats) {
             if (beat > totalBeats + 1e-6) break;
             const barIndex = Math.floor(beat / beatsPerBar);
             const beatInBar = (beat % beatsPerBar) + 1;

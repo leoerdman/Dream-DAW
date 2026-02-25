@@ -26,6 +26,7 @@ export interface UsePianoRollCanvasEngineProps {
     noteHeight: number;
     color: string;
     pitchToY: (pitch: number) => number;
+    disabled?: boolean;
 }
 
 export function usePianoRollCanvasEngine({
@@ -38,10 +39,12 @@ export function usePianoRollCanvasEngine({
     noteHeight,
     color,
     pitchToY,
+    disabled = false,
 }: UsePianoRollCanvasEngineProps) {
     const noteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     useEffect(() => {
+        if (disabled) return;
         const canvas = noteCanvasRef.current;
         if (!canvas) return;
         const dpr = window.devicePixelRatio || 1;
@@ -116,7 +119,7 @@ export function usePianoRollCanvasEngine({
             }
         }
         ctx.globalAlpha = 1;
-    }, [notes, ghostNotes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY]);
+    }, [notes, ghostNotes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY, disabled]);
 
     return { noteCanvasRef };
 }

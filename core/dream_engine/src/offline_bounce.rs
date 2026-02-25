@@ -563,13 +563,21 @@ impl OfflineRenderer {
 
                         // ── Native FX slot ──
                         if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                            slot.device_chain.process_slot_with_sidechain(
+                            let pctx = ProcessContext {
+                                sample_rate: ctx.sample_rate as f32,
+                                playhead_frames: ctx.playhead_pos,
+                                tempo: ctx.bpm,
+                                is_playing: true,
+                                time_sig_numerator: ctx.time_sig_numerator,
+                                time_sig_denominator: ctx.time_sig_denominator,
+                            };
+                            slot.device_chain.process_slot_with_sidechain_ctx(
                                 internal_idx,
                                 &mut slot.buf_left[..c],
                                 &mut slot.buf_right[..c],
                                 sc_l,
                                 sc_r,
-                                ctx.sample_rate as f32,
+                                &pctx,
                             );
                             continue;
                         }
@@ -887,13 +895,21 @@ impl OfflineRenderer {
                     for runtime_slot in master_slots.iter() {
                         if let Some(internal_idx) = runtime_slot.internal_slot_index {
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                            ctx.master_device_chain.process_slot_with_sidechain(
+                            let pctx = ProcessContext {
+                                sample_rate: render_ctx.sample_rate as f32,
+                                playhead_frames: render_ctx.playhead.position(),
+                                tempo: ctx.bpm,
+                                is_playing: true,
+                                time_sig_numerator: ctx.time_sig_numerator,
+                                time_sig_denominator: ctx.time_sig_denominator,
+                            };
+                            ctx.master_device_chain.process_slot_with_sidechain_ctx(
                                 internal_idx,
                                 &mut master_l[..frame_count],
                                 &mut master_r[..frame_count],
                                 None,
                                 None,
-                                render_ctx.sample_rate as f32,
+                                &pctx,
                             );
                             continue;
                         }

@@ -110,13 +110,13 @@ pub(super) fn process_master_bus(
             } else {
                 for runtime_slot in master_slots {
                     if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                        master_device_chain.process_slot_with_sidechain(
+                        master_device_chain.process_slot_with_sidechain_ctx(
                             internal_idx,
                             &mut graph_out_left[..n],
                             &mut graph_out_right[..n],
                             None,
                             None,
-                            sample_rate_f64 as f32,
+                            process_ctx,
                         );
                         continue;
                     }

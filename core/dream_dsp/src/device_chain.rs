@@ -205,7 +205,28 @@ impl DeviceChain {
 
     /// Processes a single device slot with optional sidechain input.
     ///
-    /// Backward-compatible with the old per-slot dispatch path.
+    /// Uses a full `ProcessContext` for correct transport propagation.
+    #[inline]
+    pub fn process_slot_with_sidechain_ctx(
+        &mut self,
+        slot_index: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        context: &ProcessContext,
+    ) {
+        if let Some(slot) = self.slots.get_mut(slot_index) {
+            let _ = slot.process(left, right, sidechain_left, sidechain_right, context);
+        }
+    }
+
+    /// Backward-compatible version (deprecated — prefer `process_slot_with_sidechain_ctx`).
+    ///
+    /// # Warning
+    /// This creates a ProcessContext with only sample_rate set; playhead, tempo,
+    /// and time signature default to zero/false. Use the `_ctx` variant when
+    /// transport metadata is available.
     #[inline]
     pub fn process_slot_with_sidechain(
         &mut self,
@@ -216,13 +237,13 @@ impl DeviceChain {
         sidechain_right: Option<&[f32]>,
         sample_rate: f32,
     ) {
-        if let Some(slot) = self.slots.get_mut(slot_index) {
-            let ctx = ProcessContext {
-                sample_rate,
-                ..ProcessContext::default()
-            };
-            let _ = slot.process(left, right, sidechain_left, sidechain_right, &ctx);
-        }
+        let ctx = ProcessContext {
+            sample_rate,
+            ..ProcessContext::default()
+        };
+        self.process_slot_with_sidechain_ctx(
+            slot_index, left, right, sidechain_left, sidechain_right, &ctx,
+        );
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────

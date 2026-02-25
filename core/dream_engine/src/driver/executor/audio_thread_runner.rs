@@ -528,13 +528,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     .unwrap_or((None, None));
 
                                                 if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                                                    slot.device_chain.process_slot_with_sidechain(
+                                                    slot.device_chain.process_slot_with_sidechain_ctx(
                                                         internal_idx,
                                                         &mut left[..c],
                                                         &mut right[..c],
                                                         sc_l,
                                                         sc_r,
-                                                        sample_rate_f64 as f32,
+                                                        &process_ctx,
                                                     );
                                                     continue;
                                                 }

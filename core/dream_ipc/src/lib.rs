@@ -106,51 +106,6 @@ pub enum EngineCommand {
         release: f32,
     },
 
-    /// Enable oscillator mode for the sampler engine and set waveform.
-    /// `waveform`: 0=sine, 1=triangle, 2=saw, 3=square.
-    SetSamplerWaveform { track_index: u16, waveform: u8 },
-
-    /// Set oscillator 2 waveform (0=sine, 1=triangle, 2=saw, 3=square).
-    SetSamplerOsc2Waveform { track_index: u16, waveform: u8 },
-
-    /// Set oscillator 1 independent volume (0.0..1.0).
-    SetSamplerOsc1Volume { track_index: u16, volume: f32 },
-
-    /// Set oscillator 2 independent volume (0.0..1.0).
-    SetSamplerOsc2Volume { track_index: u16, volume: f32 },
-
-    /// Set oscillator 2 detune in cents (-50..+50).
-    SetSamplerDetuneCents { track_index: u16, cents: f32 },
-
-    /// Set sub oscillator level (0.0..1.0), one octave below osc1.
-    SetSamplerSubLevel { track_index: u16, level: f32 },
-
-    /// Set synth voice filter cutoff frequency in Hz (20..20000).
-    SetSamplerFilterCutoff { track_index: u16, cutoff: f32 },
-
-    /// Set synth voice filter resonance (0.0..0.99).
-    SetSamplerFilterResonance { track_index: u16, resonance: f32 },
-
-    /// Set synth voice filter type (0=LP, 1=HP, 2=BP, 3=Notch).
-    SetSamplerFilterType { track_index: u16, filter_type: u8 },
-
-    /// Set LFO modulation rate in Hz (0.01–20.0).
-    SetSamplerLfoRate { track_index: u16, rate: f32 },
-
-    /// Set LFO modulation depth (0.0–1.0).
-    SetSamplerLfoDepth { track_index: u16, depth: f32 },
-
-    /// Set LFO modulation target (0=Filter, 1=Pitch, 2=Volume).
-    SetSamplerLfoTarget { track_index: u16, target: u8 },
-
-    /// Set square wave pulse width (0.05–0.95).
-    SetSamplerPulseWidth { track_index: u16, width: f32 },
-
-    /// Enable or disable oscillator 1 (true = enabled, false = silent).
-    SetSamplerOsc1Enabled { track_index: u16, enabled: bool },
-
-    /// Enable or disable oscillator 2 (true = enabled, false = silent).
-    SetSamplerOsc2Enabled { track_index: u16, enabled: bool },
 
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },

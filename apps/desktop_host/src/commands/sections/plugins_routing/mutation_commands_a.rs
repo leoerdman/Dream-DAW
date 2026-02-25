@@ -82,7 +82,7 @@ fn add_plugin_to_track_impl(
     {
         runtime_add = Some((track_index, internal_slot_index, effect_type));
     }
-    let runtime_waveform = cmd_result
+    let _runtime_waveform = cmd_result
         .runtime_waveform_code
         .map(|waveform| (track_index, waveform));
 
@@ -103,12 +103,7 @@ fn add_plugin_to_track_impl(
         })?;
     }
     
-    if let Some((runtime_track_index, waveform)) = runtime_waveform {
-        push_command(&handle, EngineCommand::SetSamplerWaveform {
-            track_index: runtime_track_index,
-            waveform,
-        })?;
-    }
+
     
     log::info!(
         "[IPC] add_plugin_to_track_cmd(track={}, plugin='{}', slot={})",
@@ -362,21 +357,6 @@ fn set_internal_plugin_param_cmd(
     let track_index = result.track_index;
     let sampler_command_needed = result.sampler_command_needed;
     let sampler_cfg_for_rt = result.sampler_cfg_for_rt;
-    let sampler_waveform = result.sampler_waveform;
-    let sampler_waveform2 = result.sampler_waveform2;
-    let sampler_osc1_volume = result.sampler_osc1_volume;
-    let sampler_osc2_volume = result.sampler_osc2_volume;
-    let sampler_detune_cents = result.sampler_detune_cents;
-    let sampler_sub_level = result.sampler_sub_level;
-    let sampler_filter_cutoff = result.sampler_filter_cutoff;
-    let sampler_filter_resonance = result.sampler_filter_resonance;
-    let sampler_filter_type = result.sampler_filter_type;
-    let sampler_lfo_rate = result.sampler_lfo_rate;
-    let sampler_lfo_depth = result.sampler_lfo_depth;
-    let sampler_lfo_target = result.sampler_lfo_target;
-    let sampler_pulse_width = result.sampler_pulse_width;
-    let sampler_osc1_enabled = result.sampler_osc1_enabled;
-    let sampler_osc2_enabled = result.sampler_osc2_enabled;
 
     finalize_internal_param_update(
         &project_state,
@@ -405,96 +385,6 @@ fn set_internal_plugin_param_cmd(
             decay: cfg.decay as f32,
             sustain: cfg.sustain as f32,
             release: cfg.release as f32,
-        })?;
-    }
-    if let Some(waveform) = sampler_waveform {
-        push_command(&handle, EngineCommand::SetSamplerWaveform {
-            track_index: track_index as u16,
-            waveform,
-        })?;
-    }
-    if let Some(waveform) = sampler_waveform2 {
-        push_command(&handle, EngineCommand::SetSamplerOsc2Waveform {
-            track_index: track_index as u16,
-            waveform,
-        })?;
-    }
-    if let Some(volume) = sampler_osc1_volume {
-        push_command(&handle, EngineCommand::SetSamplerOsc1Volume {
-            track_index: track_index as u16,
-            volume,
-        })?;
-    }
-    if let Some(volume) = sampler_osc2_volume {
-        push_command(&handle, EngineCommand::SetSamplerOsc2Volume {
-            track_index: track_index as u16,
-            volume,
-        })?;
-    }
-    if let Some(cents) = sampler_detune_cents {
-        push_command(&handle, EngineCommand::SetSamplerDetuneCents {
-            track_index: track_index as u16,
-            cents,
-        })?;
-    }
-    if let Some(level) = sampler_sub_level {
-        push_command(&handle, EngineCommand::SetSamplerSubLevel {
-            track_index: track_index as u16,
-            level,
-        })?;
-    }
-    if let Some(cutoff) = sampler_filter_cutoff {
-        push_command(&handle, EngineCommand::SetSamplerFilterCutoff {
-            track_index: track_index as u16,
-            cutoff,
-        })?;
-    }
-    if let Some(resonance) = sampler_filter_resonance {
-        push_command(&handle, EngineCommand::SetSamplerFilterResonance {
-            track_index: track_index as u16,
-            resonance,
-        })?;
-    }
-    if let Some(filter_type) = sampler_filter_type {
-        push_command(&handle, EngineCommand::SetSamplerFilterType {
-            track_index: track_index as u16,
-            filter_type,
-        })?;
-    }
-    if let Some(rate) = sampler_lfo_rate {
-        push_command(&handle, EngineCommand::SetSamplerLfoRate {
-            track_index: track_index as u16,
-            rate,
-        })?;
-    }
-    if let Some(depth) = sampler_lfo_depth {
-        push_command(&handle, EngineCommand::SetSamplerLfoDepth {
-            track_index: track_index as u16,
-            depth,
-        })?;
-    }
-    if let Some(target) = sampler_lfo_target {
-        push_command(&handle, EngineCommand::SetSamplerLfoTarget {
-            track_index: track_index as u16,
-            target,
-        })?;
-    }
-    if let Some(width) = sampler_pulse_width {
-        push_command(&handle, EngineCommand::SetSamplerPulseWidth {
-            track_index: track_index as u16,
-            width,
-        })?;
-    }
-    if let Some(enabled) = sampler_osc1_enabled {
-        push_command(&handle, EngineCommand::SetSamplerOsc1Enabled {
-            track_index: track_index as u16,
-            enabled,
-        })?;
-    }
-    if let Some(enabled) = sampler_osc2_enabled {
-        push_command(&handle, EngineCommand::SetSamplerOsc2Enabled {
-            track_index: track_index as u16,
-            enabled,
         })?;
     }
 

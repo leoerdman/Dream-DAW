@@ -1,6 +1,5 @@
 use super::super::*;
 use crate::render_callback::soft_clip;
-use dream_ipc::metering::{compute_peak, compute_rms};
 use dream_plugins::TransportContext;
 use std::sync::atomic::Ordering;
 
@@ -80,55 +79,90 @@ pub(super) fn process_master_runtime_fx_and_gain(
     master_gain_target: f32,
     master_gain_current: &mut f32,
     master_gain_smooth: f32,
-    render_ctx: &mut RenderContext,
-    graph_peak_decay: f32,
+    _render_ctx: &mut RenderContext,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
         if !master_slots.is_empty() {
-            for runtime_slot in master_slots {
-                if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                    master_device_chain.process_slot_with_sidechain(
-                        internal_idx,
+            let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
+            if !has_external {
+                // AUD-500 FIX: Diagnostic — log once if DeviceChain is empty despite
+                // having internal runtime slots, which indicates a topology sync bug.
+                if master_device_chain.is_empty() && master_slots.iter().any(|s| s.internal_slot_index.is_some()) {
+                    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                    if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::warn!(
+                            "[AUD-500] Master has {} internal runtime slots but DeviceChain is empty — \
+                             topology sync issue. Internal master FX will not process.",
+                            master_slots.iter().filter(|s| s.internal_slot_index.is_some()).count()
+                        );
+                    }
+                }
+                if !master_device_chain.is_empty() {
+                    master_device_chain.process_stereo(
                         &mut graph_out_left[..n],
                         &mut graph_out_right[..n],
-                        None,
-                        None,
                         sample_rate_f64 as f32,
                     );
-                    continue;
                 }
+            } else {
+                for runtime_slot in master_slots {
+                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                        master_device_chain.process_slot_with_sidechain(
+                            internal_idx,
+                            &mut graph_out_left[..n],
+                            &mut graph_out_right[..n],
+                            None,
+                            None,
+                            sample_rate_f64 as f32,
+                        );
+                        continue;
+                    }
 
-                if let Some(instance_id) = runtime_slot.instance_id
-                    && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
-                    && let Some(mut host) = plugin_mtx.try_lock()
-                {
-                    let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
-                    let transport = TransportContext {
-                        sample_rate: sample_rate_f64,
-                        position_samples: playhead_pos,
-                        tempo: bpm,
-                        is_playing,
-                        is_recording: false,
-                        time_sig_numerator: i32::from(time_sig_numerator),
-                        time_sig_denominator: i32::from(time_sig_denominator),
-                    };
-                    host.set_transport_context(transport);
+                    if let Some(instance_id) = runtime_slot.instance_id
+                        && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
+                        && let Some(mut host) = plugin_mtx.try_lock()
+                    {
+                        let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
+                        let transport = TransportContext {
+                            sample_rate: sample_rate_f64,
+                            position_samples: playhead_pos,
+                            tempo: bpm,
+                            is_playing,
+                            is_recording: false,
+                            time_sig_numerator: i32::from(time_sig_numerator),
+                            time_sig_denominator: i32::from(time_sig_denominator),
+                        };
+                        host.set_transport_context(transport);
 
-                    let empty_midi: &[MidiEvent] = &[];
-                    external_left[..n].copy_from_slice(&graph_out_left[..n]);
-                    external_right[..n].copy_from_slice(&graph_out_right[..n]);
-                    let mut out_slices: [&mut [f32]; 2] =
-                        [&mut external_left[..n], &mut external_right[..n]];
-                    let _ = host.process_with_sidechain(
-                        &main_inputs,
-                        None,
-                        &mut out_slices,
-                        n,
-                        empty_midi,
-                    );
-                    graph_out_left[..n].copy_from_slice(&external_left[..n]);
-                    graph_out_right[..n].copy_from_slice(&external_right[..n]);
+                        let empty_midi: &[MidiEvent] = &[];
+                        external_left[..n].copy_from_slice(&graph_out_left[..n]);
+                        external_right[..n].copy_from_slice(&graph_out_right[..n]);
+                        let mut out_slices: [&mut [f32]; 2] =
+                            [&mut external_left[..n], &mut external_right[..n]];
+                        let _ = host.process_with_sidechain(
+                            &main_inputs,
+                            None,
+                            &mut out_slices,
+                            n,
+                            empty_midi,
+                        );
+                        // AUD-506 FIX: Sanitize VST output — NaN/Inf from a
+                        // misbehaving master plugin would poison the entire
+                        // downstream chain (gain, metering, soft clip).
+                        for i in 0..n {
+                            if !external_left[i].is_finite() {
+                                external_left[i] = 0.0;
+                            }
+                            if !external_right[i].is_finite() {
+                                external_right[i] = 0.0;
+                            }
+                        }
+                        graph_out_left[..n].copy_from_slice(&external_left[..n]);
+                        graph_out_right[..n].copy_from_slice(&external_right[..n]);
+                    }
+                    // AUD-501: try_lock() failure here is safe — graph_out_left/right
+                    // retains the previous signal (passthrough), so no audio is lost.
                 }
             }
         } else if !master_device_chain.is_empty() {
@@ -152,20 +186,9 @@ pub(super) fn process_master_runtime_fx_and_gain(
         graph_out_right[i] *= *master_gain_current;
     }
 
-    let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
-    let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
-    let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
-    let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
-    render_ctx.meter_bank.master_left().store_rms(rms_l);
-    render_ctx.meter_bank.master_right().store_rms(rms_r);
-    render_ctx
-        .meter_bank
-        .master_left()
-        .store_peak_decay(peak_l, graph_peak_decay);
-    render_ctx
-        .meter_bank
-        .master_right()
-        .store_peak_decay(peak_r, graph_peak_decay);
+    // AUD-503 FIX: Removed redundant pre-soft-clip master metering.
+    // The authoritative master meters are computed in finalize_output_and_publish()
+    // AFTER soft_clip, which gives the user the true final output levels.
 }
 
 pub(super) fn interleave_graph_output(

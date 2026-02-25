@@ -77,6 +77,7 @@ export const VirtualFileList = memo(function VirtualFileList({
     debouncedQuery,
     getAudioDurationSec,
     setItemRowRef,
+    suppressNextAutoScrollRef,
     fileListRef,
     handleBrowserKeyDown,
     pluginGroupedRows,
@@ -97,6 +98,7 @@ export const VirtualFileList = memo(function VirtualFileList({
     debouncedQuery: string;
     getAudioDurationSec: (path: string) => number | undefined;
     setItemRowRef: (id: string, element: HTMLDivElement | null) => void;
+    suppressNextAutoScrollRef: React.MutableRefObject<boolean>;
     fileListRef: React.RefObject<HTMLDivElement | null>;
     handleBrowserKeyDown: (e: React.KeyboardEvent) => void;
     pluginGroupedRows: PluginGroupedRow[];
@@ -228,6 +230,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                                 getAudioDurationSec={getAudioDurationSec}
                                 isPreviewPlayingRef={isPreviewPlayingRef}
                                 bindItemRowRef={setItemRowRef}
+                                suppressNextAutoScrollRef={suppressNextAutoScrollRef}
                                 setSelectedItemId={setSelectedItemId}
                                 syncPreviewForItem={syncPreviewForItem}
                                 setContextMenu={setContextMenu}
@@ -258,6 +261,7 @@ export const VirtualFileList = memo(function VirtualFileList({
                                         getAudioDurationSec={getAudioDurationSec}
                                         isPreviewPlayingRef={isPreviewPlayingRef}
                                         bindItemRowRef={setItemRowRef}
+                                        suppressNextAutoScrollRef={suppressNextAutoScrollRef}
                                         setSelectedItemId={setSelectedItemId}
                                         syncPreviewForItem={syncPreviewForItem}
                                         setContextMenu={setContextMenu}

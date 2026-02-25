@@ -15,6 +15,7 @@ export interface RowBaseProps {
     getAudioDurationSec: (path: string) => number | undefined;
     isPreviewPlayingRef: React.RefObject<boolean>;
     bindItemRowRef: (id: string, element: HTMLDivElement | null) => void;
+    suppressNextAutoScrollRef: React.MutableRefObject<boolean>;
     setSelectedItemId: (id: string | null) => void;
     syncPreviewForItem: (item: BrowserItem | null) => void;
     setContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; item: BrowserItem } | null>>;
@@ -34,6 +35,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
     getAudioDurationSec,
     isPreviewPlayingRef,
     bindItemRowRef,
+    suppressNextAutoScrollRef,
     setSelectedItemId,
     syncPreviewForItem,
     setContextMenu,
@@ -90,6 +92,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                     }
                     return;
                 }
+                suppressNextAutoScrollRef.current = true;
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
             }}

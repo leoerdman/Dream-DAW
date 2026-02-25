@@ -3,7 +3,7 @@ use super::super::*;
 use super::command_dispatch::{
     DeferredTopologyCmd, apply_pending_track_mixer_state, apply_single_topology_mutation,
 };
-use crate::sampler::{AdsrParams, Waveform};
+use crate::sampler::AdsrParams;
 
 pub(super) const MASTER_TRACK_INDEX: u16 = u16::MAX;
 const MAX_RT_VST3_MIDI_QUEUE_EVENTS: usize = 256;
@@ -43,6 +43,10 @@ pub(super) struct CommandDrainContext<'a> {
     pub track_disabled: &'a mut [bool; MAX_TRACKS],
     pub track_soloed: &'a mut [bool; MAX_TRACKS],
     pub any_solo: &'a mut bool,
+    /// PREVIEW-FIX: When `true`, the track has an external VST instrument loaded.
+    /// Preview note-on/off will skip the built-in sampler/rack engines to prevent
+    /// buzzing from the internal wave synth layered on top of the VST.
+    pub track_has_external_instrument: &'a [bool; MAX_TRACKS],
     pub last_loop_region: &'a mut Option<LoopRegion>,
     pub loop_enabled: &'a mut bool,
     pub test_tone_phase: &'a mut f64,
@@ -201,11 +205,17 @@ pub(super) fn drain_commands(
                 velocity,
             } => {
                 let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].note_on(pitch, velocity);
-                }
-                if idx < ctx.sample_rack_engines.len() {
-                    ctx.sample_rack_engines[idx].note_on(pitch, velocity);
+                // PREVIEW-FIX: When the track has an external VST instrument,
+                // do NOT trigger the built-in sampler/rack. They would produce
+                // a buzzing waveform layered on top of the VST instrument sound.
+                let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
+                if !has_vst_instrument {
+                    if idx < ctx.sampler_engines.len() {
+                        ctx.sampler_engines[idx].note_on(pitch, velocity);
+                    }
+                    if idx < ctx.sample_rack_engines.len() {
+                        ctx.sample_rack_engines[idx].note_on(pitch, velocity);
+                    }
                 }
                 if idx < ctx.vst3_rt_midi_queue.len() {
                     enqueue_rt_vst3_note_on(&mut ctx.vst3_rt_midi_queue[idx], pitch, velocity);
@@ -213,11 +223,14 @@ pub(super) fn drain_commands(
             }
             EngineCommand::SamplerNoteOff { track_index, pitch } => {
                 let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].note_off(pitch);
-                }
-                if idx < ctx.sample_rack_engines.len() {
-                    ctx.sample_rack_engines[idx].note_off(pitch);
+                let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
+                if !has_vst_instrument {
+                    if idx < ctx.sampler_engines.len() {
+                        ctx.sampler_engines[idx].note_off(pitch);
+                    }
+                    if idx < ctx.sample_rack_engines.len() {
+                        ctx.sample_rack_engines[idx].note_off(pitch);
+                    }
                 }
                 if idx < ctx.vst3_rt_midi_queue.len() {
                     enqueue_rt_vst3_note_off(&mut ctx.vst3_rt_midi_queue[idx], pitch);
@@ -258,126 +271,7 @@ pub(super) fn drain_commands(
                     });
                 }
             }
-            EngineCommand::SetSamplerWaveform {
-                track_index,
-                waveform,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_waveform(Waveform::from_u8(waveform));
-                }
-            }
-            EngineCommand::SetSamplerOsc2Waveform {
-                track_index,
-                waveform,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_waveform2(Waveform::from_u8(waveform));
-                }
-            }
-            EngineCommand::SetSamplerOsc1Volume {
-                track_index,
-                volume,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_osc1_volume(volume);
-                }
-            }
-            EngineCommand::SetSamplerOsc2Volume {
-                track_index,
-                volume,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_osc2_volume(volume);
-                }
-            }
-            EngineCommand::SetSamplerDetuneCents { track_index, cents } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_detune_cents(cents);
-                }
-            }
-            EngineCommand::SetSamplerSubLevel { track_index, level } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_sub_level(level);
-                }
-            }
-            EngineCommand::SetSamplerFilterCutoff {
-                track_index,
-                cutoff,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_filter_cutoff(cutoff);
-                }
-            }
-            EngineCommand::SetSamplerFilterResonance {
-                track_index,
-                resonance,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_filter_resonance(resonance);
-                }
-            }
-            EngineCommand::SetSamplerFilterType {
-                track_index,
-                filter_type,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_filter_type(filter_type);
-                }
-            }
-            EngineCommand::SetSamplerLfoRate { track_index, rate } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_lfo_rate(rate);
-                }
-            }
-            EngineCommand::SetSamplerLfoDepth { track_index, depth } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_lfo_depth(depth);
-                }
-            }
-            EngineCommand::SetSamplerLfoTarget {
-                track_index,
-                target,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_lfo_target(target);
-                }
-            }
-            EngineCommand::SetSamplerPulseWidth { track_index, width } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_pulse_width(width);
-                }
-            }
-            EngineCommand::SetSamplerOsc1Enabled {
-                track_index,
-                enabled,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_osc1_enabled(enabled);
-                }
-            }
-            EngineCommand::SetSamplerOsc2Enabled {
-                track_index,
-                enabled,
-            } => {
-                let idx = track_index as usize;
-                if idx < ctx.sampler_engines.len() {
-                    ctx.sampler_engines[idx].set_osc2_enabled(enabled);
-                }
-            }
+
             EngineCommand::SamplerAllNotesOff { track_index } => {
                 let idx = track_index as usize;
                 if idx < ctx.sampler_engines.len() {

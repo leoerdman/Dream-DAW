@@ -50,7 +50,7 @@ use dream_dsp::dsp_processor::BuiltinEffectType;
 use crate::driver::ExternalFxRuntimeSlot;
 use crate::driver::midi_dispatcher::clamp_midi_pitch;
 use crate::render_callback::{RenderContext, soft_clip};
-use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine, Waveform};
+use crate::sampler::{AdsrParams, SampleRackEngine, SamplerEngine};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -523,78 +523,93 @@ impl OfflineBouncer {
 
         if let Some(runtime_slots) = ctx.external_fx_map.get(track_idx) {
             if !runtime_slots.is_empty() {
-                for runtime_slot in runtime_slots {
-                    let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
-                        if src_idx < track_idx {
-                            ctx.left_slots.get(src_idx)
-                        } else if src_idx == track_idx {
-                            None
-                        } else {
-                            ctx.right_slots.get(src_idx - track_idx - 1)
-                        }
-                    });
-                    let (sc_l, sc_r) = source_slot
-                        .map(|src| (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])))
-                        .unwrap_or((None, None));
-
-                    // ── Native FX slot ──
-                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                        slot.device_chain.process_slot_with_sidechain(
-                            internal_idx,
+                let has_external = runtime_slots.iter().any(|s| s.instance_id.is_some());
+                let has_internal_sidechain = runtime_slots
+                    .iter()
+                    .any(|s| s.internal_slot_index.is_some() && s.sidechain_track_index.is_some());
+                if !has_external && !has_internal_sidechain {
+                    if !slot.device_chain.is_empty() {
+                        slot.device_chain.process_stereo(
                             &mut slot.buf_left[..c],
                             &mut slot.buf_right[..c],
-                            sc_l,
-                            sc_r,
                             ctx.sample_rate as f32,
                         );
-                        continue;
                     }
-
-                    // ── VST3 FX slot ──
-                    if let Some(instance_id) = runtime_slot.instance_id {
-                        if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
-                            let mut host = plugin_mtx.lock();
-                            let transport = TransportContext {
-                                sample_rate: ctx.sample_rate,
-                                position_samples: ctx.playhead_pos,
-                                tempo: ctx.bpm,
-                                is_playing: true,
-                                is_recording: false,
-                                time_sig_numerator: i32::from(ctx.time_sig_numerator),
-                                time_sig_denominator: i32::from(ctx.time_sig_denominator),
-                            };
-                            host.set_transport_context(transport);
-
-                            let mut out_left = vec![0.0f32; c];
-                            let mut out_right = vec![0.0f32; c];
-                            let main_inputs: [&[f32]; 2] =
-                                [&slot.buf_left[..c], &slot.buf_right[..c]];
-                            let mut out_slices: [&mut [f32]; 2] =
-                                [&mut out_left[..c], &mut out_right[..c]];
-                            let midi_to_send: &[MidiEvent] = ctx.midi_events;
-                            let empty_midi: Vec<MidiEvent> = Vec::new();
-                            let use_midi = if runtime_slot.is_instrument && !midi_to_send.is_empty() {
-                                midi_to_send
+                } else {
+                    for runtime_slot in runtime_slots {
+                        let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
+                            if src_idx < track_idx {
+                                ctx.left_slots.get(src_idx)
+                            } else if src_idx == track_idx {
+                                None
                             } else {
-                                &empty_midi
-                            };
-                            let sc_pair =
-                                source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
-                            let _ = host.process_with_sidechain(
-                                &main_inputs,
-                                sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                &mut out_slices,
-                                c,
-                                use_midi,
+                                ctx.right_slots.get(src_idx - track_idx - 1)
+                            }
+                        });
+                        let (sc_l, sc_r) = source_slot
+                            .map(|src| (Some(&src.buf_left[..c]), Some(&src.buf_right[..c])))
+                            .unwrap_or((None, None));
+
+                        // ── Native FX slot ──
+                        if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                            slot.device_chain.process_slot_with_sidechain(
+                                internal_idx,
+                                &mut slot.buf_left[..c],
+                                &mut slot.buf_right[..c],
+                                sc_l,
+                                sc_r,
+                                ctx.sample_rate as f32,
                             );
-                            slot.buf_left[..c].copy_from_slice(&out_left[..c]);
-                            slot.buf_right[..c].copy_from_slice(&out_right[..c]);
-                        } else {
-                            log::warn!(
-                                "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
-                                track_idx,
-                                instance_id
-                            );
+                            continue;
+                        }
+
+                        // ── VST3 FX slot ──
+                        if let Some(instance_id) = runtime_slot.instance_id {
+                            if let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) {
+                                let mut host = plugin_mtx.lock();
+                                let transport = TransportContext {
+                                    sample_rate: ctx.sample_rate,
+                                    position_samples: ctx.playhead_pos,
+                                    tempo: ctx.bpm,
+                                    is_playing: true,
+                                    is_recording: false,
+                                    time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                                    time_sig_denominator: i32::from(ctx.time_sig_denominator),
+                                };
+                                host.set_transport_context(transport);
+
+                                let mut out_left = vec![0.0f32; c];
+                                let mut out_right = vec![0.0f32; c];
+                                let main_inputs: [&[f32]; 2] =
+                                    [&slot.buf_left[..c], &slot.buf_right[..c]];
+                                let mut out_slices: [&mut [f32]; 2] =
+                                    [&mut out_left[..c], &mut out_right[..c]];
+                                let midi_to_send: &[MidiEvent] = ctx.midi_events;
+                                let empty_midi: Vec<MidiEvent> = Vec::new();
+                                let use_midi =
+                                    if runtime_slot.is_instrument && !midi_to_send.is_empty() {
+                                        midi_to_send
+                                    } else {
+                                        &empty_midi
+                                    };
+                                let sc_pair =
+                                    source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+                                let _ = host.process_with_sidechain(
+                                    &main_inputs,
+                                    sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                    &mut out_slices,
+                                    c,
+                                    use_midi,
+                                );
+                                slot.buf_left[..c].copy_from_slice(&out_left[..c]);
+                                slot.buf_right[..c].copy_from_slice(&out_right[..c]);
+                            } else {
+                                log::warn!(
+                                    "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
+                                    track_idx,
+                                    instance_id
+                                );
+                            }
                         }
                     }
                 }
@@ -825,52 +840,62 @@ impl OfflineBouncer {
 
         if let Some(master_slots) = master_slots_opt {
             if !master_slots.is_empty() {
-                for runtime_slot in master_slots.iter() {
-                    if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                        let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                        ctx.master_device_chain.process_slot_with_sidechain(
-                            internal_idx,
-                            &mut master_l[..frame_count],
-                            &mut master_r[..frame_count],
-                            None,
-                            None,
-                            render_ctx.sample_rate as f32,
-                        );
-                        continue;
-                    }
+                let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
+                if !has_external {
+                    let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+                    ctx.master_device_chain.process_stereo(
+                        &mut master_l[..frame_count],
+                        &mut master_r[..frame_count],
+                        render_ctx.sample_rate as f32,
+                    );
+                } else {
+                    for runtime_slot in master_slots.iter() {
+                        if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                            let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+                            ctx.master_device_chain.process_slot_with_sidechain(
+                                internal_idx,
+                                &mut master_l[..frame_count],
+                                &mut master_r[..frame_count],
+                                None,
+                                None,
+                                render_ctx.sample_rate as f32,
+                            );
+                            continue;
+                        }
 
-                    if let Some(instance_id) = runtime_slot.instance_id
-                        && let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id)
-                    {
-                        let mut host = plugin_mtx.lock();
-                        let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
-                        let main_inputs: [&[f32]; 2] =
-                            [&master_l[..frame_count], &master_r[..frame_count]];
-                        let transport = dream_plugins::TransportContext {
-                            sample_rate: render_ctx.sample_rate,
-                            position_samples: render_ctx.playhead.position(),
-                            tempo: ctx.bpm,
-                            is_playing: true,
-                            is_recording: false,
-                            time_sig_numerator: i32::from(ctx.time_sig_numerator),
-                            time_sig_denominator: i32::from(ctx.time_sig_denominator),
-                        };
-                        host.set_transport_context(transport);
+                        if let Some(instance_id) = runtime_slot.instance_id
+                            && let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id)
+                        {
+                            let mut host = plugin_mtx.lock();
+                            let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
+                            let main_inputs: [&[f32]; 2] =
+                                [&master_l[..frame_count], &master_r[..frame_count]];
+                            let transport = dream_plugins::TransportContext {
+                                sample_rate: render_ctx.sample_rate,
+                                position_samples: render_ctx.playhead.position(),
+                                tempo: ctx.bpm,
+                                is_playing: true,
+                                is_recording: false,
+                                time_sig_numerator: i32::from(ctx.time_sig_numerator),
+                                time_sig_denominator: i32::from(ctx.time_sig_denominator),
+                            };
+                            host.set_transport_context(transport);
 
-                        let mut ext_left = vec![0.0f32; frame_count];
-                        let mut ext_right = vec![0.0f32; frame_count];
-                        let mut out_slices: [&mut [f32]; 2] =
-                            [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
-                        let empty_midi: &[dream_plugins::MidiEvent] = &[];
-                        let _ = host.process_with_sidechain(
-                            &main_inputs,
-                            None,
-                            &mut out_slices,
-                            frame_count,
-                            empty_midi,
-                        );
-                        master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
-                        master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
+                            let mut ext_left = vec![0.0f32; frame_count];
+                            let mut ext_right = vec![0.0f32; frame_count];
+                            let mut out_slices: [&mut [f32]; 2] =
+                                [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
+                            let empty_midi: &[dream_plugins::MidiEvent] = &[];
+                            let _ = host.process_with_sidechain(
+                                &main_inputs,
+                                None,
+                                &mut out_slices,
+                                frame_count,
+                                empty_midi,
+                            );
+                            master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
+                            master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
+                        }
                     }
                 }
             } else if !ctx.master_device_chain.is_empty() {
@@ -1001,41 +1026,17 @@ impl OfflineBouncer {
                     release: cfg.release,
                 });
 
-                if cfg.osc2_waveform > 0 {
-                    engine.set_waveform(Waveform::Sine);
-                    engine.set_waveform2(Waveform::from_u8(cfg.osc2_waveform));
-                }
-                // Legacy osc_mix → split into per-osc independent volumes
-                let mix = cfg.osc_mix.clamp(0.0, 1.0) as f32;
-                engine.set_osc1_volume(1.0 - mix);
-                engine.set_osc2_volume(mix);
-                engine.set_detune_cents(cfg.detune_cents as f32);
-                engine.set_sub_level(cfg.sub_level as f32);
-
-                engine.set_filter_cutoff(cfg.filter_cutoff as f32);
-                engine.set_filter_resonance(cfg.filter_resonance as f32);
-                engine.set_filter_type(cfg.filter_type);
-
-                engine.set_lfo_rate(cfg.lfo_rate as f32);
-                engine.set_lfo_depth(cfg.lfo_depth as f32);
-                engine.set_lfo_target(cfg.lfo_target);
-                engine.set_pulse_width(cfg.pulse_width as f32);
-
                 if cfg.has_sample() {
                     if let Some(clip_audio) = clip_pool.get(&cfg.sample_path) {
                         engine.set_sample(clip_audio);
                         has_sample = true;
                     } else {
                         log::warn!(
-                            "[Bounce/MIDI] Track '{}': sample '{}' not in pool — using oscillator mode.",
+                            "[Bounce/MIDI] Track '{}': sample '{}' not in pool — skipping.",
                             track.name,
                             cfg.sample_path
                         );
                     }
-                }
-
-                if !has_sample && cfg.osc2_waveform == 0 {
-                    engine.set_waveform(Waveform::Sine);
                 }
             }
 

@@ -91,6 +91,7 @@ export function AssetBrowserMainPane({ logic }: { logic: AssetBrowserLogic }) {
                     debouncedQuery={logic.debouncedQuery}
                     getAudioDurationSec={logic.getAudioDurationSec}
                     setItemRowRef={logic.setItemRowRef}
+                    suppressNextAutoScrollRef={logic.suppressNextAutoScrollRef}
                     fileListRef={logic.fileListRef}
                     handleBrowserKeyDown={logic.handleBrowserKeyDown}
                     pluginGroupedRows={logic.pluginGroupedRows}

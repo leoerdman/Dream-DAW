@@ -34,7 +34,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
-    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+    _sidechain_snapshot: Arc<SharedSidechainSnapshot>,
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
@@ -116,6 +116,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut any_solo: bool = false;
+    // PREVIEW-FIX: Per-track flag indicating an external VST instrument is loaded.
+    // When true, preview note-on/off skips the built-in sampler/rack engines
+    // (they would produce a buzzing waveform layered on top of the VST).
+    // Updated every callback from external_fx_snapshot.
+    let mut track_has_external_instrument: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     // BUG-026 FIX: Persist the last loop region so SetLoopEnabled(true) can restore it.
     let mut last_loop_region: Option<LoopRegion> = None;
     let mut loop_enabled = false;
@@ -246,6 +251,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 track_disabled: &mut track_disabled,
                                 track_soloed: &mut track_soloed,
                                 any_solo: &mut any_solo,
+                                track_has_external_instrument: &track_has_external_instrument,
                                 last_loop_region: &mut last_loop_region,
                                 loop_enabled: &mut loop_enabled,
                                 test_tone_phase: &mut test_tone_phase,
@@ -264,8 +270,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // strip mixer controls here and apply absolute sample-accurate
                         // mixer automation later on graph output buffers.
                         let automation = automation_snapshot.load();
-                        let _sidechain_map = sidechain_snapshot.load();
+                        // AUD-504 FIX: Removed unused _sidechain_map = sidechain_snapshot.load().
+                        // Sidechain routing is resolved via ExternalFxRuntimeSlot.sidechain_track_index,
+                        // not through the raw sidechain snapshot.
                         let external_fx_map = external_fx_snapshot.load();
+                        // PREVIEW-FIX: Refresh per-track VST instrument flags from snapshot.
+                        // When a track has an external VST instrument slot, the built-in
+                        // sampler/rack should NOT be triggered by preview note-on/off.
+                        track_has_external_instrument.fill(false);
+                        for (tidx, slots) in external_fx_map.iter().enumerate() {
+                            if tidx >= MAX_TRACKS { break; }
+                            track_has_external_instrument[tidx] = slots.iter().any(|s| {
+                                s.is_instrument && s.instance_id.is_some()
+                            });
+                        }
                         // PERF-FIX: Lock-free plugin processing!
                         // The UI thread now periodically publishes an `Arc<HashMap>` of
                         // all active plugins into an `ArcSwap`. The audio thread loads this
@@ -391,11 +409,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         graph_out_left[..n].fill(0.0);
                         graph_out_right[..n].fill(0.0);
 
-                        // AE-013 FIX: Cache peak_decay_for_block ONCE before the graph
-                        // closure. Previously called per-track inside the closure —
-                        // exp() is ~5ns × 256 tracks = 1.3μs wasted per buffer.
-                        let graph_peak_decay = peak_decay_for_block(sample_rate_f64, n);
-
                         graph_renderer.render(
                             &graph_plan,
                             &graph_dag,
@@ -454,6 +467,28 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 );
                                             }
                                         } else {
+                                            // Keep internal-only chains resilient to transient
+                                            // external_fx snapshot skew: when there are no
+                                            // external processors and no internal sidechain
+                                            // routes, process the whole native chain directly.
+                                            let has_external = runtime_slots
+                                                .iter()
+                                                .any(|s| s.instance_id.is_some());
+                                            let has_internal_sidechain = runtime_slots.iter().any(
+                                                |s| {
+                                                    s.internal_slot_index.is_some()
+                                                        && s.sidechain_track_index.is_some()
+                                                },
+                                            );
+                                            if !has_external && !has_internal_sidechain {
+                                                if !slot.device_chain.is_empty() {
+                                                    slot.device_chain.process_stereo(
+                                                        &mut left[..c],
+                                                        &mut right[..c],
+                                                        sample_rate_f64 as f32,
+                                                    );
+                                                }
+                                            } else {
                                             for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                                                 let source_slot = runtime_slot
                                                     .sidechain_track_index
@@ -662,18 +697,20 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     left[..c].copy_from_slice(&external_left[..c]);
                                                     right[..c].copy_from_slice(&external_right[..c]);
 
-                                                    // DIAG: Log VST instrument output peak
-                                                    if _vst_diag_counter.is_multiple_of(200) {
-                                                        let peak_l = left[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                                                        let peak_r = right[..c].iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-                                                        if peak_l > 1e-6 || peak_r > 1e-6 {
-                                                            log::info!(
-                                                                "[DIAG-VST] Track {} VST output: peak_L={:.6} peak_R={:.6} post_sum={} midi_events={}",
-                                                                track_idx, peak_l, peak_r, post_sum_processed, vst3_midi_scratch.len()
-                                                            );
+                                                    // AUD-506 FIX: Sanitize per-track VST output.
+                                                    // NaN/Inf from a misbehaving plugin would
+                                                    // poison the strip, metering, graph summing,
+                                                    // and ultimately the master bus.
+                                                    for si in 0..c {
+                                                        if !left[si].is_finite() {
+                                                            left[si] = 0.0;
+                                                        }
+                                                        if !right[si].is_finite() {
+                                                            right[si] = 0.0;
                                                         }
                                                     }
                                                 }
+                                            }
                                             }
                                         }
                                     } else if !slot.device_chain.is_empty() {
@@ -768,7 +805,6 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             &mut master_gain_current,
                             master_gain_smooth,
                             &mut render_ctx,
-                            graph_peak_decay,
                         );
                         interleave_graph_output(
                             &graph_out_left,

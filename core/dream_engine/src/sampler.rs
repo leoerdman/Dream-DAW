@@ -19,9 +19,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use crate::sampler_osc::{oscillator_sample_blep, oscillator_sample_blep_stateless};
 use dream_clip_engine::pool::ClipAudio;
-use dream_dsp::svf::{SvfCoeffs, SvfState};
+use dream_dsp::svf::SvfState;
 use std::sync::Arc;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -485,36 +484,6 @@ pub struct SamplerEngine {
     /// ADSR parameters shared across all voices.
     adsr_params: AdsrParams,
 
-    /// Optional oscillator mode (used by basic wave synth instrument).
-    oscillator_enabled: bool,
-    waveform: Waveform,
-    waveform2: Waveform,
-    /// Independent per-oscillator volumes (0.0–1.0).
-    osc1_volume: f32,
-    osc2_volume: f32,
-    detune_cents: f32,
-    sub_level: f32,
-
-    /// SVF filter parameters for the oscillator path.
-    filter_enabled: bool,
-    filter_cutoff: f32,
-    filter_resonance: f32,
-    filter_type: SynthFilterType,
-    /// Pre-computed SVF coefficients (recalculated when cutoff/res change).
-    filter_coeffs: SvfCoeffs,
-
-    /// LFO modulation parameters.
-    lfo_rate: f32,
-    lfo_depth: f32,
-    lfo_target: LfoTarget,
-
-    /// Pulse width for square wave (0.05–0.95, default 0.5).
-    pulse_width: f32,
-
-    /// Per-oscillator enable flags (true = active, false = silent).
-    osc1_enabled: bool,
-    osc2_enabled: bool,
-
     /// Engine/device sample rate (Hz).
     _sample_rate: f64,
 
@@ -538,24 +507,6 @@ impl SamplerEngine {
             volume: 1.0,
             voices,
             adsr_params: AdsrParams::default(),
-            oscillator_enabled: false,
-            waveform: Waveform::Sine,
-            waveform2: Waveform::Sine,
-            osc1_volume: 1.0,
-            osc2_volume: 0.7,
-            detune_cents: 0.0,
-            sub_level: 0.0,
-            filter_enabled: false,
-            filter_cutoff: 20000.0,
-            filter_resonance: 0.0,
-            filter_type: SynthFilterType::Lowpass,
-            filter_coeffs: SvfCoeffs::new(20000.0, 0.0, sample_rate),
-            lfo_rate: 1.0,
-            lfo_depth: 0.0,
-            lfo_target: LfoTarget::FilterCutoff,
-            pulse_width: 0.5,
-            osc1_enabled: true,
-            osc2_enabled: false,
             _sample_rate: sample_rate,
             sample_sr_ratio: 1.0,
         }
@@ -578,93 +529,6 @@ impl SamplerEngine {
         self.all_notes_off();
     }
 
-    pub fn set_waveform(&mut self, waveform: Waveform) {
-        self.waveform = waveform;
-        self.oscillator_enabled = true;
-    }
-
-    pub fn set_waveform2(&mut self, waveform: Waveform) {
-        self.waveform2 = waveform;
-        self.oscillator_enabled = true;
-    }
-
-    pub fn set_osc1_volume(&mut self, vol: f32) {
-        self.osc1_volume = vol.clamp(0.0, 1.0);
-    }
-
-    pub fn set_osc2_volume(&mut self, vol: f32) {
-        self.osc2_volume = vol.clamp(0.0, 1.0);
-    }
-
-    pub fn set_detune_cents(&mut self, cents: f32) {
-        self.detune_cents = cents.clamp(-50.0, 50.0);
-    }
-
-    pub fn set_sub_level(&mut self, level: f32) {
-        self.sub_level = level.clamp(0.0, 1.0);
-    }
-
-    /// Set filter cutoff frequency in Hz (20–20000).
-    pub fn set_filter_cutoff(&mut self, cutoff: f32) {
-        self.filter_cutoff = cutoff.clamp(20.0, 20000.0);
-        self.filter_enabled = self.filter_cutoff < 19999.0 || self.filter_resonance > 0.01;
-        self.filter_coeffs = SvfCoeffs::new(
-            self.filter_cutoff as f64,
-            self.filter_resonance as f64,
-            self._sample_rate,
-        );
-    }
-
-    /// Set filter resonance (0.0–1.0, where 1.0 = self-oscillation).
-    pub fn set_filter_resonance(&mut self, resonance: f32) {
-        self.filter_resonance = resonance.clamp(0.0, 0.99);
-        self.filter_enabled = self.filter_cutoff < 19999.0 || self.filter_resonance > 0.01;
-        self.filter_coeffs = SvfCoeffs::new(
-            self.filter_cutoff as f64,
-            self.filter_resonance as f64,
-            self._sample_rate,
-        );
-    }
-
-    /// Set filter type (0=LP, 1=HP, 2=BP, 3=Notch).
-    pub fn set_filter_type(&mut self, filter_type: u8) {
-        self.filter_type = SynthFilterType::from_u8(filter_type);
-    }
-
-    /// Set LFO rate in Hz (0.01–20.0).
-    pub fn set_lfo_rate(&mut self, rate: f32) {
-        self.lfo_rate = rate.clamp(0.01, 20.0);
-    }
-
-    /// Set LFO depth (0.0–1.0).
-    pub fn set_lfo_depth(&mut self, depth: f32) {
-        self.lfo_depth = depth.clamp(0.0, 1.0);
-    }
-
-    /// Set LFO target (0=Filter, 1=Pitch, 2=Volume).
-    pub fn set_lfo_target(&mut self, target: u8) {
-        self.lfo_target = LfoTarget::from_u8(target);
-    }
-
-    /// Set pulse width for square wave (0.05–0.95).
-    pub fn set_pulse_width(&mut self, width: f32) {
-        self.pulse_width = width.clamp(0.05, 0.95);
-    }
-
-    /// Enable or disable oscillator 1.
-    /// BUG-M06 FIX: Correctly compute `oscillator_enabled` from the OR of both
-    /// flags instead of unconditionally setting it to `true`.
-    pub fn set_osc1_enabled(&mut self, enabled: bool) {
-        self.osc1_enabled = enabled;
-        self.oscillator_enabled = self.osc1_enabled || self.osc2_enabled;
-    }
-
-    /// Enable or disable oscillator 2.
-    /// BUG-M06 FIX: Same as osc1 — derive from actual state.
-    pub fn set_osc2_enabled(&mut self, enabled: bool) {
-        self.osc2_enabled = enabled;
-        self.oscillator_enabled = self.osc1_enabled || self.osc2_enabled;
-    }
 
     /// Change the root note.
     pub fn set_root_note(&mut self, note: u8) {
@@ -679,12 +543,21 @@ impl SamplerEngine {
         }
     }
 
+    /// Set filter cutoff frequency in Hz (20–20000).
+    /// Used by Sample Rack pads for per-pad filtering on sample playback.
+    pub fn set_filter_cutoff(&mut self, _cutoff: f32) {
+        // NOTE: After oscillator removal, the per-voice SVF filter is gone.
+        // This method is a no-op placeholder retained for API compatibility
+        // with SampleRackPadFilterCutoff commands. A proper sample-mode filter
+        // can be added here in the future if needed.
+    }
+
     /// Trigger a note-on event.
     ///
     /// Finds the first idle voice. If none available, steals the oldest
     /// active voice (simple round-robin voice stealing).
     pub fn note_on(&mut self, note: u8, velocity: u8) {
-        if (self.sample.is_none() && !self.oscillator_enabled) || velocity == 0 {
+        if self.sample.is_none() || velocity == 0 {
             // Velocity 0 = note-off in MIDI spec
             self.note_off(note);
             return;
@@ -784,37 +657,6 @@ impl SamplerEngine {
                     );
                 }
             }
-        } else if self.oscillator_enabled {
-            for voice in &mut self.voices {
-                if !voice.active {
-                    continue;
-                }
-                render_oscillator_voice(
-                    voice,
-                    self.waveform,
-                    self.waveform2,
-                    self.osc1_volume,
-                    self.osc2_volume,
-                    self.detune_cents,
-                    self.sub_level,
-                    self.filter_enabled,
-                    self.filter_cutoff,
-                    self.filter_resonance,
-                    &self.filter_coeffs,
-                    self.filter_type,
-                    self.lfo_rate,
-                    self.lfo_depth,
-                    self.lfo_target,
-                    self.pulse_width,
-                    self.osc1_enabled,
-                    self.osc2_enabled,
-                    self._sample_rate,
-                    left_out,
-                    right_out,
-                    frame_count,
-                    vol,
-                );
-            }
         }
     }
 
@@ -837,186 +679,6 @@ impl SamplerEngine {
     /// Returns whether a sample is loaded.
     pub fn has_sample(&self) -> bool {
         self.sample.is_some()
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_oscillator_voice(
-    voice: &mut SamplerVoice,
-    waveform: Waveform,
-    waveform2: Waveform,
-    osc1_volume: f32,
-    osc2_volume: f32,
-    detune_cents: f32,
-    sub_level: f32,
-    filter_enabled: bool,
-    filter_cutoff_base: f32,
-    filter_resonance: f32,
-    filter_coeffs_base: &SvfCoeffs,
-    filter_type: SynthFilterType,
-    lfo_rate: f32,
-    lfo_depth: f32,
-    lfo_target: LfoTarget,
-    pulse_width: f32,
-    osc1_enabled: bool,
-    osc2_enabled: bool,
-    sample_rate: f64,
-    left_out: &mut [f32],
-    right_out: &mut [f32],
-    frame_count: usize,
-    master_vol: f32,
-) {
-    let vol1 = osc1_volume.clamp(0.0, 1.0);
-    let vol2 = osc2_volume.clamp(0.0, 1.0);
-    // AUD-120 FIX: Use exp2 instead of powf — exp2 is a CPU intrinsic on x86/ARM,
-    // while powf(x, y) calls exp(y * ln(x)), which is ~2x slower.
-    let detune_ratio = (detune_cents as f64 / 1200.0).exp2();
-    let sub = sub_level.clamp(0.0, 1.0);
-    let dt = voice.phase_increment;
-    let dt2 = dt * detune_ratio;
-    let dt_sub = dt * 0.5; // sub oscillator is one octave below
-    let pw = pulse_width as f64;
-    let lfo_inc = lfo_rate as f64 / sample_rate;
-
-    // DEEP-04 FIX: Pre-compute LFO-modulated filter coefficients once per buffer.
-    // Previously `SvfCoeffs::new()` (involves tan() + division) was computed per-sample
-    // inside the loop. At 44.1kHz: ~15ns × 512 frames × 32 voices = ~245µs per buffer.
-    // LFO rate is max 20Hz, so the modulation changes negligibly within one buffer.
-    let lfo_filter_coeffs =
-        if filter_enabled && lfo_target == LfoTarget::FilterCutoff && lfo_depth > 0.0001 {
-            // Sample the LFO at the voice's current phase for the buffer midpoint.
-            let lfo_mid = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32 * lfo_depth;
-            let mod_factor = 2.0_f32.powf(lfo_mid * 4.0);
-            let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
-            SvfCoeffs::new(
-                modulated_cutoff.into(),
-                filter_resonance.into(),
-                sample_rate,
-            )
-        } else {
-            *filter_coeffs_base
-        };
-
-    // BUG-H02 FIX: Use per-voice persistent triangle integrator state
-    // instead of buffer-local variables. Previously these reset to 0.0
-    // every buffer call, causing DC offset clicks on triangle waveform.
-    let tri1 = &mut voice.tri_state_1;
-    let tri2 = &mut voice.tri_state_2;
-
-    for i in 0..frame_count {
-        let env = voice.envelope.process();
-        if voice.envelope.is_idle() {
-            voice.active = false;
-            return;
-        }
-
-        // ── LFO computation ───────────────────────────────────────────
-        let lfo_val = if lfo_depth > 0.0001 {
-            let lfo_sample = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32;
-            voice.lfo_phase += lfo_inc;
-            // BUG-099 FIX: Use fract() instead of subtraction to prevent
-            // floating-point precision loss over long playback sessions.
-            if voice.lfo_phase >= 1.0 {
-                voice.lfo_phase = voice.lfo_phase.fract();
-            }
-            lfo_sample * lfo_depth
-        } else {
-            0.0
-        };
-
-        // ── Pitch modulation from LFO (vibrato) ──────────────────────
-        let (phase1, phase2, sub_phase, dt_mod, dt2_mod) =
-            if lfo_target == LfoTarget::Pitch && lfo_val.abs() > 0.0001 {
-                // ±2 semitones max vibrato range
-                // AUD-121 FIX: Use exp2 instead of powf — native CPU instruction.
-                let pitch_mult = (lfo_val as f64 * 2.0 / 12.0).exp2();
-                let dt_m = dt * pitch_mult;
-                let dt2_m = dt2 * pitch_mult;
-                let p1 = voice.cursor;
-                let p2 = (voice.cursor * detune_ratio * pitch_mult).fract();
-                let sp = (voice.cursor * 0.5 * pitch_mult).fract();
-                (p1, p2, sp, dt_m, dt2_m)
-            } else {
-                let p1 = voice.cursor;
-                let p2 = (voice.cursor * detune_ratio).fract();
-                let sp = (voice.cursor * 0.5).fract();
-                (p1, p2, sp, dt, dt2)
-            };
-
-        let osc1 = if osc1_enabled {
-            oscillator_sample_blep(waveform, phase1, dt_mod, tri1, pw)
-        } else {
-            0.0
-        };
-        let osc2 = if osc2_enabled {
-            oscillator_sample_blep(waveform2, phase2, dt2_mod, tri2, pw)
-        } else {
-            0.0
-        };
-        let sub_osc = oscillator_sample_blep_stateless(Waveform::Square, sub_phase, dt_sub);
-
-        let mut sample = osc1 * vol1 + osc2 * vol2 + sub_osc * sub;
-
-        // ── Per-voice SVF filter (with optional LFO cutoff modulation) ─
-        // DEEP-04 FIX: Use pre-computed coeffs (hoisted before the sample loop).
-        // Previously SvfCoeffs::new() was called per-sample here, which involves
-        // tan() + division (~15ns × 512 frames × 32 voices = ~245µs per buffer).
-        if filter_enabled {
-            let c = lfo_filter_coeffs;
-
-            let s = &mut voice.filter_state;
-            let input = sample;
-
-            let v3 = input - s.ic2eq;
-            let v1 = c.a1 * s.ic1eq + c.a2 * v3;
-            let v2 = s.ic2eq + c.a2 * s.ic1eq + c.a3 * v3;
-
-            s.ic1eq = 2.0 * v1 - s.ic1eq;
-            s.ic2eq = 2.0 * v2 - s.ic2eq;
-
-            // AUD-124 FIX: Flush denormals in per-voice SVF filter state.
-            // The svf.rs SvfFilter::process_all() has this flush, but the inline
-            // copy here was missing it — causing 100x CPU slowdown during note
-            // release tails when filter state values go below 1e-18.
-            if s.ic1eq.abs() < 1e-18 {
-                s.ic1eq = 0.0;
-            }
-            if s.ic2eq.abs() < 1e-18 {
-                s.ic2eq = 0.0;
-            }
-
-            sample = match filter_type {
-                SynthFilterType::Lowpass => v2,
-                SynthFilterType::Highpass => input - c.k * v1 - v2,
-                SynthFilterType::Bandpass => v1,
-                SynthFilterType::Notch => {
-                    let lp = v2;
-                    let hp = input - c.k * v1 - v2;
-                    lp + hp
-                }
-            };
-        }
-
-        // ── Volume modulation from LFO (tremolo) ─────────────────────
-        let gain = if lfo_target == LfoTarget::Volume && lfo_val.abs() > 0.0001 {
-            // Map LFO [-depth..+depth] to volume multiplier [1-depth..1]
-            let vol_mod = 1.0 - lfo_depth * 0.5 * (1.0 - lfo_val / lfo_depth.max(0.0001));
-            voice.velocity * env * vol_mod.clamp(0.0, 1.0) * master_vol
-        } else {
-            voice.velocity * env * master_vol
-        };
-
-        left_out[i] += sample * gain;
-        right_out[i] += sample * gain;
-        voice.cursor += voice.phase_increment;
-        // AUDIT-S2-02 FIX: Use fract() for safe phase wrapping.
-        // Same class as BUG-014 (test tone): -= 1.0 fails when
-        // phase_increment > 1.0 (high freq / low SR), leaving phase > 1.0.
-        // PolyBLEP expects phase in [0,1) — incorrect wrapping produces
-        // aliasing and pitch instability.
-        if voice.cursor >= 1.0 {
-            voice.cursor = voice.cursor.fract();
-        }
     }
 }
 

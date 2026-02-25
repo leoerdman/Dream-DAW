@@ -27,7 +27,7 @@ export const PluginGroupHeaderRow = memo(function PluginGroupHeaderRow({
 
 export const PluginGroupItemRow = memo(function PluginGroupItemRow({
     item, ROW_HEIGHT, isSelected, debouncedQuery, showTypeColumn, showSizeColumn,
-    getAudioDurationSec, isPreviewPlayingRef, bindItemRowRef, setSelectedItemId, syncPreviewForItem, setContextMenu, fileListRef,
+    getAudioDurationSec, isPreviewPlayingRef, bindItemRowRef, suppressNextAutoScrollRef, setSelectedItemId, syncPreviewForItem, setContextMenu, fileListRef,
 }: RowBaseProps & { ROW_HEIGHT: number }) {
     const isAudio = item.type === 'audio';
     const isPlugin = item.type === 'plugin';
@@ -54,6 +54,7 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                     }
                     return;
                 }
+                suppressNextAutoScrollRef.current = true;
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
             }}

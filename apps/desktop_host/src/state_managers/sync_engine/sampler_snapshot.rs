@@ -8,20 +8,6 @@ pub fn rebuild_sampler_snapshot_from_project(
     clip_pool_state: &ClipPoolState,
     handle: &AudioEngineHandle,
 ) {
-    fn waveform_code_from_token(token: &str) -> u8 {
-        let normalized = token.trim().to_lowercase();
-        if normalized.contains("triangle") || normalized.ends_with("/tri") {
-            return 1;
-        }
-        if normalized.contains("saw") {
-            return 2;
-        }
-        if normalized.contains("square") || normalized.ends_with("/pulse") {
-            return 3;
-        }
-        0
-    }
-
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
     let empty_pad_samples: [Option<Arc<ClipAudio>>; 16] = Default::default();
     let mut rack_samples: Vec<[Option<Arc<ClipAudio>>; 16]> =
@@ -39,69 +25,8 @@ pub fn rebuild_sampler_snapshot_from_project(
     }
     let mut rack_settings: Vec<RackSettings> = Vec::new();
 
-    let mut synth_settings: Vec<(
-        usize,
-        u8,
-        u8,
-        f32,
-        f32,
-        f32,
-        f32,
-        f32,
-        u8,
-        f32,
-        f32,
-        u8,
-        f32,
-    )> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
-            let plugin_id_lower = track
-                .instrument
-                .as_ref()
-                .map(|inst| inst.plugin_id().to_lowercase())
-                .unwrap_or_default();
-            let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
-                || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
-            if is_wave_synth {
-                let (
-                    waveform,
-                    osc2,
-                    mix,
-                    detune,
-                    sub,
-                    f_cutoff,
-                    f_res,
-                    f_type,
-                    lfo_r,
-                    lfo_d,
-                    lfo_t,
-                    pw,
-                ) = track
-                    .sampler
-                    .as_ref()
-                    .map(|cfg| {
-                        (
-                            waveform_code_from_token(&cfg.sample_path),
-                            cfg.osc2_waveform.min(3),
-                            cfg.osc_mix.clamp(0.0, 1.0) as f32,
-                            cfg.detune_cents.clamp(-50.0, 50.0) as f32,
-                            cfg.sub_level.clamp(0.0, 1.0) as f32,
-                            cfg.filter_cutoff.clamp(20.0, 20000.0) as f32,
-                            cfg.filter_resonance.clamp(0.0, 0.99) as f32,
-                            cfg.filter_type.min(3),
-                            cfg.lfo_rate.clamp(0.01, 20.0) as f32,
-                            cfg.lfo_depth.clamp(0.0, 1.0) as f32,
-                            cfg.lfo_target.min(2),
-                            cfg.pulse_width.clamp(0.05, 0.95) as f32,
-                        )
-                    })
-                    .unwrap_or((0, 0, 0.35, 0.0, 0.0, 20000.0, 0.0, 0, 1.0, 0.0, 0, 0.5));
-                synth_settings.push((
-                    idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d,
-                    lfo_t, pw,
-                ));
-            }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
                 && !cfg.sample_path.starts_with("internal://")
@@ -133,133 +58,6 @@ pub fn rebuild_sampler_snapshot_from_project(
     }
     handle.sampler_samples.swap(samples);
     handle.sample_rack_samples.swap(rack_samples);
-
-    for (
-        track_idx,
-        waveform,
-        osc2,
-        mix,
-        detune,
-        sub,
-        f_cutoff,
-        f_res,
-        f_type,
-        lfo_r,
-        lfo_d,
-        lfo_t,
-        pw,
-    ) in synth_settings
-    {
-        if let Err(err) = push_command(
-            handle,
-            EngineCommand::SetSamplerWaveform {
-                track_index: track_idx as u16,
-                waveform,
-            },
-        ) {
-            log::warn!(
-                "[Sampler] Failed to restore waveform for track {}: {}",
-                track_idx,
-                err
-            );
-        }
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerOsc2Waveform {
-                track_index: track_idx as u16,
-                waveform: osc2,
-            },
-            "sampler osc2 waveform"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerOsc1Volume {
-                track_index: track_idx as u16,
-                volume: 1.0 - mix,
-            },
-            "sampler osc1 volume"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerOsc2Volume {
-                track_index: track_idx as u16,
-                volume: mix,
-            },
-            "sampler osc2 volume"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerDetuneCents {
-                track_index: track_idx as u16,
-                cents: detune,
-            },
-            "sampler detune"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerSubLevel {
-                track_index: track_idx as u16,
-                level: sub,
-            },
-            "sampler sub level"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerFilterCutoff {
-                track_index: track_idx as u16,
-                cutoff: f_cutoff,
-            },
-            "sampler filter cutoff"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerFilterResonance {
-                track_index: track_idx as u16,
-                resonance: f_res,
-            },
-            "sampler filter resonance"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerFilterType {
-                track_index: track_idx as u16,
-                filter_type: f_type,
-            },
-            "sampler filter type"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerLfoRate {
-                track_index: track_idx as u16,
-                rate: lfo_r,
-            },
-            "sampler lfo rate"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerLfoDepth {
-                track_index: track_idx as u16,
-                depth: lfo_d,
-            },
-            "sampler lfo depth"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerLfoTarget {
-                track_index: track_idx as u16,
-                target: lfo_t,
-            },
-            "sampler lfo target"
-        );
-        push_command_or_log!(
-            handle,
-            EngineCommand::SetSamplerPulseWidth {
-                track_index: track_idx as u16,
-                width: pw,
-            },
-            "sampler pulse width"
-        );
-    }
 
     for rs in rack_settings {
         push_command_or_log!(

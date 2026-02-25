@@ -12,6 +12,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         setUserFolders,
         prevCategoryRef,
         selectedCategoryId,
+        setSelectedCategoryId,
         setSourceFilter,
         setFormatFilter,
         setAudioFilter,
@@ -59,6 +60,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         prevCatForPreviewRef,
         isPreviewPlayingRef,
         itemRowRefs,
+        suppressNextAutoScrollRef,
     } = p;
     useEffect(() => { leftPaneWidthRef.current = leftPaneWidth; }, [leftPaneWidth, leftPaneWidthRef]);
     useEffect(() => {
@@ -87,13 +89,14 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
             if (e.defaultPrevented || e.isComposing) return;
             if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === 'KeyF') {
                 e.preventDefault();
+                if (selectedCategoryId !== 'all') setSelectedCategoryId('all');
                 searchRef.current?.focus();
                 searchRef.current?.select();
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [searchRef]);
+    }, [searchRef, selectedCategoryId, setSelectedCategoryId]);
     useEffect(() => {
         const focusBrowserSearch = (evt: Event) => {
             const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
@@ -267,6 +270,10 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [selectedCategoryId, prevCatForPreviewRef, isPreviewPlayingRef]);
     useEffect(() => {
         if (!selectedItemId) return;
+        if (suppressNextAutoScrollRef.current) {
+            suppressNextAutoScrollRef.current = false;
+            return;
+        }
         if (selectedCategoryId === 'plugins') {
             itemRowRefs.current[selectedItemId]?.scrollIntoView({ block: 'nearest' });
             return;
@@ -281,5 +288,5 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         const itemBottom = itemTop + ROW_HEIGHT;
         if (itemTop < el.scrollTop + headerOffset) el.scrollTop = itemTop - headerOffset;
         else if (itemBottom > el.scrollTop + el.clientHeight) el.scrollTop = itemBottom - el.clientHeight;
-    }, [selectedItemId, items, selectedCategoryId, fileListRef, itemRowRefs]);
+    }, [selectedItemId, items, selectedCategoryId, fileListRef, itemRowRefs, suppressNextAutoScrollRef]);
 }

@@ -20,7 +20,7 @@ export interface TimelineClipData {
     showFadeOutCurvePoint?: boolean;
     isOffline?: boolean;
     muted?: boolean;
-    trackMuted?: boolean;
+    trackDisabled?: boolean;
     isWarped?: boolean;
     warpSourceDurationFrames?: number;
     pitchShiftSemitones?: number;

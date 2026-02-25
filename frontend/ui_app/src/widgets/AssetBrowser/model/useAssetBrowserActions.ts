@@ -17,6 +17,7 @@ interface FolderTreeActionsParams {
     setFolderChildrenCache: React.Dispatch<React.SetStateAction<Map<string, BrowserItem[]>>>;
     setUserFolders: React.Dispatch<React.SetStateAction<string[]>>;
     setSelectedCategoryId: React.Dispatch<React.SetStateAction<string>>;
+    onFoldersChanged?: () => void;
 }
 
 export function useFolderTreeActions({
@@ -25,7 +26,8 @@ export function useFolderTreeActions({
     setFolderChildrenCache,
     setUserFolders,
     setSelectedCategoryId,
-}: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'setUserFolders' | 'setSelectedCategoryId'>) {
+    onFoldersChanged,
+}: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'setUserFolders' | 'setSelectedCategoryId' | 'onFoldersChanged'>) {
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
 
@@ -104,6 +106,7 @@ export function useFolderTreeActions({
                 setUserFolders(folders);
                 const newIdx = folders.length - 1;
                 if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
+                onFoldersChanged?.();
                 statusClear();
             })
             .catch((err) => {
@@ -112,20 +115,21 @@ export function useFolderTreeActions({
                     statusError(`Asset Browser: failed to add folder: ${String(err)}`);
                 }
             });
-    }, [setSelectedCategoryId, setUserFolders, statusClear, statusError]);
+    }, [onFoldersChanged, setSelectedCategoryId, setUserFolders, statusClear, statusError]);
 
     const handleRemoveFolder = useCallback((path: string) => {
         engineApi.removeBrowserFolder(path)
             .then((folders) => {
                 setUserFolders(folders);
                 setSelectedCategoryId('samples');
+                onFoldersChanged?.();
                 statusClear();
             })
             .catch((err) => {
                 console.error('[Browser] Remove folder failed:', err);
                 statusError(`Asset Browser: failed to remove folder: ${String(err)}`);
             });
-    }, [setSelectedCategoryId, setUserFolders, statusClear, statusError]);
+    }, [onFoldersChanged, setSelectedCategoryId, setUserFolders, statusClear, statusError]);
 
     return { toggleFolderExpand, navigateInto, handleAddFolder, handleRemoveFolder };
 }

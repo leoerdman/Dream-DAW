@@ -1228,7 +1228,7 @@ pub struct Track {
     /// Whether this track is soloed.
     pub is_solo: bool,
 
-    /// Whether this track is muted.
+    /// Whether this track is disabled.
     pub is_disabled: bool,
 
     /// Whether this track is armed for recording.
@@ -1388,9 +1388,9 @@ impl Track {
             .unwrap_or(true)
     }
 
-    /// Effective mute used by runtime mixers.
+    /// Effective disabled state used by runtime mixers.
     ///
-    /// A track is treated as muted if either explicit mute is on, or
+    /// A track is treated as disabled if either explicit disable is on, or
     /// Ableton import marked it as `mixer.output_enabled = 0`.
     pub fn effective_disabled_from_model(&self) -> bool {
         self.is_disabled || !self.output_enabled_from_model()

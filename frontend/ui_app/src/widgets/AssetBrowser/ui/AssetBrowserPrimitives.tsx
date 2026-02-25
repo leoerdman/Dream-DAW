@@ -35,7 +35,7 @@ type AssetBrowserItemLike = {
     meta?: string;
     name: string;
     path?: string;
-    pluginSource?: 'internal' | 'vst2' | 'vst3' | 'au' | 'external';
+    pluginSource?: 'internal' | 'vst2' | 'vst3' | 'au' | 'clap' | 'external';
 };
 
 const itemTypeToIcon: Record<AssetBrowserItemLike['type'], BrowserGlyphName> = {

@@ -26,7 +26,7 @@ interface UseAssetBrowserDerivedParams {
     loadingFolders: Set<string>;
     sizeFilter: number;
     sortFilter: number;
-    pluginSourceFilter: 'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external';
+    pluginSourceFilter: 'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'clap' | 'external';
     collectionItems: Record<string, Set<string>>;
     formatFilter: number;
     audioFilter: number;

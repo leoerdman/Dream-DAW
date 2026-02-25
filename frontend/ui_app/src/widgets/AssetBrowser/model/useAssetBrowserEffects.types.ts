@@ -15,7 +15,7 @@ export interface UseAssetBrowserEffectsParams {
     setFormatFilter: SetState<number>;
     setAudioFilter: SetState<number>;
     setSizeFilter: SetState<number>;
-    setPluginSourceFilter: SetState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external'>;
+    setPluginSourceFilter: SetState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'clap' | 'external'>;
     searchRef: React.RefObject<HTMLInputElement | null>;
     setDebouncedQuery: SetState<string>;
     fileListRef: React.RefObject<HTMLDivElement | null>;

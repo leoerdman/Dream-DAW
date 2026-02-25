@@ -40,7 +40,7 @@ pub(super) fn apply_pending_track_mixer_state(
         }
     }
 
-    let has_pending_solo_or_mute = pending_track_solo
+    let has_pending_solo_or_disable = pending_track_solo
         .iter()
         .take(render_ctx.track_slots.len())
         .any(|v| v.is_some())
@@ -48,7 +48,7 @@ pub(super) fn apply_pending_track_mixer_state(
             .iter()
             .take(render_ctx.track_slots.len())
             .any(|v| v.is_some());
-    if !has_pending_solo_or_mute {
+    if !has_pending_solo_or_disable {
         return;
     }
 

@@ -49,7 +49,7 @@ export function useTimelineClipSync({
             fadeOutCurve: c.fadeOutCurve,
             isOffline: c.isOffline,
             muted: c.muted,
-            trackMuted: !trackActiveStates[c.trackIndex],
+            trackDisabled: !trackActiveStates[c.trackIndex],
             isWarped: c.isWarped,
             warpSourceDurationFrames: c.warpSourceDurationFrames,
             pitchShiftSemitones: c.pitchShiftSemitones,

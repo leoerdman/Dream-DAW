@@ -101,7 +101,7 @@ export function computeBrowserItems(params: {
     activeFolderCategoryPath?: string;
     sizeFilter: number;
     sortFilter: number;
-    pluginSourceFilter: 'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external';
+    pluginSourceFilter: 'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'clap' | 'external';
     collectionItems: Record<CollectionId, Set<string>>;
     formatFilter: number;
     audioFilter: number;

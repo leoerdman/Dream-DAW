@@ -176,6 +176,7 @@ export function useAssetBrowserLogic() {
         setFolderChildrenCache,
         setUserFolders,
         setSelectedCategoryId,
+        onFoldersChanged: triggerLibraryScan,
     });
 
     const { handleItemEnter } = useItemEnterAction({ tracks, enterNonceRef });

@@ -33,7 +33,7 @@ is_solo: boolean,
 /**
  * Whether this chain is muted.
  */
-is_mute: boolean, 
+is_disabled: boolean, 
 /**
  * Chain volume (0.0–2.0, 1.0 = unity).
  */

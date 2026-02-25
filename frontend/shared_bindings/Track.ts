@@ -17,107 +17,106 @@ import type { TrackType } from "./TrackType";
  *
  * Enriched from Swift `Track` class (276 LOC).
  */
-export type Track = {
-    /**
-     * Unique track identifier.
-     */
-    id: string,
-    /**
-     * Display name (e.g., "Lead Vocal").
-     */
-    name: string,
-    /**
-     * The type of content this track holds.
-     */
-    track_type: TrackType,
-    /**
-     * Audio clips on this track (ordered by position).
-     */
-    clips: Array<AudioClip>,
-    /**
-     * Volume fader (0.0 = -∞ dB, 1.0 = 0 dB, 2.0 = +6 dB).
-     */
-    volume: number,
-    /**
-     * Pan position (-1.0 = hard left, 0.0 = center, 1.0 = hard right).
-     */
-    pan: number,
-    /**
-     * Whether this track is soloed.
-     */
-    is_solo: boolean,
-    /**
-     * Whether this track is disabled.
-     */
-    is_disabled: boolean,
-    /**
-     * Whether this track is armed for recording.
-     */
-    is_armed: boolean,
-    /**
-     * Visual color in the UI.
-     */
-    color: TrackColor,
-    /**
-     * Exact hex color override (e.g. "#FF3636" from Ableton import).
-     * When present, the frontend uses this instead of the `color` enum.
-     */
-    color_hex?: string | null,
-    /**
-     * Track height in pixels (for arrangement view).
-     */
-    height: number,
-    /**
-     * Output routing destination (track/bus UUID). `None` = master output.
-     */
-    output_destination_id: string | null,
-    /**
-     * Input routing source identifier (`AudioInputRouting` / `MidiInputRouting` target value).
-     *
-     * Kept as raw routing token (e.g. `AudioIn/Ext.1`, `MidiIn/Track.42`) because
-     * ALS uses multiple non-UUID addressing modes.
-     */
-    input_source_id: string | null,
-    /**
-     * Track monitoring mode (`MonitoringEnum`): 0=In, 1=Auto, 2=Off.
-     */
-    monitoring_mode: number | null,
-    /**
-     * Insert device nodes (processed in order). Each can be a single
-     * plugin or a nested device rack.
-     */
-    effects: Array<DeviceNode>,
-    /**
-     * Instrument device (for MIDI tracks). `None` for audio tracks.
-     * Can be a single plugin or an instrument rack.
-     */
-    instrument: DeviceNode | null,
-    /**
-     * Parent group track ID. `None` = top-level track.
-     */
-    parent_track_id: string | null,
-    /**
-     * Child track IDs (for group tracks only).
-     */
-    child_track_ids: string[],
-    /**
-     * Whether a group track is expanded (showing children).
-     */
-    is_expanded: boolean,
-    /**
-     * MIDI clips on this track (for MIDI tracks).
-     */
-    midi_clips: Array<MidiClip>,
-    /**
-     * Sampler instrument configuration (for MIDI tracks).
-     */
-    sampler: SamplerConfig | null,
-    /**
-     * 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
-     */
-    sample_rack: SampleRackConfig | null,
-    /**
-     * Automation lanes for this track (volume/pan/plugin params).
-     */
-    automation_lanes: Array<AutomationLane>,
-};
+export type Track = { 
+/**
+ * Unique track identifier.
+ */
+id: string, 
+/**
+ * Display name (e.g., "Lead Vocal").
+ */
+name: string, 
+/**
+ * The type of content this track holds.
+ */
+track_type: TrackType, 
+/**
+ * Audio clips on this track (ordered by position).
+ */
+clips: Array<AudioClip>, 
+/**
+ * Volume fader (0.0 = -∞ dB, 1.0 = 0 dB, 2.0 = +6 dB).
+ */
+volume: number, 
+/**
+ * Pan position (-1.0 = hard left, 0.0 = center, 1.0 = hard right).
+ */
+pan: number, 
+/**
+ * Whether this track is soloed.
+ */
+is_solo: boolean, 
+/**
+ * Whether this track is muted.
+ */
+is_disabled: boolean, 
+/**
+ * Whether this track is armed for recording.
+ */
+is_armed: boolean, 
+/**
+ * Visual color in the UI.
+ */
+color: TrackColor, 
+/**
+ * Exact hex color override (e.g. "#FF3636" from Ableton import).
+ * When present, the frontend uses this instead of the `color` enum.
+ */
+color_hex?: string | null, 
+/**
+ * Track height in pixels (for arrangement view).
+ */
+height: number, 
+/**
+ * Output routing destination (track/bus UUID). `None` = master output.
+ */
+output_destination_id: string | null, 
+/**
+ * Input routing source identifier (`AudioInputRouting` / `MidiInputRouting` target value).
+ *
+ * Kept as raw routing token (e.g. `AudioIn/Ext.1`, `MidiIn/Track.42`) because
+ * ALS uses multiple non-UUID addressing modes.
+ */
+input_source_id: string | null, 
+/**
+ * Track monitoring mode (`MonitoringEnum`): 0=In, 1=Auto, 2=Off.
+ */
+monitoring_mode: number | null, 
+/**
+ * Insert device nodes (processed in order). Each can be a single
+ * plugin or a nested device rack.
+ */
+effects: Array<DeviceNode>, 
+/**
+ * Instrument device (for MIDI tracks). `None` for audio tracks.
+ * Can be a single plugin or an instrument rack.
+ */
+instrument: DeviceNode | null, 
+/**
+ * Parent group track ID. `None` = top-level track.
+ */
+parent_track_id: string | null, 
+/**
+ * Child track IDs (for group tracks only).
+ */
+child_track_ids: string[], 
+/**
+ * Whether a group track is expanded (showing children).
+ */
+is_expanded: boolean, 
+/**
+ * MIDI clips on this track (for MIDI tracks).
+ */
+midi_clips: Array<MidiClip>, 
+/**
+ * Sampler instrument configuration (for MIDI tracks).
+ */
+sampler: SamplerConfig | null, 
+/**
+ * 16-pad Sample Rack (Drum Rack) configuration (for MIDI tracks).
+ */
+sample_rack: SampleRackConfig | null, 
+/**
+ * Automation lanes for this track (volume/pan/plugin params).
+ */
+automation_lanes: Array<AutomationLane>, };

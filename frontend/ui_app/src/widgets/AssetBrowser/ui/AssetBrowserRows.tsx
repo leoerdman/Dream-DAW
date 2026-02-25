@@ -56,6 +56,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
         : item.pluginSource === 'vst3' ? 'VST3'
             : item.pluginSource === 'vst2' ? 'VST2'
                 : item.pluginSource === 'au' ? 'AU'
+                    : item.pluginSource === 'clap' ? 'CLAP'
                     : (item.format || 'Plugin');
 
     const typeLabel = item.isDirectory ? 'Folder'

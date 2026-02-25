@@ -14,7 +14,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const [audioFilter, setAudioFilter] = useState(0);
     const [sortFilter, setSortFilter] = useState(0);
     const [sizeFilter, setSizeFilter] = useState(0);
-    const [pluginSourceFilter, setPluginSourceFilter] = useState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'external'>('all');
+    const [pluginSourceFilter, setPluginSourceFilter] = useState<'all' | 'internal' | 'vst3' | 'vst2' | 'au' | 'clap' | 'external'>('all');
     const [showSizeColumn, setShowSizeColumn] = useState(settings.browserShowSizeColumn);
     const [showTypeColumn, setShowTypeColumn] = useState(settings.browserShowTypeColumn);
     const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);

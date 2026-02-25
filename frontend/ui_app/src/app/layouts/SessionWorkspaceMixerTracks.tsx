@@ -12,7 +12,7 @@ interface SessionWorkspaceMixerTracksProps {
         tracks: Array<[{ peak: number }, { peak: number }] | undefined>;
     };
     applyProjectDeltas: (deltas: ProjectDelta[], reason?: string) => Promise<void>;
-    setTrackDisabled: (trackIndex: number, muted: boolean) => Promise<unknown>;
+    setTrackDisabled: (trackIndex: number, disabled: boolean) => Promise<unknown>;
     setTrackSolo: (trackIndex: number, soloed: boolean) => Promise<unknown>;
     setTrackVolume: (trackIndex: number, volume: number) => Promise<unknown>;
     setTrackPan: (trackIndex: number, pan: number) => Promise<unknown>;
@@ -58,11 +58,21 @@ export function SessionWorkspaceMixerTracks({
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                 <button
                                     type="button"
-                                    style={sessionMixerBtnStyle(track.is_disabled)}
+                                    style={{
+                                        ...sessionMixerBtnStyle(track.is_disabled),
+                                        background: !track.is_disabled
+                                            ? 'var(--color-status-success)'
+                                            : 'color-mix(in srgb, var(--color-text-tertiary) 30%, var(--surface-elevated))',
+                                        color: !track.is_disabled
+                                            ? 'var(--color-text-on-color)'
+                                            : 'var(--color-text-tertiary)',
+                                        fontWeight: 700,
+                                        fontSize: 10,
+                                    }}
                                     onClick={() => { void setTrackDisabled(trackIndex, !track.is_disabled); }}
-                                    title={track.is_disabled ? 'Unmute track' : 'Mute track'}
+                                    title={track.is_disabled ? 'Enable track' : 'Disable track'}
                                 >
-                                    <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
+                                    {trackIndex + 1}
                                 </button>
                                 <button
                                     type="button"

@@ -24,6 +24,7 @@ pub mod zdf;
 
 // ── Device Chain DSP (Sprint: Insert FX Pipeline) ──────────────────────
 pub mod device_chain;
+pub mod device_slot;
 pub mod dsp_processor;
 pub mod processors;
 

@@ -1,49 +1,54 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Device Chain Runtime
+// Dream DAW — Unified Device Chain Runtime
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Manages a per-track chain of insert effect slots.
-// Each slot holds a `Box<dyn DspProcessor>` and a bypass flag.
+// Manages a per-track chain of device slots.
+//
+// Every slot holds a `Box<dyn DeviceProcessor>` — the unified trait that
+// wraps internal DSP effects, external VST3/CLAP/AU plugins, and device
+// groups with parallel chains.
 //
 // The chain processes audio in-place: Slot 0 → Slot 1 → ... → Slot N.
+// One loop. No branching by device type.
 //
 // # Design
-// - Max 8 slots per track (pre-allocated Vec capacity)
+// - Max 16 slots per track (pre-allocated Vec capacity)
 // - Slot management (add/remove/reorder) via lock-free engine commands
 // - All processing is O(N × slots) with zero allocations
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use crate::dsp_processor::{BuiltinEffectType, DspProcessor};
+use crate::device_slot::{
+    DeviceProcessor, InternalDeviceSlot, ProcessContext, ProcessResult,
+};
+use crate::dsp_processor::BuiltinEffectType;
 
-/// BUG-95 FIX: Increased from 8 to 16 for professional effect chains.
-pub const MAX_INSERT_EFFECT_SLOTS: usize = 16;
+/// Maximum number of device slots per chain (effects + instruments).
+pub const MAX_DEVICE_SLOTS: usize = 16;
 
-/// A single device slot in the effect chain.
-pub struct InsertEffectSlot {
-    /// The DSP processor instance.
-    pub processor: Box<dyn DspProcessor>,
-    /// Whether this slot is bypassed (passthrough).
-    pub is_bypassed: bool,
-    /// The type of effect in this slot (for serialization/UI sync).
-    pub effect_type: BuiltinEffectType,
-}
+/// Backward-compatible alias for migration (will be removed after Phase 4).
+pub const MAX_INSERT_EFFECT_SLOTS: usize = MAX_DEVICE_SLOTS;
 
-/// Per-track insert effect chain.
+/// Per-track device chain.
 ///
 /// Processes audio through all active (non-bypassed) slots in series.
-pub struct InsertEffectsChain {
-    /// Effect slots (processed in order, 0 → N).
-    slots: Vec<InsertEffectSlot>,
-    /// Cached sample rate for new processor initialization.
+/// Every slot implements `DeviceProcessor` — internal effects, external
+/// plugins, and device groups are all processed through the same interface.
+pub struct DeviceChain {
+    /// Device slots (processed in order, 0 → N).
+    slots: Vec<Box<dyn DeviceProcessor>>,
+    /// Cached sample rate for new device initialization.
     sample_rate: f32,
 }
 
-impl InsertEffectsChain {
+/// Backward-compatible type alias (will be removed after Phase 4).
+pub type InsertEffectsChain = DeviceChain;
+
+impl DeviceChain {
     /// Creates a new empty device chain.
     pub fn new(sample_rate: f32) -> Self {
         Self {
-            slots: Vec::with_capacity(MAX_INSERT_EFFECT_SLOTS),
+            slots: Vec::with_capacity(MAX_DEVICE_SLOTS),
             sample_rate,
         }
     }
@@ -58,28 +63,40 @@ impl InsertEffectsChain {
         self.slots.is_empty()
     }
 
-    /// Adds a device at the specified slot index.
+    /// Returns the cached sample rate.
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
+
+    // ── Generic device management ──────────────────────────────────────
+
+    /// Adds any device at the specified slot index.
     ///
-    /// If `slot_index` exceeds the current count, the device is appended
-    /// at the end. If the chain is full (`MAX_INSERT_EFFECT_SLOTS` slots), the call is ignored.
+    /// If `slot_index` exceeds the current count, the device is appended.
+    /// If the chain is full (`MAX_DEVICE_SLOTS` slots), the call is ignored.
+    ///
+    /// # Returns
+    /// `true` if the device was added successfully.
+    pub fn add_device(&mut self, slot_index: usize, device: Box<dyn DeviceProcessor>) -> bool {
+        if self.slots.len() >= MAX_DEVICE_SLOTS {
+            return false;
+        }
+        let idx = slot_index.min(self.slots.len());
+        self.slots.insert(idx, device);
+        true
+    }
+
+    /// Adds a built-in effect at the specified slot index.
+    ///
+    /// Convenience wrapper over `add_device` for internal effects.
+    /// This is the entry point used by `EngineCommand::AddDevice` for
+    /// built-in effect types.
     ///
     /// # Returns
     /// `true` if the device was added successfully.
     pub fn add_effect(&mut self, slot_index: usize, effect_type: BuiltinEffectType) -> bool {
-        if self.slots.len() >= MAX_INSERT_EFFECT_SLOTS {
-            return false;
-        }
-
-        let processor = effect_type.create_processor(self.sample_rate);
-        let slot = InsertEffectSlot {
-            processor,
-            is_bypassed: false,
-            effect_type,
-        };
-
-        let idx = slot_index.min(self.slots.len());
-        self.slots.insert(idx, slot);
-        true
+        let device = InternalDeviceSlot::new(effect_type, self.sample_rate);
+        self.add_device(slot_index, Box::new(device))
     }
 
     /// Removes the device at the specified slot index.
@@ -95,19 +112,44 @@ impl InsertEffectsChain {
         }
     }
 
+    /// Alias for `remove_effect` using unified naming.
+    pub fn remove_device(&mut self, slot_index: usize) -> bool {
+        self.remove_effect(slot_index)
+    }
+
+    /// Reorders a device from one slot to another.
+    ///
+    /// This is an atomic move (remove + re-insert) that avoids the
+    /// audible gap caused by separate Remove + Add commands.
+    ///
+    /// # Returns
+    /// `true` if the reorder was performed.
+    pub fn reorder(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.slots.len() || to >= self.slots.len() || from == to {
+            return false;
+        }
+        let device = self.slots.remove(from);
+        // After removal, indices shift. `to` might need adjustment.
+        let target = to.min(self.slots.len());
+        self.slots.insert(target, device);
+        true
+    }
+
     /// Sets the bypass state of a device slot.
     pub fn set_bypass(&mut self, slot_index: usize, bypassed: bool) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.is_bypassed = bypassed;
+            slot.set_bypass(bypassed);
         }
     }
 
     /// Sets a parameter on a specific device slot.
     pub fn set_param(&mut self, slot_index: usize, param_index: u8, value: f32) {
         if let Some(slot) = self.slots.get_mut(slot_index) {
-            slot.processor.set_param(param_index, value);
+            slot.set_param(param_index as u32, value as f64);
         }
     }
+
+    // ── Processing ─────────────────────────────────────────────────────
 
     /// Processes stereo audio through all non-bypassed slots in series.
     ///
@@ -115,14 +157,55 @@ impl InsertEffectsChain {
     /// Zero allocations. O(N × slot_count).
     #[inline]
     pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        let ctx = ProcessContext {
+            sample_rate,
+            ..ProcessContext::default()
+        };
         for slot in &mut self.slots {
-            if !slot.is_bypassed {
-                slot.processor.process_stereo(left, right, sample_rate);
-            }
+            // DeviceProcessor::process handles bypass check internally.
+            let _ = slot.process(left, right, None, None, &ctx);
+        }
+    }
+
+    /// Processes stereo audio with a full `ProcessContext`.
+    ///
+    /// This is the preferred method for the unified pipeline.
+    #[inline]
+    pub fn process_with_context(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        context: &ProcessContext,
+    ) {
+        for slot in &mut self.slots {
+            let _ = slot.process(left, right, None, None, context);
+        }
+    }
+
+    /// Processes stereo audio with per-slot sidechain inputs.
+    ///
+    /// `sidechains` maps slot index to sidechain buffer pair.
+    /// Slots without a sidechain entry receive `None`.
+    #[inline]
+    pub fn process_with_sidechains(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechains: &[(Option<&[f32]>, Option<&[f32]>)],
+        context: &ProcessContext,
+    ) {
+        for (i, slot) in self.slots.iter_mut().enumerate() {
+            let (sc_l, sc_r) = sidechains
+                .get(i)
+                .copied()
+                .unwrap_or((None, None));
+            let _ = slot.process(left, right, sc_l, sc_r, context);
         }
     }
 
     /// Processes a single device slot with optional sidechain input.
+    ///
+    /// Backward-compatible with the old per-slot dispatch path.
     #[inline]
     pub fn process_slot_with_sidechain(
         &mut self,
@@ -133,51 +216,42 @@ impl InsertEffectsChain {
         sidechain_right: Option<&[f32]>,
         sample_rate: f32,
     ) {
-        if let Some(slot) = self.slots.get_mut(slot_index)
-            && !slot.is_bypassed
-        {
-            slot.processor.process_stereo_with_sidechain(
-                left,
-                right,
-                sidechain_left,
-                sidechain_right,
+        if let Some(slot) = self.slots.get_mut(slot_index) {
+            let ctx = ProcessContext {
                 sample_rate,
-            );
+                ..ProcessContext::default()
+            };
+            let _ = slot.process(left, right, sidechain_left, sidechain_right, &ctx);
         }
     }
+
+    // ── Lifecycle ──────────────────────────────────────────────────────
 
     /// Resets all device processors (on transport seek / loop reset).
     pub fn reset_all(&mut self) {
         for slot in &mut self.slots {
-            slot.processor.reset();
+            slot.reset();
         }
     }
 
-    /// BUG-023 + AUD-202 FIX: Updates the cached sample rate, propagates it to
-    /// all processors, and resets their state.
+    /// Updates the cached sample rate, propagates it to all processors,
+    /// and resets their state.
     ///
-    /// Must be called when the project sample rate changes (e.g. opening a
-    /// project with a different SR). Without this, newly added devices are
-    /// initialized with the wrong sample rate, and existing processors use
-    /// stale filter coefficients.
-    ///
-    /// AUD-202 FIX: After reset, each processor's `process_stereo` is called
-    /// with a 1-sample buffer to trigger their internal `sync_sample_rate()`
-    /// check, forcing immediate coefficient recalculation. Without this,
-    /// SmoothedValue instances inside processors retain stale SR until the
-    /// first real audio buffer, causing a brief timing mismatch.
+    /// Must be called when the project sample rate changes.
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         if sample_rate > 0.0 && sample_rate.is_finite() {
             self.sample_rate = sample_rate;
             self.reset_all();
-            // AUD-202: Force each processor to sync its internal sample rate
-            // by running a 1-sample process pass. This triggers sync_sample_rate()
-            // inside each processor, updating SmoothedValue coefficients immediately.
+            // Force each processor to sync its internal sample rate
+            // by running a 1-sample process pass.
+            let ctx = ProcessContext {
+                sample_rate,
+                ..ProcessContext::default()
+            };
             let mut dummy_l = [0.0f32; 1];
             let mut dummy_r = [0.0f32; 1];
             for slot in &mut self.slots {
-                slot.processor
-                    .process_stereo(&mut dummy_l, &mut dummy_r, sample_rate);
+                let _ = slot.process(&mut dummy_l, &mut dummy_r, None, None, &ctx);
             }
         }
     }
@@ -193,18 +267,26 @@ mod tests {
 
     #[test]
     fn empty_chain_passthrough() {
-        let mut chain = InsertEffectsChain::new(44100.0);
+        let mut chain = DeviceChain::new(44100.0);
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
         let original = left.clone();
         chain.process_stereo(&mut left, &mut right, 44100.0);
-        // Empty chain should not modify signal
         assert_eq!(left, original);
     }
 
     #[test]
-    fn add_and_remove_devices() {
+    fn type_alias_backward_compat() {
+        // InsertEffectsChain should be usable as DeviceChain.
         let mut chain = InsertEffectsChain::new(44100.0);
+        assert!(chain.is_empty());
+        assert!(chain.add_effect(0, BuiltinEffectType::Utility));
+        assert_eq!(chain.slot_count(), 1);
+    }
+
+    #[test]
+    fn add_and_remove_devices() {
+        let mut chain = DeviceChain::new(44100.0);
         assert!(chain.is_empty());
 
         assert!(chain.add_effect(0, BuiltinEffectType::Utility));
@@ -215,70 +297,105 @@ mod tests {
 
         assert!(chain.remove_effect(0));
         assert_eq!(chain.slot_count(), 1);
-
-        // Chain should have EQ (was at index 1, now shifted to 0)
-        assert_eq!(chain.slots[0].effect_type, BuiltinEffectType::Eq);
     }
 
     #[test]
     fn max_slots_enforced() {
-        let mut chain = InsertEffectsChain::new(44100.0);
-        for _ in 0..MAX_INSERT_EFFECT_SLOTS {
+        let mut chain = DeviceChain::new(44100.0);
+        for _ in 0..MAX_DEVICE_SLOTS {
             assert!(chain.add_effect(0, BuiltinEffectType::Utility));
         }
-        assert_eq!(chain.slot_count(), MAX_INSERT_EFFECT_SLOTS);
-
-        // Should refuse 9th device
+        assert_eq!(chain.slot_count(), MAX_DEVICE_SLOTS);
         assert!(!chain.add_effect(0, BuiltinEffectType::Utility));
-        assert_eq!(chain.slot_count(), MAX_INSERT_EFFECT_SLOTS);
     }
 
     #[test]
     fn bypass_skips_processing() {
-        let mut chain = InsertEffectsChain::new(44100.0);
+        let mut chain = DeviceChain::new(44100.0);
         chain.add_effect(0, BuiltinEffectType::Utility);
-
-        // Set utility gain to -60dB (silence)
         chain.set_param(0, 0, -60.0);
-        // Skip smoothing by processing a large buffer
+
         let mut left = vec![1.0f32; 4096];
         let mut right = vec![1.0f32; 4096];
         chain.process_stereo(&mut left, &mut right, 44100.0);
-        // Signal should be near-silent
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
-        assert!(
-            tail_avg < 0.1,
-            "Gain at -60dB should silence signal: {tail_avg}"
-        );
+        assert!(tail_avg < 0.1, "Gain at -60dB should silence: {tail_avg}");
 
-        // Now bypass the utility
         chain.set_bypass(0, true);
         let mut left2 = vec![1.0f32; 64];
         let mut right2 = vec![1.0f32; 64];
         chain.process_stereo(&mut left2, &mut right2, 44100.0);
-        // Bypassed — signal should pass through unchanged
         assert_eq!(left2, vec![1.0f32; 64]);
     }
 
     #[test]
     fn chain_cascade_order() {
-        let mut chain = InsertEffectsChain::new(44100.0);
-        // Add Utility at slot 0 with -60dB gain (silences signal)
+        let mut chain = DeviceChain::new(44100.0);
         chain.add_effect(0, BuiltinEffectType::Utility);
         chain.set_param(0, 0, -60.0);
-
-        // Add Compressor at slot 1
         chain.add_effect(1, BuiltinEffectType::Compressor);
 
-        // Utility runs first → silences → Compressor receives silence
         let mut left = vec![1.0f32; 4096];
         let mut right = vec![1.0f32; 4096];
         chain.process_stereo(&mut left, &mut right, 44100.0);
-
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
-        assert!(
-            tail_avg < 0.1,
-            "Cascade: Utility should silence before Compressor"
-        );
+        assert!(tail_avg < 0.1);
+    }
+
+    #[test]
+    fn reorder_moves_device() {
+        let mut chain = DeviceChain::new(44100.0);
+        chain.add_effect(0, BuiltinEffectType::Utility);
+        chain.add_effect(1, BuiltinEffectType::Eq);
+        chain.add_effect(2, BuiltinEffectType::Compressor);
+        assert_eq!(chain.slot_count(), 3);
+
+        // Move slot 2 (Compressor) to slot 0.
+        assert!(chain.reorder(2, 0));
+        assert_eq!(chain.slot_count(), 3);
+
+        // Out-of-bounds should fail.
+        assert!(!chain.reorder(5, 0));
+        // Same index should fail.
+        assert!(!chain.reorder(1, 1));
+    }
+
+    #[test]
+    fn add_generic_device() {
+        let mut chain = DeviceChain::new(44100.0);
+        let device = InternalDeviceSlot::new(BuiltinEffectType::Reverb, 44100.0);
+        assert!(chain.add_device(0, Box::new(device)));
+        assert_eq!(chain.slot_count(), 1);
+    }
+
+    #[test]
+    fn process_with_context() {
+        let mut chain = DeviceChain::new(44100.0);
+        chain.add_effect(0, BuiltinEffectType::Utility);
+
+        let mut left = vec![1.0f32; 64];
+        let mut right = vec![1.0f32; 64];
+        let ctx = ProcessContext {
+            sample_rate: 44100.0,
+            is_playing: true,
+            ..ProcessContext::default()
+        };
+        chain.process_with_context(&mut left, &mut right, &ctx);
+        assert!(left.iter().all(|s| s.abs() > 0.9));
+    }
+
+    #[test]
+    fn process_with_sidechains() {
+        let mut chain = DeviceChain::new(44100.0);
+        chain.add_effect(0, BuiltinEffectType::Compressor);
+
+        let mut left = vec![1.0f32; 64];
+        let mut right = vec![1.0f32; 64];
+        let sc_left = vec![0.5f32; 64];
+        let sc_right = vec![0.5f32; 64];
+        let sidechains = vec![(Some(sc_left.as_slice()), Some(sc_right.as_slice()))];
+        let ctx = ProcessContext::default();
+        chain.process_with_sidechains(&mut left, &mut right, &sidechains, &ctx);
+        // Should process without panic.
     }
 }

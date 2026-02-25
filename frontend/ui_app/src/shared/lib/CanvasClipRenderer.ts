@@ -430,8 +430,8 @@ export class CanvasClipRenderer {
 
         ctx.save();
 
-        const isTrackMuted = clip.trackMuted === true;
-        if (isTrackMuted) {
+        const isTrackDisabled = clip.trackDisabled === true;
+        if (isTrackDisabled) {
             ctx.globalAlpha = 0.25;
         }
 
@@ -475,9 +475,9 @@ export class CanvasClipRenderer {
 
         if (bodyH > 8) {
             if (clip.type === 'audio' && clip.durationSamples) {
-                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackMuted);
+                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true || isTrackDisabled);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackMuted);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true || isTrackDisabled);
             }
         }
 
@@ -510,7 +510,7 @@ export class CanvasClipRenderer {
         const maxTextW = w - textPad * 2;
         if (maxTextW > 4 && headerH > 8) {
             const contrastColor = getContrastColor(clip.color);
-            const isDisabledVisual = clip.muted || isTrackMuted;
+            const isDisabledVisual = clip.muted || isTrackDisabled;
             ctx.font = CLIP_LABEL_FONT;
             const label = this._truncateTextToWidth(ctx, clip.name, maxTextW);
             if (label) {
@@ -543,7 +543,7 @@ export class CanvasClipRenderer {
 
         if (clip.selected) {
             ctx.save();
-            if (isTrackMuted) ctx.globalAlpha = 0.25;
+            if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
             ctx.lineWidth = SELECTION_BORDER_WIDTH;
             ctx.shadowColor = rgba(255, 255, 255, 0.5);
@@ -555,7 +555,7 @@ export class CanvasClipRenderer {
 
         if (!clip.selected) {
             ctx.save();
-            if (isTrackMuted) ctx.globalAlpha = 0.25;
+            if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;
             ctx.lineWidth = 1;
             this._roundRect(ctx, x, y + 1, w, h, r);
@@ -571,7 +571,7 @@ export class CanvasClipRenderer {
             const rightX = x + w - Math.max(4, Math.min(w - 4, fadeOutWidth));
 
             ctx.save();
-            if (isTrackMuted) ctx.globalAlpha = 0.25;
+            if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.fillStyle = clip.selected ? rgba(255, 255, 255, 0.98) : rgba(238, 245, 255, 0.9);
             ctx.strokeStyle = rgba(0, 0, 0, 0.65);
             ctx.lineWidth = 1;

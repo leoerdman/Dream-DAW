@@ -51,12 +51,10 @@ fn sync_title_cmd(
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
     drop(project);
 
-    if let Some(window) = app.get_webview_window("main") {
-        if is_dirty {
-            let _ = window.set_title(&format!("Dream DAW — {}*", name));
-        } else {
-            let _ = window.set_title(&format!("Dream DAW — {}", name));
-        }
+    if is_dirty {
+        crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}*", name));
+    } else {
+        crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", name));
     }
     Ok(())
 }

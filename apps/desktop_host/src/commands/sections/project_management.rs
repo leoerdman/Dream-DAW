@@ -51,10 +51,8 @@ fn new_project(
     sync_transport_from_project(&new, &handle)?;
     sync_track_mix_state_from_project(&new, &handle)?;
 
-    // Update window title
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {}", new.name));
-    }
+    // Update window title (safe — absorbs ObjC crashes from VST plugins)
+    crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", new.name));
 
     log::info!("New project created: '{}'", new.name);
     Ok(DeltaMutationResponse {
@@ -170,10 +168,8 @@ async fn save_project(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     project_state.record_history("save", format!("saved to {}", path.display()))?;
 
-    // Update window title (also clears any dirty marker left from mark_dirty_cmd).
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {}", project_name));
-    }
+    // Update window title (safe — absorbs ObjC crashes from VST plugins)
+    crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", project_name));
 
     log::info!("Project saved: '{}' → {}", project_name, path.display());
     Ok(path.display().to_string())
@@ -251,10 +247,8 @@ async fn save_project_as(
         let _ = recent.save(&app_data_dir);
     }
 
-    // Update window title
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {}", project_name));
-    }
+    // Update window title (safe — absorbs ObjC crashes from VST plugins)
+    crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", project_name));
 
     log::info!("Project saved as: '{}' → {}", project_name, actual_file_path.display());
     Ok(result_path)
@@ -418,13 +412,11 @@ fn open_project(
         let _ = recent.save(&app_data_dir);
     }
 
-    // Update window title
-    if let Some(window) = app.get_webview_window("main") {
-        if importing_als {
-            let _ = window.set_title(&format!("Dream DAW — {}*", loaded.name));
-        } else {
-            let _ = window.set_title(&format!("Dream DAW — {}", loaded.name));
-        }
+    // Update window title (safe — absorbs ObjC crashes from VST plugins)
+    if importing_als {
+        crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}*", loaded.name));
+    } else {
+        crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", loaded.name));
     }
 
     if importing_als {
@@ -882,10 +874,10 @@ async fn auto_save_if_dirty(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     project_state.record_history("auto_save", format!("auto-saved to {}", path.display()))?;
 
-    // Update window title (remove dirty indicator)
-    if let Some(window) = app.get_webview_window("main") {
+    // Update window title (safe — absorbs ObjC crashes from VST plugins)
+    {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+        crate::state_managers::project_state::safe_set_window_title(&app, &format!("Dream DAW — {}", project.name));
     }
 
     log::info!("[AutoSave] Project auto-saved → {}", path.display());

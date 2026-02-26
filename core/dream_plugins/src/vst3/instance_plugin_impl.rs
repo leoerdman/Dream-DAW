@@ -47,10 +47,17 @@ impl PluginInstance for Vst3Instance {
                             ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 0, 1);
                     }
                     if self.audio_input_bus_count > 1 {
-                        // Deactivate sidechain bus by default — will be activated dynamically.
+                        // ENTERPRISE FIX: Always activate the sidechain input bus.
+                        // Per VST3 spec, activate_bus() must NOT be called during
+                        // processing. Dynamically toggling bus activation from the
+                        // RT process() callback is a spec violation that some plugins
+                        // (ShaperBox, FabFilter) silently ignore. Instead, we always
+                        // activate the bus and use silence_flags in ProcessData to
+                        // indicate when no sidechain signal is present. This matches
+                        // the behavior of Ableton Live, Logic Pro, and REAPER.
                         let _ =
-                            ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 1, 0);
-                        self.sidechain_bus_active = false;
+                            ((*(*component).vtbl).activate_bus)(component, K_AUDIO, K_INPUT, 1, 1);
+                        self.sidechain_bus_active = true;
                     }
                     // ── VST3 Spec: Activate ALL audio output buses ──
                     // Plugins like ShaperBox 3 declare 2 output buses:
@@ -401,43 +408,15 @@ impl PluginInstance for Vst3Instance {
                 out_ptrs[1] = out_ptrs[0];
             }
 
-            // CRITICAL FIX: Only include the sidechain bus in the process() call
-            // when an actual sidechain signal is present. Plugins like ShaperBox
-            // will gate (silence) the main audio if a sidechain bus is declared
-            // but receives silence — interpreting it as "sidechain trigger absent".
-            // By sending num_inputs=1 when no sidechain is active, the plugin
-            // falls back to its internal LFO/envelope mode instead of gating.
-            //
-            // Additionally, we dynamically activate/deactivate bus 1 because some
-            // plugins check bus activation state, not just num_inputs.
-            if supports_sidechain_bus && self.audio_input_bus_count > 1 {
-                if has_sidechain_signal && !self.sidechain_bus_active {
-                    // Activate sidechain bus
-                    let component = self.component_ptr as *mut IComponent;
-                    if !component.is_null() {
-                        // SAFETY: component pointer is checked non-null and points to valid COM object.
-                        unsafe {
-                            let _ = ((*(*component).vtbl).activate_bus)(
-                                component, K_AUDIO, K_INPUT, 1, 1,
-                            );
-                        }
-                    }
-                    self.sidechain_bus_active = true;
-                } else if !has_sidechain_signal && self.sidechain_bus_active {
-                    // Deactivate sidechain bus
-                    let component = self.component_ptr as *mut IComponent;
-                    if !component.is_null() {
-                        // SAFETY: component pointer is checked non-null and points to valid COM object.
-                        unsafe {
-                            let _ = ((*(*component).vtbl).activate_bus)(
-                                component, K_AUDIO, K_INPUT, 1, 0,
-                            );
-                        }
-                    }
-                    self.sidechain_bus_active = false;
-                }
-            }
-            let input_bus_count = if has_sidechain_signal { 2 } else { 1 };
+            // ENTERPRISE FIX: Always declare both buses (main + sidechain) to the
+            // plugin when it supports a sidechain bus. Use silence_flags to
+            // communicate whether the sidechain bus carries signal or silence.
+            // This is the VST3-spec-compliant approach used by all major DAWs.
+            // The removed code called activate_bus() from the RT path which is
+            // a VST3 spec violation — bus state changes are only legal when
+            // processing is stopped (between setProcessing(0) and setProcessing(1)).
+            let input_bus_count = if supports_sidechain_bus { 2 } else { 1 };
+            let sidechain_silence_flags: u64 = if has_sidechain_signal { 0 } else { 3 }; // bits 0+1 = both channels silent
             let main_bus_channels = i32::try_from(main_channels).unwrap_or(i32::MAX);
 
             let in_main_bus = AudioBusBuffers {
@@ -447,7 +426,7 @@ impl PluginInstance for Vst3Instance {
             };
             let in_sidechain_bus = AudioBusBuffers {
                 num_channels: 2,
-                silence_flags: 0,
+                silence_flags: sidechain_silence_flags,
                 // SAFETY: `in_ptrs` contains 4 channel pointers; offset 2 addresses sidechain L/R entries.
                 channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
             };

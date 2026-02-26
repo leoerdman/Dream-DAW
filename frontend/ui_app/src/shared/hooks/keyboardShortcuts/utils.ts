@@ -82,16 +82,24 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
         : -1;
     const insertAfterIndex =
         config.selectedTrackId &&
-        config.selectedTrackId !== 'master' &&
-        selectedTrackIndex >= 0
+            config.selectedTrackId !== 'master' &&
+            selectedTrackIndex >= 0
             ? selectedTrackIndex
             : null;
 
     return {
         ...config,
         playheadFrames,
-        inPianoRoll: Boolean(pianoRollScope) || hasScopedFocus('piano-roll'),
-        inDeviceRack: Boolean(deviceRackScope) || hasScopedFocus('device-rack'),
+        // FOCUS-FIX: Use event path (composedPath / e.target) exclusively to
+        // determine whether the keyboard event originated from within a
+        // scoped editor region.  The previous `hasScopedFocus()` fallback
+        // checked `document.activeElement`, but canvas-based panels (timeline,
+        // piano roll) do NOT receive DOM focus on click.  If the user last
+        // clicked inside the piano roll and then clicked on a clip in the
+        // timeline, `document.activeElement` persisted inside the piano-roll
+        // scope, causing Cmd+C/V/D/Delete on clips to be silently swallowed.
+        inPianoRoll: Boolean(pianoRollScope),
+        inDeviceRack: Boolean(deviceRackScope),
         selectedDeviceId: deviceRackScope?.dataset?.selectedDeviceId ?? '',
         selectedTrackIndex,
         insertAfterIndex,

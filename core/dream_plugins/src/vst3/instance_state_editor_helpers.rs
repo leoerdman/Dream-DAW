@@ -68,6 +68,31 @@ impl Vst3Instance {
                 (data, &[] as &[u8])
             };
 
+        // ── VST3 SPEC: Suspend processing BEFORE setState() ───────────────
+        // Per VST3 SDK ("Restoring state"): the correct sequence is:
+        //   setProcessing(false) → setActive(false) → setState() →
+        //   setActive(true) → setupProcessing() → setProcessing(true)
+        //
+        // CRITICAL FIX (Serum "DAW suspended processing"): Previously we
+        // called setState() while the plugin was still active/processing.
+        // Serum detects this spec violation and enters permanent suspended
+        // state. Now we correctly suspend BEFORE setState.
+        let was_processing = self.com_initialized;
+        if was_processing && self.processor_ptr != 0 {
+            let processor = self.processor_ptr as *mut IAudioProcessor;
+            // SAFETY: processor pointer is valid during active plugin lifetime.
+            unsafe {
+                let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
+            }
+            if self.component_ptr != 0 {
+                let comp = self.component_ptr as *mut IComponent;
+                // SAFETY: component pointer is valid during active plugin lifetime.
+                unsafe {
+                    let _ = ((*(*comp).vtbl).set_active)(comp, 0);
+                }
+            }
+        }
+
         let mut stream = HostReadStream::new(component_data.to_vec());
         let component = self.component_ptr as *mut IComponent;
         // SAFETY: component pointer is validated by non-zero guard above and stream lives for call duration.
@@ -140,32 +165,18 @@ impl Vst3Instance {
         );
 
         // ── VST3 SPEC: Reactivate processing after state restore ──────────
-        // Many plugins (Serum, Kontakt, etc.) internally suspend processing after
-        // IComponent::setState() and wait for the host to re-run the activation
-        // sequence. Without this, plugins show "DAW suspended processing" even
-        // though they were activated before the state restore.
-        //
-        // Per VST3 SDK docs ("Restoring state"):
-        //   setProcessing(false) → setActive(false) → setState() →
-        //   setActive(true)  → setupProcessing() → setProcessing(true)
-        //
-        // Since setState() already happened above, we run the tail of the sequence.
-        if self.processor_ptr != 0 && self.com_initialized {
-            let processor = self.processor_ptr as *mut IAudioProcessor;
-            // SAFETY: processor pointer is valid during active plugin lifetime.
-            unsafe {
-                let _ = ((*(*processor).vtbl).set_processing)(processor, 0);
-            }
-
+        // Steps 4-6 of the spec sequence (setState already done above):
+        //   setActive(true) → setupProcessing() → setProcessing(true)
+        if was_processing && self.processor_ptr != 0 {
             if self.component_ptr != 0 {
                 let comp = self.component_ptr as *mut IComponent;
                 // SAFETY: component pointer is valid during active plugin lifetime.
                 unsafe {
-                    let _ = ((*(*comp).vtbl).set_active)(comp, 0);
                     let _ = ((*(*comp).vtbl).set_active)(comp, 1);
                 }
             }
 
+            let processor = self.processor_ptr as *mut IAudioProcessor;
             let setup = ProcessSetup {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,

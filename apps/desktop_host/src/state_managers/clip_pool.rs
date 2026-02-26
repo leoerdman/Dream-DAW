@@ -409,6 +409,56 @@ impl ClipPoolState {
             external_fx.push(master_fx_chain);
         }
 
+        // ── DIAGNOSTIC: Log per-track VST slot summary ───────────────────
+        // This helps identify if external plugins are actually making it into
+        // the runtime snapshot that the audio thread uses.
+        {
+            let total_slots: usize = external_fx.iter().map(|v| v.len()).sum();
+            let total_external: usize = external_fx
+                .iter()
+                .flat_map(|v| v.iter())
+                .filter(|s| s.instance_id.is_some())
+                .count();
+            let total_internal: usize = external_fx
+                .iter()
+                .flat_map(|v| v.iter())
+                .filter(|s| s.internal_slot_index.is_some())
+                .count();
+            log::info!(
+                "[ExternalFX] Rebuild snapshot: {} tracks, {} total slots ({} external, {} internal), slot_map has {} entries",
+                external_fx.len(),
+                total_slots,
+                total_external,
+                total_internal,
+                slot_instance_map.len()
+            );
+            for (ti, slots) in external_fx.iter().enumerate() {
+                if !slots.is_empty() {
+                    let ext_count = slots.iter().filter(|s| s.instance_id.is_some()).count();
+                    let int_count = slots.iter().filter(|s| s.internal_slot_index.is_some()).count();
+                    let sc_count = slots.iter().filter(|s| s.sidechain_track_index.is_some()).count();
+                    log::info!(
+                        "[ExternalFX]   track[{}]: {} slots (ext={}, int={}, bypassed={}, sc={})",
+                        ti,
+                        slots.len(),
+                        ext_count,
+                        int_count,
+                        slots.iter().filter(|s| s.is_bypassed).count(),
+                        sc_count
+                    );
+                    // Log individual sidechain routing for debugging
+                    for (si, rs) in slots.iter().enumerate() {
+                        if rs.sidechain_track_index.is_some() {
+                            log::info!(
+                                "[ExternalFX]     track[{}] slot[{}]: sc_track_idx={:?}, instance={:?}, internal_idx={:?}",
+                                ti, si, rs.sidechain_track_index, rs.instance_id, rs.internal_slot_index
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         self.external_fx_snapshot.swap(external_fx);
     }
 

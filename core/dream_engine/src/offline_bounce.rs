@@ -49,7 +49,12 @@ use dream_dsp::device_slot::ProcessContext;
 use dream_dsp::dsp_processor::BuiltinEffectType;
 
 use crate::driver::ExternalPluginRuntimeSlot;
-use crate::driver::midi_dispatcher::clamp_midi_pitch;
+use crate::driver::MidiFxRuntimeConfig;
+use crate::driver::{TrackAutomationState, AutomationPoint, ExternalParamAutomationLane};
+use crate::driver::apply_external_plugin_param_automation_block;
+use crate::driver::apply_track_mixer_automation_sample_accurate;
+use crate::driver::parse_external_param_target;
+use crate::driver::midi_dispatcher::{clamp_midi_pitch, quantize_to_scale};
 use crate::render_callback::{RenderContext, soft_clip};
 use crate::essence_synth::EssenceSynthEngine;
 use crate::instrument_core::AdsrParams;
@@ -76,6 +81,10 @@ struct FxChainProcessCtx<'a> {
     right_slots: &'a [crate::render_callback::TrackSlot],
     /// MIDI events for the current track's VST instrument processing.
     midi_events: &'a [MidiEvent],
+    /// Per-track automation state for VST parameter automation during export.
+    automation: &'a [TrackAutomationState],
+    /// Current track index (for automation lookup).
+    track_idx: usize,
 }
 
 struct RenderRoutingCtx<'a> {
@@ -94,6 +103,11 @@ struct RenderRoutingCtx<'a> {
     midi_clips_per_track: &'a [Vec<MidiClip>],
     /// Loop region for MIDI scheduling (if loop enabled).
     loop_region: Option<ClipLoopRegion>,
+    /// Per-track MIDI FX configs for pitch/scale/velocity/random transforms.
+    /// Built from project track data, mirroring the RT path's MidiFxRuntimeConfig.
+    midi_fx_configs: Vec<MidiFxRuntimeConfig>,
+    /// Pre-built per-track automation states for external plugin parameter automation.
+    automation: &'a [TrackAutomationState],
 }
 
 // ── Offline Bouncer ─────────────────────────────────────────────────────
@@ -464,8 +478,12 @@ impl OfflineRenderer {
     ) {
         match node {
             dream_models::project::DeviceNode::Single(slot) => {
-                let bypassed = parent_bypassed || slot.is_bypassed;
-                if !bypassed && let Some(sidechain_id) = &slot.sidechain_source_track_id {
+                // SIDECHAIN-PARITY FIX: Always emit sidechain source entries
+                // regardless of bypass state. Previously bypassed plugins had
+                // their SC sources omitted, shifting indices and silently
+                // breaking routing for subsequent plugins. The live path
+                // (clip_pool.rs:291-302) correctly preserves bypassed entries.
+                if let Some(sidechain_id) = &slot.sidechain_source_track_id {
                     let idx = project
                         .tracks
                         .iter()
@@ -507,6 +525,100 @@ impl OfflineRenderer {
             .collect()
     }
 
+    /// Builds a `MidiFxRuntimeConfig` from a project track's MIDI FX effects
+    /// and automation lanes. This mirrors the RT path's config built in
+    /// `sync_engine.rs::rebuild_midi_snapshot_from_project()`.
+    fn build_midi_fx_config_from_track(
+        track: &dream_models::project::Track,
+    ) -> MidiFxRuntimeConfig {
+        fn has_midi_fx(track: &dream_models::project::Track, plugin_ids: &[&str]) -> bool {
+            track.effects.iter().any(|node| {
+                node.collect_plugin_slots().iter().any(|slot| {
+                    plugin_ids
+                        .iter()
+                        .any(|id| slot.plugin_id.eq_ignore_ascii_case(id))
+                })
+            })
+        }
+
+        fn first_param(track: &dream_models::project::Track, plugin_ids: &[&str], idx: usize) -> Option<f32> {
+            for node in &track.effects {
+                for slot in node.collect_plugin_slots() {
+                    if !plugin_ids.iter().any(|id| slot.plugin_id.eq_ignore_ascii_case(id)) {
+                        continue;
+                    }
+                    if let Some(v) = slot.params.as_ref().and_then(|p| p.get(idx).copied()) {
+                        if v.is_finite() { return Some(v); }
+                    }
+                }
+            }
+            None
+        }
+
+        fn lane_value(track: &dream_models::project::Track, keys: &[&str], default: f32) -> f32 {
+            fn norm(raw: &str) -> String {
+                let lowered = raw.to_ascii_lowercase();
+                let unscoped = if let Some(rest) = lowered.strip_prefix("slot:") {
+                    if let Some(at) = rest.find(':') { &rest[at+1..] } else { lowered.as_str() }
+                } else { lowered.as_str() };
+                unscoped.chars().filter(|c| c.is_ascii_alphanumeric()).collect()
+            }
+            let normalized: Vec<String> = keys.iter().map(|k| norm(k)).collect();
+            for lane in &track.automation_lanes {
+                let lane_key = norm(&lane.param_id);
+                if normalized.iter().any(|key| lane_key == *key || lane_key.ends_with(key.as_str())) {
+                    if let Some(pt) = lane.points.first() {
+                        return pt.value as f32;
+                    }
+                }
+            }
+            default
+        }
+
+        let has_pitch = has_midi_fx(track, &["internal://midi-fx/pitch"]);
+        let has_scale = has_midi_fx(track, &["internal://midi-fx/scale", "internal://midi-fx/chord"]);
+        let has_velocity = has_midi_fx(track, &[
+            "internal://midi-fx/velocity", "internal://midi-fx/note-length",
+            "internal://midi-fx/cc-control", "internal://midi-fx/expression-control",
+        ]);
+        let has_random = has_midi_fx(track, &["internal://midi-fx/random", "internal://midi-fx/arpeggiator"]);
+
+        MidiFxRuntimeConfig {
+            pitch_enabled: has_pitch,
+            pitch_semitones: lane_value(track,
+                &["midi.pitch.semitones", "midifx.pitch.semitones", "midiPitch.semitones"],
+                first_param(track, &["internal://midi-fx/pitch"], 0).unwrap_or(0.0),
+            ).round().clamp(-48.0, 48.0) as i8,
+            scale_enabled: has_scale,
+            scale_root: lane_value(track,
+                &["midi.scale.root", "midifx.scale.root", "midiScale.root"],
+                first_param(track, &["internal://midi-fx/scale"], 0).unwrap_or(0.0),
+            ).round().rem_euclid(12.0) as u8,
+            scale_mask: lane_value(track,
+                &["midi.scale.mask", "midifx.scale.mask", "midiScale.mask"],
+                first_param(track, &["internal://midi-fx/scale"], 1).unwrap_or(4095.0),
+            ).round().clamp(1.0, 4095.0) as u16,
+            velocity_enabled: has_velocity,
+            velocity_gain: lane_value(track,
+                &["midi.velocity.gain", "midifx.velocity.gain", "midiVelocity.gain"],
+                first_param(track, &["internal://midi-fx/velocity"], 0).unwrap_or(1.0),
+            ).clamp(0.0, 4.0),
+            velocity_offset: lane_value(track,
+                &["midi.velocity.offset", "midifx.velocity.offset", "midiVelocity.offset"],
+                first_param(track, &["internal://midi-fx/velocity"], 1).unwrap_or(0.0),
+            ).round().clamp(-127.0, 127.0) as i8,
+            random_enabled: has_random,
+            random_semitones: lane_value(track,
+                &["midi.random.semitones", "midifx.random.semitones", "midiRandom.semitones"],
+                first_param(track, &["internal://midi-fx/random"], 0).unwrap_or(0.0),
+            ).round().clamp(-24.0, 24.0) as i8,
+            random_chance: lane_value(track,
+                &["midi.random.chance", "midifx.random.chance", "midiRandom.chance"],
+                first_param(track, &["internal://midi-fx/random"], 1).unwrap_or(1.0),
+            ).clamp(0.0, 1.0),
+        }
+    }
+
     /// Processes the unified FX chain for a single track slot.
     ///
     /// Mirrors the RT driver's Insert processing logic:
@@ -530,7 +642,13 @@ impl OfflineRenderer {
                 let has_internal_sidechain = runtime_slots
                     .iter()
                     .any(|s| s.internal_slot_index.is_some() && s.sidechain_track_index.is_some());
-                if !has_external && !has_internal_sidechain {
+                // BOUNCE-FIX: Validate internal_slot_index bounds to prevent
+                // out-of-bounds access on DeviceChain (mirrors RT indices_valid check).
+                let chain_len = slot.device_chain.len();
+                let indices_valid = runtime_slots.iter().all(|s| {
+                    s.internal_slot_index.map_or(true, |idx| idx < chain_len)
+                });
+                if (!has_external && !has_internal_sidechain) || !indices_valid {
                     if !slot.device_chain.is_empty() {
                         let pctx = ProcessContext {
                             sample_rate: ctx.sample_rate as f32,
@@ -547,7 +665,14 @@ impl OfflineRenderer {
                         );
                     }
                 } else {
-                    for runtime_slot in runtime_slots {
+                    for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                        // PARITY FIX 1: Skip bypassed runtime slots — audio
+                        // passes through unmodified. The slot stays in the snapshot
+                        // to keep subsequent indices stable, matching the live
+                        // path at audio_thread_runner.rs:550.
+                        if runtime_slot.is_bypassed {
+                            continue;
+                        }
                         let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
                             if src_idx < track_idx {
                                 ctx.left_slots.get(src_idx)
@@ -597,6 +722,18 @@ impl OfflineRenderer {
                                 };
                                 host.set_transport_context(transport);
 
+                                // BOUNCE-AUTOMATION-FIX: Apply external plugin parameter
+                                // automation during export (mirrors RT path's call at
+                                // audio_thread_runner.rs:617). Without this, automated
+                                // plugin parameters are ignored during export.
+                                apply_external_plugin_param_automation_block(
+                                    &mut host,
+                                    ctx.automation.get(ctx.track_idx),
+                                    runtime_slot,
+                                    runtime_slot_idx,
+                                    ctx.playhead_pos,
+                                );
+
                                 let mut out_left = vec![0.0f32; c];
                                 let mut out_right = vec![0.0f32; c];
                                 let main_inputs: [&[f32]; 2] =
@@ -613,15 +750,42 @@ impl OfflineRenderer {
                                     };
                                 let sc_pair =
                                     source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
-                                let _ = host.process_with_sidechain(
+                                // BOUNCE-FIX: Log process errors instead of silently swallowing.
+                                if let Err(proc_err) = host.process_with_sidechain(
                                     &main_inputs,
                                     sc_pair.as_ref().map(|pair| pair.as_slice()),
                                     &mut out_slices,
                                     c,
                                     use_midi,
-                                );
+                                ) {
+                                    log::warn!(
+                                        "[Bounce/FX] Track {}: process_with_sidechain failed: {}",
+                                        track_idx, proc_err
+                                    );
+                                }
+                                // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
+                                // misbehaving plugin would corrupt the entire export file.
+                                for i in 0..c {
+                                    if !out_left[i].is_finite() {
+                                        out_left[i] = 0.0;
+                                    }
+                                    if !out_right[i].is_finite() {
+                                        out_right[i] = 0.0;
+                                    }
+                                }
                                 slot.buf_left[..c].copy_from_slice(&out_left[..c]);
                                 slot.buf_right[..c].copy_from_slice(&out_right[..c]);
+                                // PARITY FIX 2: Sanitize per-track VST output.
+                                // NaN/Inf from a misbehaving plugin would poison
+                                // the entire export. Matches live path AUD-506.
+                                for si in 0..c {
+                                    if !slot.buf_left[si].is_finite() {
+                                        slot.buf_left[si] = 0.0;
+                                    }
+                                    if !slot.buf_right[si].is_finite() {
+                                        slot.buf_right[si] = 0.0;
+                                    }
+                                }
                             } else {
                                 log::warn!(
                                     "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
@@ -777,19 +941,68 @@ impl OfflineRenderer {
                     &mut midi_tmp,
                 );
 
+                // PARITY FIX 3: Build MIDI FX config from project track data
+                // and apply pitch/scale/velocity/random transforms — matching
+                // the live path at audio_thread_runner.rs:674-766.
+                let fx = ctx.midi_fx_configs.get(track_idx)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut rng_state: u32 = 0xDEAD_BEEF_u32.wrapping_add(track_idx as u32);
+
                 for event in &midi_schedule {
                     let offset_on = event.buffer_onset as i32;
                     let offset_off = event.buffer_offset_end as i32;
 
                     if event.is_note_off {
-                        let off_pitch = clamp_midi_pitch(event.pitch as i16);
+                        let mut off_pitch_i16 = event.pitch as i16;
+                        if fx.pitch_enabled {
+                            off_pitch_i16 += fx.pitch_semitones as i16;
+                        }
+                        let mut off_pitch = clamp_midi_pitch(off_pitch_i16);
+                        if fx.scale_enabled {
+                            off_pitch = quantize_to_scale(off_pitch, fx.scale_root, fx.scale_mask);
+                        }
                         track_midi_events.push(MidiEvent::note_off(offset_off, 0, off_pitch, 0));
                     }
 
                     if event.is_note_on {
-                        let on_pitch = clamp_midi_pitch(event.pitch as i16);
-                        let vel = event.velocity;
-                        track_midi_events.push(MidiEvent::note_on(offset_on, 0, on_pitch, vel));
+                        let mut pitch_i16 = event.pitch as i16;
+                        let mut velocity_i16 = event.velocity as i16;
+
+                        if fx.pitch_enabled {
+                            pitch_i16 += fx.pitch_semitones as i16;
+                        }
+                        let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
+
+                        if fx.scale_enabled {
+                            mapped_pitch = quantize_to_scale(
+                                mapped_pitch, fx.scale_root, fx.scale_mask,
+                            );
+                        }
+
+                        if fx.random_enabled && fx.random_semitones != 0 {
+                            // Deterministic xorshift for offline — same seed per track
+                            rng_state ^= rng_state << 13;
+                            rng_state ^= rng_state >> 17;
+                            rng_state ^= rng_state << 5;
+                            let rnd01 = (rng_state as f32) / (u32::MAX as f32);
+                            if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
+                                let span = fx.random_semitones.abs().max(1) as i16;
+                                let signed = ((rng_state >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                mapped_pitch = clamp_midi_pitch(mapped_pitch as i16 + signed);
+                            }
+                        }
+
+                        if fx.velocity_enabled {
+                            velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain)
+                                .round() as i16
+                                + fx.velocity_offset as i16;
+                        }
+                        let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
+
+                        track_midi_events.push(MidiEvent::note_on(
+                            offset_on, 0, mapped_pitch, mapped_velocity,
+                        ));
                     }
                 }
 
@@ -818,6 +1031,8 @@ impl OfflineRenderer {
                 left_slots,
                 right_slots: right_slots_rest,
                 midi_events: &track_midi_events,
+                automation: ctx.automation,
+                track_idx,
             };
             Self::process_track_fx_chain(slot, track_idx, frame_count, &fx_ctx);
 
@@ -831,6 +1046,20 @@ impl OfflineRenderer {
             } else {
                 slot.buf_left[..frame_count].fill(0.0);
                 slot.buf_right[..frame_count].fill(0.0);
+            }
+
+            // BOUNCE-AUTOMATION-FIX: Apply track mixer automation (volume/pan
+            // automation curves) — mirrors RT path at audio_thread_runner.rs:838.
+            // Without this, automated volume fades and pan sweeps are completely
+            // ignored during export, producing different audio from playback.
+            if let Some(lane) = ctx.automation.get(track_idx) {
+                apply_track_mixer_automation_sample_accurate(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                    playhead_pos,
+                    (!lane.volume.is_empty()).then_some(lane.volume.as_slice()),
+                    (!lane.pan.is_empty()).then_some(lane.pan.as_slice()),
+                );
             }
 
             // 3. Route Output to Parent Group (if any) or Master Bus
@@ -893,6 +1122,10 @@ impl OfflineRenderer {
                     );
                 } else {
                     for runtime_slot in master_slots.iter() {
+                        // BYPASS-FIX: Skip bypassed master bus slots.
+                        if runtime_slot.is_bypassed {
+                            continue;
+                        }
                         if let Some(internal_idx) = runtime_slot.internal_slot_index {
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let pctx = ProcessContext {
@@ -914,9 +1147,14 @@ impl OfflineRenderer {
                             continue;
                         }
 
-                        if let Some(instance_id) = runtime_slot.instance_id
-                            && let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id)
-                        {
+                        if let Some(instance_id) = runtime_slot.instance_id {
+                            let Some(plugin_mtx) = ctx.plugin_registry.get(&instance_id) else {
+                                log::warn!(
+                                    "[Bounce/Master] VST3 instance {} not in registry — skipping",
+                                    instance_id
+                                );
+                                continue;
+                            };
                             let mut host = plugin_mtx.lock();
                             let (master_l, master_r) = render_ctx.master_bus.left_right_mut();
                             let main_inputs: [&[f32]; 2] =
@@ -932,18 +1170,40 @@ impl OfflineRenderer {
                             };
                             host.set_transport_context(transport);
 
+                            // BOUNCE-AUTOMATION-FIX: Apply master bus external plugin
+                            // parameter automation during export — mirrors per-track.
+                            // Master bus slots use master_fx_idx as the automation index.
+                            // Since master automation is not yet stored per-slot,
+                            // we skip this for now (master rarely has param automation).
+                            // TODO: When master automation lanes are added, wire them here.
+
                             let mut ext_left = vec![0.0f32; frame_count];
                             let mut ext_right = vec![0.0f32; frame_count];
                             let mut out_slices: [&mut [f32]; 2] =
                                 [&mut ext_left[..frame_count], &mut ext_right[..frame_count]];
                             let empty_midi: &[dream_plugins::MidiEvent] = &[];
-                            let _ = host.process_with_sidechain(
+                            // BOUNCE-FIX: Log process errors instead of silently swallowing.
+                            if let Err(proc_err) = host.process_with_sidechain(
                                 &main_inputs,
                                 None,
                                 &mut out_slices,
                                 frame_count,
                                 empty_midi,
-                            );
+                            ) {
+                                log::warn!(
+                                    "[Bounce/Master] process_with_sidechain failed: {}",
+                                    proc_err
+                                );
+                            }
+                            // BOUNCE-FIX: Sanitize plugin output — NaN/Inf would corrupt export.
+                            for i in 0..frame_count {
+                                if !ext_left[i].is_finite() {
+                                    ext_left[i] = 0.0;
+                                }
+                                if !ext_right[i].is_finite() {
+                                    ext_right[i] = 0.0;
+                                }
+                            }
                             master_l[..frame_count].copy_from_slice(&ext_left[..frame_count]);
                             master_r[..frame_count].copy_from_slice(&ext_right[..frame_count]);
                         }
@@ -1562,6 +1822,67 @@ impl OfflineRenderer {
         let mut last_progress = -1.0f32;
         let sidechains = Self::build_sidechains(project);
 
+        // PARITY FIX 3: Build per-track MIDI FX configs from project data.
+        // This mirrors the RT driver's rebuild_midi_snapshot_from_project()
+        // so offline export applies the same pitch/scale/velocity/random
+        // transforms as live playback.
+        let midi_fx_configs: Vec<MidiFxRuntimeConfig> = project
+            .tracks
+            .iter()
+            .map(|track| Self::build_midi_fx_config_from_track(track))
+            .collect();
+
+        // BOUNCE-AUTOMATION-FIX: Build per-track external plugin automation
+        // from project model. This mirrors the RT driver's
+        // rebuild_automation_snapshot_from_project() so offline export applies
+        // the same plugin parameter automation as live playback.
+        let bounce_automation: Vec<TrackAutomationState> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                let mut state = TrackAutomationState::default();
+                for lane in &track.automation_lanes {
+                    let key = lane.param_id.to_lowercase();
+                    let mut points: Vec<AutomationPoint> = lane
+                        .points
+                        .iter()
+                        .map(|p| AutomationPoint {
+                            sample_frame: project.pulse_map.sample_frame(p.beat.max(0.0)),
+                            value: p.value as f32,
+                        })
+                        .collect();
+                    points.sort_by_key(|p| p.sample_frame);
+
+                    // BOUNCE-AUTOMATION-FIX: Parse volume/pan automation in
+                    // addition to external plugin params. Without this, track
+                    // volume/pan curves are applied only via static strip gain
+                    // and animated curves are completely ignored during export.
+                    let is_pan = matches!(key.as_str(), "pan" | "track.pan" | "mixer.pan");
+                    let is_vol = matches!(
+                        key.as_str(),
+                        "volume" | "gain" | "track.volume" | "track.gain" | "mixer.gain"
+                    );
+                    if is_pan {
+                        for p in &mut points {
+                            p.value = p.value.clamp(-1.0, 1.0);
+                        }
+                        state.pan = points;
+                    } else if is_vol {
+                        for p in &mut points {
+                            p.value = p.value.clamp(0.0, 2.0);
+                        }
+                        state.volume = points;
+                    } else if let Some(target) = parse_external_param_target(&lane.param_id) {
+                        state.external_plugin_params.push(ExternalParamAutomationLane {
+                            target,
+                            points,
+                        });
+                    }
+                }
+                state
+            })
+            .collect();
+
         while frames_rendered < total_frames {
             if self.cancel_flag.load(Ordering::SeqCst) {
                 return Err(BounceError::RenderError(
@@ -1587,6 +1908,8 @@ impl OfflineRenderer {
                 master_device_chain: &mut master_device_chain,
                 midi_clips_per_track: &midi_clips_per_track,
                 loop_region: bounce_loop_region,
+                midi_fx_configs: midi_fx_configs.clone(),
+                automation: &bounce_automation,
             };
             Self::render_routing_aware(
                 &mut render_ctx,

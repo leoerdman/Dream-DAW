@@ -36,7 +36,7 @@ use dream_models::project::AudioClip;
 use crate::render_callback::{MAX_BUFFER_FRAMES, MAX_TRACKS, RenderContext};
 use crate::sampler::{SampleRackEngine, SamplerEngine};
 #[path = "driver/automation.rs"]
-mod automation;
+pub(crate) mod automation;
 #[path = "driver/cpal_backend.rs"]
 mod cpal_backend;
 #[path = "driver/executor.rs"]
@@ -50,10 +50,9 @@ mod rt_debug;
 #[path = "driver/snapshots.rs"]
 mod snapshots;
 pub use automation::{ExternalParamTarget, parse_external_param_target};
+pub(crate) use automation::{apply_external_plugin_param_automation_block, apply_track_mixer_automation_sample_accurate};
 #[cfg(test)]
-use automation::{
-    apply_gain_pan_automation_sample_accurate, apply_track_mixer_automation_sample_accurate,
-};
+use automation::apply_gain_pan_automation_sample_accurate;
 use cpal_backend::{list_audio_devices_backend, resolve_output_setup};
 pub use graph_topology::{
     PreparedGraphSnapshot, SharedPreparedGraphSnapshot, prepare_graph_snapshot_for_routing,

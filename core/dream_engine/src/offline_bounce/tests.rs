@@ -425,6 +425,8 @@ fn master_fx_processes_both_group_and_direct_paths() {
         master_device_chain: &mut master_chain_none,
         midi_clips_per_track: &midi_clips_per_track,
         loop_region: None,
+        midi_fx_configs: Vec::new(),
+        automation: &[],
     };
     OfflineRenderer::render_routing_aware(
         &mut render_ctx,
@@ -457,6 +459,8 @@ fn master_fx_processes_both_group_and_direct_paths() {
         master_device_chain: &mut master_chain_utility,
         midi_clips_per_track: &midi_clips_per_track,
         loop_region: None,
+        midi_fx_configs: Vec::new(),
+        automation: &[],
     };
     OfflineRenderer::render_routing_aware(
         &mut render_ctx_with_master,

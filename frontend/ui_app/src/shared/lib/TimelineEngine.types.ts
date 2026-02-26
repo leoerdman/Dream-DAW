@@ -8,6 +8,7 @@ export interface TimelineEngineConfig {
     viewport: ViewportConfig;
     snapBeats?: number;
     snapEnabled?: boolean;
+    automationVisible?: boolean;
 }
 
 export interface HitTestResult {

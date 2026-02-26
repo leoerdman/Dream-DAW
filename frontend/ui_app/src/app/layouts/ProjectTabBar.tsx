@@ -1,14 +1,15 @@
 import { X } from 'lucide-react';
-import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useShallow } from 'zustand/react/shallow';
 
 export function ProjectTabBar() {
-    const { filePath: projectFilePath } = useProjectManager();
-    const isDirty = useEngineStore((s) => s.isDirty);
-
-    const projectName = projectFilePath
-        ? projectFilePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled'
-        : 'Untitled';
+    const { openProjects, activeProjectId, setActiveProject, closeProjectTab, addProjectTab } = useEngineStore(useShallow(s => ({
+        openProjects: s.openProjects,
+        activeProjectId: s.activeProjectId,
+        setActiveProject: s.setActiveProject,
+        closeProjectTab: s.closeProjectTab,
+        addProjectTab: s.addProjectTab,
+    })));
 
     return (
         <div
@@ -27,69 +28,94 @@ export function ProjectTabBar() {
                 zIndex: 100,
             }}
         >
-            <div
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    height: 26,
-                    padding: '0 12px',
-                    background: 'var(--color-bg-elevated)', // Exactly matches Transport Bar
-                    borderTopLeftRadius: 'var(--radius-md)',
-                    borderTopRightRadius: 'var(--radius-md)',
-                    border: 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 50%, transparent)',
-                    borderBottom: 'none',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 500,
-                    pointerEvents: 'auto',
-                    boxShadow: '0 -1px 4px color-mix(in srgb, var(--color-background-elevated) 10%, transparent)',
-                    marginLeft: 8,
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ opacity: 0.9 }}>{projectName}</span>
-                    <span
+            {openProjects.map(tab => {
+                const isActive = tab.id === activeProjectId;
+                return (
+                    <div
+                        key={tab.id}
+                        onClick={() => setActiveProject(tab.id)}
                         style={{
-                            color: isDirty ? 'white' : 'transparent',
-                            fontSize: 16,
-                            lineHeight: 1,
-                            width: 10,
-                            userSelect: 'none',
-                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            height: 26,
+                            padding: '0 12px',
+                            background: isActive
+                                ? 'var(--color-bg-elevated)' // Active: Exactly matches Transport Bar
+                                : 'transparent',             // Inactive: Transparent (dark)
+                            borderTopLeftRadius: 'var(--radius-md)',
+                            borderTopRightRadius: 'var(--radius-md)',
+                            border: isActive
+                                ? 'var(--space-px) solid color-mix(in srgb, var(--color-divider) 50%, transparent)'
+                                : 'none',
+                            borderBottom: 'none',
+                            color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: isActive ? 600 : 500,
+                            pointerEvents: 'auto',
+                            boxShadow: isActive
+                                ? '0 -1px 4px color-mix(in srgb, var(--color-background-elevated) 10%, transparent)'
+                                : 'none',
+                            marginLeft: 8,
+                            cursor: 'pointer',
                         }}
                     >
-                        *
-                    </span>
-                </div>
-                <button
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 16,
-                        height: 16,
-                        borderRadius: 3,
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'var(--color-text-tertiary)',
-                        cursor: 'pointer',
-                        padding: 0,
-                        marginLeft: 4,
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';
-                        e.currentTarget.style.color = 'var(--color-text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--color-text-tertiary)';
-                    }}
-                    title="Close Project"
-                >
-                    <X size={12} />
-                </button>
-            </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ opacity: isActive ? 0.9 : 0.7 }}>
+                                {tab.name}
+                            </span>
+                            <span
+                                style={{
+                                    color: tab.isDirty ? 'white' : 'transparent',
+                                    fontSize: 16,
+                                    lineHeight: 1,
+                                    width: 10,
+                                    userSelect: 'none',
+                                    fontWeight: 600,
+                                    opacity: isActive ? 1 : 0.5,
+                                }}
+                            >
+                                *
+                            </span>
+                        </div>
+                        <button
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 16,
+                                height: 16,
+                                borderRadius: 3,
+                                border: 'none',
+                                background: 'transparent',
+                                color: isActive
+                                    ? 'var(--color-text-tertiary)'
+                                    : 'color-mix(in srgb, var(--color-text-tertiary) 50%, transparent)',
+                                cursor: 'pointer',
+                                padding: 0,
+                                marginLeft: 4,
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'color-mix(in srgb, var(--color-text-primary) 10%, transparent)';
+                                e.currentTarget.style.color = 'var(--color-text-primary)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.color = isActive
+                                    ? 'var(--color-text-tertiary)'
+                                    : 'color-mix(in srgb, var(--color-text-tertiary) 50%, transparent)';
+                            }}
+                            title="Close Project"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                closeProjectTab(tab.id);
+                            }}
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                );
+            })}
 
             <button
                 style={{
@@ -117,6 +143,15 @@ export function ProjectTabBar() {
                     e.currentTarget.style.color = 'var(--color-text-tertiary)';
                 }}
                 title="New Project"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    addProjectTab({
+                        id: crypto.randomUUID(),
+                        name: 'Untitled',
+                        filePath: null,
+                        isDirty: false
+                    });
+                }}
             >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"></line>

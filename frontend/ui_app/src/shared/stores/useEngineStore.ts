@@ -24,9 +24,18 @@ export type { ProjectTrack } from '@/shared/lib/trackAdapter';
 const VIEWPORT_POSITION_EPSILON = 0.5;
 const VIEWPORT_ZOOM_EPSILON = 0.0001;
 
+export interface ProjectTab {
+    id: string;
+    name: string;
+    filePath: string | null;
+    isDirty: boolean; // Tracks unsaved changes per tab
+}
+
 export interface EngineStore {
     telemetryRunning: boolean;
     connected: boolean;
+    activeProjectId: string | null;
+    openProjects: ProjectTab[];
     /** BUG-001: Project dirty flag — true when unsaved changes exist. */
     isDirty: boolean;
     transport: TransportState;
@@ -55,6 +64,10 @@ export interface EngineStore {
     markDirty: () => void;
     /** BUG-001: Clear the dirty flag (called after save). */
     clearDirty: () => void;
+    setActiveProject: (id: string) => void;
+    addProjectTab: (tab: ProjectTab) => void;
+    closeProjectTab: (id: string) => void;
+    setProjectDirtyState: (id: string, isDirty: boolean) => void;
     togglePlay: () => Promise<void>;
     play: () => Promise<void>;
     stop: () => Promise<void>;
@@ -135,7 +148,9 @@ function shouldApplyViewportRestore(reason: string): boolean {
 export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,
     connected: false,
-    isDirty: false, // BUG-001: Project dirty flag
+    activeProjectId: null,
+    openProjects: [{ id: 'default', name: 'Untitled', filePath: null, isDirty: false }], // Start with one tab
+    isDirty: false, // Legacy fallback, to be replaced by tab-specific dirty state
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
     timelineClips: [],
@@ -158,9 +173,45 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
-    // BUG-001: Dirty flag actions
-    markDirty: () => set((s) => s.isDirty ? s : { isDirty: true }),
-    clearDirty: () => set({ isDirty: false }),
+    // BUG-001: Dirty flag actions (Now updates the active tab's state too)
+    markDirty: () => set((s) => {
+        if (s.isDirty) return s;
+        if (s.activeProjectId) {
+            const tabs = s.openProjects.map(t =>
+                t.id === s.activeProjectId ? { ...t, isDirty: true } : t
+            );
+            return { isDirty: true, openProjects: tabs };
+        }
+        return { isDirty: true };
+    }),
+    clearDirty: () => set((s) => {
+        if (s.activeProjectId) {
+            const tabs = s.openProjects.map(t =>
+                t.id === s.activeProjectId ? { ...t, isDirty: false } : t
+            );
+            return { isDirty: false, openProjects: tabs };
+        }
+        return { isDirty: false };
+    }),
+    setActiveProject: (id) => set({ activeProjectId: id }),
+    addProjectTab: (tab) => set((s) => ({
+        openProjects: [...s.openProjects, tab],
+        activeProjectId: tab.id // Auto-focus new tab
+    })),
+    closeProjectTab: (id) => set((s) => {
+        const remaining = s.openProjects.filter(t => t.id !== id);
+        if (remaining.length === 0) {
+            // Can't close last tab, or if we do, spawn a new one
+            return s;
+        }
+        const newActiveId = s.activeProjectId === id
+            ? remaining[remaining.length - 1].id // If we closed the active tab, focus the last one
+            : s.activeProjectId;
+        return { openProjects: remaining, activeProjectId: newActiveId };
+    }),
+    setProjectDirtyState: (id, isDirty) => set((s) => ({
+        openProjects: s.openProjects.map(t => t.id === id ? { ...t, isDirty } : t)
+    })),
     ...createTransportActions(set, get, setBpmPendingUntil),
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),

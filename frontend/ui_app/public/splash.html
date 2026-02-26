@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dream DAW - Loading</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+        :root {
+            --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            /* The actual Tauri window is transparent, this creates the rounded dark card */
+            background: transparent;
+            overflow: hidden;
+            font-family: var(--font-family);
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .splash-overlay {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0f0f0f;
+            border-radius: 12px;
+            /* Smooth corners for borderless window */
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            position: relative;
+            opacity: 1;
+            transition: opacity 400ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Tauri specific drag region */
+        .drag-region {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 100;
+            -webkit-app-region: drag;
+        }
+
+        .splash-card {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            -webkit-app-region: no-drag;
+        }
+
+        .splash-gradient {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 70% 50% at 50% 46%, rgba(74, 158, 255, 0.06) 0%, transparent 70%),
+                linear-gradient(180deg,
+                    #0f0f0f 0%,
+                    #1a1a1a 50%,
+                    #0f0f0f 100%);
+            z-index: 0;
+        }
+
+        .splash-logo-container {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            flex-shrink: 0;
+            margin-bottom: 24px;
+            z-index: 2;
+        }
+
+        .splash-logo-glow {
+            position: absolute;
+            inset: -20px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(74, 158, 255, 0.3) 0%, transparent 70%);
+            pointer-events: none;
+            animation: splash-glow-pulse 2.4s ease-in-out infinite;
+            z-index: -1;
+        }
+
+        @keyframes splash-glow-pulse {
+
+            0%,
+            100% {
+                opacity: 0.7;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.08);
+            }
+        }
+
+        .splash-logo {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            border-radius: 22%;
+            object-fit: cover;
+            will-change: transform;
+            filter: drop-shadow(0 0 24px rgba(74, 158, 255, 0.3));
+            animation: splash-logo-float 3s ease-in-out infinite;
+        }
+
+        @keyframes splash-logo-float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-6px);
+            }
+        }
+
+        .splash-title {
+            position: relative;
+            margin: 0 0 6px;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 4px;
+            color: #ffffff;
+            text-align: center;
+            text-shadow: 0 0 20px rgba(74, 158, 255, 0.3);
+            animation: splash-title-glow 3s ease-in-out infinite;
+            z-index: 2;
+        }
+
+        @keyframes splash-title-glow {
+
+            0%,
+            100% {
+                text-shadow: 0 0 20px rgba(74, 158, 255, 0.3);
+            }
+
+            50% {
+                text-shadow: 0 0 30px rgba(74, 158, 255, 0.55), 0 0 60px rgba(74, 158, 255, 0.15);
+            }
+        }
+
+        .splash-version {
+            position: relative;
+            font-family: var(--font-mono);
+            font-size: 18px;
+            font-weight: 600;
+            color: #4a9eff;
+            letter-spacing: 1px;
+            margin-bottom: 0;
+            z-index: 2;
+        }
+
+        .splash-status-container {
+            position: absolute;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            z-index: 2;
+        }
+
+        .splash-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-top-color: #4a9eff;
+            border-radius: 50%;
+            animation: splash-spin 800ms linear infinite;
+        }
+
+        @keyframes splash-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .splash-status {
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.45);
+            transition: opacity 200ms ease;
+            white-space: nowrap;
+        }
+
+        .splash-progress-bar {
+            width: 200px;
+            height: 2px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .splash-progress-fill {
+            height: 100%;
+            border-radius: 9999px;
+            background: linear-gradient(90deg, #4a9eff, rgba(74, 158, 255, 0.4));
+            transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+            width: 0%;
+        }
+
+        @media (max-width: 500px),
+        (max-height: 500px) {
+
+            .splash-logo-container,
+            .splash-logo {
+                width: 120px;
+                height: 120px;
+            }
+
+            .splash-title {
+                font-size: 24px;
+                letter-spacing: 3px;
+            }
+
+            .splash-version {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="splash-overlay" id="overlay">
+        <div class="drag-region"></div>
+        <div class="splash-card">
+            <div class="splash-gradient"></div>
+
+            <div class="splash-logo-container">
+                <div class="splash-logo-glow"></div>
+                <img src="/appicon.png" alt="Dream DAW" class="splash-logo" draggable="false" />
+            </div>
+
+            <h1 class="splash-title">DREAM DAW</h1>
+            <span class="splash-version" id="version-display">v1.0.442</span>
+
+            <div class="splash-status-container">
+                <div class="splash-spinner"></div>
+                <span class="splash-status" id="status-text">Initializing Audio Engine...</span>
+                <div class="splash-progress-bar">
+                    <div class="splash-progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusText = document.getElementById('status-text');
+        const progressFill = document.getElementById('progress-fill');
+
+        // Exact timing replica of the React component's visual progression
+        const steps = [
+            { text: 'Loading Core Modules...', delay: 500, pct: 20 },
+            { text: 'Initializing DSP Pipeline...', delay: 1100, pct: 45 },
+            { text: 'Scanning Audio Devices...', delay: 1700, pct: 70 },
+            { text: 'Preparing Workspace...', delay: 2100, pct: 88 },
+            { text: 'Ready', delay: 2400, pct: 96 }
+        ];
+
+        steps.forEach(({ text, delay, pct }) => {
+            setTimeout(() => {
+                statusText.innerText = text;
+                progressFill.style.width = `${pct}%`;
+            }, delay);
+        });
+    </script>
+</body>
+
+</html>

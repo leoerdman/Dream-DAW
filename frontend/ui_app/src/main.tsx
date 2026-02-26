@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { StrictMode, useState, useEffect, Component } from 'react'
+import { StrictMode, useState, useEffect, useCallback, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { createRoot } from 'react-dom/client'
 import './global.css'
@@ -65,6 +65,7 @@ class ErrorBoundary extends Component<
 
 function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const [workspaceMounted, setWorkspaceMounted] = useState(false)
   const [fatalError, setFatalError] = useState<string | null>(null)
   const theme = useSettingsStore((s) => s.settings.theme)
   const darkThemeShade = useSettingsStore((s) => s.settings.darkThemeShade)
@@ -166,25 +167,23 @@ function App() {
     settingsLoaded,
   ])
 
-  // BUG-005 FIX: Retry expandWindow with exponential backoff (max 3 attempts)
+  // BUG-005 FIX: Retry closeSplashscreen with exponential backoff (max 3 attempts)
   // BUG-029 FIX: Set error state on final failure so user gets visual feedback.
   const [windowError, setWindowError] = useState(false)
-  useEffect(() => {
-    const retryExpandWindow = async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await engineApi.expandWindow()
-          return // success
-        } catch (err) {
-          const delay = (attempt + 1) * 500 // 500ms, 1000ms, 1500ms
-          console.warn(`[App] expandWindow attempt ${attempt + 1} failed, retrying in ${delay}ms:`, err)
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
+
+  const attemptCloseSplashscreen = useCallback(async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await engineApi.closeSplashscreen()
+        return // success
+      } catch (err) {
+        const delay = (attempt + 1) * 500 // 500ms, 1000ms, 1500ms
+        console.warn(`[App] closeSplashscreen attempt ${attempt + 1} failed, retrying in ${delay}ms:`, err)
+        await new Promise(resolve => setTimeout(resolve, delay))
       }
-      console.error('[App] expandWindow failed after 3 attempts')
-      setWindowError(true)
     }
-    retryExpandWindow()
+    console.error('[App] closeSplashscreen failed after 3 attempts')
+    setWindowError(true)
   }, [])
 
   useEffect(() => {
@@ -204,13 +203,18 @@ function App() {
   useAutoSave(splashDone ? 3 * 60 * 1000 : Infinity)
 
   const handleSplashComplete = () => {
+    // Only signals that headless init is done.
+    // We do NOT close the window yet; we wait for React to mount <Workspace />
     setSplashDone(true)
-    setTimeout(() => {
-      engineApi.maximizeWindow().catch((err) => {
-        console.warn('[App] maximizeWindow failed:', err)
-      })
-    }, 400)
   }
+
+  useEffect(() => {
+    if (workspaceMounted) {
+      // Instantly try to close splash and maximize window the moment the 
+      // Main DAW interface has been fully mounted and painted to the DOM.
+      attemptCloseSplashscreen().catch(console.error)
+    }
+  }, [workspaceMounted, attemptCloseSplashscreen])
 
   return (
     <>
@@ -260,7 +264,7 @@ function App() {
         {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
 
         {/* Workspace mounts ONLY after splash is done, window is already maximized */}
-        {splashDone && <Workspace />}
+        {splashDone && <Workspace onMounted={() => setWorkspaceMounted(true)} />}
       </ErrorBoundary>
     </>
   )

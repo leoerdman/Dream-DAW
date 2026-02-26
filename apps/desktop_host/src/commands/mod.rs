@@ -143,7 +143,7 @@ pub(crate) fn invoke_handler()
         pick_project_file,
         save_project_dialog,
         // Splash
-        expand_window,
+        close_splashscreen,
         maximize_window,
         // Legacy
         set_frequency,

@@ -99,6 +99,7 @@ export const Timeline = (props: TimelineProps) => {
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
         snapEnabled,
+        automationVisible: props.automationVisible ?? false,
     };
     const { canvasRef, engineRef, viewportState } = useTimelineEngine(engineConfig);
     const [arrangementWidth, setArrangementWidth] = useState(800);

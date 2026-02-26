@@ -1,6 +1,6 @@
 {
     "productName": "Dream DAW",
-    "version": "1.0.442",
+    "version": "1.0.444",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
@@ -22,12 +22,27 @@
                 "hiddenTitle": true,
                 "backgroundColor": "#0f0f0f",
                 "maximizable": true,
-                "center": true
+                "center": true,
+                "visible": false
+            },
+            {
+                "label": "splashscreen",
+                "title": "Welcome",
+                "width": 500,
+                "height": 500,
+                "resizable": false,
+                "fullscreen": false,
+                "decorations": false,
+                "transparent": true,
+                "backgroundColor": "#00000000",
+                "center": true,
+                "url": "/splash.html"
             }
         ],
         "security": {
             "csp": null
-        }
+        },
+        "macOSPrivateApi": true
     },
     "bundle": {
         "active": true,

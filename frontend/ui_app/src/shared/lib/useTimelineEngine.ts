@@ -38,6 +38,7 @@ export interface UseTimelineEngineConfig {
     initialPpb?: number;
     snapBeats?: number;
     snapEnabled?: boolean;
+    automationVisible: boolean;
 }
 
 // ── Return type ───────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export function useTimelineEngine(
             sampleRate: initialConfig.sampleRate,
             snapBeats: initialConfig.snapBeats,
             snapEnabled: initialConfig.snapEnabled,
+            automationVisible: initialConfig.automationVisible,
             viewport: {
                 totalBeats: initialConfig.totalBeats,
                 trackCount: initialConfig.trackCount,
@@ -118,6 +120,7 @@ export function useTimelineEngine(
             sampleRate: config.sampleRate,
             snapBeats: config.snapBeats,
             snapEnabled: config.snapEnabled,
+            automationVisible: config.automationVisible,
             viewport: {
                 totalBeats: config.totalBeats,
                 trackCount: config.trackCount,
@@ -132,6 +135,7 @@ export function useTimelineEngine(
         config.totalBeats, config.trackCount, config.trackHeight,
         config.trackHeights,
         config.rulerHeight, config.bottomPaddingPx, config.snapBeats, config.snapEnabled,
+        config.automationVisible,
     ]);
 
     return useMemo(() => ({

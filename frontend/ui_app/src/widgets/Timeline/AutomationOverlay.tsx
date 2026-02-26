@@ -87,14 +87,12 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 (l) => l.trackId === trackId && l.visible,
             );
 
-            if (trackAutoLanes.length > 0) {
-                result.push({
-                    trackIndex: i,
-                    trackId,
-                    trackColor: trackRgb,
-                    lanes: trackAutoLanes,
-                });
-            }
+            result.push({
+                trackIndex: i,
+                trackId,
+                trackColor: trackRgb,
+                lanes: trackAutoLanes,
+            });
         }
         return result;
     }, [lanes, trackCount, trackIds, tracksById]);
@@ -124,59 +122,90 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 zIndex: 'var(--z-timeline-overlays)',
             }}
         >
-            {trackLanes.map(({ trackIndex, lanes: tLanes }) => {
-                // Position the automation sub-rows starting BELOW the track row
-                const trackBottom =
-                    RULER_HEIGHT + (trackOffsets[trackIndex + 1] ?? 0) - scrollTop;
+            {trackLanes.map(({ trackIndex, trackColor, lanes: tLanes }) => {
+                // Determine track bounds for the main baseline line
+                const trackTop = RULER_HEIGHT + (trackOffsets[trackIndex] ?? 0) - scrollTop;
+                const trackH = (trackOffsets[trackIndex + 1] ?? 0) - (trackOffsets[trackIndex] ?? 0);
+                const trackBottom = trackTop + trackH;
+                const baselineY = trackTop + Math.max(0, (trackH / 2) - 4);
 
-                return tLanes.map((lane, laneIdx) => {
-                    const laneTop = trackBottom + laneIdx * LANE_HEIGHT;
-
-                    return (
-                        <div
-                            key={lane.id}
-                            style={{
-                                position: 'absolute',
-                                top: laneTop,
-                                left: 0,
-                                width,
-                                height: LANE_HEIGHT,
-                                pointerEvents: 'all',
-                                background:
-                                    'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
-                                borderBottom:
-                                    'var(--space-px) solid var(--color-divider)',
-                            }}
-                        >
-                            {/* Lane label */}
-                            <span
+                return (
+                    <div key={`track-${trackIndex}`} style={{ display: 'contents' }}>
+                        {/* Baseline standard straight line over the main track bounds */}
+                        {trackH > 10 && (
+                            <svg
                                 style={{
                                     position: 'absolute',
-                                    top: 2,
-                                    left: 8,
-                                    fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 'var(--font-weight-semibold)',
-                                    color: lane.color,
-                                    opacity: 0.8,
-                                    zIndex: 'var(--z-local)',
+                                    top: 0,
+                                    left: 0,
+                                    width: width,
+                                    height: trackBottom,
                                     pointerEvents: 'none',
-                                    textShadow: 'var(--text-shadow-dark)',
+                                    overflow: 'visible',
                                 }}
                             >
-                                {lane.paramName}
-                            </span>
+                                <line
+                                    x1={0}
+                                    x2={width}
+                                    y1={baselineY}
+                                    y2={baselineY}
+                                    stroke={trackColor}
+                                    strokeWidth={1.5}
+                                    strokeOpacity={0.8}
+                                />
+                            </svg>
+                        )}
 
-                            {/* SVG breakpoint editor */}
-                            <AutomationLane
-                                lane={lane}
-                                width={width}
-                                height={LANE_HEIGHT}
-                                pixelsPerBeat={pixelsPerBeat}
-                                scrollOffsetBeats={scrollOffsetBeats}
-                            />
-                        </div>
-                    );
-                });
+                        {tLanes.map((lane, laneIdx) => {
+                            const laneTop = trackBottom + laneIdx * LANE_HEIGHT;
+
+                            return (
+                                <div
+                                    key={lane.id}
+                                    style={{
+                                        position: 'absolute',
+                                        top: laneTop,
+                                        left: 0,
+                                        width,
+                                        height: LANE_HEIGHT,
+                                        pointerEvents: 'all',
+                                        background:
+                                            'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
+                                        borderBottom:
+                                            'var(--space-px) solid var(--color-divider)',
+                                    }}
+                                >
+                                    {/* Lane label */}
+                                    <span
+                                        style={{
+                                            position: 'absolute',
+                                            top: 2,
+                                            left: 8,
+                                            fontSize: 'var(--font-size-2xs)',
+                                            fontWeight: 'var(--font-weight-semibold)',
+                                            color: lane.color,
+                                            opacity: 0.8,
+                                            zIndex: 'var(--z-local)',
+                                            pointerEvents: 'none',
+                                            textShadow: 'var(--text-shadow-dark)',
+                                        }}
+                                    >
+                                        {lane.paramName}
+                                    </span>
+
+                                    {/* SVG breakpoint editor */}
+                                    <AutomationLane
+                                        lane={lane}
+                                        width={width}
+                                        height={LANE_HEIGHT}
+                                        pixelsPerBeat={pixelsPerBeat}
+                                        scrollOffsetBeats={scrollOffsetBeats}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                );
             })}
         </div>
     );

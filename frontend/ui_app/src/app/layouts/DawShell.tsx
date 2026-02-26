@@ -48,7 +48,7 @@ import { DawShellOverlays } from './DawShellOverlays';
 type BottomPanelMode = 'rack' | 'clip';
 type MainViewMode = 'arrangement' | 'session';
 
-export const DawShell = () => {
+export const DawShell = ({ onMounted }: { onMounted?: () => void }) => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('master');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -114,6 +114,12 @@ export const DawShell = () => {
     useEffect(() => {
         document.documentElement.style.setProperty('--daw-bottom-panel-height', `${bottomPanelHeightPx}px`);
     }, [bottomPanelHeightPx]);
+
+    // Signal high-level layout readiness
+    useEffect(() => {
+        onMounted?.();
+    }, [onMounted]);
+
     useDawShellUiPreferences({
         settingsLoaded,
         settings,

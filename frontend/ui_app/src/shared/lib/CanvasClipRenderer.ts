@@ -117,6 +117,7 @@ export class CanvasClipRenderer {
         dropTarget: { track: number; beat: number } | null,
         sampleRate: number,
         bpm: number,
+        automationVisible: boolean,
     ): void {
         this._syncTheme();
         const theme = this._theme!;
@@ -146,7 +147,7 @@ export class CanvasClipRenderer {
         this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack, selectedTracks);
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
-        this._drawClips(ctx, vp, clips, range, sampleRate);
+        this._drawClips(ctx, vp, clips, range, sampleRate, automationVisible);
         this._drawMarquee(ctx, vp, marquee);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
@@ -388,6 +389,7 @@ export class CanvasClipRenderer {
         clips: TimelineClipData[],
         range: VisibleRange,
         sampleRate: number,
+        automationVisible: boolean,
     ): void {
         const bufferBeats = 2;
         // ── P5: Reuse pre-allocated buffer instead of filter() ──
@@ -410,7 +412,7 @@ export class CanvasClipRenderer {
         });
 
         for (const clip of filtered) {
-            this._drawSingleClip(ctx, vp, clip, sampleRate);
+            this._drawSingleClip(ctx, vp, clip, sampleRate, automationVisible);
         }
     }
 
@@ -419,6 +421,7 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         clip: TimelineClipData,
         sampleRate: number,
+        automationVisible: boolean,
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
@@ -436,6 +439,8 @@ export class CanvasClipRenderer {
         const isTrackDisabled = clip.trackDisabled === true;
         if (isTrackDisabled) {
             ctx.globalAlpha = 0.25;
+        } else if (automationVisible) {
+            ctx.globalAlpha = 0.35;
         }
 
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);

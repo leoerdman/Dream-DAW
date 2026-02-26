@@ -3,6 +3,9 @@ use crate::push_command_or_log;
 use dream_clip_engine::pool::ClipAudio;
 use std::sync::Arc;
 
+/// The internal://* URI that identifies the Essence Synth instrument.
+const ESSENCE_PLUGIN_ID: &str = "internal://instrument/wave-synth";
+
 pub fn rebuild_sampler_snapshot_from_project(
     project: &Project,
     clip_pool_state: &ClipPoolState,
@@ -93,4 +96,26 @@ pub fn rebuild_sampler_snapshot_from_project(
             "rack pad cutoff"
         );
     }
+
+    // ── Essence Synth Enablement on Project Load ──────────────────────
+    // The Essence engine defaults to enabled=false. When a track has the
+    // Essence instrument assigned (via plugin_id), we must explicitly
+    // enable it during project load so it produces sound immediately
+    // without requiring user interaction.
+    for (idx, track) in project.tracks.iter().enumerate() {
+        let is_essence = track
+            .instrument
+            .as_ref()
+            .map_or(false, |dev| dev.plugin_id() == ESSENCE_PLUGIN_ID);
+
+        push_command_or_log!(
+            handle,
+            EngineCommand::SetEssenceEnabled {
+                track_index: idx as u16,
+                enabled: is_essence,
+            },
+            "essence enabled sync"
+        );
+    }
 }
+

@@ -9,7 +9,6 @@ interface TrackRowHeaderProps {
     isMaster: boolean;
     isGroup: boolean;
     isHeaderSelected: boolean;
-    isHeaderPrimarySelected: boolean;
     isCollapsed: boolean;
     isRenaming: boolean;
     renameValue: string;
@@ -30,7 +29,6 @@ export function TrackRowHeader({
     isMaster,
     isGroup,
     isHeaderSelected,
-    isHeaderPrimarySelected,
     isCollapsed,
     isRenaming,
     renameValue,
@@ -99,11 +97,9 @@ export function TrackRowHeader({
                     justifyContent: 'center',
                     padding: `var(--space-0-5) ${mixerFocusMode ? 8 : 6}px var(--space-0-5) ${basePaddingLeft}px`,
                     background: headerBgColor,
-                    boxShadow: isHeaderPrimarySelected
+                    boxShadow: isHeaderSelected
                         ? 'inset 0 0 0 var(--token-size-px-2) color-mix(in srgb, var(--color-text-bright) 90%, transparent)'
-                        : isHeaderSelected
-                            ? 'inset 0 0 0 var(--token-size-px-2) color-mix(in srgb, var(--color-text-bright) 55%, transparent)'
-                            : 'none',
+                        : 'none',
                     gap: 1,
                     position: 'relative',
                     boxSizing: 'border-box',
@@ -192,36 +188,30 @@ export function TrackRowHeader({
                         }}
                     >
                         {track.type === 'midi' ? (
-                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                                <rect x="0" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
-                                <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
-                                <rect x="9" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                {/* White keys — 3 uniform keys */}
+                                <rect x="0" y="0" width="3" height="11" rx="0.5" fill={headerTextColor} />
+                                <rect x="4" y="0" width="3" height="11" rx="0.5" fill={headerTextColor} />
+                                <rect x="8" y="0" width="3" height="11" rx="0.5" fill={headerTextColor} />
+                                {/* Black keys  */}
                                 <rect
-                                    x="2"
-                                    y="1"
-                                    width="2"
-                                    height="6"
-                                    rx="0.3"
+                                    x="2" y="0" width="2" height="6" rx="0.5"
                                     fill={headerContrast === 'black' ? 'var(--token-color-rgba-255-255-255-0d65)' : 'var(--token-color-rgba-0-0-0-0d65)'}
                                 />
                                 <rect
-                                    x="6.5"
-                                    y="1"
-                                    width="2"
-                                    height="6"
-                                    rx="0.3"
+                                    x="6" y="0" width="2" height="6" rx="0.5"
                                     fill={headerContrast === 'black' ? 'var(--token-color-rgba-255-255-255-0d65)' : 'var(--token-color-rgba-0-0-0-0d65)'}
                                 />
                             </svg>
                         ) : (
-                            <svg width="9" height="9" viewBox="0 0 14 10" fill="none">
-                                <path
-                                    d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5"
-                                    stroke={headerTextColor}
-                                    strokeWidth="1.2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                />
+                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                {/* Waveform bars — symmetrical, centered at y=6 */}
+                                <line x1="1" y1="4" x2="1" y2="8" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
+                                <line x1="3" y1="2.5" x2="3" y2="9.5" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
+                                <line x1="5" y1="1" x2="5" y2="11" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
+                                <line x1="7" y1="3" x2="7" y2="9" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
+                                <line x1="9" y1="2" x2="9" y2="10" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
+                                <line x1="11" y1="4.5" x2="11" y2="7.5" stroke={headerTextColor} strokeWidth="1.3" strokeLinecap="round" />
                             </svg>
                         )}
                     </span>

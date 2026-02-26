@@ -107,6 +107,25 @@ impl std::error::Error for AudioReaderError {}
 /// Supports all major audio formats: WAV, FLAC, OGG, MP3, AIFF, AAC, ALAC.
 pub struct AudioReader;
 
+/// Normalizes common audio file extension aliases to their symphonia-canonical forms.
+///
+/// Symphonia registers format readers under specific extension strings.
+/// Without normalization, `Hint::with_extension("aif")` may fail to match the
+/// `"aiff"` reader, causing a spurious `UnsupportedFormat` error even though
+/// the underlying codec is fully supported.
+fn normalize_audio_extension(ext: &str) -> String {
+    match ext.to_lowercase().as_str() {
+        "aif"   => "aiff".to_string(),
+        "aifc"  => "aiff".to_string(),
+        "wave"  => "wav".to_string(),
+        "m4a"   => "mp4".to_string(),
+        "aac"   => "mp4".to_string(),
+        "oga"   => "ogg".to_string(),
+        "opus"  => "ogg".to_string(),
+        other   => other.to_string(),
+    }
+}
+
 impl AudioReader {
     /// Decodes an entire audio file into an `AudioBuffer`.
     ///
@@ -126,20 +145,44 @@ impl AudioReader {
 
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        // Probe the format
+        // Probe the format — two-stage approach for maximum compatibility:
+        // Stage 1: Try with normalized extension hint (fast path).
+        // Stage 2: If hint-based probe fails, re-open and try pure content-
+        //          based auto-detection (catches AIF, AIFC, unusual extensions).
         let mut hint = Hint::new();
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
+            hint.with_extension(&normalize_audio_extension(ext));
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
-                &hint,
-                mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
-            )
-            .map_err(|e| AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display())))?;
+        let probed = match symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        ) {
+            Ok(p) => p,
+            Err(hint_err) => {
+                // Stage 2: Fallback — re-open and probe without extension hint.
+                // This lets symphonia inspect the file header bytes directly.
+                let file2 = File::open(path).map_err(|e| {
+                    AudioReaderError::FileNotFound(format!("{}: {e}", path.display()))
+                })?;
+                let mss2 = MediaSourceStream::new(Box::new(file2), Default::default());
+                symphonia::default::get_probe()
+                    .format(
+                        &Hint::new(),
+                        mss2,
+                        &FormatOptions::default(),
+                        &MetadataOptions::default(),
+                    )
+                    .map_err(|e| {
+                        AudioReaderError::UnsupportedFormat(format!(
+                            "{}: hint probe failed ({hint_err}), content probe failed ({e})",
+                            path.display()
+                        ))
+                    })?
+            }
+        };
 
         let mut format_reader = probed.format;
 
@@ -290,19 +333,39 @@ impl AudioReader {
 
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
+        // Same two-stage probe as read():
         let mut hint = Hint::new();
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
+            hint.with_extension(&normalize_audio_extension(ext));
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
-                &hint,
-                mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
-            )
-            .map_err(|e| AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display())))?;
+        let probed = match symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        ) {
+            Ok(p) => p,
+            Err(hint_err) => {
+                let file2 = File::open(path).map_err(|e| {
+                    AudioReaderError::FileNotFound(format!("{}: {e}", path.display()))
+                })?;
+                let mss2 = MediaSourceStream::new(Box::new(file2), Default::default());
+                symphonia::default::get_probe()
+                    .format(
+                        &Hint::new(),
+                        mss2,
+                        &FormatOptions::default(),
+                        &MetadataOptions::default(),
+                    )
+                    .map_err(|e| {
+                        AudioReaderError::UnsupportedFormat(format!(
+                            "{}: hint probe ({hint_err}), content probe ({e})",
+                            path.display()
+                        ))
+                    })?
+            }
+        };
 
         let track = probed
             .format

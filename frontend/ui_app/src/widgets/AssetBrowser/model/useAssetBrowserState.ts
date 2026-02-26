@@ -3,7 +3,7 @@ import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/en
 import type { BrowserItem } from './assetBrowserSchema';
 import { loadCollectionLabels, loadCollections, type CollectionId } from './assetBrowserUtils';
 
-export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean; browserShowTypeColumn: boolean; browserLeftPaneWidth: number }) {
+export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean; browserShowTypeColumn: boolean; browserLeftPaneWidth: number; browserAutoPreview?: boolean }) {
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const [collectionItems, setCollectionItems] = useState<Record<CollectionId, Set<string>>>(loadCollections);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: BrowserItem } | null>(null);
@@ -19,7 +19,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const [showTypeColumn, setShowTypeColumn] = useState(settings.browserShowTypeColumn);
     const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
     const [collectionLabels, setCollectionLabels] = useState<Record<string, string>>(loadCollectionLabels);
-    const [previewEnabled, setPreviewEnabled] = useState(true);
+    const [previewEnabled, setPreviewEnabled] = useState(settings.browserAutoPreview ?? true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [leftPaneWidth, setLeftPaneWidth] = useState(settings.browserLeftPaneWidth);
     const [previewPeaks, setPreviewPeaks] = useState<PeakPair[] | null>(null);

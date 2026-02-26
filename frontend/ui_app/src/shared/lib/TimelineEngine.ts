@@ -46,6 +46,8 @@ export class TimelineEngine {
     private _trimPreview: TrimPreviewState | null = null;
     private _fadeCurvePoints: Record<string, { in: boolean; out: boolean }> = {};
     private _hoverClipId: string | null = null;
+    /** Ghost clips rendered during Cmd+Drag to preview duplication. */
+    private _cmdDragGhosts: TimelineClipData[] = [];
 
     private _beatsPerBar: number;
     private _bpm: number;
@@ -83,6 +85,7 @@ export class TimelineEngine {
 
     onClipClick?: (clipId: string, isShift: boolean, isCtrl: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
+    onClipDuplicate?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number, allowStretch: boolean) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
@@ -439,61 +442,73 @@ export class TimelineEngine {
 
     private _composeDrawClips(): TimelineClipData[] {
         const preview = this._trimPreview;
-        if (!preview) return this._clips;
-        return this._clips.map((clip) => {
-            if (clip.id !== preview.clipId) return clip;
+        const hasGhosts = this._cmdDragGhosts.length > 0;
 
-            const nextClip: TimelineClipData = {
-                ...clip,
-                startBeat: preview.startBeat,
-                durationBeats: preview.durationBeats,
-            };
+        if (!preview && !hasGhosts) return this._clips;
 
-            if (clip.type !== 'audio' || !clip.durationSamples) {
-                return nextClip;
-            }
+        let base: TimelineClipData[];
+        if (!preview) {
+            base = this._clips;
+        } else {
+            base = this._clips.map((clip) => {
+                if (clip.id !== preview.clipId) return clip;
 
-            if (!preview.allowStretch) {
-                const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
-                const clipSourceOffset = Math.max(0, clip.sourceOffset ?? 0);
-                if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0 && (clip.durationSamples ?? 0) > 0) {
-                    // Keep preview in trim/crop mode for warped clips:
-                    // preserve source/timeline ratio instead of stretching the whole file view.
-                    const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? 1);
-                    const sourceAvailableBefore = Math.max(1, sourceTotal - clipSourceOffset);
-                    const sourcePerTimeline = sourceAvailableBefore / Math.max(1, clip.durationSamples ?? 1);
+                const nextClip: TimelineClipData = {
+                    ...clip,
+                    startBeat: preview.startBeat,
+                    durationBeats: preview.durationBeats,
+                };
 
-                    let nextSourceOffset = clipSourceOffset;
-                    if (preview.edge === 'left') {
-                        const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
-                        const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
-                        nextSourceOffset = Math.max(0, Math.round(clipSourceOffset + trimmedFrames * sourcePerTimeline));
-                    }
-                    nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceTotal - 1));
-
-                    const sourceAvailableAfter = Math.max(1, sourceTotal - nextSourceOffset);
-                    const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
-                    const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, maxPreviewFrames));
-                    const consumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
-
-                    nextClip.durationSamples = clampedPreviewFrames;
-                    nextClip.sourceOffset = nextSourceOffset;
-                    nextClip.warpSourceDurationFrames = nextSourceOffset + consumedSource;
-                } else {
-                    nextClip.durationSamples = previewFrames;
-                    if (preview.edge === 'left') {
-                        const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
-                        const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
-                        nextClip.sourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
-                    }
+                if (clip.type !== 'audio' || !clip.durationSamples) {
+                    return nextClip;
                 }
-            } else {
-                const ratio = preview.durationBeats / (clip.durationBeats || 1);
-                nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
-            }
 
-            return nextClip;
-        });
+                if (!preview.allowStretch) {
+                    const previewFrames = Math.max(1, beatDurationToFrames(preview.durationBeats, this._bpm, this._sampleRate));
+                    const clipSourceOffset = Math.max(0, clip.sourceOffset ?? 0);
+                    if (clip.isWarped && (clip.warpSourceDurationFrames ?? 0) > 0 && (clip.durationSamples ?? 0) > 0) {
+                        const sourceTotal = Math.max(1, clip.warpSourceDurationFrames ?? 1);
+                        const sourceAvailableBefore = Math.max(1, sourceTotal - clipSourceOffset);
+                        const sourcePerTimeline = sourceAvailableBefore / Math.max(1, clip.durationSamples ?? 1);
+
+                        let nextSourceOffset = clipSourceOffset;
+                        if (preview.edge === 'left') {
+                            const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
+                            const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                            nextSourceOffset = Math.max(0, Math.round(clipSourceOffset + trimmedFrames * sourcePerTimeline));
+                        }
+                        nextSourceOffset = Math.min(nextSourceOffset, Math.max(0, sourceTotal - 1));
+
+                        const sourceAvailableAfter = Math.max(1, sourceTotal - nextSourceOffset);
+                        const maxPreviewFrames = Math.max(1, Math.floor(sourceAvailableAfter / Math.max(1e-9, sourcePerTimeline)));
+                        const clampedPreviewFrames = Math.max(1, Math.min(previewFrames, maxPreviewFrames));
+                        const consumedSource = Math.max(1, Math.round(clampedPreviewFrames * sourcePerTimeline));
+
+                        nextClip.durationSamples = clampedPreviewFrames;
+                        nextClip.sourceOffset = nextSourceOffset;
+                        nextClip.warpSourceDurationFrames = nextSourceOffset + consumedSource;
+                    } else {
+                        nextClip.durationSamples = previewFrames;
+                        if (preview.edge === 'left') {
+                            const trimmedBeats = Math.max(0, preview.startBeat - preview.originalStartBeat);
+                            const trimmedFrames = Math.max(0, beatDurationToFrames(trimmedBeats, this._bpm, this._sampleRate));
+                            nextClip.sourceOffset = Math.max(0, clipSourceOffset + trimmedFrames);
+                        }
+                    }
+                } else {
+                    const ratio = preview.durationBeats / (clip.durationBeats || 1);
+                    nextClip.durationSamples = Math.max(1, Math.round(clip.durationSamples * ratio));
+                }
+
+                return nextClip;
+            });
+        }
+
+        // ENTERPRISE: Append Cmd+Drag ghost clips to the draw list
+        if (hasGhosts) {
+            return [...base, ...this._cmdDragGhosts];
+        }
+        return base;
     }
 
     private _didClipStructureChange(prev: TimelineClipData[], next: TimelineClipData[]): boolean {
@@ -1144,7 +1159,7 @@ export class TimelineEngine {
                     break;
                 }
                 this._drag.mode = DragMode.ClipMove;
-                canvas.style.cursor = 'grabbing';
+                canvas.style.cursor = this._metaKeyHeld ? 'copy' : 'grabbing';
                 const coMoverOrigins = new Map<string, { beat: number; track: number }>();
                 for (const c of this._clips) {
                     if (c.selected && c.id !== this._drag.clipId) {
@@ -1185,26 +1200,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipMove: {
-                canvas.style.cursor = 'grabbing';
-                const deltaBeat = beat - this._drag.startBeat;
-                const deltaTrack = track - this._drag.startTrack;
-
-                const primaryClip = this._clips.find(c => c.id === this._drag.clipId);
-                if (primaryClip) {
-                    primaryClip.startBeat = this._snapBeat(Math.max(0, this._drag.clipOriginalBeat + deltaBeat));
-                    primaryClip.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack));
-
-                    if (this._drag.coMoverOrigins) {
-                        for (const [id, origin] of this._drag.coMoverOrigins) {
-                            const co = this._clips.find(c => c.id === id);
-                            if (co) {
-                                co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
-                                co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
-                            }
-                        }
-                    }
-                    this._requestRedraw();
-                }
+                this._applyClipMoveVisuals();
                 break;
             }
 
@@ -1478,8 +1474,17 @@ export class TimelineEngine {
                         finalBeat !== this._drag.clipOriginalBeat ||
                         finalTrack !== this._drag.clipOriginalTrack
                     ) {
-                        this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
+                        if (e.metaKey || e.ctrlKey) {
+                            // ENTERPRISE: Cmd+Drag → duplicate.
+                            // _applyClipMoveVisuals() already keeps originals at their
+                            // positions when Cmd held, so just emit duplicate callback.
+                            this.onClipDuplicate?.(this._drag.clipId, finalBeat, finalTrack);
+                        } else {
+                            this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
+                        }
                     }
+                    // Always clear Cmd+Drag ghosts on commit
+                    this._cmdDragGhosts.length = 0;
                 }
                 break;
             }
@@ -1785,8 +1790,111 @@ export class TimelineEngine {
         return Math.round(beat / this._snapBeats) * this._snapBeats;
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // ENTERPRISE: Cmd+Drag visual state toggle.
+    // Called from _onMouseMove (ClipMove), _onKeyDown, and _onKeyUp.
+    // When Cmd/Ctrl is held:
+    //   - Primary clip + co-movers stay at ORIGINAL positions
+    //   - Ghost clones appear at TARGET positions (50% alpha)
+    //   - Cursor: 'copy'
+    // When Cmd/Ctrl is NOT held:
+    //   - Primary clip + co-movers move to TARGET positions (normal drag)
+    //   - Ghost array is cleared
+    //   - Cursor: 'grabbing'
+    // ────────────────────────────────────────────────────────────────────────
+    private _applyClipMoveVisuals(): void {
+        const canvas = this._canvas;
+        if (!canvas) return;
+
+        const deltaBeat = this._drag.currentBeat - this._drag.startBeat;
+        const deltaTrack = this._drag.currentTrack - this._drag.startTrack;
+        const trackCount = this._viewport.trackCount;
+
+        const computeTarget = (origBeat: number, origTrack: number) => ({
+            beat: this._snapBeat(Math.max(0, origBeat + deltaBeat)),
+            track: Math.max(0, Math.min(trackCount - 1, origTrack + deltaTrack)),
+        });
+
+        const primaryClip = this._clips.find(c => c.id === this._drag.clipId);
+        if (!primaryClip) return;
+
+        const primaryTarget = computeTarget(this._drag.clipOriginalBeat, this._drag.clipOriginalTrack);
+
+        if (this._metaKeyHeld) {
+            // ── DUPLICATE MODE ──
+            canvas.style.cursor = 'copy';
+
+            // Restore originals to their original positions
+            primaryClip.startBeat = this._drag.clipOriginalBeat;
+            primaryClip.trackIndex = this._drag.clipOriginalTrack;
+
+            // Build ghost array: clone of primary at target position
+            this._cmdDragGhosts.length = 0;
+            this._cmdDragGhosts.push({
+                ...primaryClip,
+                id: `__ghost_${primaryClip.id}`,
+                startBeat: primaryTarget.beat,
+                trackIndex: primaryTarget.track,
+                isDuplicateGhost: true,
+                selected: false,
+                primarySelected: false,
+                hovered: false,
+            });
+
+            // Co-movers: restore + ghost
+            if (this._drag.coMoverOrigins) {
+                for (const [id, origin] of this._drag.coMoverOrigins) {
+                    const co = this._clips.find(c => c.id === id);
+                    if (co) {
+                        co.startBeat = origin.beat;
+                        co.trackIndex = origin.track;
+                        const target = computeTarget(origin.beat, origin.track);
+                        this._cmdDragGhosts.push({
+                            ...co,
+                            id: `__ghost_${co.id}`,
+                            startBeat: target.beat,
+                            trackIndex: target.track,
+                            isDuplicateGhost: true,
+                            selected: false,
+                            primarySelected: false,
+                            hovered: false,
+                        });
+                    }
+                }
+            }
+        } else {
+            // ── NORMAL MOVE MODE ──
+            canvas.style.cursor = 'grabbing';
+
+            // Move clips to target positions
+            primaryClip.startBeat = primaryTarget.beat;
+            primaryClip.trackIndex = primaryTarget.track;
+
+            if (this._drag.coMoverOrigins) {
+                for (const [id, origin] of this._drag.coMoverOrigins) {
+                    const co = this._clips.find(c => c.id === id);
+                    if (co) {
+                        const target = computeTarget(origin.beat, origin.track);
+                        co.startBeat = target.beat;
+                        co.trackIndex = target.track;
+                    }
+                }
+            }
+
+            // Clear any ghosts
+            this._cmdDragGhosts.length = 0;
+        }
+
+        this._requestRedraw();
+    }
+
     private _onKeyDown(e: KeyboardEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
+
+        // ENTERPRISE: Live toggle Cmd+Drag visual state
+        if (this._drag.mode === DragMode.ClipMove && e.key === 'Meta') {
+            this._applyClipMoveVisuals();
+        }
 
         if (e.key === 'Escape') {
             if (this._drag.mode !== DragMode.None) {
@@ -1813,6 +1921,7 @@ export class TimelineEngine {
                     }
                 }
                 this._trimPreview = null;
+                this._cmdDragGhosts.length = 0;
                 this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0, clipResizeAllowStretch: false };
                 if (this._canvas) this._canvas.style.cursor = 'default';
                 this._requestRedraw();
@@ -1824,6 +1933,10 @@ export class TimelineEngine {
 
     private _onKeyUp(e: KeyboardEvent): void {
         this._metaKeyHeld = e.metaKey || e.ctrlKey;
+        // ENTERPRISE: Live toggle Cmd+Drag visual state
+        if (this._drag.mode === DragMode.ClipMove) {
+            this._applyClipMoveVisuals();
+        }
     }
 
     private _onWindowBlur(): void {

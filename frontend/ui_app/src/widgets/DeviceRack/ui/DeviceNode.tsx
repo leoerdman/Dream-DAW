@@ -99,6 +99,12 @@ export const DeviceNode = ({
             draggable={canReorder}
             onMouseDownCapture={(e) => {
                 lastPointerTargetRef.current = e.target as HTMLElement;
+                // Click-anywhere selection: any left-button mousedown on the
+                // device card selects it. Uses capture phase so selection
+                // fires before knob drag or button handlers.
+                if (e.button === 0) {
+                    onSelect(e as unknown as React.MouseEvent<HTMLDivElement>);
+                }
             }}
             onDragStart={(e) => {
                 if (!canReorder) {

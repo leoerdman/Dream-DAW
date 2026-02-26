@@ -15,9 +15,7 @@ interface TrackRowProps {
     trackHeight: number;
     displayNum?: number;
     isSelected: boolean;
-    isPrimarySelected?: boolean;
     isHeaderSelected?: boolean;
-    isHeaderPrimarySelected?: boolean;
     isCollapsed: boolean;
     depth: number;
     isRenaming: boolean;
@@ -55,9 +53,7 @@ export const TrackRow = ({
     trackHeight,
     displayNum,
     isSelected,
-    isPrimarySelected = false,
     isHeaderSelected = false,
-    isHeaderPrimarySelected = false,
     isCollapsed,
     depth,
     isRenaming,
@@ -150,15 +146,11 @@ export const TrackRow = ({
                 borderTop: 'none',
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
-                    : isHeaderPrimarySelected
-                        ? 'color-mix(in srgb, var(--color-text-primary) 12%, var(--surface-1))'
-                        : isHeaderSelected
+                    : isHeaderSelected
+                        ? 'color-mix(in srgb, var(--color-text-primary) 10%, var(--surface-1))'
+                        : isSelected
                             ? 'color-mix(in srgb, var(--color-text-primary) 8%, var(--surface-1))'
-                            : isPrimarySelected
-                                ? 'color-mix(in srgb, var(--color-text-primary) 10%, var(--surface-1))'
-                                : isSelected
-                                    ? 'color-mix(in srgb, var(--color-text-primary) 6%, var(--surface-1))'
-                                    : 'var(--surface-1)',
+                            : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isActive ? 1 : 0.45,
                 transition: `background var(--transition-linear), opacity var(--transition-linear)`,
@@ -179,7 +171,6 @@ export const TrackRow = ({
                 isMaster={isMaster}
                 isGroup={isGroup}
                 isHeaderSelected={isHeaderSelected}
-                isHeaderPrimarySelected={isHeaderPrimarySelected}
                 isCollapsed={isCollapsed}
                 isRenaming={isRenaming}
                 renameValue={renameValue}

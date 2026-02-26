@@ -391,19 +391,14 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         // ▸ Capture pre-advance playhead for MIDI scheduling.
                         let midi_playhead_pos = render_ctx.playhead.position();
-                        // MIDI-LOOP-FIX: Compute how many timeline frames this device
-                        // buffer actually covers.  MIDI note positions and the playhead
-                        // are in timeline-SR frames, but `frame_count` is in device-SR
-                        // frames.  When device_sr ≠ timeline_sr the scheduler window
-                        // was wrong, causing notes at the loop start to be missed.
-                        // Using ceil() ensures the window is never narrower than what
-                        // the playhead will actually advance — an extra frame is
-                        // harmless (sort_and_dedup collapses duplicates).
-                        let midi_sr_ratio = (render_ctx.timeline_sample_rate
-                            / render_ctx.sample_rate.max(1.0))
-                            .clamp(0.125, 8.0);
-                        let timeline_frame_count =
-                            ((frame_count as f64) * midi_sr_ratio).ceil().max(1.0) as usize;
+                        // FRAME-DOMAIN-FIX (Enterprise): Single converter replaces
+                        // all ad-hoc ratio computations. Computed once per callback.
+                        let frame_converter = crate::frame_domain::FrameDomainConverter::new(
+                            render_ctx.sample_rate,
+                            render_ctx.timeline_sample_rate,
+                            frame_count,
+                        );
+                        let timeline_frame_count = frame_converter.timeline_frames();
                         let mut playhead_advanced_in_render = false;
                         if is_playing && has_clips {
                             // Disable test tone automatically when real clips exist
@@ -433,6 +428,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             );
                             render_ctx.advance_playhead_by_frames(render_frames);
                             playhead_advanced_in_render = true;
+                            // LOOP-WRAP-FIX-3 (Enterprise): Detect loop wrap by
+                            // comparing post-advance position with pre-advance.
+                            // When a wrap occurs, set midi_chase = true so that
+                            // sustaining notes at the new position are re-triggered.
+                            if render_ctx.playhead.position() < midi_playhead_pos {
+                                midi_chase_needed = true;
+                            }
                         } else {
                             // AUD-017 FIX: When stopped or no clips, only clear tracks
                             // that are actually in use. Previously cleared ALL 256 slots.
@@ -457,8 +459,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             midi_chase_needed,
                             is_playing,
                             midi_playhead_pos,
-                            frame_count,
-                            timeline_frame_count,
+                            &frame_converter,
                         );
 
                         // Graph pass: route pre-rendered tracks through DAG.
@@ -655,6 +656,17 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             is_recording: false,
                                                             time_sig_numerator: i32::from(time_sig_numerator),
                                                             time_sig_denominator: i32::from(time_sig_denominator),
+                                                            cycle_active: render_ctx.loop_region.is_some(),
+                                                            loop_start_samples: render_ctx
+                                                                .loop_region
+                                                                .as_ref()
+                                                                .map(|r| r.start)
+                                                                .unwrap_or(0),
+                                                            loop_end_samples: render_ctx
+                                                                .loop_region
+                                                                .as_ref()
+                                                                .map(|r| r.end)
+                                                                .unwrap_or(0),
                                                         };
                                                         host.set_transport_context(transport);
 
@@ -690,9 +702,51 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             } else {
                                                                 None
                                                             };
+
+                                                            // ═══════════════════════════════════════════════════
+                                                            // LOOP-WRAP-FIX (Enterprise): When the current MIDI
+                                                            // buffer spans a loop wrap point, inject CC120 (All
+                                                            // Sound Off) + CC123 (All Notes Off) at 1 sample
+                                                            // before the wrap offset. This forces VST3/AU plugins
+                                                            // to clear their internal note state at the boundary,
+                                                            // preventing note dropout when note-off and note-on
+                                                            // for the same pitch appear in the same process buffer.
+                                                            //
+                                                            // Without this, plugins like Kontakt, Serum, Diva, etc.
+                                                            // may cancel same-pitch note-off→note-on pairs within
+                                                            // a single process() call, causing the first beat of
+                                                            // the loop to go silent on cycle restart.
+                                                            // ═══════════════════════════════════════════════════
+                                                            if let Some(ref lr) = midi_loop_region {
+                                                                let buffer_end_timeline = midi_playhead_pos
+                                                                    .saturating_add(timeline_frame_count as i64);
+                                                                if midi_playhead_pos < lr.end
+                                                                    && buffer_end_timeline > lr.end
+                                                                {
+                                                                    let wrap_offset_timeline = (lr.end - midi_playhead_pos) as usize;
+                                                                    let flush_offset = frame_converter
+                                                                        .timeline_to_device_offset_i32(wrap_offset_timeline)
+                                                                        .saturating_sub(1)
+                                                                        .max(0);
+                                                                    // Inject All Sound Off (CC 120) + All Notes Off (CC 123)
+                                                                    // at the wrap boundary to reset VST internal state.
+                                                                    vst3_midi_scratch.push(MidiEvent::cc(flush_offset, 0, 120, 0));
+                                                                    vst3_midi_scratch.push(MidiEvent::cc(flush_offset, 0, 123, 0));
+                                                                    // Clear the note tracker so post-wrap note-ons
+                                                                    // don't trigger stale duplicate-protection note-offs.
+                                                                    if let Some(ref mut t) = tracker {
+                                                                        t.active.clear();
+                                                                    }
+                                                                }
+                                                            }
+
                                                             for event in &midi_schedule_scratch {
-                                                                let offset_on = event.buffer_onset as i32;
-                                                                let offset_off = event.buffer_offset_end as i32;
+                                                                // FRAME-DOMAIN-FIX: Use FrameDomainConverter for
+                                                                // timeline→device offset conversion (SSOT).
+                                                                let offset_on = frame_converter
+                                                                    .timeline_to_device_offset_i32(event.buffer_onset);
+                                                                let offset_off = frame_converter
+                                                                    .timeline_to_device_offset_i32(event.buffer_offset_end);
 
                                                                 if event.is_note_off {
                                                                     let mut off_pitch_i16 = event.pitch as i16;
@@ -787,10 +841,29 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             }
                                                         }
 
+                                                        // LOOP-WRAP-SORT-FIX (Enterprise): Correct MIDI event
+                                                        // ordering at the same sample_offset:
+                                                        //   1. CC events (0xBn) → flush/reset
+                                                        //   2. Note-off (0x8n) → release stale notes
+                                                        //   3. Note-on  (0x9n) → trigger new notes
+                                                        // Raw status byte sort doesn't give this order in
+                                                        // either direction, so we use a priority function.
+                                                        #[inline]
+                                                        fn midi_sort_priority(status: u8) -> u8 {
+                                                            match status & 0xF0 {
+                                                                0xB0 => 0, // CC (flush) — highest priority
+                                                                0x80 => 1, // Note-off
+                                                                0x90 => 2, // Note-on
+                                                                _    => 3, // Other
+                                                            }
+                                                        }
                                                         vst3_midi_scratch.sort_unstable_by(|a, b| {
                                                             a.sample_offset
                                                                 .cmp(&b.sample_offset)
-                                                                .then_with(|| a.data[0].cmp(&b.data[0]))
+                                                                .then_with(|| {
+                                                                    midi_sort_priority(a.data[0])
+                                                                        .cmp(&midi_sort_priority(b.data[0]))
+                                                                })
                                                         });
 
                                                         let mut out_slices: [&mut [f32]; 2] = [
@@ -957,6 +1030,10 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         if is_playing && !playhead_advanced_in_render {
                             render_ctx.advance_playhead_by_frames(frame_count);
+                            // LOOP-WRAP-FIX-3b: Same chase detection for MIDI-only tracks.
+                            if render_ctx.playhead.position() < midi_playhead_pos {
+                                midi_chase_needed = true;
+                            }
                         }
                         mix_preview_audio(
                             &preview_buffer,

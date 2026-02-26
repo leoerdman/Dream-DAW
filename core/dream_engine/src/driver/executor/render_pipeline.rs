@@ -149,6 +149,9 @@ pub(super) fn process_master_bus(
                                 is_recording: false,
                                 time_sig_numerator: i32::from(time_sig_numerator),
                                 time_sig_denominator: i32::from(time_sig_denominator),
+                                cycle_active: false,
+                                loop_start_samples: 0,
+                                loop_end_samples: 0,
                             };
                             host.set_transport_context(transport);
 

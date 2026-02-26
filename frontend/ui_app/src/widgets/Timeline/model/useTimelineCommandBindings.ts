@@ -11,6 +11,7 @@ type TimelineCallbacks = {
     onClipSelect?: TimelineProps['onClipSelect'];
     onClipSelectionChange?: TimelineProps['onClipSelectionChange'];
     onClipMove?: TimelineProps['onClipMove'];
+    onClipDuplicate?: TimelineProps['onClipDuplicate'];
     onClipResize?: TimelineProps['onClipResize'];
     onClipFades?: TimelineProps['onClipFades'];
     onDropBrowserItem?: TimelineProps['onDropBrowserItem'];
@@ -109,6 +110,9 @@ export function useTimelineCommandBusBindings({
                 case 'clip-move':
                     callbacksRef.current.onClipMove?.(command.clipId, command.beat, command.trackIndex);
                     break;
+                case 'clip-duplicate':
+                    callbacksRef.current.onClipDuplicate?.(command.clipId, command.beat, command.trackIndex);
+                    break;
                 case 'clip-resize':
                     callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration, command.allowStretch);
                     break;
@@ -160,6 +164,7 @@ export function useTimelineEngineCommandBindings({
         engine.onEditCursorChange = (beat, trackStart, trackEnd) => callbacksRef.current.onEditCursorChange?.(beat, trackStart, trackEnd);
         engine.onClipClick = (clipId, isShift, isCtrl) => commandBusRef.current.emit({ type: 'clip-select', clipId, isShift, isCtrl });
         engine.onClipMove = (clipId, newBeat, newTrack) => commandBusRef.current.emit({ type: 'clip-move', clipId, beat: newBeat, trackIndex: newTrack });
+        engine.onClipDuplicate = (clipId, newBeat, newTrack) => commandBusRef.current.emit({ type: 'clip-duplicate', clipId, beat: newBeat, trackIndex: newTrack });
         engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
         engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
         engine.onClipBoxSelection = (clipIds) => commandBusRef.current.emit({ type: 'clip-selection', clipIds });

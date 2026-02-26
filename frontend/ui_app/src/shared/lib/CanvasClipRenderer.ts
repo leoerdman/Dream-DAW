@@ -430,8 +430,11 @@ export class CanvasClipRenderer {
 
         ctx.save();
 
+        const isDuplicateGhost = clip.isDuplicateGhost === true;
         const isTrackDisabled = clip.trackDisabled === true;
-        if (isTrackDisabled) {
+        if (isDuplicateGhost) {
+            ctx.globalAlpha = 0.5;
+        } else if (isTrackDisabled) {
             ctx.globalAlpha = 0.25;
         }
 
@@ -541,7 +544,7 @@ export class CanvasClipRenderer {
 
         ctx.restore();
 
-        if (clip.selected) {
+        if (clip.selected && !isDuplicateGhost) {
             ctx.save();
             if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = SELECTION_GLOW_COLOR;
@@ -553,7 +556,7 @@ export class CanvasClipRenderer {
             ctx.restore();
         }
 
-        if (!clip.selected) {
+        if (!clip.selected && !isDuplicateGhost) {
             ctx.save();
             if (isTrackDisabled) ctx.globalAlpha = 0.25;
             ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 60)}, ${Math.min(255, rgb.g + 60)}, ${Math.min(255, rgb.b + 60)}, 0.5)`;

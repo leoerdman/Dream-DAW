@@ -164,6 +164,10 @@ pub enum EngineCommand {
     // Dedicated commands for the standalone EssenceSynthEngine.
     // Completely independent from SamplerEngine.
 
+    /// Explicitly enable or disable the Essence synth on a track.
+    /// Must be called when the user assigns or removes the Essence instrument.
+    SetEssenceEnabled { track_index: u16, enabled: bool },
+
     /// Set Essence OSC 1 waveform (0=Sine, 1=Triangle, 2=Saw, 3=Square).
     SetEssenceWaveform1 { track_index: u16, waveform: u8 },
     /// Set Essence OSC 2 waveform.

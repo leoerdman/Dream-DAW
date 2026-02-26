@@ -12,8 +12,18 @@ struct AudioFileEntry {
 }
 
 /// Audio extensions recognized by the file browser (case-insensitive).
+/// These must cover every extension that `AudioReader::read()` can decode
+/// (symphonia v0.5 with features=["all"]) plus common aliases.
 const AUDIO_EXTENSIONS: &[&str] = &[
-    "wav", "wave", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf",
+    "wav", "wave",
+    "aiff", "aif", "aifc",
+    "mp3",
+    "m4a", "mp4", "aac",
+    "flac",
+    "ogg", "oga", "opus",
+    "caf",
+    "wma",
+    "webm",
 ];
 
 /// Plugin bundle extensions recognized by the browser.

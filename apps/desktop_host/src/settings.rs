@@ -131,6 +131,12 @@ pub(crate) struct AppSettings {
     /// Arrangement snap enabled toggle.
     #[serde(default = "default_true", alias = "arrangementGridSnapEnabled")]
     pub(crate) arrangement_grid_snap_enabled: bool,
+    /// Browser excluded format groups (lowercased canonical names).
+    #[serde(default, alias = "browserExcludedFormats")]
+    pub(crate) browser_excluded_formats: Vec<String>,
+    /// Browser auto-preview toggle.
+    #[serde(default = "default_true", alias = "browserAutoPreview")]
+    pub(crate) browser_auto_preview: bool,
 }
 
 pub(crate) fn default_language() -> String {
@@ -315,6 +321,8 @@ impl Default for AppSettings {
             arrangement_grid_division: default_arrangement_grid_division(),
             arrangement_grid_triplet: false,
             arrangement_grid_snap_enabled: true,
+            browser_excluded_formats: Vec::new(),
+            browser_auto_preview: true,
         }
     }
 }

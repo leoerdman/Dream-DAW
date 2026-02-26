@@ -24,9 +24,7 @@ export function TrackInspectorMasterRow({
             anySoloed={false}
             trackHeight={masterRowHeight}
             isSelected={selectedTrackId === 'master'}
-            isPrimarySelected={selectedTrackId === 'master'}
             isHeaderSelected={logic.headerSelectedTrackIdSet.has('master')}
-            isHeaderPrimarySelected={selectedTrackId === 'master' && logic.headerSelectedTrackIdSet.has('master')}
             isCollapsed={false}
             depth={0}
             isRenaming={false}

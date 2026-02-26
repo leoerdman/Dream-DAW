@@ -166,9 +166,7 @@ export function TrackInspectorTrackList({
                                 trackHeight={resolvedRowHeight}
                                 displayNum={displayNum}
                                 isSelected={logic.selectedTrackIdSet.has(track.id)}
-                                isPrimarySelected={selectedTrackId === track.id}
                                 isHeaderSelected={logic.headerSelectedTrackIdSet.has(track.id)}
-                                isHeaderPrimarySelected={selectedTrackId === track.id && logic.headerSelectedTrackIdSet.has(track.id)}
                                 isCollapsed={isCollapsed}
                                 isActive={logic.trackActiveStates[trackIndex] ?? true}
                                 depth={depth}

@@ -57,6 +57,7 @@ pub const IID_ICOMPONENT_HANDLER_2: Tuid = [
 
 pub const K_PLAYING: u32 = 1 << 1;
 pub const K_RECORDING: u32 = 1 << 3;
+pub const K_CYCLE_ACTIVE: u32 = 1 << 2;
 pub const K_TEMPO_VALID: u32 = 1 << 10;
 pub const K_TIME_SIG_VALID: u32 = 1 << 13;
 pub const K_PROJECT_TIME_VALID: u32 = 1 << 9;

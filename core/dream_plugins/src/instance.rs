@@ -66,6 +66,12 @@ pub struct TransportContext {
     pub time_sig_numerator: i32,
     /// BUG-A7 FIX: Time signature denominator (e.g., 4 for 3/4). Default: 4.
     pub time_sig_denominator: i32,
+    /// LOOP-WRAP-FIX: Whether loop/cycle playback is currently active.
+    pub cycle_active: bool,
+    /// LOOP-WRAP-FIX: Loop start position in sample frames (absolute).
+    pub loop_start_samples: i64,
+    /// LOOP-WRAP-FIX: Loop end position in sample frames (absolute).
+    pub loop_end_samples: i64,
 }
 
 impl Default for TransportContext {
@@ -78,6 +84,9 @@ impl Default for TransportContext {
             is_recording: false,
             time_sig_numerator: 4,
             time_sig_denominator: 4,
+            cycle_active: false,
+            loop_start_samples: 0,
+            loop_end_samples: 0,
         }
     }
 }

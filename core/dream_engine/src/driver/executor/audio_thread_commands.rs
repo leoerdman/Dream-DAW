@@ -389,11 +389,15 @@ pub(super) fn drain_commands(
                 // data — filtering belongs to synth engines (EssenceSynth).
             }
             // ── Essence Synth Commands ────────────────────────────────
+            EngineCommand::SetEssenceEnabled { track_index, enabled } => {
+                let idx = track_index as usize;
+                if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(enabled);
+                }
+            }
             EngineCommand::SetEssenceWaveform1 { track_index, waveform } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
-                    // Auto-enable: receiving a synth param means the UI has assigned
-                    // the Essence Synth instrument to this track.
                     ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_waveform_1(waveform);
                 }
@@ -401,84 +405,98 @@ pub(super) fn drain_commands(
             EngineCommand::SetEssenceWaveform2 { track_index, waveform } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_waveform_2(waveform);
                 }
             }
             EngineCommand::SetEssenceOsc1Volume { track_index, volume } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_osc1_volume(volume);
                 }
             }
             EngineCommand::SetEssenceOsc2Volume { track_index, volume } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_osc2_volume(volume);
                 }
             }
             EngineCommand::SetEssenceOsc1Enabled { track_index, enabled } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_osc1_enabled(enabled);
                 }
             }
             EngineCommand::SetEssenceOsc2Enabled { track_index, enabled } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_osc2_enabled(enabled);
                 }
             }
             EngineCommand::SetEssenceDetuneCents { track_index, cents } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_detune_cents(cents);
                 }
             }
             EngineCommand::SetEssenceSubLevel { track_index, level } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_sub_level(level);
                 }
             }
             EngineCommand::SetEssencePulseWidth { track_index, width } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_pulse_width(width);
                 }
             }
             EngineCommand::SetEssenceFilterCutoff { track_index, cutoff } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_filter_cutoff(cutoff);
                 }
             }
             EngineCommand::SetEssenceFilterResonance { track_index, resonance } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_filter_resonance(resonance);
                 }
             }
             EngineCommand::SetEssenceFilterType { track_index, filter_type } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_filter_type(filter_type);
                 }
             }
             EngineCommand::SetEssenceLfoRate { track_index, rate } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_lfo_rate(rate);
                 }
             }
             EngineCommand::SetEssenceLfoDepth { track_index, depth } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_lfo_depth(depth);
                 }
             }
             EngineCommand::SetEssenceLfoTarget { track_index, target } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_lfo_target(target);
                 }
             }
@@ -491,6 +509,7 @@ pub(super) fn drain_commands(
             } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_adsr(AdsrParams {
                         attack: attack as f64,
                         decay: decay as f64,
@@ -502,6 +521,7 @@ pub(super) fn drain_commands(
             EngineCommand::SetEssenceVolume { track_index, volume } => {
                 let idx = track_index as usize;
                 if idx < ctx.essence_engines.len() {
+                    ctx.essence_engines[idx].set_enabled(true);
                     ctx.essence_engines[idx].set_volume(volume);
                 }
             }

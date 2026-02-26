@@ -149,6 +149,9 @@ impl DeviceProcessor for ExternalDeviceSlot {
             is_recording: false,
             time_sig_numerator: context.time_sig_numerator as i32,
             time_sig_denominator: context.time_sig_denominator as i32,
+            cycle_active: false,
+            loop_start_samples: 0,
+            loop_end_samples: 0,
         });
 
         // Copy input into scratch buffers (plugins read from separate input bufs).

@@ -1,22 +1,25 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X } from 'lucide-react';
+import { Pin, X } from 'lucide-react';
 import * as engineApi from '@/shared/api/engine';
 import type { CSSProperties, MouseEvent, MutableRefObject } from 'react';
+
+const NOTES_PIN_KEY = 'dream-daw-notes-pinned';
 
 interface NotesPanelProps {
     panelRef: MutableRefObject<HTMLDivElement | null>;
     panelPos: { right: number; top: number };
     onDragStart: (e: MouseEvent<HTMLDivElement>) => void;
     onClose: () => void;
+    /** When true, click-outside does NOT close the panel. */
+    pinned: boolean;
+    onPinnedChange: (pinned: boolean) => void;
 }
 
-export function NotesPanel({ panelRef, panelPos, onDragStart, onClose }: NotesPanelProps) {
+export function NotesPanel({ panelRef, panelPos, onDragStart, onClose, pinned, onPinnedChange }: NotesPanelProps) {
     const [text, setText] = useState('');
     const [loaded, setLoaded] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // BUG-FIX: Use a ref for the latest text so the unmount cleanup
-    // always has the current value, not a stale closure capture.
     const latestTextRef = useRef(text);
     latestTextRef.current = text;
 
@@ -74,10 +77,17 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose }: NotesPa
             {/* Header — drag handle */}
             <div onMouseDown={onDragStart} style={headerStyle}>
                 <div style={titleStyle}>Notes</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {saveStatus === 'saved' && (
                         <span style={savedIndicatorStyle}>Saved</span>
                     )}
+                    <button
+                        onClick={() => onPinnedChange(!pinned)}
+                        title={pinned ? 'Unpin (click outside will close)' : 'Pin (stay open)'}
+                        style={pinBtnStyle(pinned)}
+                    >
+                        <Pin size={11} />
+                    </button>
                     <button onClick={onClose} title="Close" style={closeBtnStyle}>
                         <X size={12} />
                     </button>
@@ -95,6 +105,23 @@ export function NotesPanel({ panelRef, panelPos, onDragStart, onClose }: NotesPa
             />
         </div>
     );
+}
+
+// ── Helper: read/write pin state from localStorage ────────────────────
+
+export function readNotesPinned(): boolean {
+    try {
+        const raw = window.localStorage.getItem(NOTES_PIN_KEY);
+        return raw === null ? true : raw === 'true'; // default: pinned
+    } catch {
+        return true;
+    }
+}
+
+export function writeNotesPinned(pinned: boolean): void {
+    try {
+        window.localStorage.setItem(NOTES_PIN_KEY, String(pinned));
+    } catch { /* ignore */ }
 }
 
 // ── Styles ────────────────────────────────────────────────────────────
@@ -138,6 +165,23 @@ const savedIndicatorStyle: CSSProperties = {
     color: 'var(--color-status-success)',
     opacity: 0.7,
 };
+
+const pinBtnStyle = (active: boolean): CSSProperties => ({
+    width: 20,
+    height: 20,
+    border: 'none',
+    borderRadius: 'var(--radius-sm)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: active
+        ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)'
+        : 'transparent',
+    color: active ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+    cursor: 'pointer',
+    transform: active ? 'rotate(0deg)' : 'rotate(45deg)',
+    transition: 'transform 150ms ease, color 100ms ease, background 100ms ease',
+});
 
 const closeBtnStyle: CSSProperties = {
     width: 20,

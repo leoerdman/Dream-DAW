@@ -679,17 +679,14 @@ impl RenderContext {
                 end: r.end,
                 enabled: true,
             });
-        let ratio = (self.timeline_sample_rate / self.sample_rate.max(1.0)).clamp(0.125, 8.0);
-        let advance_exact = frame_count as f64 * ratio + self.timeline_advance_accumulator;
-        let advance_frames = advance_exact.floor().max(0.0) as usize;
-        self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
-
-        // BUG-015 FIX: Use rem_euclid instead of fract() — fract() on negative
-        // values returns a negative fraction, causing the playhead to micro-stutter
-        // backwards by up to 1 sample periodically.
-        if self.timeline_advance_accumulator.abs() > 1.0 {
-            self.timeline_advance_accumulator = self.timeline_advance_accumulator.rem_euclid(1.0);
-        }
+        let converter = crate::frame_domain::FrameDomainConverter::new(
+            self.sample_rate,
+            self.timeline_sample_rate,
+            frame_count,
+        );
+        let (advance_frames, new_acc) =
+            converter.playhead_advance(self.timeline_advance_accumulator);
+        self.timeline_advance_accumulator = new_acc;
         self.playhead
             .advance(advance_frames, transport_loop.as_ref());
     }

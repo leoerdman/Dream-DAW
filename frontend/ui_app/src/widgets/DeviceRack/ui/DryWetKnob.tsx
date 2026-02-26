@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { usePluginKnobDrag } from '@/widgets/DeviceRack/usePluginKnobDrag';
 import type { DeviceSlot } from '@/widgets/DeviceRack/model/types';
 import { resolveMixParam } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardShared';
+import { KnobArcSvg } from '@/shared/ui/KnobArcSvg';
 
 export interface DryWetKnobProps {
     device: DeviceSlot;
@@ -21,9 +22,6 @@ export interface DryWetKnobProps {
 }
 
 const SIZE = 34;
-const ARC_R = 13;
-const ARC_CIRC = 2 * Math.PI * ARC_R;
-const ARC_LEN = (270 / 360) * ARC_CIRC;
 
 export const DryWetKnob = React.memo(function DryWetKnob({
     device,
@@ -62,8 +60,6 @@ export const DryWetKnob = React.memo(function DryWetKnob({
     const visualValue = quantize(displayRoundedValue);
     const rawPct = (visualValue - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min);
     const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
-    const angle = -135 + pct * 270;
-    const dashOffset = Math.max(0, Math.min(ARC_LEN, ARC_LEN * (1 - pct)));
 
     const valueToUnit = useCallback((v: number) =>
         (v - resolvedParam.min) / Math.max(1e-9, resolvedParam.max - resolvedParam.min),
@@ -171,57 +167,17 @@ export const DryWetKnob = React.memo(function DryWetKnob({
                     onMouseDown={beginMouseDrag}
                     onDoubleClick={onDoubleClick}
                 >
-                    <svg width={SIZE} height={SIZE} viewBox="0 0 48 48" style={{ pointerEvents: 'none', overflow: 'visible' }}>
-                        {/* Glow filter */}
-                        <defs>
-                            <filter id={filterId} x="-120%" y="-120%" width="340%" height="340%">
-                                <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" />
-                            </filter>
-                        </defs>
-                        {/* Background arc */}
-                        <circle
-                            cx="24" cy="24" r={ARC_R}
-                            fill="none"
-                            stroke="var(--color-bg-elevated)"
-                            strokeWidth="4"
-                            strokeLinecap="round"
-                            strokeDasharray={ARC_CIRC}
-                            strokeDashoffset={ARC_CIRC - ARC_LEN}
-                            transform="rotate(135 24 24)"
-                        />
-                        {/* Glow layer */}
-                        {pct > 0 && (
-                            <circle
-                                cx="24" cy="24" r={ARC_R}
-                                fill="none"
-                                stroke={accentColor}
-                                strokeWidth="5"
-                                strokeLinecap="round"
-                                strokeDasharray={ARC_LEN}
-                                strokeDashoffset={dashOffset}
-                                transform="rotate(135 24 24)"
-                                filter={`url(#${filterId})`}
-                                opacity="0.45"
-                            />
-                        )}
-                        {/* Active arc */}
-                        {pct > 0 && (
-                            <circle
-                                cx="24" cy="24" r={ARC_R}
-                                fill="none"
-                                stroke={accentColor}
-                                strokeWidth="4"
-                                strokeLinecap="round"
-                                strokeDasharray={ARC_LEN}
-                                strokeDashoffset={dashOffset}
-                                transform="rotate(135 24 24)"
-                            />
-                        )}
-                        {/* Pointer line */}
-                        <g transform={`rotate(${angle} 24 24)`}>
-                            <line x1="24" y1="24" x2="24" y2="7" stroke="var(--color-text-primary)" strokeWidth="2.5" strokeLinecap="round" />
-                        </g>
-                    </svg>
+                    <KnobArcSvg
+                        pct={pct}
+                        size={SIZE}
+                        viewBox={48}
+                        center={24}
+                        radius={13}
+                        strokeWidth={4}
+                        accent={accentColor}
+                        glow
+                        glowFilterId={filterId}
+                    />
                 </div>
             </div>
             {/* Label */}

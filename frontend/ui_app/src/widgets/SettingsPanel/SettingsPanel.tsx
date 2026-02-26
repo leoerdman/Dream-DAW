@@ -13,6 +13,7 @@ import { AboutTab, AITab, FoldersTab, MidiTab, ShortcutsTab } from './settingsPa
 import { AppearanceTab } from './settingsPanelMainTabs';
 import { AudioTab } from './settingsPanelAudioTab';
 import { GeneralTab } from './settingsPanelGeneralTab';
+import { BrowserTab } from './settingsPanelBrowserTab';
 
 /**
  * SettingsPanel — 5-tab modal settings window.
@@ -23,7 +24,7 @@ import { GeneralTab } from './settingsPanelGeneralTab';
  * Trigger: ⌘, or gear icon
  */
 
-type SettingsTab = 'general' | 'appearance' | 'shortcuts' | 'audio' | 'midi' | 'ai' | 'folders' | 'about';
+type SettingsTab = 'general' | 'appearance' | 'shortcuts' | 'audio' | 'midi' | 'ai' | 'folders' | 'browser' | 'about';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -199,6 +200,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         { key: 'midi', label: 'Midi', icon: '🎹' },
         { key: 'ai', label: 'Ai', icon: '🤖' },
         { key: 'folders', label: 'Folders', icon: '📁' },
+        { key: 'browser', label: 'Browser', icon: '🔍' },
         { key: 'about', label: 'About', icon: 'ℹ️' },
     ];
 
@@ -282,6 +284,13 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
 
                     {tab === 'ai' && (
                         <AITab
+                            settings={settings}
+                            updateSetting={updateSetting}
+                        />
+                    )}
+
+                    {tab === 'browser' && (
+                        <BrowserTab
                             settings={settings}
                             updateSetting={updateSetting}
                         />

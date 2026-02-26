@@ -30,6 +30,7 @@ interface UseDawShellTimelinePropsParams {
     selectedClipIds: string[];
     onClipSelectionChange: TimelineProps['onClipSelectionChange'];
     onClipMove: TimelineProps['onClipMove'];
+    onClipDuplicate: TimelineProps['onClipDuplicate'];
     onClipResize: TimelineProps['onClipResize'];
     onClipFades: TimelineProps['onClipFades'];
     onClipFadeCurves: TimelineProps['onClipFadeCurves'];
@@ -71,6 +72,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             selectedClipIds: params.selectedClipIds,
             onClipSelectionChange: params.onClipSelectionChange,
             onClipMove: params.onClipMove,
+            onClipDuplicate: params.onClipDuplicate,
             onClipResize: params.onClipResize,
             onClipFades: params.onClipFades,
             onClipFadeCurves: params.onClipFadeCurves,
@@ -98,6 +100,7 @@ export function useDawShellTimelineProps(params: UseDawShellTimelinePropsParams)
             params.onClipFadeCurves,
             params.onClipFades,
             params.onClipMove,
+            params.onClipDuplicate,
             params.onClipResize,
             params.onClipSelect,
             params.onClipSelectionChange,

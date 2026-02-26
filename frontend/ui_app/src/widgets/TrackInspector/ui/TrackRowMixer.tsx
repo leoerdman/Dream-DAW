@@ -47,13 +47,12 @@ export function TrackRowMixer({
                 alignItems: 'center',
                 columnGap: layout.mixerColumnGapPx,
                 padding: `${layout.mixerPaddingY}px ${layout.mixerPaddingX}px`,
-                width: layout.mixerSectionWidthPx,
                 minWidth: layout.mixerSectionWidthPx,
-                maxWidth: layout.mixerSectionWidthPx,
-                flex: '0 0 auto',
+                flex: '1 1 auto',
                 overflow: 'hidden',
                 background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
                 boxSizing: 'border-box',
+                borderRight: 'var(--space-px) solid var(--color-divider)',
             }}
         >
             {!isMaster ? (

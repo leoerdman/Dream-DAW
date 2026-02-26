@@ -86,6 +86,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     arrangementGridDivision: 'ADAPTIVE',
     arrangementGridTriplet: false,
     arrangementGridSnapEnabled: true,
+    browserExcludedFormats: [],
+    browserAutoPreview: true,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

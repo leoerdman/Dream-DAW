@@ -26,6 +26,7 @@ type Args = {
 type Result = {
     handleDoubleClickTrack: (trackIndex: number, beat: number) => void;
     handleClipMove: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
+    handleClipDuplicate: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     handleClipResize: (clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => void;
     handleClipFades: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     handleOpenMidiClip: (clipId: string) => void;
@@ -267,6 +268,117 @@ export function useTimelineClipHandlers({
             });
     }, [applyProjectDeltas, pruneGhostClip]);
 
+    // ────────────────────────────────────────────────────────────────────────
+    // ENTERPRISE: Cmd+Drag duplicate — duplicates clips to target position/track.
+    // Supports multi-clip selection: all selected clips are duplicated with
+    // the same relative offset that the primary clip was dragged by.
+    // ────────────────────────────────────────────────────────────────────────
+    const handleClipDuplicate = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
+        const bpm = Math.max(1, projectBpm ?? 120);
+        const sampleRate = projectSampleRate;
+        const liveState = useEngineStore.getState();
+        const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
+        if (!liveClip) {
+            pruneGhostClip(clipId);
+            return;
+        }
+
+        const dragged = liveClip ?? timelineClipsForView.find((clip) => clip.id === clipId);
+        if (!dragged) return;
+
+        const selectedSet = new Set(selectedClipIds);
+        const duplicateAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
+
+        const snapToVisibleTrack = (targetTrack: number): number => {
+            const clamped = Math.max(0, Math.min(trackCountRaw - 1, targetTrack));
+            if (!hiddenTrackIndices.has(clamped)) return clamped;
+            for (let radius = 1; radius < trackCountRaw; radius += 1) {
+                const up = clamped - radius;
+                const down = clamped + radius;
+                if (up >= 0 && !hiddenTrackIndices.has(up)) return up;
+                if (down < trackCountRaw && !hiddenTrackIndices.has(down)) return down;
+            }
+            return clamped;
+        };
+
+        const duplicateOne = async (id: string, targetBeat: number, targetTrack: number): Promise<string | null> => {
+            const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sampleRate);
+            const safeTrack = snapToVisibleTrack(targetTrack);
+            try {
+                // Step 1: Duplicate the clip at the target position
+                const dupResponse = await engineApi.duplicateClipWithDeltas(id, positionFrames);
+                await applyProjectDeltas(dupResponse.deltas, 'clip-duplicate-drag');
+                const newId = dupResponse.new_id;
+
+                // Step 2: If the target track differs from the source, move the new clip
+                const sourceClip = liveState.clips.byId[id] ?? liveState.clipsById[id];
+                const sourceTrack = sourceClip?.trackIndex ?? 0;
+                if (safeTrack !== sourceTrack) {
+                    const moveResponse = await engineApi.moveClipWithDeltas(newId, safeTrack, positionFrames);
+                    await applyProjectDeltas(moveResponse.deltas, 'clip-duplicate-drag-move');
+                }
+                return newId;
+            } catch (err) {
+                console.error('[DawShell] duplicateClip (Cmd+Drag) failed:', err);
+                useStatusStore.getState().setError(
+                    `Clip duplicate failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                return null;
+            }
+        };
+
+        const run = async () => {
+            if (!duplicateAsGroup) {
+                const newId = await duplicateOne(clipId, newStartBeat, newTrackIndex);
+                if (newId) {
+                    setSelectedClipIds([newId]);
+                }
+                return;
+            }
+
+            // Multi-clip: compute delta from the primary clip's drag
+            const deltaBeat = newStartBeat - dragged.startBeat;
+            const deltaTrack = newTrackIndex - dragged.trackIndex;
+            const newIds: string[] = [];
+            const seen = new Set<string>();
+
+            const selectedClips = selectedClipIds
+                .map((id) => liveState.clips.byId[id] ?? liveState.clipsById[id])
+                .filter((clip): clip is TimelineClip => Boolean(clip))
+                .filter((clip) => {
+                    if (!selectedSet.has(clip.id)) return false;
+                    if (seen.has(clip.id)) return false;
+                    seen.add(clip.id);
+                    return true;
+                });
+
+            for (const clip of selectedClips) {
+                const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
+                const targetTrack = Math.max(0, Math.min(trackCountRaw - 1, clip.trackIndex + deltaTrack));
+                const newId = await duplicateOne(clip.id, targetBeat, targetTrack);
+                if (newId) newIds.push(newId);
+            }
+
+            if (newIds.length > 0) {
+                setSelectedClipIds(newIds);
+            }
+        };
+
+        void run().catch((err) => {
+            console.error('[DawShell] Cmd+Drag duplicate failed:', err);
+        });
+    }, [
+        applyProjectDeltas,
+        hiddenTrackIndices,
+        projectBpm,
+        projectSampleRate,
+        pruneGhostClip,
+        selectedClipIds,
+        setSelectedClipIds,
+        timelineClipsForView,
+        trackCountRaw,
+    ]);
+
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipIds([clipId]);
         setBottomPanelModeForActiveTrack('clip');
@@ -275,6 +387,7 @@ export function useTimelineClipHandlers({
     return {
         handleDoubleClickTrack,
         handleClipMove,
+        handleClipDuplicate,
         handleClipResize,
         handleClipFades,
         handleOpenMidiClip,

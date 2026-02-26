@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::driver::midi_dispatcher::{ActiveMappedNote, clamp_midi_pitch, quantize_to_scale};
 use crate::essence_synth::EssenceSynthEngine;
+use crate::frame_domain::FrameDomainConverter;
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 
 #[allow(clippy::too_many_arguments)]
@@ -17,8 +18,7 @@ pub(super) fn render_instrument_sources(
     midi_chase_needed: bool,
     is_playing: bool,
     midi_playhead_pos: i64,
-    frame_count: usize,
-    timeline_frame_count: usize,
+    converter: &FrameDomainConverter,
 ) {
     for track_idx in 0..track_count {
         if track_idx >= midi_snap.len() || track_idx >= sampler_engines.len() {
@@ -55,6 +55,8 @@ pub(super) fn render_instrument_sources(
             None
         };
         let slot = &mut render_ctx.track_slots[track_idx];
+        let frame_count = converter.device_frames();
+        let timeline_frame_count = converter.timeline_frames();
 
         // INSTRUMENT EXCLUSION: A track uses EITHER the sample-based engines
         // (Sampler + SampleRack) OR the Essence Synth oscillator — never both.
@@ -114,8 +116,11 @@ pub(super) fn render_instrument_sources(
         slot.midi_events_scratch.clear();
         for event in &slot.midi_schedule_scratch {
             if event.is_note_off {
+                // FRAME-DOMAIN-FIX: Use FrameDomainConverter (SSOT)
+                // for timeline→device offset conversion.
+                let device_off = converter.timeline_to_device_offset(event.buffer_offset_end);
                 slot.midi_events_scratch.push((
-                    event.buffer_offset_end.min(fc),
+                    device_off.min(fc),
                     0,
                     event.pitch,
                     event.velocity,
@@ -123,8 +128,9 @@ pub(super) fn render_instrument_sources(
                 ));
             }
             if event.is_note_on {
+                let device_on = converter.timeline_to_device_offset(event.buffer_onset);
                 slot.midi_events_scratch.push((
-                    event.buffer_onset.min(fc),
+                    device_on.min(fc),
                     1,
                     event.pitch,
                     event.velocity,

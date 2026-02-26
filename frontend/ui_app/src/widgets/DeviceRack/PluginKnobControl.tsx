@@ -15,6 +15,7 @@ import {
 } from './StandardPluginControlUtils';
 import { usePluginKnobDrag } from './usePluginKnobDrag';
 import type { PluginParam } from './StandardPluginControlTypes';
+import { KnobArcSvg } from '@/shared/ui/KnobArcSvg';
 
 export const PluginKnob = ({
     param,
@@ -63,7 +64,6 @@ export const PluginKnob = ({
     const visualValue = quantizeValue(displayRoundedValue);
     const rawPct = valueToUnit(visualValue);
     const pct = rawPct <= 1e-4 ? 0 : rawPct >= 1 - 1e-4 ? 1 : Math.max(0, Math.min(1, rawPct));
-    const angle = -135 + pct * 270;
     const [isEditingValue, setIsEditingValue] = useState(false);
     const [editValueText, setEditValueText] = useState('');
 
@@ -156,11 +156,7 @@ export const PluginKnob = ({
         setEditValueText(String(safeValue));
     }, [safeValue]);
 
-    const arcRadius = 14;
     const svgSize = compact ? 30 : 38;
-    const arcCircumference = 2 * Math.PI * arcRadius;
-    const dashLength = (270 / 360) * arcCircumference;
-    const dashOffset = Math.max(0, Math.min(dashLength, dashLength * (1 - pct)));
 
     return (
         <label
@@ -178,15 +174,13 @@ export const PluginKnob = ({
                     onMouseDown={beginMouseDrag}
                     onDoubleClick={onKnobDoubleClick}
                 >
-                    <svg width={svgSize} height={svgSize} viewBox="0 0 40 40" style={{ pointerEvents: 'none' }}>
-                        <circle cx="20" cy="20" r={arcRadius} fill="none" stroke="var(--color-bg-elevated)" strokeWidth="4" strokeLinecap="round" strokeDasharray={arcCircumference} strokeDashoffset={arcCircumference - dashLength} transform="rotate(135 20 20)" />
-                        {pct > 0 && (
-                            <circle cx="20" cy="20" r={arcRadius} fill="none" stroke="var(--color-accent-primary)" strokeWidth="4" strokeLinecap="round" strokeDasharray={dashLength} strokeDashoffset={dashOffset} transform="rotate(135 20 20)" />
-                        )}
-                        <g transform={`rotate(${angle} 20 20)`}>
-                            <line x1="20" y1="20" x2="20" y2="6" stroke="var(--color-text-primary)" strokeWidth="2.5" strokeLinecap="round" />
-                        </g>
-                    </svg>
+                    <KnobArcSvg
+                        pct={pct}
+                        size={svgSize}
+                        viewBox={40}
+                        radius={14}
+                        strokeWidth={4}
+                    />
                 </div>
                 {isDragging && <span style={knobDragValueBadgeStyle}>{formatPluginParamValue(param)}</span>}
             </div>

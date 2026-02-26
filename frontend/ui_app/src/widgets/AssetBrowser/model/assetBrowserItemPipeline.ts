@@ -17,6 +17,29 @@ import {
     type PluginGroupedRow,
 } from './assetBrowserSchema';
 
+// ── Format group → extension mapping (mirrors settingsPanelBrowserTab) ──
+const FORMAT_GROUP_EXTENSIONS: Record<string, string[]> = {
+    wav: ['wav', 'wave'],
+    aiff: ['aiff', 'aif', 'aifc'],
+    mp3: ['mp3'],
+    flac: ['flac'],
+    ogg: ['ogg', 'oga', 'opus'],
+    m4a: ['m4a', 'mp4', 'aac'],
+    caf: ['caf'],
+    wma: ['wma'],
+    webm: ['webm'],
+};
+
+/** Build a Set of lowercased extensions that belong to any of the excluded format groups. */
+function buildExcludedExtensionSet(excludedGroups: string[]): Set<string> {
+    const set = new Set<string>();
+    for (const gid of excludedGroups) {
+        const exts = FORMAT_GROUP_EXTENSIONS[gid];
+        if (exts) for (const ext of exts) set.add(ext);
+    }
+    return set;
+}
+
 export function mapRealBrowserItems(realFiles: AudioFileEntry[]): BrowserItem[] {
     return realFiles.map((f) => {
         const sizeKb = Math.round(f.size_bytes / 1024);
@@ -109,11 +132,12 @@ export function computeBrowserItems(params: {
     formatFilter: number;
     audioFilter: number;
     sourceFilter: number;
+    excludedFormats: string[];
 }): BrowserItem[] {
     const {
         selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems,
         activeFolderCategoryPath, sizeFilter, sortFilter, pluginSourceFilter, collectionItems, formatFilter,
-        audioFilter, sourceFilter,
+        audioFilter, sourceFilter, excludedFormats,
     } = params;
     const internalAudioEffectItems = INTERNAL_EFFECT_ITEMS.filter((item) =>
         !(item.path ?? '').startsWith('internal://midi-fx/'),
@@ -153,6 +177,17 @@ export function computeBrowserItems(params: {
         }
     }
     if (selectedCategoryId === 'all') base = base.filter((i) => i.type !== 'project');
+
+    // ── Format exclusion (from Settings → Browser → Format Indexing) ──
+    if (excludedFormats.length > 0) {
+        const excludedExts = buildExcludedExtensionSet(excludedFormats);
+        base = base.filter((i) => {
+            if (i.type !== 'audio') return true;
+            const fmt = (i.format ?? '').toLowerCase();
+            return !excludedExts.has(fmt);
+        });
+    }
+
     if (debouncedQuery.trim()) {
         const q = debouncedQuery.trim();
         base = base

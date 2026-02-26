@@ -400,6 +400,7 @@ export const DawShell = () => {
     const {
         handleDoubleClickTrack,
         handleClipMove,
+        handleClipDuplicate,
         handleClipResize,
         handleClipFades,
         handleOpenMidiClip,
@@ -467,6 +468,7 @@ export const DawShell = () => {
         selectedClipIds: selectedClipIdsForView,
         onClipSelectionChange: handleTimelineClipSelectionChange,
         onClipMove: handleClipMove,
+        onClipDuplicate: handleClipDuplicate,
         onClipResize: handleClipResize,
         onClipFades: handleClipFades,
         onClipFadeCurves: handleClipFadeCurves,

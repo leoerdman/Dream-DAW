@@ -31,6 +31,7 @@ interface UseAssetBrowserDerivedParams {
     formatFilter: number;
     audioFilter: number;
     sourceFilter: number;
+    excludedFormats: string[];
 }
 
 export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
@@ -94,6 +95,7 @@ export function useAssetBrowserDerived(params: UseAssetBrowserDerivedParams) {
         formatFilter: params.formatFilter,
         audioFilter: params.audioFilter,
         sourceFilter: params.sourceFilter,
+        excludedFormats: params.excludedFormats,
     }), [
         params.audioFilter,
         params.collectionItems,

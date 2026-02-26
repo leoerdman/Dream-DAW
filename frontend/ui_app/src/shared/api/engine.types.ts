@@ -152,6 +152,8 @@ export interface AppSettings {
     arrangementGridDivision: string;
     arrangementGridTriplet: boolean;
     arrangementGridSnapEnabled: boolean;
+    browserExcludedFormats: string[];
+    browserAutoPreview: boolean;
 }
 
 /** Recent project entry. */

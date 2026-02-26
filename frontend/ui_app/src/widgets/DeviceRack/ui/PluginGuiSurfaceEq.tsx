@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     VB_W, VB_H, MARGIN_L, MARGIN_R, freqToX, gainToY, isFilterOnlyType,
     buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams
@@ -74,12 +74,47 @@ export function PluginGuiSurfaceEq({
         });
     }, [device.id]);
 
+    // ── EQ Performance: Local drag overlay ──────────────────────────
+    // During drag, param changes are applied to a local Map immediately
+    // for zero-latency visual feedback. The IPC call still fires, but the
+    // curve updates without waiting for the IPC roundtrip.
+    const pendingDragOverrides = useRef<Map<string, number>>(new Map());
+    const [dragRenderTick, setDragRenderTick] = useState(0);
+
+    // When drag ends, clear local overrides (store state will have caught up).
+    const prevDragBand = useRef<number | null>(null);
+    if (prevDragBand.current !== null && dragEqBand === null) {
+        pendingDragOverrides.current.clear();
+    }
+    prevDragBand.current = dragEqBand;
+
+    // Wrap onParamChange to capture local overrides during active drag.
+    const onParamChangeLocal = useCallback((paramName: string, value: number) => {
+        if (dragEqBand !== null) {
+            pendingDragOverrides.current.set(paramName.toLowerCase(), value);
+            // Trigger a synchronous re-render so the curve updates instantly.
+            setDragRenderTick((t) => t + 1);
+        }
+        // Always forward to the real IPC handler.
+        onParamChange(paramName, value);
+    }, [dragEqBand, onParamChange]);
+
+    // Merge device.params with local drag overrides for instant visual feedback.
+    const mergedParams = useMemo(() => {
+        if (pendingDragOverrides.current.size === 0) return device.params;
+        return device.params.map((p) => {
+            const override = pendingDragOverrides.current.get(p.name.toLowerCase());
+            return override !== undefined ? { ...p, value: override } : p;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [device.params, dragRenderTick]);
+
     const bands = useMemo(
-        () => parseBandsFromParams(device.params, eqBandFilterTypes, eqBandColors),
-        [device.params, eqBandFilterTypes, eqBandColors],
+        () => parseBandsFromParams(mergedParams, eqBandFilterTypes, eqBandColors),
+        [mergedParams, eqBandFilterTypes, eqBandColors],
     );
 
-    const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
+    const out = mergedParams.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
     const { curvePath, fillPath } = useMemo(() => buildEqCurvePaths(bands, projectSampleRate), [bands, projectSampleRate]);
     const spectrumPath = useMemo(() => (eqSpectrumEnabled ? buildSpectrumPath(spectrumData) : null), [eqSpectrumEnabled, spectrumData]);

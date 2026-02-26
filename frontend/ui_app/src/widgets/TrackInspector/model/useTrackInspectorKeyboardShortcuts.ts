@@ -39,7 +39,8 @@ export function useTrackInspectorKeyboardShortcuts({
                 e.preventDefault();
                 handleRenameStart(selectedTrackId);
             }
-            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && selectedTrackId && selectedTrackId !== 'master') {
+            // ENTERPRISE FIX: Only group tracks when headers are explicitly selected.
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && !e.shiftKey && headerSelectedTrackIdSet.size > 0) {
                 e.preventDefault();
                 const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
@@ -64,7 +65,8 @@ export function useTrackInspectorKeyboardShortcuts({
                     handleGroupTrack(selectedTrackId);
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyG' && selectedTrackId && selectedTrackId !== 'master') {
+            // ENTERPRISE FIX: Only ungroup when headers are explicitly selected.
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyG' && headerSelectedTrackIdSet.size > 0 && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
                 const selected = tracks.find((t) => t.id === selectedTrackId);
                 const groupToUngroup = selected?.type === 'group' ? selected.id : (selected?.groupId ?? null);
@@ -76,7 +78,9 @@ export function useTrackInspectorKeyboardShortcuts({
                     });
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyD' && selectedTrackIdSet.size > 0) {
+            // ENTERPRISE FIX: Only duplicate tracks when headers are explicitly
+            // selected (clicked), not when the track is merely active/focused.
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyD' && headerSelectedTrackIdSet.size > 0) {
                 e.preventDefault();
                 handleDuplicateSelectedTracks();
             }

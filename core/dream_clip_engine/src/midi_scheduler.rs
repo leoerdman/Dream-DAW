@@ -260,13 +260,28 @@ impl MidiScheduler {
             }
         };
 
+        // ── Guard: playhead genuinely past the loop ────────────────────
+        // When the user places the cursor AFTER the loop region, the scheduler
+        // must NOT wrap it back into the loop. The transport only wraps when
+        // `position < lr.end` (Playhead::advance). If the playhead is at or
+        // past lr.end, normal non-looped scheduling is correct — `fill_active`
+        // will naturally produce zero notes because no clips exist there.
+        //
+        // The only edge case: `midi_playhead_pos` is captured BEFORE the
+        // transport advance. On a wrap, the transport moves position from
+        // lr.end - Δ  to  lr.start + Δ. So `midi_playhead_pos` is always
+        // < lr.end during active looped playback. If it's >= lr.end, the user
+        // has explicitly seeked past the loop → no looping.
+        if playhead_pos >= lr.end {
+            Self::fill_active(clips, playhead_pos, frame_count, out);
+            return;
+        }
+
         let frame_count_i64 = i64::try_from(frame_count).unwrap_or(i64::MAX);
         let buffer_end = playhead_pos.saturating_add(frame_count_i64);
-        // If the cursor is already at or past the loop end, play freely
-        // without wrapping — the user has seeked outside the loop region.
-        // Without this guard, the scheduler would erroneously wrap back
-        // to loop start every callback, re-triggering notes (stuck sound).
-        if playhead_pos >= lr.end || buffer_end <= lr.end {
+        // If the buffer fits entirely within the loop (no wrap crossing),
+        // standard scheduling is sufficient.
+        if buffer_end <= lr.end {
             Self::fill_active(clips, playhead_pos, frame_count, out);
             return;
         }

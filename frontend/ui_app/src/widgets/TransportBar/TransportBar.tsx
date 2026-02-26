@@ -12,7 +12,7 @@ import {
     TIME_SIGNATURES,
 } from './model/transportBarDomain';
 import { DebugPanel } from './ui/DebugPanel';
-import { NotesPanel } from './ui/NotesPanel';
+import { NotesPanel, readNotesPinned, writeNotesPinned } from './ui/NotesPanel';
 import { useTransportDebugPanel } from './model/useTransportDebugPanel';
 import { useMidiActivityLed } from './model/useMidiActivityLed';
 import { useTransportRecording } from './model/useTransportRecording';
@@ -118,6 +118,11 @@ export const TransportBar = ({
     const notesDragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseRight: number; baseTop: number }>({
         dragging: false, startX: 0, startY: 0, baseRight: DEFAULT_NOTES_POS.right, baseTop: DEFAULT_NOTES_POS.top,
     });
+    const [notesPinned, setNotesPinned] = useState(() => readNotesPinned());
+    const handlePinnedChange = useCallback((pinned: boolean) => {
+        setNotesPinned(pinned);
+        writeNotesPinned(pinned);
+    }, []);
 
     // Persist notes panel position
     useEffect(() => {
@@ -137,27 +142,37 @@ export const TransportBar = ({
         try { window.localStorage.setItem(NOTES_POS_KEY, JSON.stringify(notesPanelPos)); } catch { /* ignore */ }
     }, [notesPanelPos]);
 
-    // Click-outside and Escape to close
-    // BUG-FIX: Use setTimeout(0) so the document mousedown fires AFTER
-    // React's synthetic onClick on the toggle button has run. Without this,
-    // clicking the StickyNote button first closes (click-outside) then
-    // reopens (button onClick), causing a double-toggle flicker.
     useEffect(() => {
         if (!notesOpen) return;
-        const onDown = (e: globalThis.MouseEvent) => {
+        // When pinned, skip click-outside close (only Escape still works).
+        const onDown = notesPinned ? undefined : (e: globalThis.MouseEvent) => {
             const target = e.target as Node;
             if (notesPanelRef.current && !notesPanelRef.current.contains(target)) {
-                // Check if the click was on the toggle button itself — if so, skip.
                 const btn = (target as HTMLElement).closest?.('[aria-label="Project Notes"]');
                 if (btn) return;
                 setNotesOpen(false);
             }
         };
         const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotesOpen(false); };
-        document.addEventListener('mousedown', onDown);
+        if (onDown) document.addEventListener('mousedown', onDown);
         document.addEventListener('keydown', onEsc);
-        return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
-    }, [notesOpen]);
+        return () => {
+            if (onDown) document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onEsc);
+        };
+    }, [notesOpen, notesPinned]);
+
+    // ── Option+N global hotkey toggles Notes panel ───────────────────
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.altKey && e.key.toLowerCase() === 'n' && !e.repeat) {
+                e.preventDefault();
+                setNotesOpen((v) => !v);
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, []);
 
     // Drag handling
     const handleNotesDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -361,6 +376,8 @@ export const TransportBar = ({
                         panelPos={notesPanelPos}
                         onDragStart={handleNotesDragStart}
                         onClose={() => setNotesOpen(false)}
+                        pinned={notesPinned}
+                        onPinnedChange={handlePinnedChange}
                     />
                 )}
             </div>

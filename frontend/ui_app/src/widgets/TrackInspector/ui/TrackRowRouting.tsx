@@ -26,15 +26,15 @@ export function TrackRowRouting({
     const availableRoutingTargets = routingTargets.filter((t) => t.id !== track.id);
     const outputValue =
         track.output &&
-        (track.output === 'master' || availableRoutingTargets.some((t) => t.id === track.output))
+            (track.output === 'master' || availableRoutingTargets.some((t) => t.id === track.output))
             ? track.output
             : 'master';
     const inputValue =
         track.input &&
-        (track.input === 'none' ||
-            track.input === 'ext-1' ||
-            track.input === 'ext-2' ||
-            availableRoutingTargets.some((t) => t.id === track.input))
+            (track.input === 'none' ||
+                track.input === 'ext-1' ||
+                track.input === 'ext-2' ||
+                availableRoutingTargets.some((t) => t.id === track.input))
             ? track.input
             : 'none';
 
@@ -52,6 +52,7 @@ export function TrackRowRouting({
                     minWidth: layout.routingColWidth,
                     maxWidth: layout.routingColWidth,
                     boxSizing: 'border-box',
+                    background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
                 }}
             >
                 <div
@@ -111,6 +112,7 @@ export function TrackRowRouting({
                 minWidth: layout.routingColWidth,
                 maxWidth: layout.routingColWidth,
                 boxSizing: 'border-box',
+                background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
             }}
         >
             <RoutingSelect

@@ -51,34 +51,24 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     restoreScrollLeft: null,
     restoreScrollTop: null,
 
+    // BUG-021: Optimized to avoid creating intermediate `next` object on every
+    // scroll tick (~60Hz). Directly checks and returns only changed fields.
     setLayout: (values) => set((state) => {
-        let changed = false;
-        const next: Partial<TimelineState> = {};
-        if (values.pixelsPerBeat !== undefined && values.pixelsPerBeat !== state.pixelsPerBeat) {
-            next.pixelsPerBeat = values.pixelsPerBeat;
-            changed = true;
-        }
-        if (values.trackHeight !== undefined && values.trackHeight !== state.trackHeight) {
-            next.trackHeight = values.trackHeight;
-            changed = true;
-        }
-        if (values.canvasRect !== undefined && values.canvasRect !== state.canvasRect) {
-            next.canvasRect = values.canvasRect;
-            changed = true;
-        }
-        if (values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft) {
-            next.scrollLeft = values.scrollLeft;
-            changed = true;
-        }
-        if (values.scrollTop !== undefined && values.scrollTop !== state.scrollTop) {
-            next.scrollTop = values.scrollTop;
-            changed = true;
-        }
-        if (values.rulerHeight !== undefined && values.rulerHeight !== state.rulerHeight) {
-            next.rulerHeight = values.rulerHeight;
-            changed = true;
-        }
-        return changed ? next : state;
+        const ppb = values.pixelsPerBeat !== undefined && values.pixelsPerBeat !== state.pixelsPerBeat ? values.pixelsPerBeat : undefined;
+        const th = values.trackHeight !== undefined && values.trackHeight !== state.trackHeight ? values.trackHeight : undefined;
+        const cr = values.canvasRect !== undefined && values.canvasRect !== state.canvasRect ? values.canvasRect : undefined;
+        const sl = values.scrollLeft !== undefined && values.scrollLeft !== state.scrollLeft ? values.scrollLeft : undefined;
+        const st = values.scrollTop !== undefined && values.scrollTop !== state.scrollTop ? values.scrollTop : undefined;
+        const rh = values.rulerHeight !== undefined && values.rulerHeight !== state.rulerHeight ? values.rulerHeight : undefined;
+        if (ppb === undefined && th === undefined && cr === undefined && sl === undefined && st === undefined && rh === undefined) return state;
+        return {
+            ...(ppb !== undefined && { pixelsPerBeat: ppb }),
+            ...(th !== undefined && { trackHeight: th }),
+            ...(cr !== undefined && { canvasRect: cr }),
+            ...(sl !== undefined && { scrollLeft: sl }),
+            ...(st !== undefined && { scrollTop: st }),
+            ...(rh !== undefined && { rulerHeight: rh }),
+        };
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({

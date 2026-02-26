@@ -215,6 +215,9 @@ export function useTimelineClipHandlers({
     ]);
 
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
+        // BUG-008: Validate inputs before IPC — reject negative, NaN, zero-duration.
+        if (!Number.isFinite(newStartBeat) || newStartBeat < 0) return;
+        if (!Number.isFinite(newDurationBeats) || newDurationBeats <= 0) return;
         const liveState = useEngineStore.getState();
         const liveExists = Boolean(liveState.clips.byId[clipId] ?? liveState.clipsById[clipId]);
         if (!liveExists) {

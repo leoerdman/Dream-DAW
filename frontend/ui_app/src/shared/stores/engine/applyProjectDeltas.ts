@@ -80,8 +80,9 @@ export function extractSnapshotProjectMeta(
     );
     const rawViewScrollTop = toFiniteNumber(project.sequencer_navigator_scroll_y ?? Number.NaN, Number.NaN);
     const hasViewport = Number.isFinite(rawViewZoom) || Number.isFinite(rawViewScroll) || Number.isFinite(rawViewScrollTop);
+    // BUG-096: Increased max from 2000 to 5000 for detailed MIDI editing.
     const viewportPixelsPerBeat = Number.isFinite(rawViewZoom)
-        ? Math.max(0.5, Math.min(2000, rawViewZoom))
+        ? Math.max(0.5, Math.min(5000, rawViewZoom))
         : undefined;
     const viewportScrollLeft = Number.isFinite(rawViewScroll)
         ? Math.max(0, rawViewScroll)
@@ -170,7 +171,8 @@ export function applyProjectDeltasToState(
                         durationSamples: durFrames,
                         isWarped: Boolean(clip.is_warped ?? false),
                         warpMode: clip.warp_mode ?? null,
-                        warpBaseBpm: Math.max(20, toFiniteNumber(clip.warp_base_bpm, bpm)),
+                        // BUG-098: Allow ambient/drone content with very slow tempos.
+                        warpBaseBpm: Math.max(1, toFiniteNumber(clip.warp_base_bpm, bpm)),
                         warpSourceDurationFrames: Math.max(1, toFiniteNumber(clip.warp_source_duration_frames, durFrames)),
                         sourceOffset: Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0)),
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),

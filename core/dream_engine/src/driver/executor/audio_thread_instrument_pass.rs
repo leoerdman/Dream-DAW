@@ -18,6 +18,7 @@ pub(super) fn render_instrument_sources(
     is_playing: bool,
     midi_playhead_pos: i64,
     frame_count: usize,
+    timeline_frame_count: usize,
 ) {
     for track_idx in 0..track_count {
         if track_idx >= midi_snap.len() || track_idx >= sampler_engines.len() {
@@ -74,7 +75,7 @@ pub(super) fn render_instrument_sources(
             MidiScheduler::fill_active_looped_with_tmp(
                 &midi_track.clips,
                 midi_playhead_pos,
-                frame_count,
+                timeline_frame_count,
                 midi_loop_region.as_ref(),
                 &mut slot.midi_schedule_scratch,
                 &mut slot.midi_schedule_tmp,

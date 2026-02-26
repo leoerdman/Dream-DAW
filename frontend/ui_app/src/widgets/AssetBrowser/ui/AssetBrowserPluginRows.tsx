@@ -56,6 +56,8 @@ export const PluginGroupItemRow = memo(function PluginGroupItemRow({
                     return;
                 }
                 suppressNextAutoScrollRef.current = true;
+                // BUG-099: Auto-reset after 500ms in case the scroll effect never fires.
+                setTimeout(() => { suppressNextAutoScrollRef.current = false; }, 500);
                 setSelectedItemId(item.id);
                 syncPreviewForItem(item);
             }}

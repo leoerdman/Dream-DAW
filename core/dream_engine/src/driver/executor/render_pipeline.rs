@@ -281,6 +281,12 @@ pub(super) fn render_test_tone_if_needed(
         *test_tone_phase += phase_inc;
         *test_tone_phase = test_tone_phase.fract();
     }
+    // BUG-082 FIX: Zero-fill any trailing samples that chunks_exact_mut
+    // skips when data.len() isn't divisible by channels.
+    let remainder_start = (data.len() / channels) * channels;
+    for s in &mut data[remainder_start..] {
+        *s = 0.0;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

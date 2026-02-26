@@ -1,8 +1,10 @@
 import type { CSSProperties } from 'react';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
+import { formatBeatsAsBBS } from '@/shared/lib/audioMath';
 
 interface SampleClipSidebarProps {
     clipDurationBeats: number;
+    beatsPerBar?: number;
     hasFilePath: boolean;
     draftWarpEnabled: boolean;
     setDraftWarpEnabled: (enabled: boolean) => void;
@@ -22,6 +24,7 @@ interface SampleClipSidebarProps {
 
 export function SampleClipSidebar({
     clipDurationBeats,
+    beatsPerBar = 4,
     hasFilePath,
     draftWarpEnabled,
     setDraftWarpEnabled,
@@ -41,7 +44,7 @@ export function SampleClipSidebar({
     return (
         <ClipEditorSidebar>
             <ClipEditorSection title="Clip Setup">
-                <ClipEditorMetaRow label="Length" value={`${clipDurationBeats.toFixed(2)} beats`} />
+                <ClipEditorMetaRow label="Length" value={formatBeatsAsBBS(clipDurationBeats, beatsPerBar)} />
                 <ClipEditorMetaRow label="Source" value={hasFilePath ? 'Linked' : 'Missing'} />
             </ClipEditorSection>
 

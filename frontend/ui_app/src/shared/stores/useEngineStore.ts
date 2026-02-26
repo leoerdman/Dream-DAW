@@ -172,12 +172,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             }
             let unhandledDeltaKinds: string[] = [];
             const snapshotMeta = extractSnapshotProjectMeta(sanitizedDeltas, get().transport);
-            // BUG-C017 FIX: Apply grid only ONCE from the authoritative source.
-            // Previously, ArrangementGridChanged deltas were applied here AND again
-            // from snapshotMeta, causing grid settings to flicker on full snapshots.
-            // Now: snapshot grid wins (it's more recent), then individual deltas
-            // override if present (they are newer than any snapshot).
-            if (snapshotMeta) {
+            // BUG-017 FIX: Apply grid only ONCE from the most authoritative source.
+            // If an ArrangementGridChanged delta exists, it is newer than any
+            // snapshot grid — skip the snapshot to prevent double-apply flicker.
+            const hasGridDelta = sanitizedDeltas.some(d => d.kind === 'ArrangementGridChanged');
+            if (snapshotMeta && !hasGridDelta) {
                 useGridStore.getState().applyProjectGrid({
                     numerator: snapshotMeta.grid.numerator,
                     denominator: snapshotMeta.grid.denominator,

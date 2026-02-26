@@ -54,6 +54,9 @@ export function createTrackProjectActions(
 > {
     return {
         setTrackVolume: async (trackIndex: number, volume: number) => {
+            // BUG-032 FIX: Guard against NaN/Infinity from slider math.
+            // A NaN volume would poison the audio thread's gain calculation.
+            if (!Number.isFinite(volume)) return;
             // BUG-009: Guard track index bounds to prevent stale index access.
             if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
@@ -94,6 +97,8 @@ export function createTrackProjectActions(
         },
 
         setTrackPan: async (trackIndex: number, pan: number) => {
+            // BUG-032 FIX: Guard against NaN/Infinity from slider math.
+            if (!Number.isFinite(pan)) return;
             // BUG-009: Guard track index bounds to prevent stale index access.
             if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
@@ -167,6 +172,8 @@ export function createTrackProjectActions(
         },
 
         setMasterVolume: async (volume: number) => {
+            // BUG-036 FIX: Guard against NaN/Infinity — would corrupt master gain.
+            if (!Number.isFinite(volume)) return;
             try {
                 // BUG-014 FIX: Clamp to 12.0 (SSOT with ChannelStrip max),
                 // was 2.0 which silently clipped master boost above +6dB.
@@ -278,6 +285,11 @@ export function createTrackProjectActions(
         },
 
         importFile: async (path: string, trackIndex: number, positionFrames?: number) => {
+            // BUG-039 FIX: Validate path — empty or null-byte paths cause Rust std::fs to panic.
+            if (!path || path.includes('\0')) {
+                set({ lastError: 'Import failed: invalid file path' });
+                return null;
+            }
             try {
                 const response = await engine.importAudioFileWithDeltas(path, trackIndex, positionFrames);
                 await get().applyProjectDeltas(response.deltas, 'importFile');

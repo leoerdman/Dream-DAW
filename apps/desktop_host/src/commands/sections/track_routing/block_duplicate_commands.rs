@@ -122,27 +122,17 @@ async fn duplicate_tracks_with_deltas_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<TrackManagementDeltaResponse, String> {
+) -> Result<DeltaMutationResponse, String> {
     let cmd = dream_orchestrator::commands::DuplicateTracksCommand::from_str_track_ids(&track_ids)
         .map_err(|e| e.to_string())?;
     if cmd.track_ids.is_empty() {
-        return Ok(TrackManagementDeltaResponse { deltas: vec![] });
+        return Ok(DeltaMutationResponse { deltas: vec![] });
     }
 
     push_undo(&project_state)?;
     let result = execute_orchestrator_command(&project_state, &cmd)?;
     if result.added_tracks.is_empty() {
-        return Ok(TrackManagementDeltaResponse { deltas: vec![] });
-    }
-
-    let mut deltas = Vec::with_capacity(result.added_tracks.len());
-    for added in &result.added_tracks {
-        deltas.push(dream_models::delta::ProjectDelta::TrackAdded {
-            track_index: added.inserted_index,
-            track_id: added.track_id,
-            name: added.name.clone(),
-            track_type: format!("{:?}", added.track_type),
-        });
+        return Ok(DeltaMutationResponse { deltas: vec![] });
     }
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -153,11 +143,22 @@ async fn duplicate_tracks_with_deltas_cmd(
         &plugin_host_state,
         &handle,
     )?;
+
+    // ENTERPRISE FIX: Send ProjectSnapshotReplaced instead of minimal TrackAdded deltas.
+    // TrackAdded only carries 4 fields (name, type, index, id), causing the frontend
+    // to create an empty track shell without clips, effects, instruments, automation,
+    // or colors. ProjectSnapshotReplaced sends the full project state, ensuring the
+    // frontend receives all deeply-cloned track data — same pattern as undo/redo.
+    let snapshot_clone = project.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] duplicate_tracks_with_deltas_cmd(count={})",
         result.added_tracks.len()
     );
-    Ok(TrackManagementDeltaResponse { deltas })
+    Ok(DeltaMutationResponse {
+        deltas: vec![dream_models::delta::ProjectDelta::ProjectSnapshotReplaced {
+            project: Box::new(snapshot_clone),
+        }],
+    })
 }

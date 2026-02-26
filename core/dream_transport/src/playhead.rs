@@ -156,7 +156,7 @@ impl Playhead {
         // Check loop wrap
         if let Some(region) = loop_region
             && region.enabled
-            && self.position < region.end
+            && self.position <= region.end
             && new_position >= region.end
         {
             // AUD-239 FIX: Use saturating_sub to prevent underflow if

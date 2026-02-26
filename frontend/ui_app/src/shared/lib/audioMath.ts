@@ -104,3 +104,24 @@ export function vuNorm(peakDb: number): number {
     const clamped = Math.min(peakDb, 6);
     return (clamped + 60) / 66;
 }
+
+/**
+ * Format a duration in beats as Bars.Beats.Sixteenths (BBS).
+ *
+ * Standard DAW duration display:
+ *   4 beats (4/4) → "1.0.0"  (1 bar, 0 extra beats, 0 sixteenths)
+ *   5 beats (4/4) → "1.1.0"  (1 bar, 1 extra beat, 0 sixteenths)
+ *   4.25 beats    → "1.0.1"  (1 bar, 0 beats, 1 sixteenth)
+ *   0.5 beats     → "0.0.2"  (0 bars, 0 beats, 2 sixteenths)
+ *
+ * Sixteenths = 4 per beat (each beat is divided into 4).
+ */
+export function formatBeatsAsBBS(totalBeats: number, beatsPerBar = 4): string {
+    const safeBeatsPerBar = Math.max(1, beatsPerBar);
+    const bars = Math.floor(totalBeats / safeBeatsPerBar);
+    const remainingBeats = totalBeats - bars * safeBeatsPerBar;
+    const wholeBeats = Math.floor(remainingBeats);
+    const fractionalBeat = remainingBeats - wholeBeats;
+    const sixteenths = Math.round(fractionalBeat * 4);
+    return `${bars}.${wholeBeats}.${sixteenths}`;
+}

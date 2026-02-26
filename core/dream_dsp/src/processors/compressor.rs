@@ -109,7 +109,11 @@ impl CompressorProcessor {
             release_coeff: 0.0,
             release_slow_coeff: 0.0,
             sample_rate,
-            threshold_sm_db: SmoothedValue::new(sample_rate, 10.0, -18.0),
+            // BUG-069 FIX: Increased from 10ms to 25ms to prevent zipper noise
+            // during live automation recording. 10ms was too fast — caused
+            // audible stepping artifacts. 25ms is transparent for automation
+            // while remaining responsive for manual knob adjustment.
+            threshold_sm_db: SmoothedValue::new(sample_rate, 25.0, -18.0),
             mix_sm: SmoothedValue::new(sample_rate, 8.0, 1.0),
             ratio_sm: SmoothedValue::new(sample_rate, 10.0, 4.0),
             knee_sm_db: SmoothedValue::new(sample_rate, 10.0, 6.0),

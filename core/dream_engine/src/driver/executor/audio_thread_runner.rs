@@ -112,7 +112,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // master_gain_smooth: one-pole coefficient for ~5ms time constant.
     //   Formula: 1.0 - exp(-1/(tau * sr)) where tau = 5ms.
     //   At 44.1kHz: ~0.00455, at 96kHz: ~0.00208.
-    let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
+    // BUG-099 FIX: Made `mut` so it can be recalculated when the audio
+    // device sample rate changes (hot-swap). Previously computed once at
+    // startup — switching from 44.1kHz→96kHz left the smoothing coefficient
+    // calibrated for the wrong SR, causing jittery gain ramp.
+    let mut master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
     // Historically this path was bypassed; now it is active in the master FX stage.
     let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
@@ -386,6 +390,19 @@ pub(crate) fn start_audio_thread_on_device_impl(
 
                         // ▸ Capture pre-advance playhead for MIDI scheduling.
                         let midi_playhead_pos = render_ctx.playhead.position();
+                        // MIDI-LOOP-FIX: Compute how many timeline frames this device
+                        // buffer actually covers.  MIDI note positions and the playhead
+                        // are in timeline-SR frames, but `frame_count` is in device-SR
+                        // frames.  When device_sr ≠ timeline_sr the scheduler window
+                        // was wrong, causing notes at the loop start to be missed.
+                        // Using ceil() ensures the window is never narrower than what
+                        // the playhead will actually advance — an extra frame is
+                        // harmless (sort_and_dedup collapses duplicates).
+                        let midi_sr_ratio = (render_ctx.timeline_sample_rate
+                            / render_ctx.sample_rate.max(1.0))
+                            .clamp(0.125, 8.0);
+                        let timeline_frame_count =
+                            ((frame_count as f64) * midi_sr_ratio).ceil().max(1.0) as usize;
                         let mut playhead_advanced_in_render = false;
                         if is_playing && has_clips {
                             // Disable test tone automatically when real clips exist
@@ -440,6 +457,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                             is_playing,
                             midi_playhead_pos,
                             frame_count,
+                            timeline_frame_count,
                         );
 
                         // Graph pass: route pre-rendered tracks through DAG.
@@ -661,7 +679,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             MidiScheduler::fill_active_looped_with_tmp(
                                                                 &midi_track.clips,
                                                                 midi_playhead_pos,
-                                                                frame_count,
+                                                                timeline_frame_count,
                                                                 midi_loop_region.as_ref(),
                                                                 &mut midi_schedule_scratch,
                                                                 &mut midi_schedule_tmp,

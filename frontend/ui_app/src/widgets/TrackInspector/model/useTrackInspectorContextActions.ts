@@ -170,13 +170,26 @@ export function useTrackInspectorContextActions({
     const handleDuplicateSelectedTracks = useCallback(() => {
         const ids = Array.from(selectedTrackIdSet);
         if (ids.length === 0) return;
+        // Capture pre-duplication track IDs for diff-based auto-select.
+        const preTrackIds = new Set(useEngineStore.getState().tracks.allIds);
         void engineApi.duplicateTracksWithDeltas(ids).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:duplicate-selected');
-            return;
+            // ENTERPRISE FIX: Backend now sends ProjectSnapshotReplaced (full project clone)
+            // instead of minimal TrackAdded deltas. Diff pre/post track IDs to find new ones.
+            const postTrackIds = useEngineStore.getState().tracks.allIds;
+            const newTrackIds = postTrackIds.filter(id => !preTrackIds.has(id));
+            if (newTrackIds.length > 0) {
+                if (onSelectTracks) {
+                    onSelectTracks(newTrackIds, newTrackIds[0], { preserveCursor: true });
+                } else {
+                    setLocalSelectedTrackIds(new Set(newTrackIds));
+                }
+                if (onSelectTrack) onSelectTrack(newTrackIds[0], { preserveCursor: true });
+            }
         }).catch((err) => {
             console.error('[TrackInspector] duplicate selected tracks failed:', err);
         });
-    }, [selectedTrackIdSet]);
+    }, [selectedTrackIdSet, onSelectTracks, onSelectTrack, setLocalSelectedTrackIds]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {

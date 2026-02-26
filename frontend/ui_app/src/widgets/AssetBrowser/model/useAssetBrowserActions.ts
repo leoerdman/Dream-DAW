@@ -110,9 +110,15 @@ export function useFolderTreeActions({
     const handleAddFolder = useCallback(() => {
         engineApi.addBrowserFolder()
             .then((folders) => {
-                setUserFolders(folders);
-                const newIdx = folders.length - 1;
-                if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
+                // BUG-017: Only select the new folder if count actually increased.
+                // Use setUserFolders to atomically compare prev count with new count.
+                setUserFolders((prev) => {
+                    if (folders.length > prev.length) {
+                        const newIdx = folders.length - 1;
+                        if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
+                    }
+                    return folders;
+                });
                 onFoldersChanged?.();
                 statusClear();
             })

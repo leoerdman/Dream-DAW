@@ -7,15 +7,17 @@ import {
     snapToGrid,
 } from '@/shared/lib/gridSnap';
 import type { GridStore } from '@/shared/stores/useGridStore.types';
-const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/1', '1/2', 'OFF'];
-const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32'];
+// BUG-061: Added '1/64' for detailed MIDI editing.
+const CYCLE_ORDER: GridDivision[] = ['ADAPTIVE', '1/4', '1/8', '1/16', '1/32', '1/64', '1/1', '1/2', 'OFF'];
+const FIXED_DIVISION_ORDER: GridDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64'];
 function denominatorToDivision(denominator: number): GridDivision {
     if (denominator <= 1) return '1/1';
     if (denominator <= 2) return '1/2';
     if (denominator <= 4) return '1/4';
     if (denominator <= 8) return '1/8';
     if (denominator <= 16) return '1/16';
-    return '1/32';
+    if (denominator <= 32) return '1/32';
+    return '1/64';
 }
 export const useGridStore = create<GridStore>((set, get) => ({
     // ── State ──────────────────────────────────────────────────────────

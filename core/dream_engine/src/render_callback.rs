@@ -454,6 +454,9 @@ impl RenderContext {
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     total_pool_hits += 1;
 
+                    // BUG-039: Debug assertion — catch NaN/Infinity gain before f64→f32 truncation.
+                    debug_assert!(clip.gain.is_finite(), "clip.gain is not finite: {}", clip.gain);
+
                     let source_to_device_rate = (audio.sample_rate.max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);

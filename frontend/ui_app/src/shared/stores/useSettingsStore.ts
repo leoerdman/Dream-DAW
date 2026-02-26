@@ -32,9 +32,10 @@ interface SettingsStore {
 
     /**
      * Open native folder picker dialog and update a folder setting.
+     * BUG-050: Narrowed to string-valued keys only — eliminates unsafe `as` cast.
      * Returns the selected path, or null if cancelled.
      */
-    pickAndSetFolder: (settingKey: keyof AppSettings) => Promise<string | null>;
+    pickAndSetFolder: (settingKey: { [K in keyof AppSettings]: AppSettings[K] extends string ? K : never }[keyof AppSettings]) => Promise<string | null>;
 }
 
 /** Default settings — used before backend loads. Must match Rust defaults. */

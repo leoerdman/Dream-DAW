@@ -18,12 +18,13 @@ export type GridDivision =
     | '1/8'      // Eighth note
     | '1/16'     // Sixteenth note
     | '1/32'     // Thirty-second note
+    | '1/64'     // Sixty-fourth note (BUG-061: for detailed MIDI editing)
     | 'ADAPTIVE' // Adaptive grid based on zoom level
     | 'OFF';     // No snapping (free positioning)
 
 /** All selectable divisions for dropdown menus (ordered coarse → fine). */
 export const ALL_DIVISIONS: GridDivision[] = [
-    'ADAPTIVE', '1/1', '1/2', '1/4', '1/8', '1/16', '1/32', 'OFF',
+    'ADAPTIVE', '1/1', '1/2', '1/4', '1/8', '1/16', '1/32', '1/64', 'OFF',
 ];
 
 // ── Division → Numeric Divisor ──────────────────────────────────────────
@@ -36,6 +37,7 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, numbe
     '1/8': 8,
     '1/16': 16,
     '1/32': 32,
+    '1/64': 64,
 };
 
 // ── Adaptive Grid ───────────────────────────────────────────────────────

@@ -276,7 +276,7 @@ pub(super) fn render_test_tone_if_needed(
         let phase_inc = *test_tone_current_freq as f64 / sample_rate_f64;
         let sample = (*test_tone_phase * std::f64::consts::TAU).sin() as f32 * test_tone_amplitude;
         for ch in frame.iter_mut() {
-            *ch = sample;
+            *ch += sample;
         }
         *test_tone_phase += phase_inc;
         *test_tone_phase = test_tone_phase.fract();

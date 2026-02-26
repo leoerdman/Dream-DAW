@@ -116,7 +116,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     // device sample rate changes (hot-swap). Previously computed once at
     // startup — switching from 44.1kHz→96kHz left the smoothing coefficient
     // calibrated for the wrong SR, causing jittery gain ramp.
-    let mut master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
+    let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // MASTER DEVICE CHAIN: Internal FX on the master bus (EQ, compressor, etc.).
     // Historically this path was bypassed; now it is active in the master FX stage.
     let mut master_device_chain = DeviceChain::new(sample_rate_f64 as f32);
@@ -322,10 +322,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // PREVIEW-FIX: Refresh per-track VST instrument flags from snapshot.
                         // When a track has an external VST instrument slot, the built-in
                         // sampler/rack should NOT be triggered by preview note-on/off.
-                        track_has_external_instrument.fill(false);
-                        for (tidx, slots) in external_fx_map.iter().enumerate() {
-                            if tidx >= MAX_TRACKS { break; }
-                            track_has_external_instrument[tidx] = slots.iter().any(|s| {
+                        let active_tracks = render_ctx.meter_bank.track_count();
+                        track_has_external_instrument[..active_tracks].fill(false);
+                        for (k, slots) in external_fx_map.iter().enumerate() {
+                            if k >= active_tracks { continue; }
+                            track_has_external_instrument[k] = slots.iter().any(|s| {
                                 s.is_instrument && s.instance_id.is_some()
                             });
                         }

@@ -663,15 +663,23 @@ export class CanvasClipRenderer {
         const centerY = bodyY + bodyH / 2;
         const halfH = bodyH / 2;
 
+        const waveformStyle = useSettingsStore.getState().settings.waveformStyle;
         const contrastColor = getContrastColor(clip.color);
-        if (muted) {
-            ctx.fillStyle = clip.selected
-                ? rgba(186, 192, 202, 0.72)
-                : rgba(162, 168, 178, 0.62);
+
+        if (waveformStyle === 'classic') {
+            ctx.fillStyle = muted
+                ? rgba(40, 44, 52, 0.4)
+                : (clip.selected ? rgba(0, 0, 0, 0.85) : rgba(0, 0, 0, 0.65));
         } else {
-            ctx.fillStyle = contrastColor === 'black'
-                ? (clip.selected ? rgba(0, 0, 0, 0.76) : rgba(0, 0, 0, 0.62))
-                : (clip.selected ? rgba(255, 255, 255, 0.9) : rgba(255, 255, 255, 0.72));
+            if (muted) {
+                ctx.fillStyle = clip.selected
+                    ? rgba(186, 192, 202, 0.72)
+                    : rgba(162, 168, 178, 0.62);
+            } else {
+                ctx.fillStyle = contrastColor === 'black'
+                    ? (clip.selected ? rgba(0, 0, 0, 0.76) : rgba(0, 0, 0, 0.62))
+                    : (clip.selected ? rgba(255, 255, 255, 0.9) : rgba(255, 255, 255, 0.72));
+            }
         }
 
         const pixelsPerPeak = clipW / peakCount;
@@ -709,9 +717,15 @@ export class CanvasClipRenderer {
             ctx.globalAlpha = muted ? 0.25 : 1.0;
         }
 
-        ctx.strokeStyle = muted
-            ? rgba(132, 138, 148, 0.36)
-            : (contrastColor === 'black' ? rgba(0, 0, 0, 0.2) : rgba(255, 255, 255, 0.15));
+        if (waveformStyle === 'classic') {
+            ctx.strokeStyle = muted
+                ? rgba(40, 44, 52, 0.2)
+                : rgba(0, 0, 0, 0.25);
+        } else {
+            ctx.strokeStyle = muted
+                ? rgba(132, 138, 148, 0.36)
+                : (contrastColor === 'black' ? rgba(0, 0, 0, 0.2) : rgba(255, 255, 255, 0.15));
+        }
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(clipX, centerY);

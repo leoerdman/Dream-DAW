@@ -72,7 +72,7 @@ export const useTimelineStore = create<TimelineState>((set) => ({
     }),
     requestViewportRestore: (pixelsPerBeat, scrollLeft, scrollTop) =>
         set((state) => ({
-            restoreSeq: state.restoreSeq + 1,
+            restoreSeq: (state.restoreSeq + 1) % Number.MAX_SAFE_INTEGER,
             restorePixelsPerBeat: Number.isFinite(pixelsPerBeat) ? pixelsPerBeat : 20,
             restoreScrollLeft: Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0,
             restoreScrollTop: Number.isFinite(scrollTop) ? Math.max(0, scrollTop as number) : null,

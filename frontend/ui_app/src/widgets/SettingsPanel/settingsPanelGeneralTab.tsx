@@ -4,13 +4,6 @@ import { Select, SettingRow, SettingsSection, Toggle } from './settingsPanelPart
 import { titleStyle } from './settingsPanelStyles';
 import { ALL_DIVISIONS, type GridDivision } from '@/shared/lib/gridSnap';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import {
-    APP_SCALE_OPTIONS,
-    getAppScalePercent,
-    getTimelineGridIntensityPercent,
-    setAppScalePercent,
-    setTimelineGridIntensityPercent,
-} from '@/shared/lib/uiDisplayPrefs';
 
 interface GeneralTabProps {
     settings: AppSettings;
@@ -25,8 +18,6 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
     const setTriplet = useGridStore((s) => s.setTriplet);
     const setSnapEnabled = useGridStore((s) => s.setSnapEnabled);
 
-    const [appScale, setAppScale] = useState<number>(() => getAppScalePercent());
-    const [gridIntensity, setGridIntensity] = useState<number>(() => getTimelineGridIntensityPercent());
     const [showAdvancedGrid, setShowAdvancedGrid] = useState<boolean>(true);
     const gridOptions = useMemo(() => ALL_DIVISIONS.map((d) => (d === 'ADAPTIVE' ? 'Adaptive' : d)), []);
     const gridDivisionLabel = gridDivision === 'ADAPTIVE' ? 'Adaptive' : gridDivision;
@@ -51,44 +42,24 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
                 </SettingRow>
                 {showAdvancedGrid && (
                     <>
-                    <SettingRow label="Triplet Grid">
-                        <Toggle
-                            value={gridTriplet}
-                            onChange={(next) => {
-                                setTriplet(next);
-                                updateSetting('arrangementGridTriplet', next);
-                            }}
-                        />
-                    </SettingRow>
-                    <SettingRow label="Snap To Grid">
-                        <Toggle
-                            value={snapEnabled}
-                            onChange={(next) => {
-                                setSnapEnabled(next);
-                                updateSetting('arrangementGridSnapEnabled', next);
-                            }}
-                        />
-                    </SettingRow>
-                    <SettingRow label="Grid Intensity">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <input
-                                type="range"
-                                min={50}
-                                max={150}
-                                step={5}
-                                value={gridIntensity}
-                                onChange={(e) => {
-                                    const next = Number.parseInt(e.target.value, 10);
-                                    const applied = setTimelineGridIntensityPercent(next);
-                                    setGridIntensity(applied);
+                        <SettingRow label="Triplet Grid">
+                            <Toggle
+                                value={gridTriplet}
+                                onChange={(next) => {
+                                    setTriplet(next);
+                                    updateSetting('arrangementGridTriplet', next);
                                 }}
-                                style={{ width: 120 }}
                             />
-                            <span style={{ minWidth: 42, textAlign: 'right', fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)' }}>
-                                {gridIntensity}%
-                            </span>
-                        </div>
-                    </SettingRow>
+                        </SettingRow>
+                        <SettingRow label="Snap To Grid">
+                            <Toggle
+                                value={snapEnabled}
+                                onChange={(next) => {
+                                    setSnapEnabled(next);
+                                    updateSetting('arrangementGridSnapEnabled', next);
+                                }}
+                            />
+                        </SettingRow>
                     </>
                 )}
             </SettingsSection>
@@ -99,17 +70,6 @@ export function GeneralTab({ settings, updateSetting }: GeneralTabProps) {
                         value={settings.language}
                         options={['English', 'Русский', '日本語', '中文', 'Deutsch', 'Français', 'Español']}
                         onChange={(v) => updateSetting('language', v)}
-                    />
-                </SettingRow>
-                <SettingRow label="Application Scale">
-                    <Select
-                        value={`${appScale}%`}
-                        options={APP_SCALE_OPTIONS.map((v) => `${v}%`)}
-                        onChange={(v) => {
-                            const parsed = Number.parseInt(v.replace('%', ''), 10);
-                            const applied = setAppScalePercent(parsed);
-                            setAppScale(applied);
-                        }}
                     />
                 </SettingRow>
                 <SettingRow label="On Startup">

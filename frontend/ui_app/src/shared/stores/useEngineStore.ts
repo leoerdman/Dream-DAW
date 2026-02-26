@@ -7,11 +7,7 @@ import { createTransportActions } from '@/shared/stores/engine/actionsTransport'
 import { createTrackProjectActions } from '@/shared/stores/engine/actionsTrackProject';
 import { createFetchProjectAction } from '@/shared/stores/engine/actionsFetchProject';
 import { sanitizeProjectDeltas } from '@/shared/stores/engine/validateProjectDeltas';
-import {
-    createTelemetryActions,
-    markBpmPending,
-    readLatestMeters,
-} from '@/shared/stores/engine/actionsTelemetry';
+import { createTelemetryActions } from '@/shared/stores/engine/actionsTelemetry';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -88,6 +84,8 @@ export interface EngineStore {
     reloadCrashedSandboxPlugins: () => Promise<void>;
     togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
     closeAllPluginEditors: () => Promise<void>;
+    readLatestMeters: (fallback: MeteringSnapshot) => MeteringSnapshot;
+    markBpmPending: (ms: number) => void;
 }
 const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
@@ -115,15 +113,26 @@ const DEFAULT_METERS: MeteringSnapshot = {
     master_right: { ...DEFAULT_METER },
 };
 export function getMetersRef(): MeteringSnapshot {
-    return readLatestMeters(useEngineStore.getState().meters);
+    return useEngineStore.getState().readLatestMeters(useEngineStore.getState().meters);
 }
 function shouldApplyViewportRestore(reason: string): boolean {
     if (!reason) return false;
-    // Deny-list: only skip viewport restore for NEW projects (blank canvas).
-    // All other reasons (open, open-recent, last-project, auto-recovery:resync, etc.)
-    // should restore the viewport from the project file.
-    const isNewProject = reason.endsWith(':new') || reason.includes(':new-project');
-    return !isNewProject;
+
+    // Allow-list: ONLY restore viewport when actively loading or initializing a project.
+    // Normal actions like edit, drag, copy/paste, undo, duplicate should NEVER jump the viewport.
+    const loadPrefixes = [
+        'native-menu:new',
+        'native-menu:open',
+        'native-menu:open-recent',
+        'project-manager:new',
+        'project-manager:open',
+        'engine:init',
+        'engine:open',
+        'auto-recovery:apply',
+        'auto-recovery:resync'
+    ];
+
+    return loadPrefixes.some(prefix => reason.startsWith(prefix));
 }
 export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,
@@ -154,7 +163,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     // BUG-001: Dirty flag actions
     markDirty: () => set((s) => s.isDirty ? s : { isDirty: true }),
     clearDirty: () => set({ isDirty: false }),
-    ...createTransportActions(set, get, markBpmPending),
+    ...createTransportActions(set, get, (ms) => get().markBpmPending(ms)),
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),

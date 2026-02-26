@@ -80,6 +80,11 @@ pub struct AudioEngineHandle {
 
     /// Global shutdown flag (BUG-14)
     pub is_shutting_down: Arc<std::sync::atomic::AtomicBool>,
+
+    /// Pre-allocation queue producer — for transferring pre-constructed DSP
+    /// processors from the IPC thread to the audio thread without `malloc()`
+    /// on the real-time thread. Enterprise RT-safety pattern.
+    pub prealloc_producer: Mutex<rtrb::Producer<dream_ipc::prealloc_queue::PrebuiltDevice>>,
 }
 
 // ── Spectrum Analyzer State ────────────────────────────────────────────

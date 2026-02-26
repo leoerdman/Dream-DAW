@@ -261,7 +261,7 @@ export const PianoRollToolbarRight = memo(function PianoRollToolbarRight({
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6,
-                    boxShadow: aiVariationBusy ? 'none' : '0 var(--space-0-5) var(--space-2) color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
+                    boxShadow: 'none',
                 }}
             >
                 <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />

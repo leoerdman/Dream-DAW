@@ -177,6 +177,7 @@ pub fn start_audio_thread(
     preview_cursor: Arc<AtomicUsize>,
     preview_source_sr: Arc<AtomicU32>,
     disk_streamers: Arc<SharedDiskStreamers>,
+    prealloc_consumer: rtrb::Consumer<dream_ipc::prealloc_queue::PrebuiltDevice>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     start_audio_thread_on_device(
         consumer,
@@ -200,6 +201,7 @@ pub fn start_audio_thread(
         disk_streamers,
         None,
         None,
+        prealloc_consumer,
     )
 }
 
@@ -230,6 +232,7 @@ pub fn start_audio_thread_on_device(
     disk_streamers: Arc<SharedDiskStreamers>,
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
+    prealloc_consumer: rtrb::Consumer<dream_ipc::prealloc_queue::PrebuiltDevice>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     executor::start_audio_thread_on_device_impl(
         consumer,
@@ -253,6 +256,7 @@ pub fn start_audio_thread_on_device(
         disk_streamers,
         preferred_output_device,
         stream_error_tx,
+        prealloc_consumer,
     )
 }
 

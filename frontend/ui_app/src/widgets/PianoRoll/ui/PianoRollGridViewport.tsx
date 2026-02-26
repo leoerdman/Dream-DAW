@@ -165,9 +165,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                                     border: isSelected
                                         ? '1.5px solid var(--color-text-on-accent)'
                                         : '1px solid color-mix(in srgb, var(--color-text-secondary) 75%, transparent)',
-                                    boxShadow: isSelected
-                                        ? '0 0 0 1px color-mix(in srgb, var(--color-text-on-accent) 45%, transparent)'
-                                        : 'none',
+                                    boxShadow: 'none',
                                     cursor: tool === 'paint'
                                         ? 'crosshair'
                                         : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
@@ -183,7 +181,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                     )}
 
                     {notes.length === 0 && (
-                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)', textAlign: 'center', padding: 'var(--space-2-5) var(--space-3-5)', borderRadius: 'var(--radius-xl)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))', background: 'color-mix(in srgb, var(--color-bg-header) 85%, var(--token-color-hex-0b1525))', boxShadow: 'var(--shadow-lg)' }}>
+                        <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 'var(--z-local-raised)', textAlign: 'center', padding: 'var(--space-2-5) var(--space-3-5)', borderRadius: 'var(--radius-xl)', border: 'var(--space-px) solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))', background: 'color-mix(in srgb, var(--color-bg-header) 85%, var(--token-color-hex-0b1525))', boxShadow: 'none' }}>
                             <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-bold)', marginBottom: 2 }}>Draw notes to start</div>
                             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Cursor: double-click to add, click to select, second click to delete. Pencil mode: single-click toggles note. Paint: drag to paint notes.</div>
                         </div>
@@ -191,7 +189,7 @@ export const PianoRollGridViewport = memo(function PianoRollGridViewport({
                 </div>
 
                 {playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
-                    <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)', pointerEvents: 'none', boxShadow: '0 0 var(--space-1-5) var(--token-color-rgba-255-255-255-0d45)' }} />
+                    <div style={{ position: 'absolute', left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat, top: RULER_HEIGHT, width: 2, height: canvasHeight, background: 'var(--token-color-rgba-255-255-255-0d95)', zIndex: 'var(--z-header)', pointerEvents: 'none', boxShadow: 'none' }} />
                 )}
 
                 {stepInputCursorBeat >= 0 && (

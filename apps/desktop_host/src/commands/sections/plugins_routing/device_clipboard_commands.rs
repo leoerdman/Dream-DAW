@@ -80,15 +80,13 @@ fn paste_device_to_track_impl(
         "paste_device_to_track_cmd",
     );
 
-    // Send AddDevice engine command for internal effects.
+    // Send AddDevice engine command for internal effects (RT-safe via prealloc queue).
     if let Some(runtime_add) = runtime_add
-        && let Err(e) = push_command(
+        && let Err(e) = push_prealloc_device(
             handle,
-            EngineCommand::AddDevice {
-                track_index: runtime_add.track_index,
-                slot_index: runtime_add.slot_index,
-                effect_type: runtime_add.effect_type,
-            },
+            runtime_add.track_index,
+            runtime_add.slot_index,
+            runtime_add.effect_type,
         )
     {
         log::error!(

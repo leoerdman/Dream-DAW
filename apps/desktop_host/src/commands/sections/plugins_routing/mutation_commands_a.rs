@@ -96,11 +96,7 @@ fn add_plugin_to_track_impl(
     );
     
     if let Some((runtime_track_index, runtime_slot_index, effect_type)) = runtime_add {
-        push_command(&handle, EngineCommand::AddDevice {
-            track_index: runtime_track_index,
-            slot_index: runtime_slot_index,
-            effect_type,
-        })?;
+        push_prealloc_device(&handle, runtime_track_index, runtime_slot_index, effect_type)?;
     }
     
 

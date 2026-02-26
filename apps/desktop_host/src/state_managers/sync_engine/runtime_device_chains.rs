@@ -714,13 +714,11 @@ pub fn rebuild_runtime_device_chains_from_project(
         {
             let ti = track_index as u16;
             let si = slot_index.min(u8::MAX as usize) as u8;
-            push_command(
+            push_prealloc_device(
                 handle,
-                EngineCommand::AddDevice {
-                    track_index: ti,
-                    slot_index: si,
-                    effect_type,
-                },
+                ti,
+                si,
+                effect_type,
             )?;
             if entry.bypassed {
                 push_command(
@@ -827,13 +825,11 @@ pub fn rebuild_runtime_device_chains_from_project(
             .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
-            push_command(
+            push_prealloc_device(
                 handle,
-                EngineCommand::AddDevice {
-                    track_index: MASTER_TRACK_INDEX,
-                    slot_index: slot_index.min(u8::MAX as usize) as u8,
-                    effect_type,
-                },
+                MASTER_TRACK_INDEX,
+                slot_index.min(u8::MAX as usize) as u8,
+                effect_type,
             )?;
             if entry.bypassed {
                 push_command(

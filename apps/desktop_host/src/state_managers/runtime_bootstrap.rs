@@ -27,6 +27,8 @@ pub(crate) struct RuntimeBootstrap {
 
 pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
+    let (prealloc_producer, prealloc_consumer) =
+        dream_ipc::prealloc_queue::new_prealloc_queue();
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64));
 
@@ -136,6 +138,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         disk_streamers_for_engine,
         preferred_output_device.as_deref(),
         Some(stream_error_tx.clone()),
+        prealloc_consumer,
     )
     .map_err(|err| format!("failed to start audio engine: {err}"))?;
 
@@ -244,6 +247,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         output_latency_frames,
         stream_error_tx,
         is_shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        prealloc_producer: Mutex::new(prealloc_producer),
     };
 
     Ok(RuntimeBootstrap {

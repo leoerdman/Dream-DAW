@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub use rtrb;
 
 pub mod metering;
+pub mod prealloc_queue;
 
 // ── Engine Commands ─────────────────────────────────────────────────────
 

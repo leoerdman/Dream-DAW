@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 bytemuck = { workspace = true }
+dream_dsp = { path = "../dream_dsp" }
 rtrb = { workspace = true }

@@ -50,6 +50,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
     disk_streamers: Arc<SharedDiskStreamers>,
     preferred_output_device: Option<&str>,
     stream_error_tx: Option<std::sync::mpsc::SyncSender<String>>,
+    mut prealloc_consumer: rtrb::Consumer<dream_ipc::prealloc_queue::PrebuiltDevice>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     let output_setup = resolve_output_setup(preferred_output_device)?;
     let device = output_setup.device;
@@ -145,6 +146,11 @@ pub(crate) fn start_audio_thread_on_device_impl(
     let mut external_left = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut external_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut deferred_topology: VecDeque<DeferredDeviceChainCmd> = VecDeque::with_capacity(1024);
+    // RT-safe drain buffer for pre-constructed devices from the IPC thread.
+    // The IPC thread pre-allocates processors and pushes them via the lock-free
+    // SPSC prealloc queue. We drain them here into deferred_topology as AddDevice
+    // commands — zero heap allocation on the audio thread.
+    // (prealloc_consumer is captured by the closure below)
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(2048);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(2048);
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent
@@ -231,6 +237,23 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                 meter_r.store_peak_decay(METER_FLOOR_DB, baseline_decay);
                             }
                         }
+                        // ── A0. Drain pre-allocated devices (RT-safe) ──────────
+                        // Pre-constructed DSP processors from the IPC thread arrive
+                        // via the lock-free SPSC prealloc queue. We drain them into
+                        // deferred_topology as AddDevice — zero heap alloc.
+                        while let Ok(prebuilt) = prealloc_consumer.pop() {
+                            if deferred_topology.len() >= 1024 {
+                                let _ = deferred_topology.pop_front();
+                            }
+                            deferred_topology.push_back(
+                                DeferredDeviceChainCmd::AddDevice {
+                                    track_index: prebuilt.track_index,
+                                    slot_index: prebuilt.slot_index,
+                                    device: prebuilt.device,
+                                },
+                            );
+                        }
+
                         // ── A1. Drain command queue (bounded) ─────────────────────
                         // Bound per-callback command work so UI command bursts
                         // cannot starve audio rendering and cause dropouts.

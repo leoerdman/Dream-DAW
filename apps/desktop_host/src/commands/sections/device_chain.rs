@@ -89,6 +89,10 @@ fn resolve_internal_runtime_slot(
 
 
 /// Adds a built-in DSP device to a track's insert chain.
+///
+/// **RT-Safe**: The processor is pre-constructed on this (IPC) thread and
+/// transferred to the audio thread via the lock-free SPSC prealloc queue.
+/// The audio thread never calls `malloc()` for device construction.
 #[tauri::command]
 fn add_device_cmd(
     track_index: u16,
@@ -96,14 +100,49 @@ fn add_device_cmd(
     effect_type: u8,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    push_command(
-        &handle,
-        EngineCommand::AddDevice {
-            track_index,
-            slot_index,
-            effect_type,
-        },
-    )?;
+    use dream_dsp::dsp_processor::BuiltinEffectType;
+    use dream_dsp::device_slot::InternalDeviceSlot;
+    use dream_ipc::prealloc_queue::PrebuiltDevice;
+
+    let etype = BuiltinEffectType::from_u8(effect_type)
+        .ok_or_else(|| format!("Invalid effect_type: {effect_type}"))?;
+
+    // Get sample rate from playback state for processor construction.
+    let sample_rate = handle
+        .playback_state
+        .lock()
+        .map(|s| s.sample_rate as f32)
+        .unwrap_or(44_100.0);
+
+    // Pre-construct as InternalDeviceSlot (wraps DspProcessor → DeviceProcessor).
+    let device = InternalDeviceSlot::new(etype, sample_rate);
+
+    // Push via the lock-free prealloc queue (zero-alloc on the audio thread).
+    let prebuilt = PrebuiltDevice {
+        track_index,
+        slot_index,
+        device: Box::new(device),
+    };
+    let mut producer = handle
+        .prealloc_producer
+        .lock()
+        .map_err(|e| format!("prealloc lock poisoned: {e}"))?;
+    if let Err(_) = producer.push(prebuilt) {
+        // Queue full — fall back to legacy path (allocates on RT thread).
+        drop(producer);
+        log::warn!(
+            "[IPC] prealloc queue full, falling back to legacy AddDevice (RT allocation!)"
+        );
+        push_command(
+            &handle,
+            EngineCommand::AddDevice {
+                track_index,
+                slot_index,
+                effect_type,
+            },
+        )?;
+    }
+
     log::info!("[IPC] add_device(track={track_index}, slot={slot_index}, type={effect_type})");
     Ok(())
 }

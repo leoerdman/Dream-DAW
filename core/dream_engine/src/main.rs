@@ -68,6 +68,11 @@ fn main() {
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
         Arc::new(std::sync::atomic::AtomicU32::new(0)),  // cli playhead pos
         Arc::new(dream_engine::driver::SharedDiskStreamers::new()),
+        {
+            let (_prealloc_prod, prealloc_cons) =
+                dream_ipc::prealloc_queue::new_prealloc_queue();
+            prealloc_cons
+        },
     ) {
         Ok(handle) => {
             log::info!("✅ Audio driver initialized");

@@ -185,6 +185,7 @@ export function DeviceSlot({
             <MeterStrip
                 levelL={linearToMeterNorm(device.vuLevelL ?? device.vuLevel)}
                 levelR={linearToMeterNorm(device.vuLevelR ?? device.vuLevel)}
+                style={{ marginLeft: 'var(--space-1-5)' }}
             />
         </div>
     );

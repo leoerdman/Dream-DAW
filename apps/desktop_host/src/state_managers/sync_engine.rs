@@ -94,6 +94,64 @@ pub fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<()
     Err("Command queue full — audio thread overloaded".to_string())
 }
 
+/// RT-Safe helper: pre-constructs a built-in DSP processor on the calling
+/// (non-RT) thread and transfers it to the audio thread via the lock-free
+/// SPSC prealloc queue. If the prealloc queue is full, falls back to the
+/// legacy `EngineCommand::AddDevice` path (which allocates on the RT thread).
+///
+/// **Enterprise Pattern**: Professional DAWs never call `malloc()` on the
+/// audio IO thread. This function ensures processors are fully constructed
+/// before reaching the audio callback.
+pub fn push_prealloc_device(
+    handle: &AudioEngineHandle,
+    track_index: u16,
+    slot_index: u8,
+    effect_type: u8,
+) -> Result<(), String> {
+    use dream_dsp::dsp_processor::BuiltinEffectType;
+    use dream_dsp::device_slot::InternalDeviceSlot;
+    use dream_ipc::prealloc_queue::PrebuiltDevice;
+
+    let Some(etype) = BuiltinEffectType::from_u8(effect_type) else {
+        return Err(format!("Invalid effect_type: {effect_type}"));
+    };
+
+    let sample_rate = handle
+        .playback_state
+        .lock()
+        .map(|s| s.sample_rate as f32)
+        .unwrap_or(44_100.0);
+
+    // Pre-construct as InternalDeviceSlot (wraps DspProcessor → DeviceProcessor).
+    let device = InternalDeviceSlot::new(etype, sample_rate);
+
+    let prebuilt = PrebuiltDevice {
+        track_index,
+        slot_index,
+        device: Box::new(device),
+    };
+    let mut producer = handle
+        .prealloc_producer
+        .lock()
+        .map_err(|e| format!("prealloc lock poisoned: {e}"))?;
+    if let Err(_) = producer.push(prebuilt) {
+        drop(producer);
+        log::warn!(
+            "[RT-SafeDevice] prealloc queue full, falling back to legacy AddDevice \
+             (RT allocation!) track={track_index} slot={slot_index}"
+        );
+        push_command(
+            handle,
+            dream_ipc::EngineCommand::AddDevice {
+                track_index,
+                slot_index,
+                effect_type,
+            },
+        )?;
+    }
+    Ok(())
+}
+
 const MAX_UNDO_DEPTH: usize = 120; // 120 * ~200KB = ~24MB RAM usage
 
 /// Snapshots the current project state onto the undo stack.

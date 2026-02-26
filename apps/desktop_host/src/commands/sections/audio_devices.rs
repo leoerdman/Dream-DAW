@@ -42,6 +42,8 @@ fn restart_audio_engine_impl(
 
     // Build a fresh engine ring buffer and stream on requested device.
     let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
+    let (new_prealloc_producer, new_prealloc_consumer) =
+        dream_ipc::prealloc_queue::new_prealloc_queue();
     let new_stream = dream_engine::driver::start_audio_thread_on_device(
         new_consumer,
         Arc::clone(&handle.master_clock),
@@ -64,6 +66,7 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.disk_streamers),
         Some(device_name.as_str()),
         Some(handle.stream_error_tx.clone()),
+        new_prealloc_consumer,
     )
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
 
@@ -74,6 +77,10 @@ fn restart_audio_engine_impl(
     {
         let mut producer = handle.producer.lock().map_err(|e| e.to_string())?;
         *producer = new_producer;
+    }
+    {
+        let mut prealloc = handle.prealloc_producer.lock().map_err(|e| e.to_string())?;
+        *prealloc = new_prealloc_producer;
     }
     {
         let mut stream = handle._stream.lock().map_err(|e| e.to_string())?;

@@ -99,7 +99,7 @@ async fn create_midi_clip_with_deltas_cmd(
         position_frames,
         duration_frames,
         name,
-        project_state.clone(),
+        project_registry.clone(),
         handle.clone(),
         app,
     )
@@ -615,7 +615,7 @@ async fn update_midi_clip_with_deltas_cmd(
         clip_id.clone(),
         notes,
         push_undo_step,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         app,

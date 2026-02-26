@@ -21,7 +21,7 @@ async fn paint_track_clips_with_track_color_cmd(
 
     if changed {
         rebuild_clip_views_and_mark_dirty(
-            &project_state,
+            project_state,
             &clip_pool_state,
             &handle,
             &app,
@@ -56,7 +56,7 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
 
     paint_track_clips_with_track_color_cmd(
         track_id,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         app,
@@ -127,7 +127,7 @@ async fn resolve_missing_file_cmd(
         });
     }
 
-    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
+    rebuild_clip_snapshot_and_mark_dirty(project_state, &clip_pool_state, &app)?;
     Ok(())
 }
 
@@ -174,7 +174,7 @@ async fn resolve_missing_file_with_deltas_cmd(
         &project_state,
         &dream_orchestrator::queries::ResolveAudioClipStateQuery { clip_id: clip_uuid },
     )?;
-    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
+    rebuild_clip_snapshot_and_mark_dirty(project_state, &clip_pool_state, &app)?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::ClipFilePathChanged {
@@ -223,7 +223,7 @@ async fn set_automation_points_cmd(
 
     push_undo(&project_state)?;
     execute_orchestrator_command(&project_state, &cmd)?;
-    rebuild_automation_and_mark_dirty(&project_state, &automation_runtime, &app)?;
+    rebuild_automation_and_mark_dirty(project_state, &automation_runtime, &app)?;
 
     log::debug!(
         "[IPC] set_automation_points_cmd track={} param={} points={}",
@@ -313,7 +313,7 @@ async fn arm_track_with_deltas_cmd(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    arm_track_cmd(track_index, armed, project_state, app).await?;
+    arm_track_cmd(track_index, armed, project_registry, app).await?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackArmChanged { track_index, armed }],

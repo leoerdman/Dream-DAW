@@ -33,7 +33,7 @@ fn set_audio_device(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_registry.clone(), plugin_host_state)
 }
 
 fn restart_audio_engine_impl(
@@ -203,5 +203,5 @@ fn restart_audio_engine(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_registry.clone(), plugin_host_state)
 }

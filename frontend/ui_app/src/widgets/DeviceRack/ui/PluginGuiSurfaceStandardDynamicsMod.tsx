@@ -19,7 +19,7 @@ import {
 import { renderModSpatialSurface } from '@/widgets/DeviceRack/ui/PluginGuiSurfaceStandardModSpatial';
 
 function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -0.3, 'dB');
@@ -51,11 +51,11 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
                         <span>Ceil {formatSurfaceParam(ceilParam)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-56d4c8)" />}
+                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-56d4c8)" />}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                 </div>
             )}
         </div>
@@ -63,7 +63,7 @@ function renderLimiterSurface(device: DeviceSlot, handlers: SurfaceHandlers): Re
 }
 
 function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const thrParam = readSurfaceParam(device, 'thr', -40, 'dB');
@@ -93,11 +93,11 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
                         <span>Rel {formatSurfaceParam(gateRelParam)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-8ec77c)" />}
+                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-8ec77c)" />}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                 </div>
             )}
         </div>
@@ -105,7 +105,7 @@ function renderGateSurface(device: DeviceSlot, handlers: SurfaceHandlers): React
 }
 
 function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const showDryWet = shouldShowDryWet(device);
     const knobParams = buildSurfaceKnobParams(device, { omitMixWhenDryWet: showDryWet });
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
@@ -146,11 +146,11 @@ function renderAutoFilterSurface(device: DeviceSlot, handlers: SurfaceHandlers):
                         <span>Freq {formatSurfaceParam(modFreq)}</span>
                     </div>
                 </div>
-                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} accent="var(--token-color-hex-4cc9d8)" />}
+                {showDryWet && <DryWetKnob device={device} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} accent="var(--token-color-hex-4cc9d8)" />}
             </div>
             {knobParams.length > 0 && (
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length || 3))}, minmax(0, 1fr))`)}>
-                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />)}
+                    {knobParams.map((p) => <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />)}
                 </div>
             )}
         </div>

@@ -55,6 +55,7 @@ quick-xml = "0.38"
 roxmltree = "0.20"
 sysinfo = { version = "0.34", default-features = false, features = ["system"] }
 dashmap = "6.1.0"
+parking_lot.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"

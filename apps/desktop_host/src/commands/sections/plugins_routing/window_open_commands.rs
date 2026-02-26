@@ -25,14 +25,9 @@ fn load_descriptor_in_process(
 }
 
 fn resolve_plugin_slot_states_by_plugin_id(
-    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    project_state: &crate::state_managers::ProjectState,
     plugin_id: &str,
 ) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String>  {
-    let active_project_arc = match project_registry.get_active_project() {
-        Some(p) => p,
-        None => return Err("No active project".to_string()),
-    };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolvePluginSlotsByPluginIdQuery {

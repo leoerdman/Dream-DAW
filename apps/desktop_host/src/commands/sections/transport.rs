@@ -309,7 +309,7 @@ fn set_bpm_with_deltas(
     set_bpm(
         bpm,
         handle,
-        project_state,
+        project_registry.clone(),
         clip_pool_state,
         automation_runtime,
         app,
@@ -367,7 +367,7 @@ fn set_time_signature_with_deltas(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    set_time_signature(numerator, denominator, handle, project_state)?;
+    set_time_signature(numerator, denominator, handle, project_registry.clone())?;
     Ok(TransportDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TimeSignatureChanged {
             numerator: numerator.clamp(1, 32),
@@ -486,7 +486,7 @@ fn set_loop_with_deltas(
         start_frames,
         end_frames,
         handle,
-        project_state,
+        project_registry.clone(),
     )?;
 
     let effective_enabled = enabled && end_frames > start_frames;

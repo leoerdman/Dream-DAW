@@ -16,7 +16,7 @@ fn import_ableton_project(
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
     open_project(
         path,
-        project_state,
+        project_registry.clone(),
         clip_pool_state,
         automation_runtime,
         handle,

@@ -189,6 +189,11 @@ export function useDeviceRackLogic(
         return () => window.removeEventListener('mousedown', close);
     }, [autoCtxMenu]);
 
+    // BUG-FIX: Ensure context menu clears when switching tracks to prevent cross-track ID corruption
+    useEffect(() => {
+        setAutoCtxMenu(null);
+    }, [selectedTrackId]);
+
     const {
         toggleDevice,
         ensureSlotRuntimeActive,

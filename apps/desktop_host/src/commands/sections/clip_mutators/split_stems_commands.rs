@@ -154,7 +154,7 @@ async fn split_track_to_stems_cmd(
     }
 
     let result = place_stem_files_on_new_tracks(
-        &project_state,
+        &project_registry,
         &clip_pool_state,
         &handle,
         &app,
@@ -208,7 +208,7 @@ async fn split_track_to_stems_with_deltas_cmd(
     split_track_to_stems_cmd(
         payload,
         app,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         plugin_host_state,

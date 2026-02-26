@@ -23,13 +23,13 @@ async fn set_track_color_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let normalized = normalize_track_color_hex(&color_hex)?;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
 
     // No-op guard before undo snapshot.
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_registry.clone().project.lock().map_err(|e| e.to_string())?;
         let track = project
             .tracks
             .iter()
@@ -40,20 +40,20 @@ async fn set_track_color_cmd(
         }
     }
 
-    push_undo(&project_state)?;
+    push_undo(&project_registry.clone())?;
     let cmd = dream_orchestrator::commands::SetTrackColorCommand::from_str_track_id(
         &track_id,
         normalized,
     )
     .map_err(|e| e.to_string())?;
-    execute_orchestrator_command(&project_state, &cmd)?;
-    let project_name = project_state
+    execute_orchestrator_command(&project_registry.clone(), &cmd)?;
+    let project_name = project_registry.clone()
         .project
         .lock()
         .map_err(|e| e.to_string())?
         .name
         .clone();
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    project_registry.clone().mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -68,13 +68,13 @@ async fn set_track_color_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let normalized = normalize_track_color_hex(&color_hex)?;
 
     // Keep no-op responses empty so frontend never needs fallback refresh.
     {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_registry.clone().project.lock().map_err(|e| e.to_string())?;
         let track = project
             .tracks
             .iter()
@@ -85,7 +85,7 @@ async fn set_track_color_with_deltas_cmd(
         }
     }
 
-    set_track_color_cmd(track_id, normalized.clone(), project_state.clone(), app).await?;
+    set_track_color_cmd(track_id, normalized.clone(), project_registry.clone(), app).await?;
 
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackColorChanged {
@@ -148,17 +148,17 @@ async fn create_group_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
         group_name,
     )
     .map_err(|e| e.to_string())?;
 
-    push_undo(&project_state)?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    push_undo(&project_registry.clone())?;
+    let result = execute_orchestrator_command(&project_registry.clone(), &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_registry.clone().project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -167,7 +167,7 @@ async fn create_group_cmd(
         &handle,
     )?;
     drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    project_registry.clone().mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] create_group_cmd: created group {} with {} children",
         result.group_id,
@@ -196,17 +196,17 @@ async fn create_group_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
         group_name,
     )
     .map_err(|e| e.to_string())?;
 
-    push_undo(&project_state)?;
-    let result = execute_orchestrator_command(&project_state, &cmd)?;
+    push_undo(&project_registry.clone())?;
+    let result = execute_orchestrator_command(&project_registry.clone(), &cmd)?;
 
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_registry.clone().project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     refresh_runtime_after_track_topology_change(
         &mut project,
@@ -215,7 +215,7 @@ async fn create_group_with_deltas_cmd(
         &handle,
     )?;
     drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    project_registry.clone().mark_dirty(&project_name, Some(&app))?;
 
     let mut deltas = vec![dream_models::delta::ProjectDelta::TrackAdded {
         track_index: result.group_index,
@@ -264,16 +264,16 @@ async fn set_group_expanded_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let cmd = dream_orchestrator::commands::SetGroupExpandedCommand::from_str_group_id(
         &group_id, expanded,
     )
     .map_err(|e| e.to_string())?;
-    execute_orchestrator_command(&project_state, &cmd)?;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    execute_orchestrator_command(&project_registry.clone(), &cmd)?;
+    let project = project_registry.clone().project.lock().map_err(|e| e.to_string())?;
     let project_name = project.name.clone();
     drop(project);
-    project_state.mark_dirty(&project_name, Some(&app))?;
+    project_registry.clone().mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] set_group_expanded_cmd({group_id} -> {expanded})");
     Ok(())
 }
@@ -289,10 +289,10 @@ async fn set_group_expanded_with_deltas_cmd(
         Some(p) => p,
         None => return Err("No active project".to_string()),
     };
-    let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
+    let project_registry.clone(): &crate::state_managers::ProjectState = &*active_project_arc;
     let track_uuid =
         Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group id: {e}"))?;
-    set_group_expanded_cmd(group_id, expanded, project_state, app).await?;
+    set_group_expanded_cmd(group_id, expanded, project_registry.clone(), app).await?;
     Ok(DeltaMutationResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TrackGroupExpandedChanged {
             track_id: track_uuid,

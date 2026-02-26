@@ -259,7 +259,7 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
     let project_registry = ProjectRegistry::new();
     let initial_project = Arc::new(ProjectState::new());
     project_registry.add_project(initial_project.clone());
-    project_registry.set_active_project(initial_project.read().unwrap().id);
+    project_registry.set_active_project(initial_project.id);
 
     Ok(RuntimeBootstrap {
         engine_handle,

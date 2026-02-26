@@ -1,5 +1,5 @@
 fn resolve_audio_clip_state(
-    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    project_state: &crate::state_managers::ProjectState,
     clip_id: Uuid,
 ) -> Result<dream_orchestrator::queries::AudioClipState, String>  {
     let active_project_arc = match project_registry.get_active_project() {
@@ -14,7 +14,7 @@ fn resolve_audio_clip_state(
 }
 
 fn resolve_audio_clip_timeline_bounds(
-    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
+    project_state: &crate::state_managers::ProjectState,
     clip_id: Uuid,
 ) -> Result<(i64, i64), String>  {
     let active_project_arc = match project_registry.get_active_project() {
@@ -22,7 +22,7 @@ fn resolve_audio_clip_timeline_bounds(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project = project_state.project.lock().map_err(|_| "failed to lock".to_string())?;
     let clip = project
         .tracks
         .iter()
@@ -189,7 +189,7 @@ async fn set_clip_pitch_with_deltas_cmd(
     let (before_pos, before_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
     set_clip_pitch_cmd(
         payload,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         app,
     )
@@ -264,7 +264,7 @@ async fn set_clip_warp_with_deltas_cmd(
 
     set_clip_warp_cmd(
         payload,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         app,
     )
@@ -327,7 +327,7 @@ async fn set_clip_fades_cmd(
     execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -407,7 +407,7 @@ async fn set_clip_muted_cmd(
     execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -441,7 +441,7 @@ async fn set_clip_muted_with_deltas_cmd(
     let changed = execute_orchestrator_command(&project_state, &cmd)?;
 
     rebuild_clip_views_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -489,7 +489,7 @@ async fn set_clips_muted_cmd(
 
     if applied > 0 {
         rebuild_clip_views_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -539,7 +539,7 @@ async fn set_clips_muted_with_deltas_cmd(
 
     if applied > 0 {
         rebuild_clip_views_and_mark_dirty(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,

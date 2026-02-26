@@ -187,7 +187,7 @@ async fn bounce_selection_to_track_cmd(
     }
 
     let place_result = place_bounced_file_on_new_track(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -227,7 +227,7 @@ async fn bounce_selection_to_track_with_deltas_cmd(
     bounce_selection_to_track_cmd(
         payload,
         app,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         plugin_host_state,
@@ -373,7 +373,7 @@ async fn bounce_track_cmd(
     }
 
     let place_result = place_bounced_file_on_new_track(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -422,7 +422,7 @@ async fn bounce_track_with_deltas_cmd(
     bounce_track_cmd(
         track_id,
         app.clone(),
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state.clone(),
         handle.clone(),
         plugin_host_state,
@@ -628,7 +628,7 @@ async fn bounce_group_cmd(
 
     let group_index = project.tracks.iter().position(|t| t.id == group_uuid);
     let place_result = place_bounced_file_on_new_track(
-        &project_state,
+        project_state,
         &clip_pool_state,
         &handle,
         &app,
@@ -668,7 +668,7 @@ async fn bounce_group_with_deltas_cmd(
     bounce_group_cmd(
         group_track_id,
         app,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         plugin_host_state,

@@ -90,6 +90,7 @@ export function PluginGuiSurfaceFallback({
                         onChange={onParamChange}
                         onGestureStart={onParamGestureStart}
                         onGestureEnd={onParamGestureEnd}
+                        onContextMenu={onParamContextMenu}
                         accent={accent}
                     />
                 )}

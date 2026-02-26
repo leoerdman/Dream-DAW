@@ -440,7 +440,7 @@ fn replace_missing_plugin_slot_cmd(
     let _ = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
-        project_state,
+        &project_registry,
         &clip_pool_state,
         &handle,
         &app,
@@ -469,7 +469,7 @@ fn replace_missing_plugin_slot_with_deltas_cmd(
     let cmd_result = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
-        project_state,
+        &project_registry,
         &clip_pool_state,
         &handle,
         &app,

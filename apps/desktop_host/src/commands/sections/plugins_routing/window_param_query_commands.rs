@@ -35,7 +35,7 @@ fn get_external_plugin_params(
     )?;
     let metadata_count = hints.metadata_count;
     let lane_name_hints = hints.lane_name_hints;
-    let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_registry, &plugin_id)?;
+    let slot_states = resolve_plugin_slot_states_by_plugin_id(project_state, &plugin_id)?;
     let Some(slot) = slot_states.first() else {
         return Ok(fallback_external_param_block(metadata_count));
     };

@@ -135,7 +135,7 @@ async fn stop_recording_cmd(
         source_sample_rate: decoded.sample_rate,
     };
     execute_orchestrator_command(&project_state, &cmd)?;
-    rebuild_clip_snapshot_and_mark_dirty(&project_state, &clip_pool_state, &app)?;
+    rebuild_clip_snapshot_and_mark_dirty(project_state, &clip_pool_state, &app)?;
 
     Ok(())
 }

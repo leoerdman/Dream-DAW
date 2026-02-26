@@ -30,7 +30,7 @@ export function renderStandardDistNoiseSurface(
     device: DeviceSlot,
     handlers: SurfaceHandlers,
 ): React.ReactNode {
-    const { onParamChange, onParamGestureStart, onParamGestureEnd } = handlers;
+    const { onParamChange, onParamGestureStart, onParamGestureEnd, onParamContextMenu } = handlers;
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || (device.guiMode || '').toLowerCase() || device.name.toLowerCase());
 
     /* ═════════════════════════════════════════════════════════════════ */
@@ -156,6 +156,7 @@ export function renderStandardDistNoiseSurface(
                             onChange={onParamChange}
                             onGestureStart={onParamGestureStart}
                             onGestureEnd={onParamGestureEnd}
+                            onContextMenu={onParamContextMenu}
                             accent={device.effectType === 'distortion' ? 'var(--token-color-hex-ff965e)' : 'var(--token-color-hex-f2de72)'}
                         />
                     )}
@@ -163,7 +164,7 @@ export function renderStandardDistNoiseSurface(
                 {knobParams.length > 0 && (
                     <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length))}, minmax(0, 1fr))`)}>
                         {knobParams.map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />
+                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
                         ))}
                     </div>
                 )}
@@ -201,7 +202,7 @@ export function renderStandardDistNoiseSurface(
                 {knobParams.length > 0 && (
                     <div style={pluginPanelKnobGrid(`repeat(${Math.min(8, Math.max(3, knobParams.length))}, minmax(0, 1fr))`)}>
                         {knobParams.map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />
+                            <PluginKnob key={p.name} param={p} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} onContextMenu={onParamContextMenu} compact />
                         ))}
                     </div>
                 )}

@@ -249,7 +249,7 @@ async fn import_audio_file_with_deltas(
         track_index,
         position_frames,
         clip_pool_state.clone(),
-        project_state.clone(),
+        project_registry.clone(),
         handle.clone(),
         app,
     )

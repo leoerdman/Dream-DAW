@@ -256,7 +256,7 @@ pub async fn get_peaks(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
+    get_peaks_by_clip_id(clip_id, lod_level, project_registry.clone(), clip_pool_state).await
 }
 
 /// Canonical zero-copy waveform command for timeline rendering.
@@ -274,5 +274,5 @@ pub async fn get_peaks_binary(
         None => return Err("No active project".to_string()),
     };
     let project_state: &crate::state_managers::ProjectState = &*active_project_arc;
-    get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
+    get_peaks_by_clip_id(clip_id, lod_level, project_registry.clone(), clip_pool_state).await
 }

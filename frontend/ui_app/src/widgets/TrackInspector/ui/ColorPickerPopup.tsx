@@ -32,7 +32,7 @@ export const ColorPickerPopup = ({
         };
     }, [onDismiss]);
 
-    const popupWidth = 148;
+    const popupWidth = 222;
     const popupHeight = 160;
     const clampedX = Math.min(x, window.innerWidth - popupWidth - 8);
     const clampedY = Math.min(y, window.innerHeight - popupHeight - 8);
@@ -52,7 +52,7 @@ export const ColorPickerPopup = ({
             }}>Track Color</div>
 
             <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4,
+                display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3,
             }}>
                 {TRACK_PALETTE.map((c) => {
                     const isActive = currentColor.toLowerCase() === c.hex.toLowerCase();
@@ -62,14 +62,14 @@ export const ColorPickerPopup = ({
                             title={c.name}
                             onClick={() => onSelect(c.hex)}
                             style={{
-                                width: 28, height: 28, borderRadius: 'var(--radius-lg)',
+                                width: 23, height: 23, borderRadius: 'var(--radius-md)',
                                 background: c.hex,
                                 border: isActive ? 'var(--space-0-5) solid var(--color-text-bright)' : 'var(--space-0-5) solid transparent',
                                 cursor: 'pointer',
                                 transition: `transform var(--transition-micro), border-color var(--transition-fast)`,
                                 boxShadow: isActive ? `0 0 var(--space-1-5) ${c.hex}80` : 'none',
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.15)'; }}
                             onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
                         />
                     );

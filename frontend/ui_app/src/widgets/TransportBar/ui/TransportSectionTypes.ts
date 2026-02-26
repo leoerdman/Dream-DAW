@@ -62,6 +62,8 @@ export interface TransportRightSectionProps {
     midiLedRef: React.RefObject<HTMLSpanElement | null>;
     pdcOpen: boolean;
     setPdcOpen: (next: boolean | ((prev: boolean) => boolean)) => void;
+    notesOpen: boolean;
+    setNotesOpen: (next: boolean | ((prev: boolean) => boolean)) => void;
     assistantOpen: boolean;
     onAssistantToggle?: () => void;
     onOpenExport?: () => void;

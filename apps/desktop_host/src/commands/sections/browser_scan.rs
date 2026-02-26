@@ -354,7 +354,11 @@ fn scan_directory_recursive(
                 path: path.to_string_lossy().to_string(),
                 size_bytes,
                 modified_at,
-                format: ext.to_uppercase(),
+                // ENT-B1: Normalize AIF → AIFF for consistent display.
+                format: {
+                    let upper = ext.to_uppercase();
+                    if upper == "AIF" { "AIFF".to_string() } else { upper }
+                },
                 // Duration loaded on-demand when user selects a file.
                 // Removing per-file AudioReader::read_metadata() eliminates
                 // the #1 scan bottleneck (codec init × N files).

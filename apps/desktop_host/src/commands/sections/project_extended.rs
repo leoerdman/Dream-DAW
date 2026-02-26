@@ -59,3 +59,38 @@ fn sync_title_cmd(
     Ok(())
 }
 
+// ── Project Notes ─────────────────────────────────────────────────────
+
+/// Returns the project-level notes (annotation) text.
+#[tauri::command]
+fn get_project_notes(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<String, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    Ok(project.annotation.clone())
+}
+
+/// Sets the project-level notes (annotation) text and marks the project dirty.
+#[tauri::command]
+fn set_project_notes(
+    text: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        // Only mutate if the text actually changed.
+        if project.annotation == text {
+            return Ok(());
+        }
+        project.annotation = text;
+    }
+    // Mark project dirty so autosave picks up the change.
+    let name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&name, Some(&app))?;
+    Ok(())
+}
+

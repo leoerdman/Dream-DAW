@@ -9,6 +9,12 @@ interface TrackInspectorOverlaysProps {
 }
 
 export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
+    // Dismiss both context menu and color picker together
+    const dismissAll = () => {
+        logic.setContextMenu(null);
+        logic.setColorPickerState(null);
+    };
+
     return (
         <>
             {logic.contextMenu && (
@@ -32,7 +38,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                             .catch((err) => {
                                 console.error('[TrackInspector] duplicate track (context menu) failed:', err);
                             });
-                        logic.setContextMenu(null);
+                        dismissAll();
                     }}
                     onGroup={() => {
                         if (!logic.contextMenu?.trackId) return;
@@ -58,7 +64,10 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     }}
                     onChangeColor={() => {
                         if (!logic.contextMenu?.trackId) return;
-                        logic.handleOpenColorPicker(logic.contextMenu.trackId, logic.contextMenu.x, logic.contextMenu.y);
+                        // Position the color picker to the right of the context menu
+                        const pickerX = logic.contextMenu.x + 192;
+                        const pickerY = logic.contextMenu.y;
+                        logic.handleOpenColorPicker(logic.contextMenu.trackId, pickerX, pickerY);
                     }}
                     onPaintClips={() => {
                         if (!logic.contextMenu?.trackId) return;
@@ -80,7 +89,7 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                         if (!logic.contextMenu?.trackId) return;
                         logic.handleSplitTrackToStems(logic.contextMenu.trackId);
                     }}
-                    onDismiss={() => logic.setContextMenu(null)}
+                    onDismiss={dismissAll}
                 />
             )}
 
@@ -91,14 +100,15 @@ export function TrackInspectorOverlays({ logic }: TrackInspectorOverlaysProps) {
                     currentColor={
                         (logic.colorPickerState.trackId === 'master'
                             ? logic.masterTrack.color
-                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || 'var(--token-color-hex-666666)'
+                            : logic.tracks.find((t) => t.id === logic.colorPickerState?.trackId)?.color) || '#666666'
                     }
                     onSelect={(color) => {
                         const trackId = logic.colorPickerState?.trackId;
                         if (!trackId) return;
                         logic.handleColorSelect(trackId, color);
+                        dismissAll();
                     }}
-                    onDismiss={() => logic.setColorPickerState(null)}
+                    onDismiss={dismissAll}
                 />
             )}
         </>

@@ -155,7 +155,9 @@ impl CompressorProcessor {
             };
             // Program-dependent release companion:
             // under heavy GR, release gets slower to reduce pumping/chatter.
-            let slow_release_ms = (self.release_ms * 2.5).min(5000.0);
+            // BUG-098 FIX: Removed arbitrary 5000ms cap — let slow release
+            // scale proportionally with base release at all settings.
+            let slow_release_ms = self.release_ms * 2.5;
             self.release_slow_coeff = if slow_release_ms > 0.0 {
                 crate::processors::envelope_coeff(slow_release_ms, sr)
             } else {
@@ -532,6 +534,19 @@ impl DspProcessor for CompressorProcessor {
             9 => {
                 self.rms_mode = value > 0.5;
                 self.update_rms_coeff();
+            }
+            // BUG-057 FIX: Expose lookahead_ms as configurable parameter.
+            // Range 0.0–10.0ms. 0 = zero-latency mode, 1.0 = default, 10.0 = mastering.
+            10 => {
+                self.lookahead_ms = value.clamp(0.0, 10.0);
+                if self.sample_rate > 0.0 {
+                    self.lookahead_samples =
+                        ((self.lookahead_ms * 0.001 * self.sample_rate) as usize)
+                            .clamp(1, MAX_LOOKAHEAD_SAMPLES - 1);
+                    // BUG-075 FIX: Reset la_filled to prevent stale lookahead entries
+                    // from a different window size causing glitched output.
+                    self.la_filled = 0;
+                }
             }
             _ => {}
         }

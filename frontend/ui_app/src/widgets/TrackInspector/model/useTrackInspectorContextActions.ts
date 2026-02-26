@@ -35,7 +35,7 @@ export function useTrackInspectorContextActions({
     } | null>(null);
     const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
-    const [masterColor, setMasterColor] = useState('var(--token-color-hex-2b2f36)');
+    const [masterColor, setMasterColor] = useState('#2B2F36');
     const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
         e.preventDefault();
         e.stopPropagation();
@@ -192,13 +192,25 @@ export function useTrackInspectorContextActions({
     }, [selectedTrackIdSet, onSelectTracks, onSelectTrack, setLocalSelectedTrackIds]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
+        // Capture source track color before group creation
+        const sourceTrack = tracks.find((t) => t.id === trackId);
+        const sourceColor = sourceTrack?.color;
         void engineApi.createGroupWithDeltas([trackId]).then(async (response) => {
             await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group');
+            // ENTERPRISE: Inherit the source track's color on the newly created group
+            if (sourceColor && response.group_id) {
+                try {
+                    const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
+                    await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
+                } catch (err) {
+                    console.warn('[TrackInspector] group color inherit failed:', err);
+                }
+            }
         }).catch((err) => {
             console.error('[TrackInspector] createGroup failed:', err);
         });
         setContextMenu(null);
-    }, []);
+    }, [tracks]);
 
     const handleUngroupTrack = useCallback((trackId: string) => {
         const target = tracks.find((t) => t.id === trackId);
@@ -215,17 +227,25 @@ export function useTrackInspectorContextActions({
 
     const handleOpenColorPicker = useCallback((trackId: string, x: number, y: number) => {
         setColorPickerState({ trackId, x, y });
-        setContextMenu(null);
+        // NOTE: Context menu stays open — color picker appears as submenu
     }, []);
 
     const handleColorSelect = useCallback((trackId: string, color: string) => {
+        // Resolve the actual backend track ID.
+        // The UI uses 'master' as a sentinel, but the backend needs the real UUID.
+        let resolvedTrackId = trackId;
         if (trackId === 'master') {
+            const masterTrack = tracks.find((t) => t.type === 'master');
+            if (!masterTrack) {
+                console.warn('[TrackInspector] Master track not found — cannot set color');
+                setColorPickerState(null);
+                return;
+            }
+            resolvedTrackId = masterTrack.id;
             setMasterColor(color);
-            setColorPickerState(null);
-            return;
         }
-        setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
-        void engineApi.setTrackColorWithDeltas(trackId, color)
+        setLocalOverrides(prev => ({ ...prev, [resolvedTrackId]: { ...prev[resolvedTrackId], color } }));
+        void engineApi.setTrackColorWithDeltas(resolvedTrackId, color)
             .then(async (response) => {
                 await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:track-color-change');
             })
@@ -233,7 +253,7 @@ export function useTrackInspectorContextActions({
                 console.error('[TrackInspector] setTrackColor failed:', err);
             });
         setColorPickerState(null);
-    }, [setLocalOverrides]);
+    }, [setLocalOverrides, tracks]);
 
     const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
         void engineApi.paintTrackClipsWithTrackColorWithDeltas(trackId)

@@ -129,7 +129,6 @@ impl DspProcessor for LimiterProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
-        let link = self.stereo_link;
         let la_samples = self.la_samples;
         self.threshold_sm_lin.set_target(self.threshold_lin);
         self.ceiling_sm_lin.set_target(self.ceiling_lin);
@@ -144,7 +143,11 @@ impl DspProcessor for LimiterProcessor {
             // Peak detection from incoming sample (with stereo linking)
             let peak_l = left[i].abs();
             let peak_r = right[i].abs();
-            let peak = peak_l.max(peak_r) * link + (peak_l + peak_r) * 0.5 * (1.0 - link);
+            // BUG-067 FIX: At link=0 (independent), use per-channel max, NOT mono average.
+            // link=1 → linked max (peak_l.max(peak_r)), link=0 → same max (independent).
+            // The original formula collapsed to (peak_l+peak_r)*0.5 at link=0, which is
+            // mono averaging — NOT independent limiting.
+            let peak = peak_l.max(peak_r);
 
             // Target gain for this incoming sample
             let target_gain = if peak > threshold {

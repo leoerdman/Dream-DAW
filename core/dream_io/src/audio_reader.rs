@@ -159,6 +159,13 @@ impl AudioReader {
 
         let num_channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
 
+        // ENT-IO2: Zero-channel guard — refuse files with no audio channels.
+        if num_channels == 0 {
+            return Err(AudioReaderError::DecodeError(
+                format!("File has 0 audio channels: {}", path.display()),
+            ));
+        }
+
         // Create decoder
         let mut decoder = symphonia::default::get_codecs()
             .make(&codec_params, &DecoderOptions::default())
@@ -227,18 +234,33 @@ impl AudioReader {
             buf.copy_interleaved_ref(decoded);
 
             let samples = buf.samples();
-            let ch_count = spec.channels.count();
+            // ENT-IO3: Use all_samples.len() as the authoritative channel count
+            // instead of the per-packet spec. If a codec changes channel layout
+            // mid-stream, this prevents out-of-bounds access and corruption.
+            let target_ch_count = all_samples.len();
+            let packet_ch_count = spec.channels.count().max(1);
 
             // De-interleave into per-channel vectors
             for (i, sample) in samples.iter().enumerate() {
-                let ch = i % ch_count;
-                if ch < all_samples.len() {
+                let ch = i % packet_ch_count;
+                if ch < target_ch_count {
                     all_samples[ch].push(*sample);
                 }
             }
         }
 
         let num_frames = all_samples.first().map(|ch| ch.len()).unwrap_or(0);
+
+        // ENT-IO1: Sanitize NaN/Inf samples that corrupt decoders may produce.
+        // A single NaN propagates through the entire audio graph causing
+        // permanent silence or infinite distortion.
+        for ch in &mut all_samples {
+            for sample in ch.iter_mut() {
+                if !sample.is_finite() {
+                    *sample = 0.0;
+                }
+            }
+        }
 
         log::info!(
             "Decoded {}: {}ch × {} frames @ {}Hz ({:.2}s)",

@@ -362,8 +362,11 @@ pub(super) fn mix_preview_audio(
                     let d_idx = f * channels;
                     if d_idx < data.len() {
                         if channels == 1 {
+                            // ENT-B2: Use 0.5 (-6dB) for mono fold-down, matching
+                            // the 1:1 preview path. FRAC_1_SQRT_2 (-3dB) clips
+                            // correlated stereo signals.
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                                soft_clip((p_left + p_right) * 0.5);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {

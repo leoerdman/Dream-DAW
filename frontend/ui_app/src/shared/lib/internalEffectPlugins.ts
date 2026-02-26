@@ -58,4 +58,15 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
     effect('internal://effect/transient-shaper', 'Transient Shaper', ['dynamics']),
     effect('internal://effect/noise-machine', 'Noise Machine', ['generator', 'texture']),
     effect('internal://effect/vocoder', 'Vocoder', ['spectral', 'modulation']),
+
+    // ── MIDI Effects ─────────────────────────────────────────────────
+    effect('internal://midi-fx/pitch', 'Pitch', ['midi', 'pitch']),
+    effect('internal://midi-fx/scale', 'Scale', ['midi', 'pitch', 'scale']),
+    effect('internal://midi-fx/chord', 'Chord', ['midi', 'harmony']),
+    effect('internal://midi-fx/arpeggiator', 'Arpeggiator', ['midi', 'rhythm', 'arpeggio']),
+    effect('internal://midi-fx/velocity', 'Velocity', ['midi', 'dynamics']),
+    effect('internal://midi-fx/note-length', 'Note Length', ['midi', 'gate']),
+    effect('internal://midi-fx/cc-control', 'CC Control', ['midi', 'control']),
+    effect('internal://midi-fx/expression-control', 'Expression Control', ['midi', 'control']),
+    effect('internal://midi-fx/random', 'Random', ['midi', 'generative']),
 ];

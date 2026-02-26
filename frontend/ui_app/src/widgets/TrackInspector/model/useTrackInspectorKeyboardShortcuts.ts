@@ -43,8 +43,20 @@ export function useTrackInspectorKeyboardShortcuts({
                 e.preventDefault();
                 const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
+                    // Capture the first track's color for inheritance
+                    const firstTrack = tracks.find((t) => t.id === ids[0]);
+                    const sourceColor = firstTrack?.color;
                     void engineApi.createGroupWithDeltas(ids).then(async (response) => {
                         await useEngineStore.getState().applyProjectDeltas(response.deltas, 'track-inspector:create-group-multi');
+                        // ENTERPRISE: Inherit color from the first selected track
+                        if (sourceColor && response.group_id) {
+                            try {
+                                const colorResp = await engineApi.setTrackColorWithDeltas(response.group_id, sourceColor);
+                                await useEngineStore.getState().applyProjectDeltas(colorResp.deltas, 'track-inspector:group-inherit-color');
+                            } catch (err) {
+                                console.warn('[TrackInspector] group color inherit failed:', err);
+                            }
+                        }
                     }).catch((err) => {
                         console.error('[TrackInspector] createGroup(multi) failed:', err);
                     });

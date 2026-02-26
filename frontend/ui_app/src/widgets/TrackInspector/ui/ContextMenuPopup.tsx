@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 export type ContextMenuPopupProps = {
@@ -45,6 +45,8 @@ export const ContextMenuPopup = ({
     onDismiss,
 }: ContextMenuPopupProps) => {
     const ref = useRef<HTMLDivElement>(null);
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const colorHoverFiredRef = useRef(false);
 
     useEffect(() => {
         const handleClick = (e: MouseEvent) => {
@@ -56,8 +58,26 @@ export const ContextMenuPopup = ({
         return () => {
             document.removeEventListener('mousedown', handleClick);
             document.removeEventListener('keydown', handleKey);
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
         };
     }, [onDismiss]);
+
+    const handleColorHoverEnter = useCallback(() => {
+        if (colorHoverFiredRef.current) return; // Already showing
+        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = setTimeout(() => {
+            colorHoverFiredRef.current = true;
+            onChangeColor();
+        }, 200);
+    }, [onChangeColor]);
+
+    const handleColorHoverLeave = useCallback(() => {
+        if (hoverTimerRef.current) {
+            clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+        }
+        // Don't hide color picker on leave — keep it open for interaction
+    }, []);
 
     const clampedX = Math.min(x, window.innerWidth - 196);
     const menuHeight = showTrackActions
@@ -104,10 +124,17 @@ export const ContextMenuPopup = ({
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📋</span> Duplicate Track
                     </button>
-                    <button style={itemStyle} onClick={onChangeColor}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                    <button style={itemStyle}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)';
+                            handleColorHoverEnter();
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = 'none';
+                            handleColorHoverLeave();
+                        }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Change Color
+                        <span style={{ marginLeft: 'auto', fontSize: 'var(--font-size-xs)', opacity: 0.5 }}>▸</span>
                     </button>
                     <button style={itemStyle} onClick={onPaintClips}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}

@@ -63,8 +63,13 @@ export function createTransportActions(
         },
 
         setTimeSignature: async (numerator: number, denominator: number) => {
+            // BUG-059 FIX: Validate inputs — reject NaN/Infinity, enforce integer range,
+            // and snap denominator to nearest valid power-of-2 (1,2,4,8,16,32).
+            if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return;
             const clampedNumerator = Math.max(1, Math.min(32, Math.round(numerator)));
-            const clampedDenominator = Math.max(1, Math.min(32, Math.round(denominator)));
+            const rawDenom = Math.max(1, Math.min(32, Math.round(denominator)));
+            // Snap to nearest power of 2 (standard: 1, 2, 4, 8, 16, 32)
+            const clampedDenominator = Math.pow(2, Math.round(Math.log2(rawDenom)));
             set((s) => ({
                 timeSigNumerator: clampedNumerator,
                 timeSigDenominator: clampedDenominator,

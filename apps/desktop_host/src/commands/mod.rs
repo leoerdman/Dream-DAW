@@ -320,6 +320,8 @@ pub(crate) fn invoke_handler()
         sync_title_cmd,
         set_key_signature_cmd,
         set_key_signature_with_deltas_cmd,
+        get_project_notes,
+        set_project_notes,
         // Spectrum Analyzer
         get_spectrum_data,
         // Sample Rack

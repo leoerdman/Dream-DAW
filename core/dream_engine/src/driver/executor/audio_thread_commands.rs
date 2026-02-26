@@ -230,26 +230,16 @@ pub(super) fn drain_commands(
                 // a buzzing waveform layered on top of the VST instrument sound.
                 let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
                 if !has_vst_instrument {
-                    // INSTRUMENT EXCLUSION: Only fire the engine that matches
-                    // the track's actual instrument. Sampler+Rack are sample-based;
-                    // EssenceSynth is oscillator-based. Never fire both.
-                    let sampler_has_sample = idx < ctx.sampler_engines.len()
-                        && ctx.sampler_engines[idx].has_sample();
-                    let rack_has_samples = idx < ctx.sample_rack_engines.len()
-                        && ctx.sample_rack_engines[idx].has_any_sample();
-                    let use_essence = !sampler_has_sample
-                        && !rack_has_samples
-                        && idx < ctx.essence_engines.len()
-                        && ctx.essence_engines[idx].is_enabled();
-
+                    // SAMPLER-DRONE-FIX: Preview commands target sample-based
+                    // engines ONLY (Sampler + SampleRack). The EssenceSynth
+                    // oscillator must NOT be triggered from preview commands —
+                    // it produces a continuous sine drone that stacks and never
+                    // stops when rapid preview clicks miss the note-off.
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_on(pitch, velocity);
                     }
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_on(pitch, velocity);
-                    }
-                    if use_essence {
-                        ctx.essence_engines[idx].note_on(pitch, velocity);
                     }
                 }
                 if idx < ctx.plugin_rt_midi_queue.len() {
@@ -260,23 +250,16 @@ pub(super) fn drain_commands(
                 let idx = track_index as usize;
                 let has_vst_instrument = idx < MAX_TRACKS && ctx.track_has_external_instrument[idx];
                 if !has_vst_instrument {
-                    // INSTRUMENT EXCLUSION: Mirror the note-on logic.
-                    let sampler_has_sample = idx < ctx.sampler_engines.len()
-                        && ctx.sampler_engines[idx].has_sample();
-                    let rack_has_samples = idx < ctx.sample_rack_engines.len()
-                        && ctx.sample_rack_engines[idx].has_any_sample();
-                    let use_essence = !sampler_has_sample
-                        && !rack_has_samples
-                        && idx < ctx.essence_engines.len()
-                        && ctx.essence_engines[idx].is_enabled();
-
+                    // SAMPLER-DRONE-FIX: Mirror note-on — sample engines only.
                     if idx < ctx.sampler_engines.len() {
                         ctx.sampler_engines[idx].note_off(pitch);
                     }
                     if idx < ctx.sample_rack_engines.len() {
                         ctx.sample_rack_engines[idx].note_off(pitch);
                     }
-                    if use_essence {
+                    // Also send note-off to EssenceSynth unconditionally to
+                    // clean up any dangling voices from before this fix.
+                    if idx < ctx.essence_engines.len() {
                         ctx.essence_engines[idx].note_off(pitch);
                     }
                 }

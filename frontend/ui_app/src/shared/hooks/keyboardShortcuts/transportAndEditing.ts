@@ -61,11 +61,14 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
 
     if (!isModKey(e) && !e.shiftKey && !e.altKey && !e.repeat && e.code === 'KeyD') {
         if (activePanel !== 'arrangement') return false;
-        e.preventDefault();
-        e.stopPropagation();
+        // BUG-103 FIX: Same pattern — defer event consumption until clips
+        // are confirmed duplicated.  Without Cmd, this is the "bare-D"
+        // shortcut for clip duplication.
         try {
             const duplicated = await duplicateSelectedClips(ctx);
             if (!duplicated || duplicated.length === 0) return false;
+            e.preventDefault();
+            e.stopPropagation();
         } catch (err) {
             console.error('[Shortcuts] Duplicate clip failed:', err);
         }
@@ -198,10 +201,15 @@ export async function handleTransportAndEditingShortcuts(env: KeyboardShortcutHa
 
     if (isModKey(e) && e.code === 'KeyD') {
         if (activePanel !== 'arrangement') return false;
-        e.preventDefault();
-        e.stopPropagation();
+        // BUG-103 FIX: Do NOT consume the event before confirming clips were
+        // actually duplicated.  When no clips are selected, let the event
+        // propagate so the TrackInspector's Cmd+D handler can duplicate the
+        // selected track instead.
         try {
-            await duplicateSelectedClips(ctx);
+            const duplicated = await duplicateSelectedClips(ctx);
+            if (!duplicated || duplicated.length === 0) return false;
+            e.preventDefault();
+            e.stopPropagation();
         } catch (err) {
             console.error('[Shortcuts] Duplicate clip failed:', err);
         }

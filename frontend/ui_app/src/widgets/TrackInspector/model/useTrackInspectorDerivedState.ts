@@ -69,11 +69,16 @@ export function useTrackInspectorDerivedState({
     const masterTrack = useMemo((): TrackData => {
         const masterVuL = meters.master_left.peak;
         const masterVuR = meters.master_right.peak;
+        // ENTERPRISE: Read the real master track's persisted color from the
+        // backend instead of hardcoding. Falls back to a raw hex value
+        // (never a CSS variable — the backend rejects those).
+        const realMaster = orderedTracks.find((t) => (t.track_type ?? '').toLowerCase() === 'master');
+        const masterColor = realMaster?.color || '#6B7280';
         return {
             id: 'master',
             name: 'Master',
             type: 'master',
-            color: 'var(--token-color-hex-6b7280)',
+            color: masterColor,
             volume: masterVolume,
             pan: 0,
             isDisabled: false,
@@ -88,7 +93,7 @@ export function useTrackInspectorDerivedState({
             output: 'Main',
             height: trackHeight,
         };
-    }, [meters, masterVolume, trackHeight]);
+    }, [meters, masterVolume, trackHeight, orderedTracks]);
 
     const tracks = useMemo(() => liveTracks.map((t) => ({ ...t, ...(localOverrides[t.id] || {}) })), [liveTracks, localOverrides]);
 

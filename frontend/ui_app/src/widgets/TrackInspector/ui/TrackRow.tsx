@@ -150,11 +150,15 @@ export const TrackRow = ({
                 borderTop: 'none',
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
-                    : isPrimarySelected
-                        ? 'color-mix(in srgb, var(--color-text-primary) 10%, var(--surface-1))'
-                        : isSelected
-                            ? 'color-mix(in srgb, var(--color-text-primary) 6%, var(--surface-1))'
-                            : 'var(--surface-1)',
+                    : isHeaderPrimarySelected
+                        ? 'color-mix(in srgb, var(--color-text-primary) 12%, var(--surface-1))'
+                        : isHeaderSelected
+                            ? 'color-mix(in srgb, var(--color-text-primary) 8%, var(--surface-1))'
+                            : isPrimarySelected
+                                ? 'color-mix(in srgb, var(--color-text-primary) 10%, var(--surface-1))'
+                                : isSelected
+                                    ? 'color-mix(in srgb, var(--color-text-primary) 6%, var(--surface-1))'
+                                    : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isActive ? 1 : 0.45,
                 transition: `background var(--transition-linear), opacity var(--transition-linear)`,

@@ -212,6 +212,11 @@ pub struct RenderContext {
     /// Disables real-time safety constraints that degrade quality, such as
     /// the Pro warp budget limit. The offline path has no RT deadline.
     pub offline_mode: bool,
+
+    /// BUG-047 FIX: Round-robin start index for Pro warp budget.
+    /// Each buffer callback advances this index, ensuring later tracks
+    /// get first pick on alternating callbacks for fair distribution.
+    pro_warp_start_track: usize,
 }
 
 pub fn soft_clip(sample: f32) -> f32 {
@@ -278,6 +283,7 @@ impl RenderContext {
             scratch_post_wrap_clips: Vec::with_capacity(128),
             spectrum_producer: None,
             offline_mode: false,
+            pro_warp_start_track: 0,
         }
     }
 
@@ -379,7 +385,17 @@ impl RenderContext {
             6usize
         };
 
-        for (track_idx, clips) in clips_per_track.iter().enumerate() {
+        // BUG-047 FIX: Round-robin track ordering for Pro warp budget.
+        // Rotate the starting track index each callback so later tracks
+        // get first pick on alternating buffers, preventing systematic
+        // starvation of higher-indexed tracks.
+        let track_count = clips_per_track.len().min(self.track_slots.len());
+        let start = if track_count > 0 { self.pro_warp_start_track % track_count } else { 0 };
+        self.pro_warp_start_track = start.wrapping_add(1);
+
+        for offset in 0..track_count {
+            let track_idx = (start + offset) % track_count;
+            let clips = &clips_per_track[track_idx];
             if track_idx >= self.track_slots.len() {
                 break;
             }

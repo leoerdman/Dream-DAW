@@ -717,15 +717,25 @@ mod tests {
     #[test]
     fn reverb_freeze_sustains() {
         let mut proc = ReverbProcessor::new(44100.0);
-        proc.set_param(8, 1.0); // freeze ON
         proc.set_param(2, 100.0); // full wet
-        let mut l = vec![0.0f32; 22050];
-        let mut r = vec![0.0f32; 22050];
-        l[0] = 1.0;
-        r[0] = 1.0;
-        proc.process_stereo(&mut l, &mut r, 44100.0);
+
+        // Phase 1: Pump audio into the reverb BEFORE freezing
+        let mut l1 = vec![0.0f32; 4096];
+        let mut r1 = vec![0.0f32; 4096];
+        l1[0] = 1.0;
+        r1[0] = 1.0;
+        proc.process_stereo(&mut l1, &mut r1, 44100.0);
+
+        // Phase 2: Enable freeze (combs at feedback=1.0, no new input)
+        proc.set_param(8, 1.0); // freeze ON
+
+        // Phase 3: Process silence — tail should sustain indefinitely
+        let mut l2 = vec![0.0f32; 22050];
+        let mut r2 = vec![0.0f32; 22050];
+        proc.process_stereo(&mut l2, &mut r2, 44100.0);
+
         // Late tail should still have energy in freeze mode
-        let late: f32 = l[20000..].iter().map(|s| s * s).sum();
+        let late: f32 = l2[20000..].iter().map(|s| s * s).sum();
         assert!(late > 0.0001, "Freeze should sustain, got: {late}");
     }
 

@@ -302,6 +302,15 @@ impl MidiScheduler {
 
             if frames_remaining > 0 {
                 // Loop boundary safety: explicitly turn off notes that cross the wrap point.
+                //
+                // LOOP-WRAP-FIX (Enterprise): Place forced note-offs 1 sample BEFORE
+                // the wrap offset. When a note-off and a new note-on share the exact
+                // same sample offset, many VST3 plugins (Kontakt, Serum, Diva, etc.)
+                // process them in undefined order or cancel the pair entirely,
+                // causing the first beat of the loop to go silent.
+                // By placing the forced note-off 1 sample earlier, the VST always
+                // sees: note-off(sample=N-1), note-on(sample=N) — unambiguous ordering.
+                let forced_off_offset = current_buffer_offset.saturating_sub(1).min(frame_count);
                 let mut forced_off_by_pitch = [false; 128];
                 for clip in clips {
                     if clip.is_disabled {
@@ -319,8 +328,8 @@ impl MidiScheduler {
                                     pitch: note.pitch,
                                     velocity: 1,
                                     note_uid: Self::note_uid(clip, note),
-                                    buffer_onset: current_buffer_offset.min(frame_count),
-                                    buffer_offset_end: current_buffer_offset.min(frame_count),
+                                    buffer_onset: forced_off_offset,
+                                    buffer_offset_end: forced_off_offset,
                                     is_note_on: false,
                                     is_note_off: true,
                                 });
@@ -730,8 +739,8 @@ mod tests {
             "crossing note should produce one forced note-off"
         );
         assert_eq!(
-            offs[0].buffer_onset, 200,
-            "forced off must happen at wrap frame"
+            offs[0].buffer_onset, 199,
+            "forced off must happen 1 sample before wrap frame"
         );
     }
 

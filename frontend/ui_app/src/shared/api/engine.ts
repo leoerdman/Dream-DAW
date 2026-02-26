@@ -549,6 +549,8 @@ export interface AutoSaveResult {
 export const autoSaveIfDirty = () => invoke<AutoSaveResult>('auto_save_if_dirty');
 export const markDirty = () => invoke<void>('mark_dirty_cmd');
 export const syncTitle = () => invoke<void>('sync_title_cmd');
+export const getProjectNotes = () => invoke<string>('get_project_notes');
+export const setProjectNotes = (text: string) => invoke<void>('set_project_notes', { text });
 export const setArrangementGrid = (
     numerator: number,
     denominator: number,

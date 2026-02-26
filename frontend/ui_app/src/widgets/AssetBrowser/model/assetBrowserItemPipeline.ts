@@ -178,7 +178,13 @@ export function computeBrowserItems(params: {
         if (formatFilter > 0) {
             const formatNames = ['', 'wav', 'aiff', 'mp3', 'flac'];
             const wanted = formatNames[formatFilter];
-            if (wanted) base = base.filter((i) => i.format && i.format.toLowerCase() === wanted);
+            if (wanted) base = base.filter((i) => {
+                if (!i.format) return false;
+                const fmt = i.format.toLowerCase();
+                // AIF and AIFF are the same container — match both
+                if (wanted === 'aiff') return fmt === 'aiff' || fmt === 'aif';
+                return fmt === wanted;
+            });
         }
         if (audioFilter > 0) {
             const audioFilterFns: Record<number, (i: BrowserItem) => boolean> = {

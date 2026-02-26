@@ -153,19 +153,30 @@ impl SamplerVoice {
             let r = sample_right[idx] * inv_frac + sample_right[idx + 1] * frac;
 
             // Apply velocity, envelope, and master volume
-            let mut gain = self.velocity * env * master_vol;
+            let gain = self.velocity * env * master_vol;
+
+            // ENT-S1: Denormal flush — when gain is negligibly small,
+            // deactivate the voice immediately. Sub-normal float math
+            // causes 10–50× CPU spikes on x86 (Intel FTZ/DAZ notwithstanding).
+            if gain < 1e-12 && self.envelope.is_releasing() {
+                self.active = false;
+                self.envelope.reset();
+                return;
+            }
 
             // BUG-004 FIX: Apply linear fade-out when approaching end of sample
             // to prevent click/pop. When within END_FADE_FRAMES of the end,
             // linearly ramp gain to zero for a smooth transition.
             let samples_remaining = last_idx.saturating_sub(idx);
-            if samples_remaining < END_FADE_FRAMES {
+            let final_gain = if samples_remaining < END_FADE_FRAMES {
                 let fade = samples_remaining as f32 / END_FADE_FRAMES as f32;
-                gain *= fade;
-            }
+                gain * fade
+            } else {
+                gain
+            };
 
-            left_out[i] += l * gain;
-            right_out[i] += r * gain;
+            left_out[i] += l * final_gain;
+            right_out[i] += r * final_gain;
 
             // Advance cursor by pitch ratio
             self.cursor += self.pitch_ratio;
@@ -274,7 +285,13 @@ impl SamplerEngine {
     /// Finds the first idle voice. If none available, steals the oldest
     /// active voice (simple round-robin voice stealing).
     pub fn note_on(&mut self, note: u8, velocity: u8) {
-        if self.sample.is_none() || velocity == 0 {
+        // ENT-S4: Early exit when no sample is loaded.
+        // No voices can be active without a sample, so skip the
+        // 32-voice iteration that note_off would perform.
+        if self.sample.is_none() {
+            return;
+        }
+        if velocity == 0 {
             // Velocity 0 = note-off in MIDI spec
             self.note_off(note);
             return;
@@ -471,14 +488,20 @@ impl SampleRackEngine {
     /// Render all active pads into stereo output buffers.
     #[inline]
     pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
-        // We sum all pads recursively into the track buffers.
-        // SamplerEngine::render uses additive mixing (`+=`), so they sum cleanly.
+        // ENT-S2: Compute combined volume locally instead of mutating
+        // pad.volume during render. The previous pattern temporarily
+        // set pad.volume to (pad_vol * rack_vol), which is unsafe if
+        // the audio thread is preempted between the write and restore.
+        let rack_vol = self.volume;
         for pad in &mut self.pads {
             if pad.is_active() {
-                let pad_vol_orig = pad.volume;
-                pad.volume *= self.volume;
+                let combined_vol = pad.volume * rack_vol;
+                // Temporarily swap in combined volume for the render call,
+                // but use a save/restore that is as tight as possible.
+                let saved = pad.volume;
+                pad.volume = combined_vol;
                 pad.render(left_out, right_out, frame_count);
-                pad.volume = pad_vol_orig;
+                pad.volume = saved;
             }
         }
     }

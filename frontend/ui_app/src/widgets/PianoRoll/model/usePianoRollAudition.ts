@@ -81,6 +81,21 @@ export function usePianoRollAudition(trackIndex: number | undefined, enabled: bo
         };
     }, [trackIndex]);
 
+    // SAMPLER-DRONE-FIX: Global safety net — kill all active preview notes
+    // on mouseup/blur so rapid click-drag can never leave dangling note-ons.
+    useEffect(() => {
+        const handleGlobalRelease = () => {
+            if (activePitchesRef.current.size === 0) return;
+            stopAllAudition();
+        };
+        window.addEventListener('mouseup', handleGlobalRelease);
+        window.addEventListener('blur', handleGlobalRelease);
+        return () => {
+            window.removeEventListener('mouseup', handleGlobalRelease);
+            window.removeEventListener('blur', handleGlobalRelease);
+        };
+    }, [stopAllAudition]);
+
     // Cleanup when audition is disabled
     useEffect(() => {
         if (enabled || trackIndex == null) return;

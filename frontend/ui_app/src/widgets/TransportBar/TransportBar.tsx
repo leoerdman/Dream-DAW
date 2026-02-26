@@ -12,6 +12,7 @@ import {
     TIME_SIGNATURES,
 } from './model/transportBarDomain';
 import { DebugPanel } from './ui/DebugPanel';
+import { NotesPanel } from './ui/NotesPanel';
 import { useTransportDebugPanel } from './model/useTransportDebugPanel';
 import { useMidiActivityLed } from './model/useMidiActivityLed';
 import { useTransportRecording } from './model/useTransportRecording';
@@ -107,6 +108,79 @@ export const TransportBar = ({
         refreshSnapshots,
         tickWatchdog,
     } = useTransportDebugPanel();
+
+    // ── Notes Panel State ──────────────────────────────────────────
+    const NOTES_POS_KEY = 'dream-daw-notes-panel-pos';
+    const DEFAULT_NOTES_POS = { right: 220, top: 56 };
+    const [notesOpen, setNotesOpen] = useState(false);
+    const notesPanelRef = useRef<HTMLDivElement | null>(null);
+    const [notesPanelPos, setNotesPanelPos] = useState(DEFAULT_NOTES_POS);
+    const notesDragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseRight: number; baseTop: number }>({
+        dragging: false, startX: 0, startY: 0, baseRight: DEFAULT_NOTES_POS.right, baseTop: DEFAULT_NOTES_POS.top,
+    });
+
+    // Persist notes panel position
+    useEffect(() => {
+        try {
+            const raw = window.localStorage.getItem(NOTES_POS_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as { right?: number; top?: number };
+            if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
+                setNotesPanelPos({
+                    right: Math.max(8, Math.min(parsed.right, window.innerWidth - 200)),
+                    top: Math.max(40, Math.min(parsed.top, window.innerHeight - 200)),
+                });
+            }
+        } catch { /* ignore */ }
+    }, []);
+    useEffect(() => {
+        try { window.localStorage.setItem(NOTES_POS_KEY, JSON.stringify(notesPanelPos)); } catch { /* ignore */ }
+    }, [notesPanelPos]);
+
+    // Click-outside and Escape to close
+    // BUG-FIX: Use setTimeout(0) so the document mousedown fires AFTER
+    // React's synthetic onClick on the toggle button has run. Without this,
+    // clicking the StickyNote button first closes (click-outside) then
+    // reopens (button onClick), causing a double-toggle flicker.
+    useEffect(() => {
+        if (!notesOpen) return;
+        const onDown = (e: globalThis.MouseEvent) => {
+            const target = e.target as Node;
+            if (notesPanelRef.current && !notesPanelRef.current.contains(target)) {
+                // Check if the click was on the toggle button itself — if so, skip.
+                const btn = (target as HTMLElement).closest?.('[aria-label="Project Notes"]');
+                if (btn) return;
+                setNotesOpen(false);
+            }
+        };
+        const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotesOpen(false); };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onEsc);
+        return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onEsc); };
+    }, [notesOpen]);
+
+    // Drag handling
+    const handleNotesDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        notesDragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, baseRight: notesPanelPos.right, baseTop: notesPanelPos.top };
+        e.preventDefault();
+    }, [notesPanelPos.right, notesPanelPos.top]);
+    useEffect(() => {
+        if (!notesOpen) return;
+        const onMove = (e: MouseEvent) => {
+            if (!notesDragRef.current.dragging) return;
+            const dx = e.clientX - notesDragRef.current.startX;
+            const dy = e.clientY - notesDragRef.current.startY;
+            setNotesPanelPos({
+                right: Math.max(8, Math.min(notesDragRef.current.baseRight - dx, window.innerWidth - 200)),
+                top: Math.max(40, Math.min(notesDragRef.current.baseTop + dy, window.innerHeight - 200)),
+            });
+        };
+        const onUp = () => { notesDragRef.current.dragging = false; };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    }, [notesOpen]);
+
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
         const taps = tapTimestamps.current;
@@ -246,6 +320,8 @@ export const TransportBar = ({
                     setPdcOpen={setPdcOpen}
                     assistantOpen={assistantOpen}
                     onAssistantToggle={onAssistantToggle}
+                    notesOpen={notesOpen}
+                    setNotesOpen={setNotesOpen}
                     onOpenExport={onOpenExport}
                     onSettingsClick={onSettingsClick}
                 />
@@ -277,6 +353,14 @@ export const TransportBar = ({
                         pdcError={pdcError}
                         rtError={rtError}
                         sandboxError={sandboxError}
+                    />
+                )}
+                {notesOpen && (
+                    <NotesPanel
+                        panelRef={notesPanelRef}
+                        panelPos={notesPanelPos}
+                        onDragStart={handleNotesDragStart}
+                        onClose={() => setNotesOpen(false)}
                     />
                 )}
             </div>

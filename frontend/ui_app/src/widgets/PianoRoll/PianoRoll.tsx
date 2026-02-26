@@ -4,6 +4,7 @@ import { PianoRollSidebarPanel } from '@/widgets/PianoRoll/ui/PianoRollSidebar';
 import { PianoKeyboard } from '@/widgets/PianoRoll/ui/PianoKeyboard';
 import { PianoRollGridViewport } from '@/widgets/PianoRoll/ui/PianoRollGridViewport';
 import { usePianoRollLogic } from '@/widgets/PianoRoll/model/usePianoRollLogic';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import type { PianoRollProps } from '@/widgets/PianoRoll/model/pianoRollTypes';
 
 export type { MidiNote, PianoRollTool } from '@/widgets/PianoRoll/model/pianoRollConfig';
@@ -109,7 +110,7 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
             data-selected-notes={selectedNotes.size}
             onFocus={() => setIsEditorFocused(true)}
             onBlur={() => setIsEditorFocused(false)}
-            onMouseDown={() => editorRootRef.current?.focus()}
+            onMouseDown={() => { useFocusPanelStore.getState().setActivePanel('piano-roll'); editorRootRef.current?.focus(); }}
             style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--color-bg-base)', fontFamily: 'var(--font-role-body)', fontSize: 'var(--font-size-xs)' }}
         >
             <PianoRollToolbar

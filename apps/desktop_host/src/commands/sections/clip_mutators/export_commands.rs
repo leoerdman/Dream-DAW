@@ -80,9 +80,10 @@ fn export_quiescence_wait_ms(sample_rate_hz: f64) -> u64 {
     } else {
         44_100.0
     };
-    // Wait roughly two callback periods with a 1024-frame assumption,
-    // but keep it tight to avoid visible UI stalls before export starts.
-    (((1024.0 * 2.0) / sr) * 1000.0).round().clamp(35.0, 140.0) as u64
+    // Wait roughly two callback periods, using the offline buffer size as
+    // a conservative reference. Keeps the wait tight to avoid UI stalls.
+    let frames_ref = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS as f64;
+    ((frames_ref * 2.0 / sr) * 1000.0).round().clamp(35.0, 140.0) as u64
 }
 
 /// Offline bounce/export command.
@@ -317,14 +318,12 @@ async fn export_mix_cmd(
         );
     }
 
-    // Ensure plugins are reactivated for the current export processing format.
-    // This avoids silent passthrough when a plugin stayed in a stale inactive state.
-    // BUG-AUD-312 FIX: Use MAX_BUFFER_FRAMES (8192) instead of the current device
-    // buffer size. OfflineRenderer may process in blocks larger than the realtime
-    // device's configured buffer size, which would trigger the
-    // `num_frames > max_buffer_size` passthrough guard in VST3/VST2/AU plugins.
-    let buffer_size = dream_engine::render_callback::MAX_BUFFER_FRAMES;
-    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), buffer_size) {
+    // Ensure plugins are reactivated for the offline export processing format.
+    // Use OFFLINE_BUFFER_FRAMES (512) to match the actual block size used by
+    // OfflineRenderer. This ensures VST3 plugin internals (envelope followers,
+    // sidechain compressors) produce identical output to the RT path.
+    let offline_buffer_size = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS;
+    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), offline_buffer_size) {
         log::warn!(
             "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
             e
@@ -410,6 +409,10 @@ async fn export_mix_cmd(
     let app_for_finish = app.clone();
     let job_id_for_progress = job_id.clone();
     let job_id_for_finish = job_id.clone();
+    // Capture plugin host Arc for post-export reactivation back to RT buffer size.
+    let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+    let project_sr_for_reactivate = project.sample_rate.max(1.0);
+
     tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineRenderer::new(cfg);
         bouncer.cancel_flag = std::sync::Arc::clone(&cancel_flag);
@@ -448,6 +451,19 @@ async fn export_mix_cmd(
                 },
             )
             .map_err(|e| e.to_string());
+
+        // ── Reactivate plugins to RT buffer size after export ────────
+        // During export, plugins were activated with OFFLINE_BUFFER_FRAMES (512).
+        // The RT audio thread may deliver up to MAX_BUFFER_FRAMES (8192) per
+        // callback. If we don't reactivate, the num_frames > max_buffer_size
+        // guard in VST3 plugins would trigger, causing silent passthrough.
+        if let Ok(mut host) = plugin_host_arc.lock() {
+            host.reactivate_all(
+                project_sr_for_reactivate,
+                dream_engine::render_callback::MAX_BUFFER_FRAMES,
+            );
+            log::info!("[Export] Reactivated plugins to RT buffer size ({})", dream_engine::render_callback::MAX_BUFFER_FRAMES);
+        }
 
         // ── Resume playback if it was playing before export ──────────
         if cmd_producer {

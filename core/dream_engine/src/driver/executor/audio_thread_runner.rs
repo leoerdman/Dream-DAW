@@ -761,6 +761,22 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                                     mapped_pitch,
                                                                     mapped_velocity,
                                                                 ));
+                                                                // ── DIAGNOSTIC: MIDI pitch trace ──
+                                                                {
+                                                                    static NOTE_LOG_TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                                                    if NOTE_LOG_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 200 {
+                                                                        log::info!(
+                                                                            "[MIDI-DIAG] track={} src_pitch={} mapped_pitch={} vel={} fx(pitch={}/{}st scale={}/root={}/mask={:#06x} random={}/{}st)",
+                                                                            track_idx,
+                                                                            event.pitch,
+                                                                            mapped_pitch,
+                                                                            mapped_velocity,
+                                                                            fx.pitch_enabled, fx.pitch_semitones,
+                                                                            fx.scale_enabled, fx.scale_root, fx.scale_mask,
+                                                                            fx.random_enabled, fx.random_semitones,
+                                                                        );
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }

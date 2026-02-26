@@ -8,8 +8,7 @@ interface PianoRollSidebarProps {
     clipDurationLabel: string;
     gridDivision: GridDivision;
     gridTriplet: boolean;
-    transposeNotes: (semitones: number) => void;
-    clipTranspose: number;
+
     quantizeAllNotesToGrid: () => void;
     setZoomOverrideH: (value: number | null) => void;
     selectedNotes: Set<string>;
@@ -21,8 +20,7 @@ export const PianoRollSidebarPanel = memo(function PianoRollSidebarPanel({
     clipDurationLabel,
     gridDivision,
     gridTriplet,
-    transposeNotes,
-    clipTranspose,
+
     quantizeAllNotesToGrid,
     setZoomOverrideH,
     selectedNotes,
@@ -34,25 +32,6 @@ export const PianoRollSidebarPanel = memo(function PianoRollSidebarPanel({
             <ClipEditorSection title="Clip Setup">
                 <ClipEditorMetaRow label="Length" value={clipDurationLabel} />
                 <ClipEditorMetaRow label="Grid" value={`${gridDivision}${gridTriplet ? 'T' : ''}`} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose Notes</span>
-                    <button onClick={() => transposeNotes(-1)} style={miniBtnStyle}>
-                        -1
-                    </button>
-                    <button onClick={() => transposeNotes(1)} style={miniBtnStyle}>
-                        +1
-                    </button>
-                    <span
-                        style={{
-                            fontSize: 'var(--font-size-xs)',
-                            color: 'var(--color-text-primary)',
-                            fontFamily: 'var(--font-role-data)',
-                            marginLeft: 'auto',
-                        }}
-                    >
-                        {clipTranspose >= 0 ? `+${clipTranspose}` : clipTranspose}
-                    </span>
-                </div>
             </ClipEditorSection>
 
             <ClipEditorSection title="Performance">

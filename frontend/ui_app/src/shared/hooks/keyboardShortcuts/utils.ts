@@ -1,5 +1,6 @@
 import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import type { KeyboardShortcutsConfig, KeyboardShortcutRuntimeContext } from './types';
 import type { ShortcutActionId } from '@/shared/lib/shortcutBindings';
 import { DEFAULT_SHORTCUT_BINDINGS, isShortcutMatch } from '@/shared/lib/shortcutBindings';
@@ -24,12 +25,8 @@ export function getScopedEditorElement(e: KeyboardEvent, scope: string): HTMLEle
     return null;
 }
 
-function hasScopedFocus(scope: string): boolean {
-    const active = document.activeElement as HTMLElement | null;
-    if (active?.closest?.(`[data-keyboard-scope="${scope}"]`)) return true;
-    const scoped = document.querySelector(`[data-keyboard-scope="${scope}"]`) as HTMLElement | null;
-    return Boolean(scoped && active && scoped.contains(active));
-}
+
+
 
 function isEditableTag(el: HTMLElement | null): boolean {
     if (!el) return false;
@@ -75,8 +72,20 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     const posSeconds = storeState.transport.position_seconds ?? 0;
     const sampleRate = resolveSampleRate(storeState.projectSampleRate, storeState.transport.sample_rate);
     const playheadFrames = Math.round(posSeconds * sampleRate);
-    const pianoRollScope = getScopedEditorElement(e, 'piano-roll');
-    const deviceRackScope = getScopedEditorElement(e, 'device-rack');
+
+    // ── Focus-follows-click panel detection ──
+    // Use the global focus panel store (set by each panel's onMouseDown) to
+    // determine which editor panel "owns" the current keyboard shortcut.
+    // This replaces the brittle DOM-based e.target / document.activeElement
+    // checking that failed with canvas elements (which don't receive focus).
+    const activePanel = useFocusPanelStore.getState().activePanel;
+    const inPianoRoll = activePanel === 'piano-roll';
+    const inDeviceRack = activePanel === 'device-rack';
+
+    // For device-rack we still need to read selectedDeviceId from the DOM
+    // data attribute, as the rack component writes it there.
+    const deviceRackScope = inDeviceRack ? getScopedEditorElement(e, 'device-rack') ?? document.querySelector('[data-keyboard-scope="device-rack"]') as HTMLElement | null : null;
+
     const selectedTrackIndex = config.selectedTrackId
         ? storeState.tracks.allIds.indexOf(config.selectedTrackId)
         : -1;
@@ -90,16 +99,8 @@ export function buildRuntimeContext(config: KeyboardShortcutsConfig, e: Keyboard
     return {
         ...config,
         playheadFrames,
-        // FOCUS-FIX: Use event path (composedPath / e.target) exclusively to
-        // determine whether the keyboard event originated from within a
-        // scoped editor region.  The previous `hasScopedFocus()` fallback
-        // checked `document.activeElement`, but canvas-based panels (timeline,
-        // piano roll) do NOT receive DOM focus on click.  If the user last
-        // clicked inside the piano roll and then clicked on a clip in the
-        // timeline, `document.activeElement` persisted inside the piano-roll
-        // scope, causing Cmd+C/V/D/Delete on clips to be silently swallowed.
-        inPianoRoll: Boolean(pianoRollScope),
-        inDeviceRack: Boolean(deviceRackScope),
+        inPianoRoll,
+        inDeviceRack,
         selectedDeviceId: deviceRackScope?.dataset?.selectedDeviceId ?? '',
         selectedTrackIndex,
         insertAfterIndex,

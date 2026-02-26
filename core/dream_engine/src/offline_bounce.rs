@@ -62,9 +62,14 @@ use crate::sampler::{SampleRackEngine, SamplerEngine};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Buffer size for offline rendering (larger = fewer loop iterations).
-/// Not constrained by real-time deadlines, so we can use big buffers.
-const OFFLINE_BUFFER_FRAMES: usize = 4096;
+/// Offline bounce buffer size. Must match the typical RT audio callback
+/// buffer size to ensure VST3 plugins (especially sidechain compressors)
+/// produce identical output. Larger buffers cause envelope followers
+/// (attack/release) to behave differently, corrupting sidechain ducking.
+const OFFLINE_BUFFER_FRAMES: usize = 512;
+
+/// Public alias for cross-crate access (e.g., plugin reactivation before export).
+pub const OFFLINE_BUFFER_FRAMES_FOR_PLUGINS: usize = OFFLINE_BUFFER_FRAMES;
 
 /// Maximum output channels (stereo).
 const OFFLINE_CHANNELS: usize = 2;
@@ -762,6 +767,23 @@ impl OfflineRenderer {
                                         "[Bounce/FX] Track {}: process_with_sidechain failed: {}",
                                         track_idx, proc_err
                                     );
+                                }
+                                // ── DIAGNOSTIC: Sidechain bounce trace ──
+                                {
+                                    static SC_LOG_TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                    if SC_LOG_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 50 {
+                                        let sc_resolved = runtime_slot.sidechain_track_index;
+                                        let sc_has_data = source_slot.map_or(false, |s| {
+                                            s.buf_left[..c].iter().any(|v| v.abs() > 1e-10)
+                                        });
+                                        let out_energy: f32 = out_left[..c].iter().map(|v| v * v).sum::<f32>() / c as f32;
+                                        let in_energy: f32 = slot.buf_left[..c].iter().map(|v| v * v).sum::<f32>() / c as f32;
+                                        log::info!(
+                                            "[BOUNCE-SC-DIAG] track={} slot={} sc_idx={:?} sc_has_data={} in_rms={:.6} out_rms={:.6} bypassed={}",
+                                            track_idx, runtime_slot_idx, sc_resolved, sc_has_data,
+                                            in_energy.sqrt(), out_energy.sqrt(), runtime_slot.is_bypassed,
+                                        );
+                                    }
                                 }
                                 // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
                                 // misbehaving plugin would corrupt the entire export file.

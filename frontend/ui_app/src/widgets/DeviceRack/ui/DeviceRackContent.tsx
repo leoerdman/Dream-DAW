@@ -1,5 +1,6 @@
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import * as engineApi from '@/shared/api/engine';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import type { DeviceRackLogicOutput } from '@/widgets/DeviceRack/model/useDeviceRackLogic';
 import { AddDeviceButton } from '@/widgets/DeviceRack/ui/AddDeviceButton';
 import { DeviceSlot, EmptyState } from '@/widgets/DeviceRack/ui/DeviceRackSlots';
@@ -37,7 +38,7 @@ export function DeviceRackContent({ logic, rackExpanded }: DeviceRackContentProp
             tabIndex={0}
             data-keyboard-scope="device-rack"
             data-selected-device-id={selectedDeviceId}
-            onMouseDown={() => rackRef.current?.focus()}
+            onMouseDown={() => { useFocusPanelStore.getState().setActivePanel('device-rack'); rackRef.current?.focus(); }}
             style={{
                 display: 'flex',
                 flexDirection: 'column',

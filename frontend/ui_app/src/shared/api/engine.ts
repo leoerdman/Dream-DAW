@@ -488,7 +488,7 @@ export const setMidiClipEnvelopes = (
         clipId,
         push_undo_step: options?.pushUndoStep ?? true,
         envelopes: envelopes.map((env) => ({
-            param_id: env.paramId,
+            paramId: env.paramId,
             points: env.points.map((p) => ({
                 beat: Math.max(0, Number(p.beat ?? 0)),
                 value: Math.max(0, Math.min(1, Number(p.value ?? 0))),

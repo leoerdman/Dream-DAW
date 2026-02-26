@@ -94,7 +94,10 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
     }
 
     if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-        if ((inDeviceRack && selectedDeviceId.length > 0) || inPianoRoll || getScopedEditorElement(e, 'track-inspector')) return true;
+        // Device rack and track inspector handle their own delete; piano roll
+        // handles its own delete independently (stopImmediatePropagation when
+        // MIDI notes are selected), so we only bail for device-rack/inspector.
+        if ((inDeviceRack && selectedDeviceId.length > 0) || getScopedEditorElement(e, 'track-inspector')) return true;
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return false;
         e.preventDefault();

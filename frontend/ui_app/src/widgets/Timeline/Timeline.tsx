@@ -7,6 +7,7 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import { clampTrackHeightPx } from '@/shared/config/layoutConstants';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { buildMasterLaneGridLines, buildMasterLaneGridStyle } from './lib/masterLaneGrid';
@@ -384,6 +385,7 @@ export const Timeline = (props: TimelineProps) => {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            onMouseDownCapture={() => useFocusPanelStore.getState().setActivePanel('arrangement')}
         >
             <div
                 ref={arrangementRef}

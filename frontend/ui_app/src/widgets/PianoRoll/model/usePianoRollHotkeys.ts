@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
+import { useFocusPanelStore } from '@/shared/stores/useFocusPanelStore';
 import {
     genNoteId,
     HIGHEST_PITCH,
@@ -69,6 +70,9 @@ export function usePianoRollHotkeys({
         if (!isEditorFocused) return;
 
         const onKeyDown = (e: KeyboardEvent) => {
+            // Only process PianoRoll hotkeys when this panel was the last one clicked.
+            if (useFocusPanelStore.getState().activePanel !== 'piano-roll') return;
+
             const active = document.activeElement as HTMLElement | null;
             if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
             if (active?.closest?.('[data-assistant-chat]')) return;

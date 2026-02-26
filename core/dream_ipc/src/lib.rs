@@ -247,6 +247,11 @@ pub enum EngineCommand {
     },
 
     // ── Engine Lifecycle ─────────────────────────────────────────────
+    /// Signal that an offline export is active. While `true`, the RT audio
+    /// callback MUST skip all external VST plugin `try_lock()` calls to
+    /// prevent concurrent state mutation (crackling/corruption in export).
+    SetExportActive(bool),
+
     /// Request the engine to stop and clean up all resources.
     Shutdown,
     // ── Streaming Window Management ──────────────────────────────────

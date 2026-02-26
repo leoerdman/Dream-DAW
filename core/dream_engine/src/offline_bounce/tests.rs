@@ -411,6 +411,10 @@ fn master_fx_processes_both_group_and_direct_paths() {
     let external_fx_map_empty = vec![Vec::<ExternalPluginRuntimeSlot>::new(); project.tracks.len() + 1];
     let plugin_registry: HashMap<uuid::Uuid, PluginInstanceArc> = HashMap::new();
 
+    let mut test_scratch_l_1 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
+    let mut test_scratch_r_1 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
+    let mut test_midi_events_1: Vec<MidiEvent> = Vec::new();
+
     let mut routing_ctx_none = super::RenderRoutingCtx {
         clips_per_track: &clips_per_track,
         clip_pool: &clip_pool,
@@ -427,6 +431,9 @@ fn master_fx_processes_both_group_and_direct_paths() {
         loop_region: None,
         midi_fx_configs: Vec::new(),
         automation: &[],
+        bounce_scratch_left: &mut test_scratch_l_1,
+        bounce_scratch_right: &mut test_scratch_r_1,
+        bounce_midi_events: &mut test_midi_events_1,
     };
     OfflineRenderer::render_routing_aware(
         &mut render_ctx,
@@ -445,6 +452,10 @@ fn master_fx_processes_both_group_and_direct_paths() {
         &[DeviceNode::single(utility)],
     );
 
+    let mut test_scratch_l_2 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
+    let mut test_scratch_r_2 = vec![0.0f32; super::OFFLINE_BUFFER_FRAMES];
+    let mut test_midi_events_2: Vec<MidiEvent> = Vec::new();
+
     let mut routing_ctx_utility = super::RenderRoutingCtx {
         clips_per_track: &clips_per_track,
         clip_pool: &clip_pool,
@@ -461,6 +472,9 @@ fn master_fx_processes_both_group_and_direct_paths() {
         loop_region: None,
         midi_fx_configs: Vec::new(),
         automation: &[],
+        bounce_scratch_left: &mut test_scratch_l_2,
+        bounce_scratch_right: &mut test_scratch_r_2,
+        bounce_midi_events: &mut test_midi_events_2,
     };
     OfflineRenderer::render_routing_aware(
         &mut render_ctx_with_master,

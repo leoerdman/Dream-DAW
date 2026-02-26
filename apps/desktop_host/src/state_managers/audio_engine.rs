@@ -50,6 +50,11 @@ pub struct AudioEngineHandle {
     /// Export cancel flag - set to true to abort offline bounce.
     pub export_cancel: Arc<std::sync::atomic::AtomicBool>,
 
+    /// Export active flag — set to true while offline bounce is running.
+    /// The RT audio callback checks this and skips ALL external VST plugin
+    /// processing to prevent concurrent state mutation (crackling/corruption).
+    pub export_active: Arc<std::sync::atomic::AtomicBool>,
+
     /// Shared clip pool snapshot (lock-free) for restarting audio stream.
     pub clip_pool: Arc<ArcSwap<ClipPool>>,
     pub clip_snapshot: Arc<SharedClipSnapshot>,

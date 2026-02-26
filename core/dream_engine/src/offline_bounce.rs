@@ -113,6 +113,11 @@ struct RenderRoutingCtx<'a> {
     midi_fx_configs: Vec<MidiFxRuntimeConfig>,
     /// Pre-built per-track automation states for external plugin parameter automation.
     automation: &'a [TrackAutomationState],
+    /// CRACKLE-FIX-4: Pre-allocated VST output scratch buffers (avoids per-chunk alloc).
+    bounce_scratch_left: &'a mut [f32],
+    bounce_scratch_right: &'a mut [f32],
+    /// CRACKLE-FIX-5: Pre-allocated MIDI events Vec (avoids per-track-per-chunk alloc).
+    bounce_midi_events: &'a mut Vec<MidiEvent>,
 }
 
 // ── Offline Bouncer ─────────────────────────────────────────────────────
@@ -636,6 +641,8 @@ impl OfflineRenderer {
         track_idx: usize,
         frame_count: usize,
         ctx: &FxChainProcessCtx<'_>,
+        scratch_left: &mut [f32],
+        scratch_right: &mut [f32],
     ) {
         let c = frame_count
             .min(slot.buf_left.len())
@@ -739,23 +746,26 @@ impl OfflineRenderer {
                                     ctx.playhead_pos,
                                 );
 
-                                let mut out_left = vec![0.0f32; c];
-                                let mut out_right = vec![0.0f32; c];
+                                // CRACKLE-FIX-4: Use pre-allocated scratch buffers instead of
+                                // per-chunk Vec allocation. Eliminates heap thrashing.
+                                let out_left = &mut scratch_left[..c];
+                                let out_right = &mut scratch_right[..c];
+                                out_left.fill(0.0);
+                                out_right.fill(0.0);
                                 let main_inputs: [&[f32]; 2] =
                                     [&slot.buf_left[..c], &slot.buf_right[..c]];
                                 let mut out_slices: [&mut [f32]; 2] =
-                                    [&mut out_left[..c], &mut out_right[..c]];
+                                    [&mut out_left[..], &mut out_right[..]];
                                 let midi_to_send: &[MidiEvent] = ctx.midi_events;
-                                let empty_midi: Vec<MidiEvent> = Vec::new();
+                                let empty_midi: &[MidiEvent] = &[];
                                 let use_midi =
                                     if runtime_slot.is_instrument && !midi_to_send.is_empty() {
                                         midi_to_send
                                     } else {
-                                        &empty_midi
+                                        empty_midi
                                     };
                                 let sc_pair =
                                     source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
-                                // BOUNCE-FIX: Log process errors instead of silently swallowing.
                                 if let Err(proc_err) = host.process_with_sidechain(
                                     &main_inputs,
                                     sc_pair.as_ref().map(|pair| pair.as_slice()),
@@ -768,46 +778,18 @@ impl OfflineRenderer {
                                         track_idx, proc_err
                                     );
                                 }
-                                // ── DIAGNOSTIC: Sidechain bounce trace ──
-                                {
-                                    static SC_LOG_TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                                    if SC_LOG_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 50 {
-                                        let sc_resolved = runtime_slot.sidechain_track_index;
-                                        let sc_has_data = source_slot.map_or(false, |s| {
-                                            s.buf_left[..c].iter().any(|v| v.abs() > 1e-10)
-                                        });
-                                        let out_energy: f32 = out_left[..c].iter().map(|v| v * v).sum::<f32>() / c as f32;
-                                        let in_energy: f32 = slot.buf_left[..c].iter().map(|v| v * v).sum::<f32>() / c as f32;
-                                        log::info!(
-                                            "[BOUNCE-SC-DIAG] track={} slot={} sc_idx={:?} sc_has_data={} in_rms={:.6} out_rms={:.6} bypassed={}",
-                                            track_idx, runtime_slot_idx, sc_resolved, sc_has_data,
-                                            in_energy.sqrt(), out_energy.sqrt(), runtime_slot.is_bypassed,
-                                        );
-                                    }
-                                }
                                 // BOUNCE-FIX: Sanitize plugin output — NaN/Inf from a
                                 // misbehaving plugin would corrupt the entire export file.
                                 for i in 0..c {
-                                    if !out_left[i].is_finite() {
-                                        out_left[i] = 0.0;
+                                    if !scratch_left[i].is_finite() {
+                                        scratch_left[i] = 0.0;
                                     }
-                                    if !out_right[i].is_finite() {
-                                        out_right[i] = 0.0;
-                                    }
-                                }
-                                slot.buf_left[..c].copy_from_slice(&out_left[..c]);
-                                slot.buf_right[..c].copy_from_slice(&out_right[..c]);
-                                // PARITY FIX 2: Sanitize per-track VST output.
-                                // NaN/Inf from a misbehaving plugin would poison
-                                // the entire export. Matches live path AUD-506.
-                                for si in 0..c {
-                                    if !slot.buf_left[si].is_finite() {
-                                        slot.buf_left[si] = 0.0;
-                                    }
-                                    if !slot.buf_right[si].is_finite() {
-                                        slot.buf_right[si] = 0.0;
+                                    if !scratch_right[i].is_finite() {
+                                        scratch_right[i] = 0.0;
                                     }
                                 }
+                                slot.buf_left[..c].copy_from_slice(&scratch_left[..c]);
+                                slot.buf_right[..c].copy_from_slice(&scratch_right[..c]);
                             } else {
                                 log::warn!(
                                     "[Bounce/FX] Track {}: VST3 instance {} not in registry — skipping",
@@ -945,7 +927,9 @@ impl OfflineRenderer {
                 .unwrap_or(false);
 
             // Schedule MIDI events for VST instrument tracks
-            let mut track_midi_events: Vec<MidiEvent> = Vec::new();
+            // CRACKLE-FIX-5: Reuse pre-allocated MIDI events Vec instead of
+            // allocating a new Vec per track per chunk.
+            ctx.bounce_midi_events.clear();
             if has_vst_instrument && has_midi {
                 // Activate the slot so it's not skipped
                 slot.active = true;
@@ -984,7 +968,7 @@ impl OfflineRenderer {
                         if fx.scale_enabled {
                             off_pitch = quantize_to_scale(off_pitch, fx.scale_root, fx.scale_mask);
                         }
-                        track_midi_events.push(MidiEvent::note_off(offset_off, 0, off_pitch, 0));
+                        ctx.bounce_midi_events.push(MidiEvent::note_off(offset_off, 0, off_pitch, 0));
                     }
 
                     if event.is_note_on {
@@ -1022,13 +1006,13 @@ impl OfflineRenderer {
                         }
                         let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
 
-                        track_midi_events.push(MidiEvent::note_on(
+                        ctx.bounce_midi_events.push(MidiEvent::note_on(
                             offset_on, 0, mapped_pitch, mapped_velocity,
                         ));
                     }
                 }
 
-                track_midi_events.sort_unstable_by(|a, b| {
+                ctx.bounce_midi_events.sort_unstable_by(|a, b| {
                     a.sample_offset
                         .cmp(&b.sample_offset)
                         .then_with(|| a.data[0].cmp(&b.data[0]))
@@ -1052,11 +1036,18 @@ impl OfflineRenderer {
                 playhead_pos,
                 left_slots,
                 right_slots: right_slots_rest,
-                midi_events: &track_midi_events,
+                midi_events: &ctx.bounce_midi_events,
                 automation: ctx.automation,
                 track_idx,
             };
-            Self::process_track_fx_chain(slot, track_idx, frame_count, &fx_ctx);
+            Self::process_track_fx_chain(
+                slot,
+                track_idx,
+                frame_count,
+                &fx_ctx,
+                ctx.bounce_scratch_left,
+                ctx.bounce_scratch_right,
+            );
 
             // 2. Channel Strip (Mute, Solo, Gain, Pan)
             let enabled = slot.strip.is_output_enabled();
@@ -1837,27 +1828,13 @@ impl OfflineRenderer {
         let mut mix_l = vec![0.0f32; total_frames];
         let mut mix_r = vec![0.0f32; total_frames];
         let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
-
-        // ── BUF-009 FIX: Pre-roll warmup ────────────────────────────────
-        // VST3 plugins (reverbs, delays, compressors) start from a cold/zeroed
-        // state during offline export, producing different output than RT playback
-        // where plugin state carries over. Render 1 second of silence through
-        // the plugin chain to warm up internal states, then discard the output.
-        {
-            let preroll_frames = project_sr as usize; // 1 second
-            let mut preroll_rendered = 0usize;
-            while preroll_rendered < preroll_frames {
-                let chunk = (preroll_frames - preroll_rendered).min(OFFLINE_BUFFER_FRAMES);
-                // Process through the FX chain with silence to prime plugin state
-                for slot in render_ctx.track_slots.iter_mut() {
-                    slot.buf_left[..chunk].fill(0.0);
-                    slot.buf_right[..chunk].fill(0.0);
-                }
-                preroll_rendered += chunk;
-            }
-            info!("[Bounce] Pre-roll warmup: {} frames ({:.1}ms)", preroll_frames,
-                preroll_frames as f64 / project_sr * 1000.0);
-        }
+        // CRACKLE-FIX-4: Pre-allocate VST output scratch buffers outside the
+        // render loop. Previously, `vec![0.0; c]` was allocated per-slot per-chunk,
+        // causing heap thrashing during offline rendering.
+        let mut bounce_scratch_left = vec![0.0f32; OFFLINE_BUFFER_FRAMES];
+        let mut bounce_scratch_right = vec![0.0f32; OFFLINE_BUFFER_FRAMES];
+        // CRACKLE-FIX-5: Pre-allocate MIDI events Vec outside the loop.
+        let mut bounce_midi_events: Vec<MidiEvent> = Vec::with_capacity(4096);
 
         info!("[Bounce] Phase 1: Rendering Master Mix");
 
@@ -1953,6 +1930,9 @@ impl OfflineRenderer {
                 loop_region: bounce_loop_region,
                 midi_fx_configs: midi_fx_configs.clone(),
                 automation: &bounce_automation,
+                bounce_scratch_left: &mut bounce_scratch_left,
+                bounce_scratch_right: &mut bounce_scratch_right,
+                bounce_midi_events: &mut bounce_midi_events,
             };
             Self::render_routing_aware(
                 &mut render_ctx,

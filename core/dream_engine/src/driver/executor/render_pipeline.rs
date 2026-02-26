@@ -82,6 +82,7 @@ pub(super) fn process_master_bus(
     master_gain_smooth: f32,
     _render_ctx: &mut RenderContext,
     process_ctx: &ProcessContext,
+    export_active: bool,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
@@ -135,57 +136,55 @@ pub(super) fn process_master_bus(
                             }
                             continue;
                         };
-                        let Some(mut host) = plugin_mtx.try_lock() else {
-                            // AUD-602 FIX: Diagnose master-bus lock contention.
-                            static MASTER_LOCK_MISS: std::sync::atomic::AtomicU32 =
-                                std::sync::atomic::AtomicU32::new(0);
-                            let n_miss = MASTER_LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            if n_miss.is_multiple_of(500) {
-                                log::debug!(
-                                    "[AudioRT] Master bus plugin lock contention for {:?} (#{})",
-                                    instance_id, n_miss
-                                );
-                            }
+                        // EXPORT-SAFETY: Skip master bus external VST try_lock when
+                        // offline export is active. Same as per-track skip logic.
+                        if export_active {
                             continue;
-                        };
-                        let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
-                        let transport = TransportContext {
-                            sample_rate: sample_rate_f64,
-                            position_samples: playhead_pos,
-                            tempo: bpm,
-                            is_playing,
-                            is_recording: false,
-                            time_sig_numerator: i32::from(time_sig_numerator),
-                            time_sig_denominator: i32::from(time_sig_denominator),
-                        };
-                        host.set_transport_context(transport);
-
-                        let empty_midi: &[MidiEvent] = &[];
+                        }
+                        // CRACKLE-FIX-1: Copy input into external buffers BEFORE
+                        // attempting lock. On lock miss, the dry signal is already
+                        // in external_left/right, so the copy-back below produces
+                        // clean passthrough instead of a one-buffer audio gap.
                         external_left[..n].copy_from_slice(&graph_out_left[..n]);
                         external_right[..n].copy_from_slice(&graph_out_right[..n]);
-                        let mut out_slices: [&mut [f32]; 2] =
-                            [&mut external_left[..n], &mut external_right[..n]];
-                        // AUD-603 FIX: Log process errors instead of silently swallowing.
-                        if let Err(proc_err) = host.process_with_sidechain(
-                            &main_inputs,
-                            None,
-                            &mut out_slices,
-                            n,
-                            empty_midi,
-                        ) {
-                            static MASTER_PROC_ERR: std::sync::atomic::AtomicU32 =
-                                std::sync::atomic::AtomicU32::new(0);
-                            let n_err = MASTER_PROC_ERR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            if n_err.is_multiple_of(500) {
-                                log::warn!(
-                                    "[AudioRT] Master bus process_with_sidechain failed: {} (#{})",
-                                    proc_err, n_err
-                                );
+
+                        if let Some(mut host) = plugin_mtx.try_lock() {
+                            // Lock acquired — full plugin processing
+                            let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
+                            let transport = TransportContext {
+                                sample_rate: sample_rate_f64,
+                                position_samples: playhead_pos,
+                                tempo: bpm,
+                                is_playing,
+                                is_recording: false,
+                                time_sig_numerator: i32::from(time_sig_numerator),
+                                time_sig_denominator: i32::from(time_sig_denominator),
+                            };
+                            host.set_transport_context(transport);
+
+                            let empty_midi: &[MidiEvent] = &[];
+                            let mut out_slices: [&mut [f32]; 2] =
+                                [&mut external_left[..n], &mut external_right[..n]];
+                            if let Err(_proc_err) = host.process_with_sidechain(
+                                &main_inputs,
+                                None,
+                                &mut out_slices,
+                                n,
+                                empty_midi,
+                            ) {
+                                static MASTER_PROC_ERR: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                MASTER_PROC_ERR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
+                        } else {
+                            // CRACKLE-FIX-1: Lock contended — dry passthrough.
+                            // external_left/right already contain the input signal.
+                            static MASTER_LOCK_MISS: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            MASTER_LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
-                        // AUD-506 FIX: Sanitize VST output — NaN/Inf from a
-                        // misbehaving master plugin would poison the entire
-                        // downstream chain (gain, metering, soft clip).
+
+                        // Always sanitize and copy back, regardless of lock outcome.
                         for i in 0..n {
                             if !external_left[i].is_finite() {
                                 external_left[i] = 0.0;

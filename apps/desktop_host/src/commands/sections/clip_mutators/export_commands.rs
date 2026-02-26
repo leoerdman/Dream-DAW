@@ -318,23 +318,14 @@ async fn export_mix_cmd(
         );
     }
 
-    // Ensure plugins are reactivated for the offline export processing format.
-    // Use OFFLINE_BUFFER_FRAMES (512) to match the actual block size used by
-    // OfflineRenderer. This ensures VST3 plugin internals (envelope followers,
-    // sidechain compressors) produce identical output to the RT path.
-    let offline_buffer_size = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS;
-    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), offline_buffer_size) {
-        log::warn!(
-            "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
-            e
-        );
-    }
-
-    // ── ENTERPRISE FIX: Stop playback before VST pre-render ────────────
-    // The RT audio thread shares PluginInstanceArc with this export thread.
-    // Both call process() on the same VST instances concurrently, which
-    // corrupts oscillator/envelope state and produces silence in the export.
-    // Solution: stop playback so the RT thread no longer touches VST plugins.
+    // ── ENTERPRISE FIX: Stop playback BEFORE reactivating plugins ─────
+    // CRITICAL ORDERING: Previously, reactivate_all(sr, 512) was called
+    // while the RT audio thread was still running. This caused:
+    // 1. Race condition: deactivate()/activate() from export thread vs
+    //    process() from RT callback on the same PluginInstanceArc.
+    // 2. After reactivation to 512, the RT thread sent >512 frame blocks,
+    //    triggering the VST3 passthrough guard → all FX/instruments silent.
+    // Fix: stop playback FIRST, wait for quiescence, THEN reactivate.
     let was_playing = {
         let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
         state.is_playing
@@ -350,8 +341,6 @@ async fn export_mix_cmd(
             state.is_playing = false;
         }
         log::info!("[Export] Stopped playback to prevent VST state corruption during export");
-        // Wait briefly for RT thread to drain SetPlay(false) and stop touching
-        // shared plugin instances before offline processing starts.
         let wait_start = std::time::Instant::now();
         let wait_ms = export_quiescence_wait_ms(timeline_sr);
         std::thread::sleep(std::time::Duration::from_millis(wait_ms));
@@ -360,6 +349,25 @@ async fn export_mix_cmd(
             wait_start.elapsed().as_millis(),
             wait_ms,
             timeline_sr
+        );
+    }
+
+    // Signal the RT callback to stop ALL external VST plugin processing.
+    // This MUST happen after quiescence wait so the command is drained
+    // in the next callback cycle. After this, the RT callback will skip
+    // all try_lock() calls on shared PluginInstanceArc objects.
+    push_command(&handle, EngineCommand::SetExportActive(true))?;
+    // Brief wait for the RT callback to drain the SetExportActive command.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // Ensure plugins are reactivated for the offline export processing format.
+    // MUST happen AFTER stopping playback — the RT thread must not be calling
+    // process() on plugins while we deactivate/reactivate them.
+    let offline_buffer_size = dream_engine::offline_bounce::OFFLINE_BUFFER_FRAMES_FOR_PLUGINS;
+    if let Err(e) = plugin_host_state.reactivate_all(project.sample_rate.max(1.0), offline_buffer_size) {
+        log::warn!(
+            "[Export] Failed to reactivate plugin runtime; continuing best-effort export: {}",
+            e
         );
     }
 
@@ -463,6 +471,16 @@ async fn export_mix_cmd(
                 dream_engine::render_callback::MAX_BUFFER_FRAMES,
             );
             log::info!("[Export] Reactivated plugins to RT buffer size ({})", dream_engine::render_callback::MAX_BUFFER_FRAMES);
+        }
+
+        // ── Re-enable RT external VST processing after export ───────
+        // Send SetExportActive(false) to the RT callback so it resumes
+        // try_lock() calls on external plugins (now safely reactivated
+        // to the RT buffer size).
+        if let Some(engine_handle) = app_for_resume.try_state::<crate::state_managers::audio_engine::AudioEngineHandle>() {
+            if let Ok(mut producer) = engine_handle.producer.lock() {
+                let _ = producer.push(EngineCommand::SetExportActive(false));
+            }
         }
 
         // ── Resume playback if it was playing before export ──────────

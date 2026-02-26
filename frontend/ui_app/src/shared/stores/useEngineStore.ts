@@ -109,13 +109,11 @@ export function getMetersRef(): MeteringSnapshot {
 }
 function shouldApplyViewportRestore(reason: string): boolean {
     if (!reason) return false;
-    return (
-        reason === 'file-menu:new'
-        || reason === 'native-menu:new'
-        || reason === 'project-manager:new'
-        || reason.includes(':open')
-        || reason.includes('last-project')
-    );
+    // Deny-list: only skip viewport restore for NEW projects (blank canvas).
+    // All other reasons (open, open-recent, last-project, auto-recovery:resync, etc.)
+    // should restore the viewport from the project file.
+    const isNewProject = reason.endsWith(':new') || reason.includes(':new-project');
+    return !isNewProject;
 }
 export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,

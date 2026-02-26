@@ -59,6 +59,9 @@ pub(super) struct CommandProcessingContext<'a> {
     pub master_device_chain: &'a mut DeviceChain,
     pub routing_snapshot: &'a Arc<SharedRoutingSnapshot>,
     pub rt_debug_stats: &'a SharedRtDebugStats,
+    /// When true, skip all external VST plugin try_lock() calls.
+    /// Set via SetExportActive command to prevent RT/export state contention.
+    pub export_active: &'a mut bool,
 }
 
 pub(super) fn drain_commands(
@@ -520,6 +523,9 @@ pub(super) fn drain_commands(
                 }
             }
 
+            EngineCommand::SetExportActive(active) => {
+                *ctx.export_active = active;
+            }
             EngineCommand::Shutdown => {
                 *ctx.is_playing = false;
                 *ctx.test_tone_phase = 0.0;

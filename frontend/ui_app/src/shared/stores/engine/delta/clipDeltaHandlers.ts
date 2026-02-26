@@ -184,17 +184,39 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
     if (delta.kind === 'MidiClipNotesReplaced') {
         const clip = resolveClip(state, delta.data.clip_id);
         if (!clip || clip.type !== 'midi') return false;
+
+        // BUG-019 ENTERPRISE FIX: Preserve note identity across delta round-trips.
+        // The Rust MidiNoteDelta struct has no `id` field, so we match incoming notes
+        // against existing clip.midiNotes by (pitch, startBeat) to preserve UI note IDs.
+        // This keeps selectedNotes references valid after Cmd+D duplication and throttled saves.
+        const existingNotes = clip.midiNotes ?? [];
+        const usedExistingIndices = new Set<number>();
+
         const next = {
             ...clip,
-            midiNotes: delta.data.notes.map((n) => ({
-                // BUG-019 FIX: Preserve note identity — previously dropped,
-                // breaking selection and editing after notes replacement.
-                id: (n as { id?: string }).id,
-                pitch: n.pitch,
-                velocity: n.velocity,
-                startBeat: n.start_beat,
-                durationBeats: n.duration_beats,
-            })),
+            midiNotes: delta.data.notes.map((n, idx) => {
+                const startBeat = n.start_beat;
+                const pitch = n.pitch;
+                // Find the best matching existing note by (pitch, startBeat) — O(N*M) but N is small
+                let matchedId: string | undefined;
+                const tolerance = 1e-6;
+                for (let i = 0; i < existingNotes.length; i++) {
+                    if (usedExistingIndices.has(i)) continue;
+                    const existing = existingNotes[i];
+                    if (existing.pitch === pitch && Math.abs(existing.startBeat - startBeat) < tolerance) {
+                        matchedId = existing.id;
+                        usedExistingIndices.add(i);
+                        break;
+                    }
+                }
+                return {
+                    id: matchedId ?? `${delta.data.clip_id}:${idx}:${pitch}:${startBeat}`,
+                    pitch,
+                    velocity: n.velocity,
+                    startBeat,
+                    durationBeats: n.duration_beats,
+                };
+            }),
         };
         upsertClip(state, next);
         state.changed = true;

@@ -12,6 +12,7 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 interface FolderTreeActionsParams {
     expandedFolders: Set<string>;
     folderChildrenCache: Map<string, BrowserItem[]>;
+    folderChildrenCacheRef: React.RefObject<Map<string, BrowserItem[]>>;
     setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
     setLoadingFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
     setFolderChildrenCache: React.Dispatch<React.SetStateAction<Map<string, BrowserItem[]>>>;
@@ -24,16 +25,18 @@ export function useFolderTreeActions({
     setExpandedFolders,
     setLoadingFolders,
     setFolderChildrenCache,
+    folderChildrenCacheRef,
     setUserFolders,
     setSelectedCategoryId,
     onFoldersChanged,
-}: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'setUserFolders' | 'setSelectedCategoryId' | 'onFoldersChanged'>) {
+}: Pick<FolderTreeActionsParams, 'setExpandedFolders' | 'setLoadingFolders' | 'setFolderChildrenCache' | 'folderChildrenCacheRef' | 'setUserFolders' | 'setSelectedCategoryId' | 'onFoldersChanged'>) {
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
 
     const toggleFolderExpand = useCallback(async (path: string) => {
-        console.log('[FolderTree] toggleFolderExpand called with path:', path);
-        // BUG-17 FIX: use functional updater to avoid stale closure
+        // Read expansion state synchronously via functional updater.
+        // The updater is always called eagerly by React, so wasExpanded
+        // is set before we continue.
         let wasExpanded = false;
         setExpandedFolders((prev) => {
             wasExpanded = prev.has(path);
@@ -47,22 +50,16 @@ export function useFolderTreeActions({
             }
             return next;
         });
-        console.log('[FolderTree] wasExpanded:', wasExpanded, 'expandedFolders updated');
 
         if (!wasExpanded) {
-            // BUG-17 FIX: use functional updater to check cache
-            let needsFetch = false;
-            setFolderChildrenCache((prev) => {
-                needsFetch = !prev.has(path);
-                console.log('[FolderTree] cache has path:', prev.has(path), 'needsFetch:', !prev.has(path), 'cache size:', prev.size);
-                return prev; // no mutation, just reading
-            });
+            // Read cache synchronously via the ref (enterprise pattern:
+            // never abuse setState as a read channel — React 18 batching
+            // may delay the updater or discard it if return === prev).
+            const needsFetch = !folderChildrenCacheRef.current.has(path);
             if (needsFetch) {
-                console.log('[FolderTree] Fetching children for path:', path);
                 setLoadingFolders((prev) => new Set(prev).add(path));
                 try {
                     const files = await engineApi.scanFolderAll(path);
-                    console.log('[FolderTree] scanFolderAll returned', files.length, 'files for path:', path);
                     const children: BrowserItem[] = files.map((f, i) => {
                         const sizeKb = Math.round(f.size_bytes / 1024);
                         const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
@@ -86,8 +83,12 @@ export function useFolderTreeActions({
                         if (aDir !== bDir) return bDir - aDir;
                         return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
                     });
-                    console.log('[FolderTree] Setting folderChildrenCache with', children.length, 'children for path:', path, 'directories:', children.filter(c => c.isDirectory).length);
-                    setFolderChildrenCache((prev) => new Map(prev).set(path, children));
+                    setFolderChildrenCache((prev) => {
+                        const next = new Map(prev).set(path, children);
+                        // Keep the ref in sync for subsequent synchronous reads.
+                        folderChildrenCacheRef.current = next;
+                        return next;
+                    });
                 } catch (err) {
                     console.warn('[Browser] Tree scan failed for', path, err);
                     statusError(`Asset Browser: failed to scan folder: ${String(err)}`);
@@ -100,10 +101,9 @@ export function useFolderTreeActions({
                 }
             }
         }
-    }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders, statusError]);
+    }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders, folderChildrenCacheRef, statusError]);
 
     const navigateInto = useCallback((path: string) => {
-        console.log('[FolderTree] navigateInto called with path:', path);
         void toggleFolderExpand(path);
     }, [toggleFolderExpand]);
 

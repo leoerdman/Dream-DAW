@@ -26,6 +26,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const [userFolders, setUserFolders] = useState<string[]>([]);
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
     const [folderChildrenCache, setFolderChildrenCache] = useState<Map<string, BrowserItem[]>>(new Map());
+    const folderChildrenCacheRef = useRef<Map<string, BrowserItem[]>>(folderChildrenCache);
     const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
     const [currentProjectFolder, setCurrentProjectFolder] = useState<string | null>(null);
     const [realFiles, setRealFiles] = useState<AudioFileEntry[]>([]);
@@ -53,6 +54,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
     const prevCategoryRef = useRef(selectedCategoryId);
     const scanTriggeredRef = useRef(false);
     const prevActiveFolderRef = useRef<string | null>(null);
+    const prevCategoryForFolderResetRef = useRef(selectedCategoryId);
     const prevCatForPreviewRef = useRef(selectedCategoryId);
     const enterNonceRef = useRef(0);
     const previewRequestToken = useRef<number>(0);
@@ -112,7 +114,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
         previewPeaks, setPreviewPeaks,
         userFolders, setUserFolders,
         expandedFolders, setExpandedFolders,
-        folderChildrenCache, setFolderChildrenCache,
+        folderChildrenCache, setFolderChildrenCache, folderChildrenCacheRef,
         loadingFolders, setLoadingFolders,
         currentProjectFolder, setCurrentProjectFolder,
         realFiles, setRealFiles,
@@ -139,6 +141,7 @@ export function useAssetBrowserState(settings: { browserShowSizeColumn: boolean;
         prevCategoryRef,
         scanTriggeredRef,
         prevActiveFolderRef,
+        prevCategoryForFolderResetRef,
         prevCatForPreviewRef,
         enterNonceRef,
         previewRequestToken,

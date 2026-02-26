@@ -57,7 +57,7 @@ export const AssetListItemRow = memo(function AssetListItemRow({
             : item.pluginSource === 'vst2' ? 'VST2'
                 : item.pluginSource === 'au' ? 'AU'
                     : item.pluginSource === 'clap' ? 'CLAP'
-                    : (item.format || 'Plugin');
+                        : (item.format || 'Plugin');
 
     const typeLabel = item.isDirectory ? 'Folder'
         : (item.type === 'audio'
@@ -213,11 +213,16 @@ export const AssetListItemRow = memo(function AssetListItemRow({
                     {sizeLabel}
                 </span>
             )}
-            {item.isDirectory && (
-                <span style={{
-                    color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)',
-                    display: 'inline-flex', alignItems: 'center', marginLeft: 2, flexShrink: 0,
-                }}>
+            {item.isDirectory && item.path && (
+                <span
+                    style={{
+                        color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)',
+                        display: 'inline-flex', alignItems: 'center', marginLeft: 2, flexShrink: 0,
+                        opacity: item._expanded ? 0 : 0.5,
+                        transition: 'opacity 0.15s ease',
+                    }}
+                    title="Expand folder"
+                >
                     <BrowserGlyph name="chevron-right" size={10} />
                 </span>
             )}

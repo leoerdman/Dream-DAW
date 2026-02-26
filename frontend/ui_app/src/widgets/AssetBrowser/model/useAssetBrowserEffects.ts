@@ -51,6 +51,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         setFolderScanError,
         setFolderItems,
         prevActiveFolderRef,
+        prevCategoryForFolderResetRef,
         setLoadingFolders,
         items,
         selectedItemId,
@@ -255,17 +256,24 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
         return () => { cancelled = true; };
     }, [activeFolderPath, folderScanPath, setFolderItems, setFolderScanError, setFolderScanLoading, setFolderScanPath, statusError]);
     useEffect(() => {
-        const changed = activeFolderPath !== prevActiveFolderRef.current;
-        console.log('[FolderTree][ClearEffect] FIRING! selectedCategoryId:', selectedCategoryId, 'activeFolderPath:', activeFolderPath, 'prev:', prevActiveFolderRef.current, 'changed:', changed);
+        const folderPathChanged = activeFolderPath !== prevActiveFolderRef.current;
+        const categoryChanged = selectedCategoryId !== prevCategoryForFolderResetRef.current;
         prevActiveFolderRef.current = activeFolderPath;
-        setExpandedFolders(new Set());
-        setFolderChildrenCache(new Map());
-        setLoadingFolders(new Set());
-        if (changed) {
+        prevCategoryForFolderResetRef.current = selectedCategoryId;
+        // Only reset folder tree state when the user actually switched
+        // categories or navigated to a different root folder.
+        // Previously this was unconditional, causing a race with
+        // toggleFolderExpand that wiped the expanded state every render.
+        if (categoryChanged || folderPathChanged) {
+            setExpandedFolders(new Set());
+            setFolderChildrenCache(new Map());
+            setLoadingFolders(new Set());
+        }
+        if (folderPathChanged) {
             setFolderScanPath(null);
             setFolderItems([]);
         }
-    }, [selectedCategoryId, activeFolderPath, prevActiveFolderRef, setExpandedFolders, setFolderChildrenCache, setFolderItems, setFolderScanPath, setLoadingFolders]);
+    }, [selectedCategoryId, activeFolderPath, prevActiveFolderRef, prevCategoryForFolderResetRef, setExpandedFolders, setFolderChildrenCache, setFolderItems, setFolderScanPath, setLoadingFolders]);
     useEffect(() => {
         if (items.length === 0) { setSelectedItemId(null); return; }
         if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) setSelectedItemId(items[0].id);

@@ -31,9 +31,13 @@ function normalizeMidiNoteStartFrame(
     clipStartFrame: number,
     clipDurationFrame: number,
 ): number {
-    // Some snapshots/import paths may surface absolute note frames.
-    // If the start clearly exceeds clip-local range, remap to clip-local.
-    if (clipStartFrame > 0 && rawStartFrame >= clipDurationFrame && rawStartFrame >= clipStartFrame) {
+    // ENTERPRISE FIX: Only remap absolute→clip-local when the note frame
+    // clearly exceeds the clip's ABSOLUTE end position on the timeline.
+    // Old heuristic (rawStartFrame >= clipDurationFrame && rawStartFrame >= clipStartFrame)
+    // false-positived for clip-local notes near the end of short clips placed
+    // at high timeline positions, corrupting their timing.
+    const clipAbsEnd = clipStartFrame + clipDurationFrame;
+    if (clipStartFrame > 0 && rawStartFrame >= clipAbsEnd && rawStartFrame >= clipStartFrame) {
         return Math.max(0, rawStartFrame - clipStartFrame);
     }
     return Math.max(0, rawStartFrame);
@@ -130,7 +134,12 @@ export function applyProjectDeltasToState(
 
         if (project && Array.isArray(project.tracks)) {
             const bpm = Math.max(1, project.pulse_map?.tempo_events?.[0]?.bpm ?? state.transport.bpm ?? 120);
-            const sampleRate = resolveSampleRate(project.sample_rate, state.transport.sample_rate);
+            // ENTERPRISE FIX: Prefer PulseMap's sample_rate for consistency with backend
+            // PulseMap.beats() which uses pulse_map.sample_rate for frame→beat conversion.
+            const sampleRate = resolveSampleRate(
+                project.pulse_map?.sample_rate ?? project.sample_rate,
+                state.transport.sample_rate,
+            );
             const timelineClips: DeltaApplyState['timelineClips'] = [];
             const snapshotTrackIds: string[] = [];
             const snapshotTracksById: DeltaApplyState['tracksById'] = {};

@@ -53,6 +53,7 @@ export interface UseAssetBrowserEffectsParams {
     setFolderScanError: SetState<string | null>;
     setFolderItems: SetState<BrowserFileEntry[]>;
     prevActiveFolderRef: React.MutableRefObject<string | null>;
+    prevCategoryForFolderResetRef: React.MutableRefObject<string>;
     setLoadingFolders: SetState<Set<string>>;
     items: BrowserItem[];
     selectedItemId: string | null;

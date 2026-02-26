@@ -63,6 +63,7 @@ export function useAssetBrowserRuntimeEffects({
         setFolderScanError: state.setFolderScanError,
         setFolderItems: state.setFolderItems,
         prevActiveFolderRef: state.prevActiveFolderRef,
+        prevCategoryForFolderResetRef: state.prevCategoryForFolderResetRef,
         setLoadingFolders: state.setLoadingFolders,
         items,
         selectedItemId: state.selectedItemId,

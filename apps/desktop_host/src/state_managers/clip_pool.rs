@@ -298,16 +298,23 @@ impl ClipPoolState {
                             instance_id: None,
                             sidechain_track_index,
                             is_instrument,
+                            is_bypassed: effective_bypassed,
                         });
-                    } else if !effective_bypassed
-                        && let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
+                    } else if let Some(instance_id) = slot_instance_map.get(&slot.id).copied()
                     {
+                        // SIDECHAIN-FIX: Always include external plugins even when
+                        // bypassed. Previously bypassed externals were excluded,
+                        // which shifted every subsequent slot index in the snapshot
+                        // and caused sidechain routing to silently break.
+                        // The audio callback now checks `is_bypassed` and skips
+                        // processing (passthrough) while preserving slot ordering.
                         out.push(dream_engine::driver::ExternalPluginRuntimeSlot {
                             slot_id: Some(slot.id),
                             internal_slot_index: None,
                             instance_id: Some(instance_id),
                             sidechain_track_index,
                             is_instrument,
+                            is_bypassed: effective_bypassed,
                         });
                     }
                 }

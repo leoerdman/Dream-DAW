@@ -187,6 +187,7 @@ fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
             instance_id: None,
             sidechain_track_index: None,
             is_instrument: false,
+            is_bypassed: false,
         }],
         vec![ExternalPluginRuntimeSlot {
             slot_id: None,
@@ -194,6 +195,7 @@ fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
             instance_id: None,
             sidechain_track_index: None,
             is_instrument: false,
+            is_bypassed: false,
         }],
         vec![ExternalPluginRuntimeSlot {
             slot_id: None,
@@ -201,6 +203,7 @@ fn resolve_master_runtime_slots_prefers_tail_on_stale_snapshot() {
             instance_id: None,
             sidechain_track_index: None,
             is_instrument: false,
+            is_bypassed: false,
         }],
     ];
 

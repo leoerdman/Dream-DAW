@@ -121,10 +121,33 @@ pub(super) fn process_master_bus(
                         continue;
                     }
 
-                    if let Some(instance_id) = runtime_slot.instance_id
-                        && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
-                        && let Some(mut host) = plugin_mtx.try_lock()
-                    {
+                    if let Some(instance_id) = runtime_slot.instance_id {
+                        let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
+                            // AUD-601 FIX: Diagnose missing master-bus plugin instances.
+                            static MASTER_MISS: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            let n_miss = MASTER_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if n_miss.is_multiple_of(500) {
+                                log::warn!(
+                                    "[AudioRT] Master bus plugin {:?} not in registry (#{})",
+                                    instance_id, n_miss
+                                );
+                            }
+                            continue;
+                        };
+                        let Some(mut host) = plugin_mtx.try_lock() else {
+                            // AUD-602 FIX: Diagnose master-bus lock contention.
+                            static MASTER_LOCK_MISS: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            let n_miss = MASTER_LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if n_miss.is_multiple_of(500) {
+                                log::debug!(
+                                    "[AudioRT] Master bus plugin lock contention for {:?} (#{})",
+                                    instance_id, n_miss
+                                );
+                            }
+                            continue;
+                        };
                         let main_inputs: [&[f32]; 2] = [&graph_out_left[..n], &graph_out_right[..n]];
                         let transport = TransportContext {
                             sample_rate: sample_rate_f64,
@@ -142,13 +165,24 @@ pub(super) fn process_master_bus(
                         external_right[..n].copy_from_slice(&graph_out_right[..n]);
                         let mut out_slices: [&mut [f32]; 2] =
                             [&mut external_left[..n], &mut external_right[..n]];
-                        let _ = host.process_with_sidechain(
+                        // AUD-603 FIX: Log process errors instead of silently swallowing.
+                        if let Err(proc_err) = host.process_with_sidechain(
                             &main_inputs,
                             None,
                             &mut out_slices,
                             n,
                             empty_midi,
-                        );
+                        ) {
+                            static MASTER_PROC_ERR: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            let n_err = MASTER_PROC_ERR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if n_err.is_multiple_of(500) {
+                                log::warn!(
+                                    "[AudioRT] Master bus process_with_sidechain failed: {} (#{})",
+                                    proc_err, n_err
+                                );
+                            }
+                        }
                         // AUD-506 FIX: Sanitize VST output — NaN/Inf from a
                         // misbehaving master plugin would poison the entire
                         // downstream chain (gain, metering, soft clip).
@@ -163,8 +197,6 @@ pub(super) fn process_master_bus(
                         graph_out_left[..n].copy_from_slice(&external_left[..n]);
                         graph_out_right[..n].copy_from_slice(&external_right[..n]);
                     }
-                    // AUD-501: try_lock() failure here is safe — graph_out_left/right
-                    // retains the previous signal (passthrough), so no audio is lost.
                 }
             }
         } else if !master_device_chain.is_empty() {

@@ -531,7 +531,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 s.internal_slot_index
                                                     .map_or(true, |idx| idx < chain_len)
                                             });
-                                            if !has_external && !has_internal_sidechain
+                                            if (!has_external && !has_internal_sidechain)
                                                 || !indices_valid
                                             {
                                                 if !slot.device_chain.is_empty() {
@@ -543,6 +543,13 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 }
                                             } else {
                                             for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
+                                                // BYPASS-FIX: Skip processing for bypassed slots.
+                                                // Audio passes through unmodified. The slot stays
+                                                // in the snapshot to keep subsequent indices stable,
+                                                // preventing sidechain routing dropout.
+                                                if runtime_slot.is_bypassed {
+                                                    continue;
+                                                }
                                                 let source_slot = runtime_slot
                                                     .sidechain_track_index
                                                     .and_then(|src_idx| {
@@ -575,10 +582,38 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                     continue;
                                                 }
 
-                                                if let Some(instance_id) = runtime_slot.instance_id
-                                                    && let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id)
-                                                    && let Some(mut host) = plugin_mtx.try_lock()
-                                                {
+                                                if let Some(instance_id) = runtime_slot.instance_id {
+                                                    let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
+                                                        // AUD-601 FIX: Diagnose missing plugin instances.
+                                                        // Previously this was a silent skip — the slot produced
+                                                        // unprocessed audio with zero indication why.
+                                                        static MISS_COUNT: std::sync::atomic::AtomicU32 =
+                                                            std::sync::atomic::AtomicU32::new(0);
+                                                        let n = MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                        if n.is_multiple_of(500) {
+                                                            log::warn!(
+                                                                "[AudioRT] External plugin instance {:?} not in registry (track={}, #{})",
+                                                                instance_id, track_idx, n
+                                                            );
+                                                        }
+                                                        continue;
+                                                    };
+                                                    let Some(mut host) = plugin_mtx.try_lock() else {
+                                                        // AUD-602 FIX: Diagnose lock contention.
+                                                        // When the UI thread holds the plugin mutex (e.g. during
+                                                        // parameter edits or state save), this callback must NOT
+                                                        // block — audio passes through unmodified for this buffer.
+                                                        static LOCK_MISS: std::sync::atomic::AtomicU32 =
+                                                            std::sync::atomic::AtomicU32::new(0);
+                                                        let n = LOCK_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                        if n.is_multiple_of(500) {
+                                                            log::debug!(
+                                                                "[AudioRT] Plugin lock contention for {:?} (track={}, #{})",
+                                                                instance_id, track_idx, n
+                                                            );
+                                                        }
+                                                        continue;
+                                                    };
                                                     apply_external_plugin_param_automation_block(
                                                         &mut host,
                                                         automation.get(track_idx),
@@ -740,13 +775,29 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                         &mut external_left[..c],
                                                         &mut external_right[..c],
                                                     ];
-                                                    let _ = host.process_with_sidechain(
+                                                    // AUD-603 FIX: Log process errors instead of
+                                                    // silently swallowing with `let _ =`.
+                                                    // A failing process call means the output
+                                                    // buffers may contain stale/passthrough data —
+                                                    // the user hears unprocessed audio and has
+                                                    // no idea why.
+                                                    if let Err(proc_err) = host.process_with_sidechain(
                                                         &main_inputs,
                                                         sc_pair.as_ref().map(|pair| pair.as_slice()),
                                                         &mut out_slices,
                                                         c,
                                                         &vst3_midi_scratch,
-                                                    );
+                                                    ) {
+                                                        static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
+                                                            std::sync::atomic::AtomicU32::new(0);
+                                                        let n = PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                        if n.is_multiple_of(500) {
+                                                            log::warn!(
+                                                                "[AudioRT] process_with_sidechain failed for track={} slot={}: {} (#{n})",
+                                                                track_idx, runtime_slot_idx, proc_err
+                                                            );
+                                                        }
+                                                    }
                                                     left[..c].copy_from_slice(&external_left[..c]);
                                                     right[..c].copy_from_slice(&external_right[..c]);
 
@@ -762,9 +813,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             right[si] = 0.0;
                                                         }
                                                     }
-                                                }
-                                            }
-                                            }
+                                                } // end if instance_id
+                                            } // end for runtime_slot
+                                            } // end else (per-slot loop)
                                         }
                                     } else if !slot.device_chain.is_empty() {
                                         slot.device_chain.process_with_context(

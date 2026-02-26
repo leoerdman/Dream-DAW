@@ -260,6 +260,7 @@ export function useTrackInspectorLogic({
     useTrackInspectorKeyboardShortcuts({
         selectedTrackId,
         selectedTrackIdSet,
+        headerSelectedTrackIdSet,
         tracks,
         renamingTrackId,
         handleRenameStart,

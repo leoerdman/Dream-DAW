@@ -1436,6 +1436,10 @@ impl OfflineRenderer {
         render_ctx.loop_region = loop_region.cloned();
         render_ctx.playhead.seek(self.config.start_frame);
         render_ctx.playhead.set_advancing(true);
+        // ENTERPRISE: Enable offline mode — removes RT-safety constraints
+        // that degrade quality (e.g., Pro warp budget limit). Offline
+        // rendering runs at max CPU speed, not constrained by audio deadline.
+        render_ctx.offline_mode = true;
         render_ctx
     }
 

@@ -243,6 +243,10 @@ pub struct ExternalPluginRuntimeSlot {
     /// Used by the audio thread to keep `transport.is_playing = true` even when the
     /// timeline is stopped, so instruments like Serum don't gate MIDI processing.
     pub is_instrument: bool,
+    /// `true` when this slot is bypassed. Bypassed slots remain in the snapshot
+    /// to preserve slot ordering (so subsequent sidechain indices stay correct),
+    /// but the audio callback skips their processing — audio passes through.
+    pub is_bypassed: bool,
 }
 
 /// Atomic snapshot of per-track external effect runtime instances.

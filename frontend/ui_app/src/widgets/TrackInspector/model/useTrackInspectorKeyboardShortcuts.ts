@@ -6,6 +6,8 @@ import type { TrackData } from '@/widgets/TrackInspector/model/trackModels';
 interface UseTrackInspectorKeyboardShortcutsArgs {
     selectedTrackId: string;
     selectedTrackIdSet: Set<string>;
+    /** Tracks explicitly selected by clicking the track header (not just active). */
+    headerSelectedTrackIdSet: Set<string>;
     tracks: TrackData[];
     renamingTrackId: string | null;
     handleRenameStart: (trackId: string) => void;
@@ -17,6 +19,7 @@ interface UseTrackInspectorKeyboardShortcutsArgs {
 export function useTrackInspectorKeyboardShortcuts({
     selectedTrackId,
     selectedTrackIdSet,
+    headerSelectedTrackIdSet,
     tracks,
     renamingTrackId,
     handleRenameStart,
@@ -65,7 +68,11 @@ export function useTrackInspectorKeyboardShortcuts({
                 e.preventDefault();
                 handleDuplicateSelectedTracks();
             }
-            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIdSet.size > 0) {
+            // ENTERPRISE FIX: Only delete tracks when the header is explicitly
+            // selected (clicked), not when the track is merely active/focused
+            // from a timeline click. This prevents accidental track deletion
+            // when pressing Delete to remove clips or other elements.
+            if ((e.key === 'Delete' || e.key === 'Backspace') && headerSelectedTrackIdSet.size > 0) {
                 const tgt = e.target as HTMLElement;
                 if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable) return;
                 const inDeviceRack = (e.target as HTMLElement | null)?.closest?.('[data-keyboard-scope="device-rack"]');
@@ -81,6 +88,7 @@ export function useTrackInspectorKeyboardShortcuts({
     }, [
         selectedTrackId,
         selectedTrackIdSet,
+        headerSelectedTrackIdSet,
         tracks,
         renamingTrackId,
         handleRenameStart,

@@ -207,6 +207,11 @@ pub struct RenderContext {
     /// Audio thread pushes mono-mixed master output samples here.
     /// The consumer lives on the UI/spectrum thread and feeds FFT.
     pub spectrum_producer: Option<rtrb::Producer<f32>>,
+
+    /// When `true`, this context is used for offline rendering (bounce/export).
+    /// Disables real-time safety constraints that degrade quality, such as
+    /// the Pro warp budget limit. The offline path has no RT deadline.
+    pub offline_mode: bool,
 }
 
 pub fn soft_clip(sample: f32) -> f32 {
@@ -272,6 +277,7 @@ impl RenderContext {
             scratch_active_clips: Vec::with_capacity(128),
             scratch_post_wrap_clips: Vec::with_capacity(128),
             spectrum_producer: None,
+            offline_mode: false,
         }
     }
 
@@ -361,9 +367,17 @@ impl RenderContext {
         // AUD-074: These are trace-only — zero-cost in release builds.
         let mut total_active = 0usize;
         let mut total_pool_hits = 0usize;
-        // BUG-019 FIX: Larger buffers have more CPU time available → more Pro warp budget.
-        // Previous values were inverted (1024+ frames got FEWER Pro warp slots).
-        let mut pro_warp_budget = if frame_count >= 1024 { 12usize } else { 6usize };
+        // ENTERPRISE FIX: Offline mode has unlimited Pro warp budget.
+        // The RT path limits concurrent Pro warp clips to avoid dropouts,
+        // but offline rendering has no real-time constraint — allow
+        // every clip to use its configured warp mode at full quality.
+        let mut pro_warp_budget = if self.offline_mode {
+            usize::MAX
+        } else if frame_count >= 1024 {
+            12usize
+        } else {
+            6usize
+        };
 
         for (track_idx, clips) in clips_per_track.iter().enumerate() {
             if track_idx >= self.track_slots.len() {

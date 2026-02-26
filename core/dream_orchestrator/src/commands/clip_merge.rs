@@ -122,7 +122,7 @@ impl Command for MergeClipsCommand {
                 fade_in_frames: 0,
                 fade_out_frames: 0,
                 is_selected: false,
-                is_disabledd: false,
+                is_disabled: false,
                 source_offset: AbsoluteTime::ZERO,
                 is_warped: false,
                 warp_markers: Vec::new(),

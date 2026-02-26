@@ -70,7 +70,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
     }, [trackId, selectedPad, reportRackError]);
     const toggleDisabled = useCallback(() => {
         if (!pad) return;
-        void engineApi.setSampleRackPadMuteCmd?.(trackId, selectedPad, !pad.is_disabledd)
+        void engineApi.setSampleRackPadMuteCmd?.(trackId, selectedPad, !pad.is_disabled)
             ?.catch((err) => reportRackError('failed to toggle mute', err));
     }, [trackId, selectedPad, pad, reportRackError]);
     const toggleSolo = useCallback(() => {
@@ -140,7 +140,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                                 {i + 1}
                             </span>
                             {/* Mute/Solo indicators */}
-                            {p?.is_disabledd && (
+                            {p?.is_disabled && (
                                 <span style={{
                                     position: 'absolute', top: 2, right: 3,
                                     fontSize: 7, color: 'var(--token-color-hex-ff5c5c)', fontWeight: 700,
@@ -148,7 +148,7 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             )}
                             {p?.is_soloed && (
                                 <span style={{
-                                    position: 'absolute', top: 2, right: p?.is_disabledd ? 12 : 3,
+                                    position: 'absolute', top: 2, right: p?.is_disabled ? 12 : 3,
                                     fontSize: 7, color: 'var(--token-color-hex-f0c430)', fontWeight: 700,
                                 }}>S</span>
                             )}
@@ -254,9 +254,9 @@ export const SampleRack = memo(function SampleRack({ trackId, rackConfig }: Samp
                             {/* Mute/Solo */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 'auto', marginRight: 8, alignSelf: 'center' }}>
                                 <button onClick={toggleDisabled} style={{
-                                    width: 32, height: 20, border: pad.is_disabledd ? 'var(--space-px) solid var(--token-color-hex-ff5c5c)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
-                                    borderRadius: 4, background: pad.is_disabledd ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
-                                    color: pad.is_disabledd ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
+                                    width: 32, height: 20, border: pad.is_disabled ? 'var(--space-px) solid var(--token-color-hex-ff5c5c)' : 'var(--space-px) solid var(--token-color-rgba-255-255-255-0d1)',
+                                    borderRadius: 4, background: pad.is_disabled ? 'var(--token-color-rgba-255-92-92-0d2)' : 'var(--token-color-rgba-0-0-0-0d2)',
+                                    color: pad.is_disabled ? 'var(--token-color-hex-ff5c5c)' : 'var(--token-color-rgba-255-255-255-0d4)',
                                     fontSize: 9, fontWeight: 700, cursor: 'pointer', transition: 'all 0.1s', fontFamily: 'var(--font-role-data)'
                                 }}>MUTE</button>
                                 <button onClick={toggleSolo} style={{

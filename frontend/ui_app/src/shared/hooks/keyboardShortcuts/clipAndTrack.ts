@@ -1,8 +1,42 @@
 import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
+import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
 import { getScopedEditorElement, isModKey, matchesShortcutAction } from './utils';
+
+/**
+ * Optimistically removes clips from the engine store state so the canvas
+ * redraws immediately, without waiting for the async IPC round-trip.
+ * Returns a rollback function that restores the previous state on failure.
+ */
+function optimisticRemoveClips(clipIds: string[]): () => void {
+    const idSet = new Set(clipIds);
+    const state = useEngineStore.getState();
+    const snapshot = {
+        timelineClips: state.timelineClips,
+        clipsById: state.clipsById,
+        clips: state.clips,
+    };
+
+    const nextTimelineClips = normalizeTimelineClips(
+        state.timelineClips.filter((c: TimelineClip) => !idSet.has(c.id)),
+    );
+    const nextClipsById = Object.fromEntries(
+        nextTimelineClips.map((clip: TimelineClip) => [clip.id, clip]),
+    );
+    useEngineStore.setState({
+        timelineClips: nextTimelineClips,
+        clipsById: nextClipsById,
+        clips: {
+            byId: nextClipsById,
+            allIds: nextTimelineClips.map((clip: TimelineClip) => clip.id),
+        },
+    });
+
+    return () => useEngineStore.setState(snapshot);
+}
 
 export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEnv): Promise<boolean> {
     const { e, ctx, clipboardRef } = env;
@@ -83,31 +117,38 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
         const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
         if (selected.length === 0) return true;
         clipboardRef.current = selected.map((c) => ({ ...c }));
+        // Optimistic removal: instantly remove from canvas before async IPC
+        const rollback = optimisticRemoveClips(selected.map((c) => c.id));
+        onClipSelectionChanged([]);
         try {
             const responses = await Promise.all(selected.map((c) => engine.deleteClipWithDeltas(c.id)));
             await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut-cut');
-            onClipSelectionChanged([]);
         } catch (err) {
             console.error('[Shortcuts] Cut clip failed:', err);
+            rollback();
         }
         return true;
     }
 
     if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
-        // Device rack and track inspector handle their own delete; piano roll
-        // handles its own delete independently (stopImmediatePropagation when
-        // MIDI notes are selected), so we only bail for device-rack/inspector.
-        if ((inDeviceRack && selectedDeviceId.length > 0) || getScopedEditorElement(e, 'track-inspector')) return true;
+        // Device rack, track inspector, and piano roll handle their own delete
+        // independently. Piano roll uses capture + stopImmediatePropagation when
+        // MIDI notes are selected, but if the event reaches us first (e.g. the
+        // piano roll listener hasn't attached yet), we must bail here.
+        if (inPianoRoll || (inDeviceRack && selectedDeviceId.length > 0) || getScopedEditorElement(e, 'track-inspector')) return true;
         const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
         if (targets.length === 0) return false;
         e.preventDefault();
         e.stopPropagation();
+        // Optimistic removal: instantly remove from canvas before async IPC
+        const rollback = optimisticRemoveClips(targets);
+        onClipSelectionChanged([]);
         try {
             const responses = await Promise.all(targets.map((id) => engine.deleteClipWithDeltas(id)));
             await useEngineStore.getState().applyProjectDeltas(responses.flatMap((r) => r.deltas), 'shortcut-delete');
-            onClipSelectionChanged([]);
         } catch (err) {
             console.error('[Shortcuts] Delete clip failed:', err);
+            rollback();
         }
         return true;
     }

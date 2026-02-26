@@ -112,13 +112,20 @@ export const VirtualFileList = memo(function VirtualFileList({
     const PLUGIN_ROW_HEIGHT = 28;
     const PLUGIN_HEADER_HEIGHT = 28;
     const [scrollTop, setScrollTop] = useState(0);
-    const [containerHeight, setContainerHeight] = useState(400);
+    const [containerHeight, setContainerHeight] = useState(0);
 
     useEffect(() => {
         const el = fileListRef.current;
         if (!el) return;
+        // Initialize immediately to avoid showing 0 items on first render.
+        setContainerHeight(el.clientHeight);
         const ro = new ResizeObserver(([entry]) => {
-            setContainerHeight(entry.contentRect.height);
+            const h = entry.contentRect.height;
+            setContainerHeight(h);
+            // Sync scrollTop on resize — after fullscreen transitions
+            // the scroll position may be stale, causing visible items
+            // to calculate from the wrong offset and appear empty.
+            if (el) setScrollTop(el.scrollTop);
         });
         ro.observe(el);
         return () => ro.disconnect();

@@ -144,7 +144,7 @@ fn parse_audio_clip(
     }
 
     // Muted
-    apply_clip_disabled(clip_node, &mut clip.is_disabledd);
+    apply_clip_disabled(clip_node, &mut clip.is_disabled);
 
     // Launch / Follow / Scale / Loop / Warp
     apply_common_clip_metadata_audio(&mut clip, clip_node);
@@ -267,7 +267,7 @@ fn parse_midi_clip(
     clip.fade_out_frames = fade_out;
 
     // Muted
-    apply_clip_disabled(clip_node, &mut clip.is_disabledd);
+    apply_clip_disabled(clip_node, &mut clip.is_disabled);
 
     // Launch / Follow / Scale / Loop
     apply_common_clip_metadata_midi(&mut clip, clip_node);
@@ -430,12 +430,12 @@ fn parse_clip_position(clip_node: roxmltree::Node<'_, '_>) -> Option<(f64, f64)>
     Some((start_beats, duration_beats))
 }
 
-fn apply_clip_disabled(clip_node: roxmltree::Node<'_, '_>, is_disabledd: &mut bool) {
+fn apply_clip_disabled(clip_node: roxmltree::Node<'_, '_>, is_disabled: &mut bool) {
     if let Some(disabled) = node_child_value(clip_node, "Disabled")
         .as_deref()
         .and_then(parse_bool_value)
     {
-        *is_disabledd = disabled;
+        *is_disabled = disabled;
     }
 }
 

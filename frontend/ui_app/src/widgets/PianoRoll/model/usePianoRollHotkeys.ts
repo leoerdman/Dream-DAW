@@ -230,7 +230,6 @@ export function usePianoRollHotkeys({
                     if (!selectedNotes.has(n.id)) return n;
                     return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
                 });
-                setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
                 onNotesChange(enforceNoOverlap(moved, selectedNotes));
                 return;
             }

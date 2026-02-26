@@ -256,6 +256,7 @@ export function useAssetBrowserEffects(p: UseAssetBrowserEffectsParams): void {
     }, [activeFolderPath, folderScanPath, setFolderItems, setFolderScanError, setFolderScanLoading, setFolderScanPath, statusError]);
     useEffect(() => {
         const changed = activeFolderPath !== prevActiveFolderRef.current;
+        console.log('[FolderTree][ClearEffect] FIRING! selectedCategoryId:', selectedCategoryId, 'activeFolderPath:', activeFolderPath, 'prev:', prevActiveFolderRef.current, 'changed:', changed);
         prevActiveFolderRef.current = activeFolderPath;
         setExpandedFolders(new Set());
         setFolderChildrenCache(new Map());

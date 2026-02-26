@@ -58,7 +58,7 @@ is_selected: boolean,
 /**
  * Whether this clip is muted (stays on timeline but doesn't play).
  */
-is_disabledd: boolean, 
+is_disabled: boolean, 
 /**
  * Optional color override (uses track color when `None`).
  */

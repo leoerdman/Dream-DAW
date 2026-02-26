@@ -965,8 +965,8 @@ pub struct AudioClip {
     pub is_selected: bool,
 
     /// Whether this clip is muted (stays on timeline but doesn't play).
-    #[serde(default, alias = "is_muted")]
-    pub is_disabledd: bool,
+    #[serde(default, alias = "is_muted", alias = "is_disabledd")]
+    pub is_disabled: bool,
 
     /// Optional color override (uses track color when `None`).
     pub color_override: Option<TrackColor>,
@@ -1111,7 +1111,7 @@ impl AudioClip {
             fade_out_frames: 0,
             is_offline: false,
             is_selected: false,
-            is_disabledd: false,
+            is_disabled: false,
             color_override: None,
             color_hex: None,
             launch_mode: 0,

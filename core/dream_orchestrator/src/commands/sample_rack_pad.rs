@@ -129,7 +129,7 @@ impl Command for SetSampleRackPadMuteCommand {
         let rack = project.tracks[track_index]
             .sample_rack
             .get_or_insert_with(SampleRackConfig::default);
-        rack.pads[pad_idx].is_disabledd = self.muted;
+        rack.pads[pad_idx].is_disabled = self.muted;
         let effective_volume = if self.muted {
             0.0
         } else {
@@ -196,7 +196,7 @@ impl Command for SetSampleRackPadSoloCommand {
         let any_soloed = rack.pads.iter().any(|p| p.is_soloed);
         let mut effective_pad_volumes = [0.0f32; 16];
         for (i, pad) in rack.pads.iter().enumerate().take(16) {
-            effective_pad_volumes[i] = if (any_soloed && !pad.is_soloed) || pad.is_disabledd {
+            effective_pad_volumes[i] = if (any_soloed && !pad.is_soloed) || pad.is_disabled {
                 0.0
             } else {
                 pad.volume as f32

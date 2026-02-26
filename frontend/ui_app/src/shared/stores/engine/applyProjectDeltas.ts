@@ -167,7 +167,7 @@ export function applyProjectDeltasToState(
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),
                         fadeOut: Math.max(0, toFiniteNumber(clip.fade_out_frames ?? 0, 0)),
                         isOffline: isMidiTrack ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
-                        muted: Boolean(clip.is_disabledd ?? false),
+                        muted: Boolean(clip.is_disabled ?? false),
                     });
                 }
 
@@ -188,7 +188,7 @@ export function applyProjectDeltasToState(
                         sourceOffset: 0,
                         fadeIn: Math.max(0, toFiniteNumber(clip.fade_in_frames ?? 0, 0)),
                         fadeOut: Math.max(0, toFiniteNumber(clip.fade_out_frames ?? 0, 0)),
-                        muted: Boolean(clip.is_disabledd ?? false),
+                        muted: Boolean(clip.is_disabled ?? false),
                         midiNotes: (clip.notes ?? []).map((note, idx) => {
                             const rawStartFrame = toFiniteNumber(note.start_frame, 0);
                             const localStartFrame = normalizeMidiNoteStartFrame(rawStartFrame, posFrames, durFrames);

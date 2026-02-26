@@ -38,7 +38,7 @@ is_selected: boolean,
 /**
  * Whether this clip is muted (stays on timeline but doesn't play).
  */
-is_disabledd: boolean, 
+is_disabled: boolean, 
 /**
  * User-defined fade-in length in sample frames.
  */

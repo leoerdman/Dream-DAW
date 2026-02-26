@@ -32,6 +32,7 @@ export function useFolderTreeActions({
     const statusClear = useStatusStore((s) => s.clear);
 
     const toggleFolderExpand = useCallback(async (path: string) => {
+        console.log('[FolderTree] toggleFolderExpand called with path:', path);
         // BUG-17 FIX: use functional updater to avoid stale closure
         let wasExpanded = false;
         setExpandedFolders((prev) => {
@@ -46,18 +47,22 @@ export function useFolderTreeActions({
             }
             return next;
         });
+        console.log('[FolderTree] wasExpanded:', wasExpanded, 'expandedFolders updated');
 
         if (!wasExpanded) {
             // BUG-17 FIX: use functional updater to check cache
             let needsFetch = false;
             setFolderChildrenCache((prev) => {
                 needsFetch = !prev.has(path);
+                console.log('[FolderTree] cache has path:', prev.has(path), 'needsFetch:', !prev.has(path), 'cache size:', prev.size);
                 return prev; // no mutation, just reading
             });
             if (needsFetch) {
+                console.log('[FolderTree] Fetching children for path:', path);
                 setLoadingFolders((prev) => new Set(prev).add(path));
                 try {
                     const files = await engineApi.scanFolderAll(path);
+                    console.log('[FolderTree] scanFolderAll returned', files.length, 'files for path:', path);
                     const children: BrowserItem[] = files.map((f, i) => {
                         const sizeKb = Math.round(f.size_bytes / 1024);
                         const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
@@ -81,6 +86,7 @@ export function useFolderTreeActions({
                         if (aDir !== bDir) return bDir - aDir;
                         return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
                     });
+                    console.log('[FolderTree] Setting folderChildrenCache with', children.length, 'children for path:', path, 'directories:', children.filter(c => c.isDirectory).length);
                     setFolderChildrenCache((prev) => new Map(prev).set(path, children));
                 } catch (err) {
                     console.warn('[Browser] Tree scan failed for', path, err);
@@ -97,6 +103,7 @@ export function useFolderTreeActions({
     }, [setExpandedFolders, setFolderChildrenCache, setLoadingFolders, statusError]);
 
     const navigateInto = useCallback((path: string) => {
+        console.log('[FolderTree] navigateInto called with path:', path);
         void toggleFolderExpand(path);
     }, [toggleFolderExpand]);
 

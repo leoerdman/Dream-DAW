@@ -89,6 +89,7 @@ export function flattenFolderBrowserItems(params: {
         }
     };
     insertWithChildren(rootItems, 0);
+    console.log('[FolderTree][flattenFolderBrowserItems] rootItems:', rootItems.length, 'expandedFolders:', expandedFolders.size, 'cache size:', folderChildrenCache.size, 'result:', result.length, 'dirs:', result.filter(r => r.isDirectory).length);
     return result;
 }
 

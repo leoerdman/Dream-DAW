@@ -391,6 +391,10 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
     fn has_any_midi_fx(track: &Track, plugin_ids: &[&str]) -> bool {
         track.effects.iter().any(|node| {
             node.collect_plugin_slots().iter().any(|slot| {
+                // Skip bypassed FX — they should not influence the runtime config
+                if slot.is_bypassed {
+                    return false;
+                }
                 plugin_ids
                     .iter()
                     .any(|candidate| slot.plugin_id.eq_ignore_ascii_case(candidate))
@@ -405,6 +409,10 @@ pub fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngin
     ) -> Option<f32> {
         for node in &track.effects {
             for slot in node.collect_plugin_slots() {
+                // Skip bypassed FX — they should not contribute param defaults
+                if slot.is_bypassed {
+                    continue;
+                }
                 if !plugin_ids
                     .iter()
                     .any(|candidate| slot.plugin_id.eq_ignore_ascii_case(candidate))

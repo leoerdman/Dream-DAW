@@ -68,7 +68,7 @@ impl ClipScheduler {
 
         for (clip_index, clip) in clips.iter().enumerate() {
             // Skip muted/disabled clips — they stay on timeline but produce no audio
-            if clip.is_disabledd {
+            if clip.is_disabled {
                 continue;
             }
 
@@ -112,6 +112,12 @@ impl ClipScheduler {
     }
 
     /// Loop-aware, allocation-free scheduler variant for RT callback.
+    ///
+    /// Only applies loop-aware buffer splitting when the playhead is
+    /// **inside** the loop region and the buffer straddles the loop end.
+    /// When the playhead is outside the loop (before start or past end),
+    /// standard non-loop scheduling is used — the transport's
+    /// `Playhead::advance()` handles the actual position wrapping.
     pub fn fill_active_looped_with_tmp(
         clips: &[AudioClip],
         playhead_pos: i64,
@@ -130,26 +136,38 @@ impl ClipScheduler {
 
         let buffer_size_i64 = i64::try_from(buffer_size).unwrap_or(i64::MAX);
         let buffer_end = playhead_pos.saturating_add(buffer_size_i64);
-        // If the entire buffer fits within the loop region (no wrap needed),
-        // use standard scheduling — no split required.
+
+        // ── Playhead is PAST the loop end ───────────────────────────────
+        // The transport's Playhead::advance() handles wrapping during
+        // continuous playback. If we get a position past the loop end,
+        // the user has seeked beyond it — play only what's actually there.
+        // Previously this wrapped back into the loop, causing clips from
+        // inside the loop to falsely play on empty timeline sections.
+        if playhead_pos >= loop_region.end {
+            Self::fill_active(clips, playhead_pos, buffer_size, out);
+            return;
+        }
+
+        // ── Playhead is BEFORE the loop start ──────────────────────────
+        // If the buffer doesn't reach into the loop start, standard
+        // scheduling is sufficient (play pre-loop content normally).
+        if playhead_pos < loop_region.start && buffer_end <= loop_region.start {
+            Self::fill_active(clips, playhead_pos, buffer_size, out);
+            return;
+        }
+
+        // ── Playhead is INSIDE the loop (or buffer straddles start) ────
+        // If the entire buffer fits within the loop region, no split needed.
         if buffer_end <= loop_region.end && playhead_pos >= loop_region.start {
             Self::fill_active(clips, playhead_pos, buffer_size, out);
             return;
         }
 
-        // If the playhead is past the loop end (e.g. seek beyond loop or
-        // transport tick hasn't wrapped yet), wrap it back into the loop
-        // region so clips outside the loop never play.
-        let effective_playhead = if playhead_pos >= loop_region.end {
-            loop_region.wrap_position(playhead_pos)
-        } else {
-            playhead_pos
-        };
-
+        // Buffer straddles the loop end boundary — split into segments.
         out.clear();
         tmp.clear();
 
-        let mut current_playhead = effective_playhead;
+        let mut current_playhead = playhead_pos;
         let mut frames_remaining = buffer_size;
         let mut current_buffer_offset = 0;
 
@@ -568,5 +586,51 @@ mod tests {
     fn loop_region_length() {
         assert_eq!(LoopRegion::new(0, 44100).length(), 44100);
         assert_eq!(LoopRegion::new(1000, 5000).length(), 4000);
+    }
+
+    // ── Loop Past-End Fix Tests ────────────────────────────────────────
+
+    #[test]
+    fn loop_past_end_no_false_playback() {
+        // BUG FIX: When playhead is past the loop end, clips inside the
+        // loop must NOT play. Previously, the scheduler wrapped the playhead
+        // back into the loop, causing clips to falsely appear active.
+        let clips = vec![make_clip("A", 0, 1000)]; // Clip at 0..1000
+        let loop_region = LoopRegion::new(0, 1000);
+
+        // Playhead at 2000 — well past the loop end, on empty timeline
+        let active = active_for_looped(&clips, 2000, 256, Some(&loop_region));
+        assert!(
+            active.is_empty(),
+            "Clips inside the loop must NOT play when playhead is past the loop end"
+        );
+    }
+
+    #[test]
+    fn loop_past_end_plays_actual_content() {
+        // If there IS a clip past the loop end, it should play normally.
+        let clips = vec![
+            make_clip("A", 0, 1000),    // Inside loop (0..1000)
+            make_clip("B", 2000, 500),  // Past loop (2000..2500)
+        ];
+        let loop_region = LoopRegion::new(0, 1000);
+
+        let active = active_for_looped(&clips, 2000, 256, Some(&loop_region));
+        assert_eq!(active.len(), 1, "Only clip B (past loop) should play");
+        assert_eq!(active[0].clip.name, "B");
+    }
+
+    #[test]
+    fn loop_before_start_plays_actual_content() {
+        // Clips before the loop start should play normally.
+        let clips = vec![
+            make_clip("A", 0, 500),     // Before loop
+            make_clip("B", 1000, 1000), // Inside loop (1000..2000)
+        ];
+        let loop_region = LoopRegion::new(1000, 2000);
+
+        let active = active_for_looped(&clips, 0, 256, Some(&loop_region));
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].clip.name, "A");
     }
 }

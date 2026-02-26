@@ -5,12 +5,12 @@ use uuid::Uuid;
 pub fn clip_mute_status(project: &Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
     for track in &project.tracks {
         if let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) {
-            return (true, clip.is_disabledd != muted);
+            return (true, clip.is_disabled != muted);
         }
     }
     for track in &project.tracks {
         if let Some(clip) = track.midi_clips.iter().find(|c| c.id == clip_id) {
-            return (true, clip.is_disabledd != muted);
+            return (true, clip.is_disabled != muted);
         }
     }
     (false, false)
@@ -20,9 +20,9 @@ pub fn clip_mute_status(project: &Project, clip_id: Uuid, muted: bool) -> (bool,
 pub fn apply_clip_mute(project: &mut Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
     for track in &mut project.tracks {
         if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
-            let changed = clip.is_disabledd != muted;
+            let changed = clip.is_disabled != muted;
             if changed {
-                clip.is_disabledd = muted;
+                clip.is_disabled = muted;
             }
             return (true, changed);
         }
@@ -30,9 +30,9 @@ pub fn apply_clip_mute(project: &mut Project, clip_id: Uuid, muted: bool) -> (bo
 
     for track in &mut project.tracks {
         if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == clip_id) {
-            let changed = clip.is_disabledd != muted;
+            let changed = clip.is_disabled != muted;
             if changed {
-                clip.is_disabledd = muted;
+                clip.is_disabled = muted;
             }
             return (true, changed);
         }

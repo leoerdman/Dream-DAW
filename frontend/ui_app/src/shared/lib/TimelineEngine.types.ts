@@ -85,6 +85,8 @@ export interface DragState {
     clipResizeAllowStretch?: boolean;
     coMoverOrigins?: Map<string, { beat: number; track: number }>;
     deferSingleSelectOnMouseUp?: boolean;
+    /** Content-Y at the start of a marquee drag (px in content space, ruler excluded). */
+    startContentY?: number;
 }
 
 export function clipDurationFramesFromTimeline(

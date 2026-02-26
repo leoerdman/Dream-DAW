@@ -26,7 +26,7 @@ pan: number,
 /**
  * Whether this pad is muted.
  */
-is_disabledd: boolean, 
+is_disabled: boolean, 
 /**
  * Whether this pad is soloed.
  */

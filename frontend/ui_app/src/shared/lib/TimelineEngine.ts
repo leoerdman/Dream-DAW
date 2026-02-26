@@ -707,19 +707,41 @@ export class TimelineEngine {
         endBeat: number,
         startTrack: number,
         endTrack: number,
+        startContentY?: number,
+        endContentY?: number,
     ): void {
         const minBeat = Math.min(startBeat, endBeat);
         const maxBeat = Math.max(startBeat, endBeat);
         const minTrack = Math.min(startTrack, endTrack);
         const maxTrack = Math.max(startTrack, endTrack);
+
+        // Pixel-level Y overlap: if content-Y coordinates are available, use
+        // them to exclude clips whose visual bounding box doesn't actually
+        // overlap the marquee rectangle. This prevents selecting clips when
+        // the marquee only barely grazes the edge of a boundary track.
+        const usePixelY = startContentY != null && endContentY != null;
+        const marqueeYMin = usePixelY ? Math.min(startContentY, endContentY) : 0;
+        const marqueeYMax = usePixelY ? Math.max(startContentY, endContentY) : 0;
+
         const selectedIds = this._clips
             .filter((clip) => {
                 const clipStart = clip.startBeat;
                 const clipEnd = clip.startBeat + clip.durationBeats;
-                if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
                 // Skip clips on hidden (zero-height) tracks — e.g. collapsed group children
-                if (this._viewport.trackHeightAt(clip.trackIndex) <= 0) return false;
-                return clipEnd > minBeat && clipStart < maxBeat;
+                const clipTrackHeight = this._viewport.trackHeightAt(clip.trackIndex);
+                if (clipTrackHeight <= 0) return false;
+                // Beat axis overlap
+                if (clipEnd <= minBeat || clipStart >= maxBeat) return false;
+
+                if (usePixelY) {
+                    // Pixel-level Y overlap check
+                    const clipTopPx = this._viewport.trackOffsetY(clip.trackIndex);
+                    const clipBottomPx = clipTopPx + clipTrackHeight;
+                    return clipBottomPx > marqueeYMin && clipTopPx < marqueeYMax;
+                }
+
+                // Fallback: integer track index range check
+                return clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack;
             })
             .map((clip) => clip.id);
 
@@ -1037,6 +1059,7 @@ export class TimelineEngine {
                             clipOriginalDuration: 0,
                             startClientX: e.clientX,
                             startClientY: e.clientY,
+                            startContentY: this._viewport.trackOffsetY(anchorTrack!),
                         };
 
                         const minBeat = Math.min(anchorBeat!, snappedBeat);
@@ -1064,6 +1087,7 @@ export class TimelineEngine {
                     clipOriginalDuration: 0,
                     startClientX: e.clientX,
                     startClientY: e.clientY,
+                    startContentY: this._viewport.trackOffsetY(hit.trackIndex),
                 };
                 this._setMarquee({
                     startBeat: snappedBeat,
@@ -1532,6 +1556,13 @@ export class TimelineEngine {
                 const moved =
                     Math.abs(maxBeat - minBeat) >= 1e-6 || minTrack !== maxTrack;
 
+                // Compute content-Y for pixel-level clip overlap detection
+                const rect = this._canvas?.getBoundingClientRect();
+                const upContentY = rect
+                    ? this._viewport.screenToContentY(e.clientY, rect) - this._viewport.rulerHeight
+                    : this._viewport.trackOffsetY(upTrack) + this._viewport.trackHeightAt(upTrack);
+                const startContentY = this._drag.startContentY ?? this._viewport.trackOffsetY(this._drag.startTrack);
+
                 if (!moved) {
                     const snappedBeat = this._snapBeat(this._drag.startBeat);
                     this.onEditCursorChange?.(snappedBeat, this._drag.startTrack, this._drag.startTrack);
@@ -1549,7 +1580,7 @@ export class TimelineEngine {
                         endTrack: maxTrack,
                     });
                 } else {
-                    this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
+                    this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack, startContentY, upContentY);
                 }
                 break;
             }

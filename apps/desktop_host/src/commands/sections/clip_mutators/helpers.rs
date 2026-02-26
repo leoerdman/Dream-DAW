@@ -7,12 +7,18 @@ pub(super) enum ClipRebuildMode {
 }
 
 pub(super) fn rebuild_clip_views_and_mark_dirty(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
     mode: ClipRebuildMode,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     match mode {
         ClipRebuildMode::ClipsOnly => clip_pool_state.rebuild_clips_only(&project),
@@ -25,10 +31,16 @@ pub(super) fn rebuild_clip_views_and_mark_dirty(
 }
 
 pub(super) fn rebuild_clips_only_and_mark_dirty(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_clips_only(&project);
     drop(project);
@@ -37,10 +49,16 @@ pub(super) fn rebuild_clips_only_and_mark_dirty(
 }
 
 pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     app: &tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     clip_pool_state.rebuild_snapshot(&project);
     drop(project);
@@ -49,10 +67,16 @@ pub(super) fn rebuild_clip_snapshot_and_mark_dirty(
 }
 
 pub(super) fn rebuild_automation_and_mark_dirty(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     automation_runtime: &tauri::State<'_, AutomationRuntime>,
     app: &tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     rebuild_automation_snapshot_from_project(&project, automation_runtime);
     drop(project);
@@ -118,7 +142,7 @@ pub(super) fn build_local_pool_for_project(
 }
 
 pub(super) fn place_bounced_file_on_new_track(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
@@ -127,7 +151,13 @@ pub(super) fn place_bounced_file_on_new_track(
     clip_start_frame: i64,
     new_track_name: &str,
     insert_after_index: Option<usize>,
-) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String> {
+) -> Result<dream_orchestrator::commands::clip_bounce::InsertBouncedClipResult, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
     push_undo(project_state)?;
@@ -174,7 +204,7 @@ pub(super) fn place_bounced_file_on_new_track(
 }
 
 pub(super) fn place_stem_files_on_new_tracks(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,

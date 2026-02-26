@@ -9,7 +9,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useMemo, memo } from 'react';
+import { useMemo, memo, useEffect } from 'react';
 import { resolveSampleRate } from '@/shared/lib/audioMath';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -66,13 +66,33 @@ export const AutomationOverlay = memo(function AutomationOverlay({
     const pixelsPerBeat = samplesPerBeat / samplesPerPixel;
     const scrollOffsetBeats = (viewportScrollX * samplesPerPixel) / samplesPerBeat;
 
+    const addLane = useAutomationStore((s) => s.addLane);
+
+    // Auto-initialize Volume lanes for every track when Automation is opened
+    useEffect(() => {
+        if (!visible) return;
+        const state = useAutomationStore.getState();
+        const currentLanes = Object.values(state.lanes);
+
+        for (let i = 0; i < trackCount; i++) {
+            const trackId = trackIds[i];
+            if (!trackId) continue;
+            const hasVolume = currentLanes.some((l) => l.trackId === trackId && l.paramKey === 'volume');
+            if (!hasVolume) {
+                const track = tracksById[trackId];
+                if (track) {
+                    addLane(trackId, 'Volume', 'volume', track.color);
+                }
+            }
+        }
+    }, [visible, trackCount, trackIds, tracksById, addLane]);
+
     // Build per-track lane groups
     const trackLanes = useMemo(() => {
         const allLanes = Object.values(lanes);
         const result: Array<{
             trackIndex: number;
             trackId: string;
-            trackColor: string;
             lanes: typeof allLanes;
         }> = [];
 
@@ -81,7 +101,6 @@ export const AutomationOverlay = memo(function AutomationOverlay({
             const track = trackIdAtIndex ? tracksById[trackIdAtIndex] : undefined;
             if (!track) continue;
             const trackId = track.id;
-            const trackRgb = track.color;
 
             const trackAutoLanes = allLanes.filter(
                 (l) => l.trackId === trackId && l.visible,
@@ -90,7 +109,6 @@ export const AutomationOverlay = memo(function AutomationOverlay({
             result.push({
                 trackIndex: i,
                 trackId,
-                trackColor: trackRgb,
                 lanes: trackAutoLanes,
             });
         }
@@ -122,42 +140,21 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                 zIndex: 'var(--z-timeline-overlays)',
             }}
         >
-            {trackLanes.map(({ trackIndex, trackColor, lanes: tLanes }) => {
+            {trackLanes.map(({ trackIndex, lanes: tLanes }) => {
                 // Determine track bounds for the main baseline line
                 const trackTop = RULER_HEIGHT + (trackOffsets[trackIndex] ?? 0) - scrollTop;
                 const trackH = (trackOffsets[trackIndex + 1] ?? 0) - (trackOffsets[trackIndex] ?? 0);
                 const trackBottom = trackTop + trackH;
-                const baselineY = trackTop + Math.max(0, (trackH / 2) - 4);
 
                 return (
                     <div key={`track-${trackIndex}`} style={{ display: 'contents' }}>
-                        {/* Baseline standard straight line over the main track bounds */}
-                        {trackH > 10 && (
-                            <svg
-                                style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    width: width,
-                                    height: trackBottom,
-                                    pointerEvents: 'none',
-                                    overflow: 'visible',
-                                }}
-                            >
-                                <line
-                                    x1={0}
-                                    x2={width}
-                                    y1={baselineY}
-                                    y2={baselineY}
-                                    stroke={trackColor}
-                                    strokeWidth={1.5}
-                                    strokeOpacity={0.8}
-                                />
-                            </svg>
-                        )}
-
                         {tLanes.map((lane, laneIdx) => {
-                            const laneTop = trackBottom + laneIdx * LANE_HEIGHT;
+                            // The very first lane for a track (e.g., Volume) lays directly over the track.
+                            const isFirstLane = laneIdx === 0;
+                            const laneTop = isFirstLane ? trackTop : trackBottom + (laneIdx - 1) * LANE_HEIGHT;
+                            const laneH = isFirstLane ? trackH : LANE_HEIGHT;
+
+                            if (laneH < 10) return null;
 
                             return (
                                 <div
@@ -167,37 +164,40 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                         top: laneTop,
                                         left: 0,
                                         width,
-                                        height: LANE_HEIGHT,
+                                        height: laneH,
                                         pointerEvents: 'all',
-                                        background:
-                                            'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
-                                        borderBottom:
-                                            'var(--space-px) solid var(--color-divider)',
+                                        background: isFirstLane
+                                            ? 'transparent'
+                                            : 'color-mix(in srgb, var(--color-bg-panel) 85%, var(--token-color-hex-000000) 15%)',
+                                        borderBottom: isFirstLane
+                                            ? 'none'
+                                            : 'var(--space-px) solid var(--color-divider)',
+                                        zIndex: isFirstLane ? 'var(--z-timeline-canvas)' : 'var(--z-timeline-overlays)',
                                     }}
                                 >
-                                    {/* Lane label */}
-                                    <span
-                                        style={{
-                                            position: 'absolute',
-                                            top: 2,
-                                            left: 8,
-                                            fontSize: 'var(--font-size-2xs)',
-                                            fontWeight: 'var(--font-weight-semibold)',
-                                            color: lane.color,
-                                            opacity: 0.8,
-                                            zIndex: 'var(--z-local)',
-                                            pointerEvents: 'none',
-                                            textShadow: 'var(--text-shadow-dark)',
-                                        }}
-                                    >
-                                        {lane.paramName}
-                                    </span>
+                                    {!isFirstLane && (
+                                        <span
+                                            style={{
+                                                position: 'absolute',
+                                                top: 2,
+                                                left: 8,
+                                                fontSize: 'var(--font-size-2xs)',
+                                                fontWeight: 'var(--font-weight-semibold)',
+                                                color: lane.color,
+                                                opacity: 0.8,
+                                                zIndex: 'var(--z-local)',
+                                                pointerEvents: 'none',
+                                                textShadow: 'var(--text-shadow-dark)',
+                                            }}
+                                        >
+                                            {lane.paramName}
+                                        </span>
+                                    )}
 
-                                    {/* SVG breakpoint editor */}
                                     <AutomationLane
                                         lane={lane}
                                         width={width}
-                                        height={LANE_HEIGHT}
+                                        height={laneH}
                                         pixelsPerBeat={pixelsPerBeat}
                                         scrollOffsetBeats={scrollOffsetBeats}
                                     />

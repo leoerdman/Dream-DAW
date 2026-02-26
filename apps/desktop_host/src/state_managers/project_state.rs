@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use dream_models::project::{DeviceNode, Project};
 use tauri::{Emitter, Manager};
+use uuid::Uuid;
 
 use crate::snapshot::{ProjectHistory, ProjectHistoryEvent, UndoState};
 
@@ -63,6 +64,9 @@ pub(crate) fn safe_set_window_title(app: &tauri::AppHandle, title: &str) {
 /// The project is independently managed from the audio engine.
 /// Changes to the project trigger serialization and engine re-sync.
 pub struct ProjectState {
+    /// Unique identifier for this specific project instance in memory.
+    pub id: Uuid,
+
     /// The currently loaded project.
     pub project: Mutex<Project>,
 
@@ -86,6 +90,7 @@ pub struct ProjectState {
 impl ProjectState {
     pub(crate) fn new() -> Self {
         Self {
+            id: Uuid::new_v4(),
             project: Mutex::new(Project::default()),
             file_path: Mutex::new(None),
             project_folder: Mutex::new(None),

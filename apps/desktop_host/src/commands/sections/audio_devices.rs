@@ -25,9 +25,15 @@ fn set_audio_device(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
 }
 
@@ -35,9 +41,15 @@ fn restart_audio_engine_impl(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     log::info!("Audio device change requested: '{}'", device_name);
 
     // Build a fresh engine ring buffer and stream on requested device.
@@ -185,8 +197,14 @@ fn restart_audio_engine(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     restart_audio_engine_impl(device_name, handle, settings_state, project_state, plugin_host_state)
 }

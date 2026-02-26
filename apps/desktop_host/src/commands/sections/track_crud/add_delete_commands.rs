@@ -8,12 +8,18 @@ async fn add_track_cmd(
     track_type: Option<String>,
     insert_after_index: Option<usize>,
     inherit_from_track_id: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddTrackCommand {
         name: name.clone(),
@@ -51,12 +57,18 @@ async fn add_track_with_deltas_cmd(
     track_type: Option<String>,
     insert_after_index: Option<usize>,
     inherit_from_track_id: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<TrackManagementDeltaResponse, String> {
+) -> Result<TrackManagementDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddTrackCommand {
         name: name.clone(),
@@ -113,12 +125,18 @@ async fn add_track_with_deltas_cmd(
 #[tauri::command]
 async fn delete_track_cmd(
     index: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -147,12 +165,18 @@ async fn delete_track_cmd(
 #[tauri::command]
 async fn delete_track_with_deltas_cmd(
     index: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<TrackManagementDeltaResponse, String> {
+) -> Result<TrackManagementDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::DeleteTrackByIndexCommand { index };
     let result = execute_orchestrator_command(&project_state, &cmd)?;
@@ -180,12 +204,18 @@ async fn delete_track_with_deltas_cmd(
 #[tauri::command]
 async fn delete_tracks_cmd(
     track_ids: Vec<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if track_ids.is_empty() {
         return Ok(());
     }

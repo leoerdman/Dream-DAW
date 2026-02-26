@@ -2,11 +2,17 @@
 #[tauri::command]
 fn set_sampler_sample_cmd(
     payload: SetSamplerSamplePayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let sample_path = payload.sample_path.clone();
     if !PathBuf::from(&sample_path).exists() {
         return Err(format!("Sample path does not exist: {}", sample_path));
@@ -80,11 +86,17 @@ fn set_sampler_sample_cmd(
 #[tauri::command]
 fn set_sampler_sample_with_deltas_cmd(
     payload: SetSamplerSamplePayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String> {
+) -> Result<PluginMutationDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let sample_path = payload.sample_path.clone();
@@ -109,9 +121,15 @@ fn set_sampler_sample_with_deltas_cmd(
 #[tauri::command]
 fn eager_activate_external_plugins(
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let external_slots = execute_orchestrator_query(
         &project_state,
         &dream_orchestrator::queries::ListExternalPluginSlotsQuery,
@@ -211,12 +229,18 @@ fn set_slot_bypass_cmd(
     track_id: String,
     slot_id: String,
     bypassed: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
@@ -267,12 +291,18 @@ fn set_slot_bypass_with_deltas_cmd(
     track_id: String,
     slot_id: String,
     bypassed: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String> {
+) -> Result<PluginMutationDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
@@ -302,12 +332,18 @@ async fn move_effect_slot_cmd(
     track_id: String,
     slot_id: String,
     target_index: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
         .map_err(|e| e.to_string())?;
@@ -354,12 +390,18 @@ async fn move_effect_slot_with_deltas_cmd(
     track_id: String,
     slot_id: String,
     target_index: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String> {
+) -> Result<PluginMutationDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let target = dream_orchestrator::commands::EffectTrackTarget::from_track_id(&track_id)
         .map_err(|e| e.to_string())?;

@@ -111,8 +111,14 @@ fn seek_seconds(
 fn seek_to_beat(
     beat: f64,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<(), String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // BUG-017 FIX: Validate non-negative beat at the API boundary.
     let safe_beat = beat.max(0.0);
     let state = handle
@@ -138,11 +144,17 @@ fn seek_to_beat(
 fn set_bpm(
     bpm: f64,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if !(20.0..=999.0).contains(&bpm) {
         return Err(format!("BPM {bpm} out of range (20–999)"));
     }
@@ -286,11 +298,17 @@ struct TransportDeltaResponse {
 fn set_bpm_with_deltas(
     bpm: f64,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<TransportDeltaResponse, String> {
+) -> Result<TransportDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     set_bpm(
         bpm,
         handle,
@@ -309,8 +327,14 @@ fn set_time_signature(
     numerator: u32,
     denominator: u32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<(), String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let numerator_u8 = (numerator.clamp(1, 32)) as u8;
     let denominator_u8 = (denominator.clamp(1, 32)) as u8;
 
@@ -340,8 +364,14 @@ fn set_time_signature_with_deltas(
     numerator: u32,
     denominator: u32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<TransportDeltaResponse, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<TransportDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     set_time_signature(numerator, denominator, handle, project_state)?;
     Ok(TransportDeltaResponse {
         deltas: vec![dream_models::delta::ProjectDelta::TimeSignatureChanged {
@@ -358,8 +388,14 @@ fn set_loop(
     start_frames: i64,
     end_frames: i64,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<(), String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let (beats_per_bar, sample_rate, bpm) = {
         let project = project_state
             .project
@@ -444,8 +480,14 @@ fn set_loop_with_deltas(
     start_frames: i64,
     end_frames: i64,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<TransportDeltaResponse, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<TransportDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     set_loop(
         enabled,
         start_frames,

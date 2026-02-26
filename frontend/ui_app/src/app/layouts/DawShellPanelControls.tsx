@@ -2,6 +2,7 @@ import { memo, useCallback, useRef, useState } from 'react';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { getContrastColor } from '@/shared/lib/colorUtils';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -12,24 +13,26 @@ const FADER_SCALE_NODES = FADER_SCALE_VALS.map(val => (
     </div>
 ));
 
-const LABEL_STYLE: React.CSSProperties = { fontSize: '9px', fontWeight: 600, color: '#979797', textTransform: 'uppercase', marginBottom: 2 };
+const LABEL_STYLE: React.CSSProperties = { fontSize: '9px', fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', marginBottom: 2 };
+
 const SELECT_STYLE: React.CSSProperties = {
     width: '100%',
-    height: 16,
-    borderRadius: 2,
-    border: 'none',
-    background: '#1c1c1c',
-    color: '#d0d0d0',
-    fontSize: '9px',
+    height: 18,
+    borderRadius: 'var(--radius-xs)',
+    border: '1px solid var(--color-divider-light)',
+    background: 'var(--surface-elevated)',
+    color: 'var(--color-text-secondary)',
+    fontSize: '10px',
+    fontFamily: 'var(--font-role-body)',
     padding: '0 4px',
     cursor: 'pointer',
     outline: 'none',
-    boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.5)',
+    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.15)',
 };
 
 export function SessionIoRow({ label, value }: { label: string; value: string }) {
     return (
-        <label style={{ display: 'grid', gap: 0, marginBottom: 2 }}>
+        <label style={{ display: 'grid', gap: 0, marginBottom: 4 }}>
             <span style={LABEL_STYLE}>{label}</span>
             <select
                 value={value}
@@ -44,9 +47,9 @@ export function SessionIoRow({ label, value }: { label: string; value: string })
 
 export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 'Off'; onChange?: (v: 'In' | 'Auto' | 'Off') => void }) {
     return (
-        <div style={{ display: 'grid', gap: 0, marginBottom: 2 }}>
+        <div style={{ display: 'grid', gap: 0, marginBottom: 4 }}>
             <span style={LABEL_STYLE}>Monitor</span>
-            <div style={{ display: 'flex', height: 16, borderRadius: 2, overflow: 'hidden', boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.5)', background: '#1c1c1c' }}>
+            <div style={{ display: 'flex', height: 18, borderRadius: 'var(--radius-xs)', overflow: 'hidden', border: '1px solid var(--color-divider-light)', background: 'var(--surface-elevated)' }}>
                 {(['In', 'Auto', 'Off'] as const).map(mode => {
                     const isActive = value === mode;
                     return (
@@ -58,11 +61,13 @@ export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 
                                 flex: 1,
                                 height: '100%',
                                 border: 'none',
-                                background: isActive ? '#e08031' : 'transparent',
-                                color: isActive ? '#000' : '#8c8c8c',
-                                fontSize: '9px',
-                                fontWeight: isActive ? 700 : 600,
+                                background: isActive ? 'var(--color-status-warning)' : 'transparent',
+                                color: isActive ? '#000' : 'var(--color-text-secondary)',
+                                fontSize: '10px',
+                                fontFamily: 'var(--font-role-body)',
+                                fontWeight: isActive ? 700 : 500,
                                 cursor: 'pointer',
+                                transition: 'background 100ms ease, color 100ms ease',
                             }}
                         >
                             {mode}
@@ -73,8 +78,6 @@ export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 
         </div>
     );
 }
-
-const BORDER_COLOR = 'var(--token-color-hex-3d3d3d)';
 
 function SessionStripFaderInner({
     gain,
@@ -91,6 +94,7 @@ function SessionStripFaderInner({
     setTrackDisabled,
     setTrackSolo,
     setTrackArmed,
+    trackColor,
 }: {
     gain: number;
     pan: number;
@@ -106,12 +110,14 @@ function SessionStripFaderInner({
     setTrackDisabled?: (disabled: boolean) => void;
     setTrackSolo?: (solo: boolean) => void;
     setTrackArmed?: (armed: boolean) => void;
+    trackColor?: string;
 }) {
     const faderRef = useRef<HTMLDivElement | null>(null);
     const panRef = useRef<HTMLDivElement | null>(null);
     const activePointerId = useRef<number | null>(null);
     const activePanPointer = useRef<number | null>(null);
     const [dragging, setDragging] = useState(false);
+
     const volumeDb = gainToDb(gain);
     const volNorm = clamp01(dbToFader(volumeDb));
 
@@ -164,48 +170,56 @@ function SessionStripFaderInner({
         void useEngineStore.getState().flushTrackControlFinals();
     }, []);
 
-
     // Calculate Pan visually: -1 to 1 maps to -135deg to +135deg (for arc)
     const panAngle = pan * 135;
 
     // Meter max peak (for numeric display)
     const maxDbLabel = Math.max(faderToDb(meterL), faderToDb(meterR));
     const peakText = isFinite(maxDbLabel) && maxDbLabel > -60 ? `${maxDbLabel > 0 ? '+' : ''}${maxDbLabel.toFixed(1)}` : '-inf';
+    const hasClipped = maxDbLabel >= 0;
+
+    const actualTrackColor = trackColor || 'var(--color-status-warning)';
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, height: '100%', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, height: '100%', alignItems: 'center', fontFamily: 'var(--font-role-data)' }}>
 
             {/* NUMERIC VOLUME TEXT BOXES (TOP OF FADER IN ABLETON) */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 2 }}>
-                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-text-primary)', fontSize: '9px', fontWeight: 600, textAlign: 'center', flex: 1, padding: '1px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 4 }}>
+                <div style={{ background: 'var(--surface-elevated)', border: `1px solid var(--color-divider-light)`, borderRadius: 'var(--radius-xs)', color: 'var(--color-text-secondary)', fontSize: '10px', textAlign: 'center', flex: 1, padding: '2px 0', userSelect: 'none' }}>
                     {formatDb(volumeDb)}
                 </div>
-                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-status-success)', fontSize: '9px', textAlign: 'center', flex: 1, padding: '1px 0' }}>
+                <div style={{ background: hasClipped ? 'var(--color-status-error)' : 'var(--surface-elevated)', border: `1px solid var(--color-divider-light)`, borderRadius: 'var(--radius-xs)', color: hasClipped ? '#fff' : 'var(--color-status-success)', fontSize: '10px', textAlign: 'center', flex: 1, padding: '2px 0', userSelect: 'none', transition: 'background 0.2s, color 0.2s' }}>
                     {peakText}
                 </div>
             </div>
 
             {/* FADER AND METER SECTION */}
-            <div style={{ display: 'flex', flex: 1, width: '100%', gap: 2 }}>
+            <div style={{ display: 'flex', flex: 1, width: '100%', gap: 4, position: 'relative' }}>
 
                 {/* FADER SCALE LABELS */}
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '9px', color: '#666', paddingTop: 1, paddingBottom: 1, position: 'relative', width: 14 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '9px', color: 'var(--color-text-tertiary)', paddingTop: 1, paddingBottom: 1, position: 'relative', width: 14 }}>
                     {FADER_SCALE_NODES}
                 </div>
 
+                {/* 0dB Marker Line */}
+                <div style={{ position: 'absolute', left: 20, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'color-mix(in srgb, var(--color-text-secondary) 30%, transparent)', pointerEvents: 'none', zIndex: 0 }} />
+
                 {/* STEREO METER */}
-                <MeterStrip
-                    levelL={meterL}
-                    levelR={meterR}
-                    width={10}
-                    style={{ alignSelf: 'stretch', background: '#111', border: `1px solid #1c1c1c`, borderRadius: 1 }}
-                />
+                <div style={{ position: 'relative', flex: 1, maxWidth: 14, borderRadius: 'var(--radius-xs)', overflow: 'hidden', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 8%, transparent)' }}>
+                    <MeterStrip
+                        levelL={meterL}
+                        levelR={meterR}
+                        width={14}
+                        show0dBLine={false}
+                        style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+                    />
+                </div>
 
                 {/* FADER TRACK */}
                 <div style={{
-                    width: 7,
+                    flex: 1,
+                    maxWidth: 16,
                     position: 'relative',
-                    marginLeft: 1,
                 }}>
                     <div
                         ref={faderRef}
@@ -231,30 +245,35 @@ function SessionStripFaderInner({
                         }}
                         onPointerCancel={endDrag}
                         onDoubleClick={() => onGainChange(1)}
+                        onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; onGainChange(Math.max(0, Math.min(2, gain + (e.deltaY < 0 ? step : -step)))); void useEngineStore.getState().flushTrackControlFinals(); }}
                         style={{
                             position: 'absolute', inset: 0, cursor: 'ns-resize', touchAction: 'none'
                         }}
                     >
-                        {/* 0dB Marker Line */}
-                        <div style={{ position: 'absolute', left: -10, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
+                        {/* The Rail */}
+                        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 2, background: 'var(--color-divider)', borderRadius: 1 }} />
 
-                        {/* Thumb (Ableton Triangle) */}
+                        {/* Thumb (Premium Glassy Handle) */}
                         <div style={{
-                            position: 'absolute', left: 0, bottom: `calc(${volNorm * 100}% - 4px)`,
-                            width: 0,
-                            height: 0,
-                            borderTop: '4px solid transparent',
-                            borderBottom: '4px solid transparent',
-                            borderRight: '6px solid #b0b0b0',
+                            position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 7px)`,
+                            height: 14,
+                            borderRadius: 'var(--radius-xs)',
+                            background: dragging ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)',
+                            border: '1px solid var(--surface-1)',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.3), inset 0 1px 1px rgba(255,255,255,0.2)',
                             pointerEvents: 'none',
-                        }} />
+                            transition: 'background 0.1s',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                            <div style={{ width: '80%', height: 2, background: 'var(--surface-elevated)', borderRadius: 1 }} />
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* PAN BOX (ABLETON 11 STYLE) */}
-            <div style={{ width: '100%', marginBottom: 2 }}>
-                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-text-primary)', fontSize: '9px', fontWeight: 600, textAlign: 'center', padding: '1px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: panDisabled ? 0.4 : 1 }}>
+            {/* PAN KNOB */}
+            <div style={{ width: '100%', marginBottom: 4 }}>
+                <div style={{ background: 'var(--surface-elevated)', border: `1px solid var(--color-divider-light)`, borderRadius: 'var(--radius-xs)', color: 'var(--color-text-secondary)', fontSize: '10px', textAlign: 'center', padding: '4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: panDisabled ? 0.4 : 1, userSelect: 'none' }}>
                     <div
                         ref={panRef}
                         onPointerDown={handlePanPointerDown}
@@ -263,17 +282,18 @@ function SessionStripFaderInner({
                         onPointerCancel={handlePanPointerUp}
                         onDoubleClick={() => !panDisabled && onPanChange(0)}
                         style={{
-                            width: 16, height: 16,
+                            width: 18, height: 18,
                             borderRadius: '50%',
-                            background: '#2c2c2c',
-                            border: '1px solid #111',
+                            background: 'var(--surface-elevated)',
+                            border: '1px solid color-mix(in srgb, var(--color-text-secondary) 20%, transparent)',
+                            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.4)',
                             position: 'relative',
                             cursor: panDisabled ? 'default' : 'ns-resize',
-                            marginRight: 4,
+                            marginRight: 6,
                             transform: `rotate(${panAngle}deg)`
                         }}
                     >
-                        <div style={{ position: 'absolute', top: 1, left: 7, width: 1, height: 6, background: '#eac92b', borderRadius: 1 }} />
+                        <div style={{ position: 'absolute', top: 2, left: 8, width: 2, height: 6, background: actualTrackColor, borderRadius: 1 }} />
                     </div>
                     <span>{Math.abs(pan) < 0.01 ? 'C' : `${Math.round(Math.abs(pan * 50))}${pan < 0 ? 'L' : 'R'}`}</span>
                 </div>
@@ -281,37 +301,43 @@ function SessionStripFaderInner({
 
             {/* ABLETON ACTIVATORS */}
             {setTrackDisabled && setTrackSolo && setTrackArmed && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 2, width: '100%', marginTop: 2 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, width: '100%', marginTop: 2 }}>
+
+                    {/* MUTE / ACTIVATOR BUTTON */}
                     <button
                         type="button"
                         onClick={() => setTrackDisabled(!trackDisabled)}
                         style={{
-                            height: 16,
-                            background: !trackDisabled ? '#eac92b' : '#3d3d3d',
-                            color: !trackDisabled ? '#000' : '#8c8c8c',
-                            border: `none`,
-                            borderRadius: '1px',
-                            fontSize: '9px',
+                            height: 20,
+                            background: !trackDisabled ? actualTrackColor : 'var(--surface-elevated)',
+                            color: !trackDisabled ? (getContrastColor(actualTrackColor) === 'black' ? '#000' : '#fff') : 'var(--color-text-tertiary)',
+                            border: `1px solid var(--color-divider-light)`,
+                            borderRadius: 'var(--radius-xs)',
+                            fontSize: '10px',
                             fontWeight: 800,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'background 0.1s, color 0.1s',
                         }}
                     >
                         {trackIndex + 1}
                     </button>
-                    <div style={{ display: 'flex', gap: 2, height: 18 }}>
+
+                    {/* SOLO & ARM */}
+                    <div style={{ display: 'flex', gap: 4, height: 20 }}>
                         <button
                             type="button"
                             onClick={() => setTrackSolo(!trackSolo)}
                             style={{
                                 flex: 1,
-                                height: 16,
-                                background: trackSolo ? '#358aff' : '#3d3d3d',
-                                color: trackSolo ? '#000' : '#8c8c8c',
-                                border: 'none',
-                                borderRadius: '1px',
-                                fontSize: '9px',
+                                background: trackSolo ? 'var(--color-status-info)' : 'var(--surface-elevated)',
+                                color: trackSolo ? '#fff' : 'var(--color-text-tertiary)',
+                                border: '1px solid var(--color-divider-light)',
+                                borderRadius: 'var(--radius-xs)',
+                                fontSize: '10px',
                                 fontWeight: 800,
                                 cursor: 'pointer',
+                                transition: 'background 0.1s, color 0.1s',
                             }}
                         >
                             S
@@ -321,18 +347,18 @@ function SessionStripFaderInner({
                             onClick={() => setTrackArmed(!trackArmed)}
                             style={{
                                 flex: 1,
-                                height: 16,
-                                background: trackArmed ? '#df3f3f' : '#3d3d3d',
-                                color: trackArmed ? '#000' : '#8c8c8c',
-                                border: 'none',
-                                borderRadius: '1px',
-                                fontSize: '9px',
+                                background: trackArmed ? 'var(--color-status-error)' : 'var(--surface-elevated)',
+                                color: trackArmed ? '#fff' : 'var(--color-text-tertiary)',
+                                border: '1px solid var(--color-divider-light)',
+                                borderRadius: 'var(--radius-xs)',
+                                fontSize: '10px',
                                 fontWeight: 800,
                                 cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                transition: 'background 0.1s',
                             }}
                         >
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? '#000' : '#8c8c8c' }} />
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? '#fff' : 'var(--color-text-tertiary)' }} />
                         </button>
                     </div>
                 </div>
@@ -350,5 +376,6 @@ export const SessionStripFader = memo(SessionStripFaderInner, (prev, next) => {
         prev.trackSolo === next.trackSolo &&
         prev.trackArmed === next.trackArmed &&
         prev.panDisabled === next.panDisabled &&
-        prev.trackIndex === next.trackIndex;
+        prev.trackIndex === next.trackIndex &&
+        prev.trackColor === next.trackColor;
 });

@@ -24,10 +24,16 @@ use dream_models::preset::DevicePreset;
 #[tauri::command]
 fn create_rack_from_devices_cmd(
     payload: CreateRackPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::CreateRackFromDevicesCommand {
         track_id: payload.track_id.clone(),
@@ -58,10 +64,16 @@ fn create_rack_from_devices_cmd(
 #[tauri::command]
 fn add_chain_to_rack_cmd(
     payload: AddChainToRackPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddChainToRackCommand {
         track_id: payload.track_id.clone(),
@@ -91,10 +103,16 @@ fn add_chain_to_rack_cmd(
 #[tauri::command]
 fn add_device_to_rack_chain_cmd(
     payload: AddDeviceToRackChainPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::AddDeviceToRackChainCommand {
         track_id: payload.track_id.clone(),
@@ -132,10 +150,16 @@ fn add_device_to_rack_chain_cmd(
 #[tauri::command]
 fn remove_device_from_rack_cmd(
     payload: RemoveDeviceFromRackPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
     let cmd = dream_orchestrator::commands::RemoveDeviceFromRackCommand {
         track_id: payload.track_id.clone(),
@@ -165,8 +189,14 @@ fn remove_device_from_rack_cmd(
 #[tauri::command]
 fn save_device_preset_cmd(
     payload: SaveDevicePresetPayload,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<String, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let device_uuid = Uuid::parse_str(&payload.device_id)
@@ -221,10 +251,16 @@ fn save_device_preset_cmd(
 #[tauri::command]
 fn load_device_preset_cmd(
     payload: LoadDevicePresetPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // Read and deserialize preset file.
     let json = std::fs::read_to_string(&payload.preset_path)
         .map_err(|e| format!("Failed to read preset file: {e}"))?;

@@ -1,7 +1,13 @@
 fn resolve_audio_clip_state(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_id: Uuid,
-) -> Result<dream_orchestrator::queries::AudioClipState, String> {
+) -> Result<dream_orchestrator::queries::AudioClipState, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolveAudioClipStateQuery { clip_id },
@@ -9,9 +15,15 @@ fn resolve_audio_clip_state(
 }
 
 fn resolve_audio_clip_timeline_bounds(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_id: Uuid,
-) -> Result<(i64, i64), String> {
+) -> Result<(i64, i64), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let clip = project
         .tracks
@@ -27,10 +39,16 @@ fn resolve_audio_clip_timeline_bounds(
 async fn set_clip_source_offset_cmd(
     clip_id: String,
     source_offset_frames: i64,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -74,10 +92,16 @@ async fn set_clip_source_offset_cmd(
 async fn set_clip_source_offset_with_deltas_cmd(
     clip_id: String,
     source_offset_frames: i64,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
@@ -123,10 +147,16 @@ struct SetClipPitchPayload {
 #[tauri::command]
 async fn set_clip_pitch_cmd(
     payload: SetClipPitchPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -149,10 +179,16 @@ async fn set_clip_pitch_cmd(
 #[tauri::command]
 async fn set_clip_pitch_with_deltas_cmd(
     payload: SetClipPitchPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let clip_uuid =
         Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let pitch = payload.pitch_shift_semitones;
@@ -185,10 +221,16 @@ async fn set_clip_pitch_with_deltas_cmd(
 #[tauri::command]
 async fn set_clip_warp_cmd(
     payload: SetClipWarpPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -213,10 +255,16 @@ async fn set_clip_warp_cmd(
 #[tauri::command]
 async fn set_clip_warp_with_deltas_cmd(
     payload: SetClipWarpPayload,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let clip_uuid =
         Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let (before_pos, before_dur) = resolve_audio_clip_timeline_bounds(&project_state, clip_uuid)?;
@@ -264,11 +312,17 @@ async fn set_clip_fades_cmd(
     clip_id: String,
     fade_in_frames: i64,
     fade_out_frames: i64,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -296,11 +350,17 @@ async fn set_clip_fades_with_deltas_cmd(
     clip_id: String,
     fade_in_frames: i64,
     fade_out_frames: i64,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
     let before_state = resolve_audio_clip_state(&project_state, clip_uuid)?;
 
@@ -338,11 +398,17 @@ async fn set_clip_fades_with_deltas_cmd(
 async fn set_clip_muted_cmd(
     clip_id: String,
     muted: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // CQRS: undo + delegate to orchestrator + snapshot rebuild
     push_undo(&project_state)?;
 
@@ -367,11 +433,17 @@ async fn set_clip_muted_cmd(
 async fn set_clip_muted_with_deltas_cmd(
     clip_id: String,
     muted: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
 
     let clip_uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip id: {e}"))?;
@@ -405,11 +477,17 @@ async fn set_clip_muted_with_deltas_cmd(
 async fn set_clips_muted_cmd(
     clip_ids: Vec<String>,
     muted: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<usize, String> {
+) -> Result<usize, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if clip_ids.is_empty() {
         return Ok(0);
     }
@@ -446,11 +524,17 @@ async fn set_clips_muted_cmd(
 async fn set_clips_muted_with_deltas_cmd(
     clip_ids: Vec<String>,
     muted: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if clip_ids.is_empty() {
         return Ok(DeltaMutationResponse { deltas: Vec::new() });
     }

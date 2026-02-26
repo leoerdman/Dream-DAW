@@ -16,6 +16,7 @@ pub(crate) mod audio_engine;
 pub(crate) mod background_runtime;
 pub(crate) mod clip_pool;
 pub(crate) mod plugin_host;
+pub(crate) mod project_registry;
 pub(crate) mod project_state;
 pub(crate) mod recording;
 pub(crate) mod runtime_bootstrap;
@@ -25,6 +26,7 @@ pub(crate) use audio_engine::{AudioEngineHandle, SpectrumState, SpectrumStateInn
 pub(crate) use background_runtime::{configure_app_runtime, shutdown_plugins_on_exit};
 pub(crate) use clip_pool::ClipPoolState;
 pub(crate) use plugin_host::PluginHostState;
+pub(crate) use project_registry::ProjectRegistry;
 pub(crate) use project_state::ProjectState;
 pub(crate) use recording::{AutomationRuntime, MidiInputRuntime, RecordingRuntime};
 pub(crate) use runtime_bootstrap::{RuntimeBootstrap, initialize_runtime};

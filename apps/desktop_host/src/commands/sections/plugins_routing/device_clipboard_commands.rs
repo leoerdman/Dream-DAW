@@ -11,8 +11,14 @@
 fn copy_device_from_track_cmd(
     track_id: String,
     device_id: String,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<String, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let device_uuid = Uuid::parse_str(&device_id)
@@ -43,12 +49,18 @@ fn copy_device_from_track_cmd(
 fn paste_device_to_track_impl(
     track_id: &str,
     slot_hint: Option<String>,
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: &tauri::State<'_, PluginHostState>,
     app: &tauri::AppHandle,
-) -> Result<(dream_orchestrator::commands::PasteDeviceToTrackResult, Option<String>), String> {
+) -> Result<(dream_orchestrator::commands::PasteDeviceToTrackResult, Option<String>), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // Read clipboard (don't consume it — allow multiple pastes).
     let clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
     let Some(ref source_node) = *clipboard else {
@@ -116,12 +128,18 @@ fn paste_device_to_track_impl(
 fn paste_device_to_track_cmd(
     track_id: String,
     slot_hint: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let (_result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,
@@ -142,12 +160,18 @@ fn paste_device_to_track_cmd(
 fn paste_device_to_track_with_deltas_cmd(
     track_id: String,
     slot_hint: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
-) -> Result<PluginMutationDeltaResponse, String> {
+) -> Result<PluginMutationDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let (result, plugin_load_error) = paste_device_to_track_impl(
         &track_id,
         slot_hint,

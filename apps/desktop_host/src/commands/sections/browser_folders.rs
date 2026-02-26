@@ -413,7 +413,13 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
 async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    fn preferred_project_dialog_dir(project_state: &tauri::State<'_, ProjectState>) -> Option<std::path::PathBuf> {
+    fn preferred_project_dialog_dir(project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>) -> Option<std::path::PathBuf>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Default::default();
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
         if let Ok(folder_guard) = project_state.project_folder.lock()
             && let Some(folder) = folder_guard.as_ref()
             && folder.exists()
@@ -430,7 +436,7 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
         std::env::var("HOME").ok().map(std::path::PathBuf::from)
     }
 
-    let project_state: tauri::State<'_, ProjectState> = app.state();
+    let project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = app.state();
     let default_dir = preferred_project_dialog_dir(&project_state);
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -457,11 +463,23 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
 #[tauri::command]
 async fn save_project_dialog(
     app: tauri::AppHandle,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<Option<String>, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<Option<String>, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     use tauri_plugin_dialog::DialogExt;
 
-    fn preferred_project_dialog_dir(project_state: &tauri::State<'_, ProjectState>) -> Option<std::path::PathBuf> {
+    fn preferred_project_dialog_dir(project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>) -> Option<std::path::PathBuf>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Default::default();
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
         if let Ok(folder_guard) = project_state.project_folder.lock()
             && let Some(folder) = folder_guard.as_ref()
             && folder.exists()

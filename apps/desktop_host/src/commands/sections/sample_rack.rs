@@ -12,9 +12,15 @@ fn set_sample_rack_pad_volume_cmd(
     pad_index: u8,
     volume: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetSampleRackPadVolumeCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -53,9 +59,15 @@ fn set_sample_rack_pad_volume_with_deltas_cmd(
     pad_index: u8,
     volume: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_vol = volume.clamp(0.0, 2.0);
@@ -76,9 +88,15 @@ fn set_sample_rack_pad_mute_cmd(
     pad_index: u8,
     muted: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetSampleRackPadMuteCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -118,9 +136,15 @@ fn set_sample_rack_pad_mute_with_deltas_cmd(
     pad_index: u8,
     muted: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_mute_cmd(track_id, pad_index, muted, handle, project_state, app)?;
@@ -140,9 +164,15 @@ fn set_sample_rack_pad_solo_cmd(
     pad_index: u8,
     soloed: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetSampleRackPadSoloCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -184,9 +214,15 @@ fn set_sample_rack_pad_solo_with_deltas_cmd(
     pad_index: u8,
     soloed: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_solo_cmd(track_id, pad_index, soloed, handle, project_state, app)?;
@@ -209,9 +245,15 @@ fn set_sample_rack_pad_adsr_cmd(
     sustain: f32,
     release: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetSampleRackPadAdsrCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -262,9 +304,15 @@ fn set_sample_rack_pad_adsr_with_deltas_cmd(
     sustain: f32,
     release: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_attack = attack.clamp(0.001, 10.0);
@@ -301,9 +349,15 @@ fn set_sample_rack_pad_filter_cutoff_cmd(
     pad_index: u8,
     cutoff: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetSampleRackPadFilterCutoffCommand::from_str_track_id(
         &track_id,
         pad_index,
@@ -342,9 +396,15 @@ fn set_sample_rack_pad_filter_cutoff_with_deltas_cmd(
     pad_index: u8,
     cutoff: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     let clamped_cutoff = cutoff.clamp(20.0, 20000.0);
@@ -364,11 +424,17 @@ fn set_sample_rack_pad_sample_cmd(
     track_id: String,
     pad_index: u8,
     sample_path: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let sample_arc = if !sample_path.trim().is_empty() {
         if !PathBuf::from(&sample_path).exists() {
             return Err(format!("Sample path does not exist: {}", sample_path));
@@ -430,11 +496,17 @@ fn set_sample_rack_pad_sample_with_deltas_cmd(
     track_id: String,
     pad_index: u8,
     sample_path: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<SampleRackDeltaResponse, String> {
+) -> Result<SampleRackDeltaResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id)
         .map_err(|_| format!("Invalid track_id: {}", track_id))?;
     set_sample_rack_pad_sample_cmd(

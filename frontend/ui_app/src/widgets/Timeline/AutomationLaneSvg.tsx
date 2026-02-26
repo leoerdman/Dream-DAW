@@ -19,6 +19,7 @@ interface AutomationLaneSvgProps {
     lineWidth: number;
     fillOpacity: number;
     onSvgClick: (e: MouseEvent) => void;
+    onSvgDoubleClick: (e: MouseEvent) => void;
     onLineMouseDown: (e: MouseEvent, bpId: string) => void;
     onBpMouseDown: (e: MouseEvent, bpId: string) => void;
     onBpDblClick: (e: MouseEvent, bpId: string) => void;
@@ -47,6 +48,7 @@ export function AutomationLaneSvg({
     lineWidth,
     fillOpacity,
     onSvgClick,
+    onSvgDoubleClick,
     onLineMouseDown,
     onBpMouseDown,
     onBpDblClick,
@@ -62,6 +64,7 @@ export function AutomationLaneSvg({
             width={width}
             height={height}
             onClick={onSvgClick}
+            onDoubleClick={onSvgDoubleClick}
             style={{ position: 'absolute', top: 0, left: 0, cursor: 'crosshair', pointerEvents: 'all' }}
         >
             {automationItems.map((item) => {

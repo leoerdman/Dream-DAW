@@ -16,9 +16,15 @@ fn normalize_track_color_hex(color_hex: &str) -> Result<String, String> {
 async fn set_track_color_cmd(
     track_id: String,
     color_hex: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let normalized = normalize_track_color_hex(&color_hex)?;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
 
@@ -56,9 +62,15 @@ async fn set_track_color_cmd(
 async fn set_track_color_with_deltas_cmd(
     track_id: String,
     color_hex: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let normalized = normalize_track_color_hex(&color_hex)?;
 
@@ -128,12 +140,18 @@ fn refresh_runtime_after_track_topology_change(
 async fn create_group_cmd(
     track_ids: Vec<String>,
     group_name: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
         group_name,
@@ -171,12 +189,18 @@ struct CreateGroupWithDeltasResponse {
 async fn create_group_with_deltas_cmd(
     track_ids: Vec<String>,
     group_name: Option<String>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<CreateGroupWithDeltasResponse, String> {
+) -> Result<CreateGroupWithDeltasResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::CreateGroupCommand::from_str_track_ids(
         &track_ids,
         group_name,
@@ -237,9 +261,15 @@ async fn create_group_with_deltas_cmd(
 async fn set_group_expanded_cmd(
     group_id: String,
     expanded: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetGroupExpandedCommand::from_str_group_id(
         &group_id, expanded,
     )
@@ -257,9 +287,15 @@ async fn set_group_expanded_cmd(
 async fn set_group_expanded_with_deltas_cmd(
     group_id: String,
     expanded: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid =
         Uuid::parse_str(&group_id).map_err(|e| format!("Invalid group id: {e}"))?;
     set_group_expanded_cmd(group_id, expanded, project_state, app).await?;

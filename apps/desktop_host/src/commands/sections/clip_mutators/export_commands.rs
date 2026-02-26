@@ -91,11 +91,17 @@ fn export_quiescence_wait_ms(sample_rate_hz: f64) -> u64 {
 async fn export_mix_cmd(
     settings: ExportSettingsPayload,
     app: tauri::AppHandle,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-) -> Result<String, String> {
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state
         .project
         .lock()

@@ -203,9 +203,15 @@ async fn get_waveform_peaks_lod_binary(
 pub async fn get_peaks_by_clip_id(
     clip_id: String,
     lod_level: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<tauri::ipc::Response, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let clip_uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip_id: {e}"))?;
 
@@ -243,9 +249,15 @@ pub async fn get_peaks_by_clip_id(
 pub async fn get_peaks(
     clip_id: String,
     lod_level: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<tauri::ipc::Response, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }
 
@@ -256,8 +268,14 @@ pub async fn get_peaks(
 pub async fn get_peaks_binary(
     clip_id: String,
     lod_level: usize,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<tauri::ipc::Response, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     get_peaks_by_clip_id(clip_id, lod_level, project_state, clip_pool_state).await
 }

@@ -83,7 +83,7 @@ fn connect_midi_input(
                 // 3) armed non-master track
                 // 4) fallback track 0
                 let target_track = {
-                    let project_state: tauri::State<'_, ProjectState> = app_for_cb.state();
+                    let project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry> = app_for_cb.state();
                     match project_state.project.lock() {
                         Ok(project) => project
                             .tracks

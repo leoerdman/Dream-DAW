@@ -6,12 +6,18 @@
 /// into the current project. The current state is pushed onto redo.
 #[tauri::command]
 async fn undo_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
@@ -43,12 +49,18 @@ async fn undo_cmd(
 /// Undo and return a snapshot delta for deterministic frontend sync.
 #[tauri::command]
 async fn undo_with_deltas_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let previous = undo
@@ -93,12 +105,18 @@ async fn undo_with_deltas_cmd(
 /// swaps the redo snapshot into the project.
 #[tauri::command]
 async fn redo_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
@@ -132,12 +150,18 @@ async fn redo_cmd(
 /// Redo and return a snapshot delta for deterministic frontend sync.
 #[tauri::command]
 async fn redo_with_deltas_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let next = undo

@@ -2,10 +2,16 @@
 #[tauri::command]
 async fn start_recording_cmd(
     app: tauri::AppHandle,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     recording_runtime: tauri::State<'_, RecordingRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if recording_runtime
         .session
         .lock()
@@ -77,11 +83,17 @@ async fn start_recording_cmd(
 /// Stop recording, finalize file, and place resulting clip on armed track.
 #[tauri::command]
 async fn stop_recording_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     recording_runtime: tauri::State<'_, RecordingRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let session = recording_runtime
         .session
         .lock()

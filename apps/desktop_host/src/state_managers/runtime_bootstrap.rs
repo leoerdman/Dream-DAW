@@ -9,12 +9,12 @@ use dream_models::PlaybackState;
 use crate::settings::SettingsState;
 use crate::state_managers::{
     AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState,
-    ProjectState, RecordingRuntime, SpectrumState, SpectrumStateInner,
+    ProjectRegistry, ProjectState, RecordingRuntime, SpectrumState, SpectrumStateInner,
 };
 
 pub(crate) struct RuntimeBootstrap {
     pub(crate) engine_handle: AudioEngineHandle,
-    pub(crate) project_state: ProjectState,
+    pub(crate) project_registry: ProjectRegistry,
     pub(crate) clip_pool_state: ClipPoolState,
     pub(crate) settings_state: SettingsState,
     pub(crate) recording_runtime: RecordingRuntime,
@@ -256,9 +256,14 @@ pub(crate) fn initialize_runtime() -> Result<RuntimeBootstrap, String> {
         prealloc_producer: Mutex::new(prealloc_producer),
     };
 
+    let project_registry = ProjectRegistry::new();
+    let initial_project = Arc::new(std::sync::RwLock::new(ProjectState::new()));
+    project_registry.add_project(initial_project.clone());
+    project_registry.set_active_project(initial_project.read().unwrap().id);
+
     Ok(RuntimeBootstrap {
         engine_handle,
-        project_state: ProjectState::new(),
+        project_registry,
         clip_pool_state,
         settings_state,
         recording_runtime: RecordingRuntime::new(),

@@ -22,13 +22,10 @@ fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
     let _ = main_window.set_min_size(Some(min_size));
 
-    // 3. Maximize BEFORE showing to avoid visual stretching
-    let _ = main_window.maximize();
-
-    // 4. To give the Webview a split second to paint the new size *before* we show it,
-    // we can use show() but the exact moment of rendering depends on the OS composer.
+    // 3. Since we set "maximized": true in tauri.conf.json, the OS created this window
+    // at its maximum bounding box already. Wait for React to finish drawing to DOM.
     // By the time this Rust command runs, React has already mounted <Workspace />, 
-    // so `maximize` will stretch the DOM, and `show` will reveal the painted frame.
+    // and `show` will reveal the painted frame perfectly without a zoom animation.
     let _ = main_window.show();
     let _ = main_window.set_focus();
 

@@ -83,7 +83,7 @@ mod state_managers;
 pub use commands::payloads::*;
 pub(crate) use state_managers::{
     AudioEngineHandle, AutomationRuntime, ClipPoolState, MidiInputRuntime, PluginHostState,
-    ProjectState, RecordingRuntime, SpectrumState,
+    ProjectRegistry, ProjectState, RecordingRuntime, SpectrumState,
 };
 
 // ── Sync Engine & Snapshot Builders ─────────────────────────────────────
@@ -115,7 +115,7 @@ pub fn run() {
     env_logger::init();
     let state_managers::RuntimeBootstrap {
         engine_handle,
-        project_state,
+        project_registry,
         clip_pool_state,
         settings_state,
         recording_runtime,
@@ -136,7 +136,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(engine_handle)
-        .manage(project_state)
+        .manage(project_registry)
         .manage(clip_pool_state)
         .manage(settings_state)
         .manage(recording_runtime)

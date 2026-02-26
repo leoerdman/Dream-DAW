@@ -117,10 +117,9 @@ export const AutomationLane = memo(function AutomationLane({
     );
 
 
-    const handleSvgClick = useCallback(
+    const handleSvgDoubleClick = useCallback(
         (e: React.MouseEvent) => {
             if (draggingBp) return;
-            if (!e.shiftKey) return;
             const { beat, value } = pxToCoords(e.clientX, e.clientY);
             addBreakpoint(lane.id, beat, value);
             flushPointsToEngine();
@@ -261,7 +260,8 @@ export const AutomationLane = memo(function AutomationLane({
             bpRadiusHover={BP_RADIUS_HOVER}
             lineWidth={LINE_WIDTH}
             fillOpacity={FILL_OPACITY}
-            onSvgClick={handleSvgClick}
+            onSvgClick={() => { }} // Disabled single click background, strictly handles line tracking / node grabbing
+            onSvgDoubleClick={handleSvgDoubleClick}
             onLineMouseDown={handleLineMouseDown}
             onBpMouseDown={handleBpMouseDown}
             onBpDblClick={handleBpDblClick}

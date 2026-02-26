@@ -1,8 +1,14 @@
 /// Builds a lightweight routing DAG from current project and returns PDC diagnostics.
 #[tauri::command]
 fn get_pdc_debug_snapshot(
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<PdcDebugSnapshot, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<PdcDebugSnapshot, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     use dream_graph::{pdc, AudioNode, GraphBuilder, NodeId, NodeKind};
     use std::collections::HashMap;
 

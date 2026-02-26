@@ -2,9 +2,15 @@
 fn close_plugin_window_cmd(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let Some(slot) = slot_states.first() else {
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no matched slots");
@@ -64,9 +70,15 @@ fn close_plugin_window_for_slot(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 

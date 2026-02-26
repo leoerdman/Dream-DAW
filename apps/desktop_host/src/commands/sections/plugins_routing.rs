@@ -23,8 +23,14 @@ fn get_plugin_slot_runtime_status_cmd(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<PluginSlotRuntimeStatus, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<PluginSlotRuntimeStatus, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -174,9 +180,15 @@ fn ensure_plugin_slot_active_cmd(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -254,9 +266,15 @@ fn unload_plugin_slot_cmd(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot = execute_orchestrator_query(
@@ -293,11 +311,17 @@ struct ReplaceMissingPluginPayload {
 fn replace_missing_plugin_slot_impl(
     payload: ReplaceMissingPluginPayload,
     plugin_host_state: &tauri::State<'_, PluginHostState>,
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
     app: &tauri::AppHandle,
-) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String> {
+) -> Result<dream_orchestrator::commands::ReplaceMissingPluginSlotResult, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     let slot_uuid = Uuid::parse_str(&payload.slot_id)
@@ -407,11 +431,17 @@ fn replace_missing_plugin_slot_impl(
 fn replace_missing_plugin_slot_cmd(
     payload: ReplaceMissingPluginPayload,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let _ = replace_missing_plugin_slot_impl(
         payload,
         &plugin_host_state,
@@ -428,11 +458,17 @@ fn replace_missing_plugin_slot_cmd(
 fn replace_missing_plugin_slot_with_deltas_cmd(
     payload: ReplaceMissingPluginPayload,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_id_raw = payload.track_id.clone();
     let track_id = Uuid::parse_str(&track_id_raw)
         .map_err(|_| format!("Invalid track_id: {}", track_id_raw))?;

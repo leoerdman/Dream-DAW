@@ -2,11 +2,17 @@
 #[tauri::command]
 async fn paint_track_clips_with_track_color_cmd(
     track_id: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     push_undo(&project_state)?;
 
     let cmd = dream_orchestrator::commands::PaintTrackClipsWithTrackColorCommand::from_str_id(&track_id)
@@ -30,11 +36,17 @@ async fn paint_track_clips_with_track_color_cmd(
 #[tauri::command]
 async fn paint_track_clips_with_track_color_with_deltas_cmd(
     track_id: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid =
         Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track_id: {e}"))?;
     let before_colors = execute_orchestrator_query(
@@ -83,10 +95,16 @@ async fn paint_track_clips_with_track_color_with_deltas_cmd(
 async fn resolve_missing_file_cmd(
     clip_id: String,
     new_path: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -121,10 +139,16 @@ async fn resolve_missing_file_cmd(
 async fn resolve_missing_file_with_deltas_cmd(
     clip_id: String,
     new_path: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     if !PathBuf::from(&new_path).exists() {
         return Err(format!("Resolved file does not exist: {new_path}"));
     }
@@ -171,10 +195,16 @@ async fn set_automation_points_cmd(
     track_id: String,
     param_id: String,
     points: Vec<AutomationPointPayload>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let persistent_points = points
         .iter()
         .map(|p| dream_models::project::AutomationPoint {
@@ -214,10 +244,16 @@ async fn set_automation_points_with_deltas_cmd(
     track_id: String,
     param_id: String,
     points: Vec<AutomationPointPayload>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let normalized_param_id = param_id.trim().to_string();
 
@@ -256,9 +292,15 @@ async fn set_automation_points_with_deltas_cmd(
 async fn arm_track_cmd(
     track_index: usize,
     armed: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let cmd = dream_orchestrator::commands::SetTrackArmedCommand { track_index, armed };
 
     execute_orchestrator_command(&project_state, &cmd)?;
@@ -270,9 +312,15 @@ async fn arm_track_cmd(
 async fn arm_track_with_deltas_cmd(
     track_index: usize,
     armed: bool,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<DeltaMutationResponse, String> {
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     arm_track_cmd(track_index, armed, project_state, app).await?;
 
     Ok(DeltaMutationResponse {

@@ -25,9 +25,15 @@ fn load_descriptor_in_process(
 }
 
 fn resolve_plugin_slot_states_by_plugin_id(
-    project_state: &tauri::State<'_, ProjectState>,
+    project_registry: &tauri::State<'_, crate::state_managers::ProjectRegistry>,
     plugin_id: &str,
-) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String> {
+) -> Result<Vec<dream_orchestrator::queries::PluginSlotState>, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     execute_orchestrator_query(
         project_state,
         &dream_orchestrator::queries::ResolvePluginSlotsByPluginIdQuery {
@@ -40,10 +46,16 @@ fn resolve_plugin_slot_states_by_plugin_id(
 fn open_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     plugin_host_state.try_enable_sandbox_if_available();
     let slot_states = resolve_plugin_slot_states_by_plugin_id(&project_state, &plugin_id)?;
     let Some(slot) = slot_states.first().cloned() else {
@@ -90,10 +102,16 @@ fn open_plugin_window_for_slot(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 

@@ -20,10 +20,16 @@ fn get_state(handle: tauri::State<'_, AudioEngineHandle>) -> Result<EngineStateR
 /// Returns recent project mutation events (append-only in-memory history).
 #[tauri::command]
 fn get_project_history(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     limit: Option<usize>,
     since_seq: Option<u64>,
-) -> Result<Vec<ProjectHistoryEvent>, String> {
+) -> Result<Vec<ProjectHistoryEvent>, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     project_state.history_snapshot(limit, since_seq)
 }
 
@@ -34,8 +40,14 @@ fn get_project_history(
 /// silent state desynchronization when old clients call this command.
 #[tauri::command]
 fn get_project_snapshot_delta(
-    _project_state: tauri::State<'_, ProjectState>,
-) -> Result<DeltaMutationResponse, String> {
+    _project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<DeltaMutationResponse, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     Err("get_project_snapshot_delta is disabled in strict delta mode".to_string())
 }
 
@@ -43,9 +55,15 @@ fn get_project_snapshot_delta(
 /// source -> instrument/effects -> track routing -> group -> master.
 #[tauri::command]
 fn get_audio_chain_audit(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<AudioChainAuditPayload, String> {
+) -> Result<AudioChainAuditPayload, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     use std::collections::{HashMap, HashSet};
 
     let project = project_state

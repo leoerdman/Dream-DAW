@@ -7,8 +7,14 @@
 #[tauri::command]
 fn get_transport(
     handle: tauri::State<'_, AudioEngineHandle>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<TransportState, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<TransportState, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let state = handle

@@ -20,8 +20,14 @@ fn fallback_external_param_block(metadata_count: usize) -> Vec<ExternalPluginPar
 fn get_external_plugin_params(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<Vec<ExternalPluginParamInfo>, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<Vec<ExternalPluginParamInfo>, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let hints = execute_orchestrator_query(
         &project_state,
         &dream_orchestrator::queries::ResolvePluginParamHintsQuery {
@@ -101,9 +107,15 @@ fn get_external_plugin_params_for_slot(
     track_id: String,
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     _clip_pool_state: tauri::State<'_, ClipPoolState>,
-) -> Result<Vec<ExternalPluginParamInfo>, String> {
+) -> Result<Vec<ExternalPluginParamInfo>, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
     let slot_state = execute_orchestrator_query(

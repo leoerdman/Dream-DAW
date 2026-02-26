@@ -5,8 +5,14 @@
 /// Returns the path to the backup file, or an error if no project folder is set.
 #[tauri::command]
 fn create_backup_cmd(
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<String, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
 
@@ -27,9 +33,15 @@ fn create_backup_cmd(
 /// tracked by a backend mutation (e.g., view state changes).
 #[tauri::command]
 fn mark_dirty_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let name = project.name.clone();
     drop(project);
@@ -43,9 +55,15 @@ fn mark_dirty_cmd(
 /// accurately reflects whether there are unsaved changes.
 #[tauri::command]
 fn sync_title_cmd(
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let name = project.name.clone();
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
@@ -64,8 +82,14 @@ fn sync_title_cmd(
 /// Returns the project-level notes (annotation) text.
 #[tauri::command]
 fn get_project_notes(
-    project_state: tauri::State<'_, ProjectState>,
-) -> Result<String, String> {
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
+) -> Result<String, String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     Ok(project.annotation.clone())
 }
@@ -74,9 +98,15 @@ fn get_project_notes(
 #[tauri::command]
 fn set_project_notes(
     text: String,
-    project_state: tauri::State<'_, ProjectState>,
+    project_registry: tauri::State<'_, crate::state_managers::ProjectRegistry>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), String>  {
+    let active_project_arc = match project_registry.get_active_project() {
+        Some(p) => p,
+        None => return Err("No active project".to_string());
+    };
+    let project_state_guard = active_project_arc.read().unwrap();
+    let project_state: &crate::state_managers::ProjectState = &*project_state_guard;
     {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         // Only mutate if the text actually changed.

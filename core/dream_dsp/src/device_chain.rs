@@ -23,8 +23,17 @@ use crate::device_slot::{
 };
 use crate::dsp_processor::BuiltinEffectType;
 
-/// Maximum number of device slots per chain (effects + instruments).
-pub const MAX_DEVICE_SLOTS: usize = 16;
+/// Default initial capacity for device slots per chain.
+/// This is NOT a hard limit — chains grow dynamically as needed.
+/// The value 16 is chosen as a reasonable pre-allocation for typical
+/// projects, avoiding reallocation in most cases while allowing
+/// unlimited growth for power users (100+ effects per track).
+pub const DEFAULT_DEVICE_SLOT_CAPACITY: usize = 16;
+
+/// Legacy alias for backward compatibility.
+/// Code that referenced MAX_DEVICE_SLOTS for capacity hints still compiles.
+/// **This is NOT a hard limit** — use it only as a capacity hint.
+pub const MAX_DEVICE_SLOTS: usize = DEFAULT_DEVICE_SLOT_CAPACITY;
 
 /// Per-track device chain.
 ///
@@ -42,7 +51,7 @@ impl DeviceChain {
     /// Creates a new empty device chain.
     pub fn new(sample_rate: f32) -> Self {
         Self {
-            slots: Vec::with_capacity(MAX_DEVICE_SLOTS),
+            slots: Vec::with_capacity(DEFAULT_DEVICE_SLOT_CAPACITY),
             sample_rate,
         }
     }
@@ -78,14 +87,13 @@ impl DeviceChain {
     /// Adds any device at the specified slot index.
     ///
     /// If `slot_index` exceeds the current count, the device is appended.
-    /// If the chain is full (`MAX_DEVICE_SLOTS` slots), the call is ignored.
+    /// There is **no hard limit** on the number of devices per chain —
+    /// the Vec grows dynamically. Enterprise DAWs like Ableton and Reaper
+    /// have no per-track effect limits, and neither do we.
     ///
     /// # Returns
-    /// `true` if the device was added successfully.
+    /// `true` always (device is always added successfully).
     pub fn add_device(&mut self, slot_index: usize, device: Box<dyn DeviceProcessor>) -> bool {
-        if self.slots.len() >= MAX_DEVICE_SLOTS {
-            return false;
-        }
         let idx = slot_index.min(self.slots.len());
         self.slots.insert(idx, device);
         true
@@ -312,13 +320,17 @@ mod tests {
     }
 
     #[test]
-    fn max_slots_enforced() {
+    fn unlimited_slots_growth() {
         let mut chain = DeviceChain::new(44100.0);
-        for _ in 0..MAX_DEVICE_SLOTS {
+        // Enterprise: no hard cap — chains grow beyond DEFAULT_DEVICE_SLOT_CAPACITY.
+        let target = DEFAULT_DEVICE_SLOT_CAPACITY * 3; // 48 effects
+        for _ in 0..target {
             assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
         }
-        assert_eq!(chain.slot_count(), MAX_DEVICE_SLOTS);
-        assert!(!chain.add_builtin_effect(0, BuiltinEffectType::Utility));
+        assert_eq!(chain.slot_count(), target);
+        // Still accepts more:
+        assert!(chain.add_builtin_effect(0, BuiltinEffectType::Utility));
+        assert_eq!(chain.slot_count(), target + 1);
     }
 
     #[test]

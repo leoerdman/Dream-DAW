@@ -370,6 +370,7 @@ export const DawShell = () => {
         selectedClipIds: selectedClipIdsForView,
         timelineClipsForView,
         queuedStartBeatRef,
+        editCursorBeat,
     });
     const {
         dropBrowserItemOnTimeline,

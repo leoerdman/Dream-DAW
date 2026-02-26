@@ -242,7 +242,7 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // via the lock-free SPSC prealloc queue. We drain them into
                         // deferred_topology as AddDevice — zero heap alloc.
                         while let Ok(prebuilt) = prealloc_consumer.pop() {
-                            if deferred_topology.len() >= 1024 {
+                            if deferred_topology.len() >= 4096 {
                                 let _ = deferred_topology.pop_front();
                             }
                             deferred_topology.push_back(

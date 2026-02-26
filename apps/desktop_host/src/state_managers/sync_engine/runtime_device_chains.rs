@@ -12,7 +12,7 @@ pub fn rebuild_runtime_device_chains_from_project(
     project: &Project,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
-    const MAX_DEVICE_SLOTS: usize = dream_dsp::device_chain::MAX_DEVICE_SLOTS;
+    // MAX_DEVICE_SLOTS is no longer used for truncation — chains grow dynamically.
     fn apply_static_imported_params_for_slot(
         handle: &AudioEngineHandle,
         track_index: u16,
@@ -692,17 +692,8 @@ pub fn rebuild_runtime_device_chains_from_project(
                     .map(|effect_type| (effect_type, entry))
             })
             .collect();
-        if runtime_effects.len() > MAX_DEVICE_SLOTS as usize {
-            log::warn!(
-                "[RuntimeChain] track '{}' has {} internal effects; truncating to {} slots",
-                track.name,
-                runtime_effects.len(),
-                MAX_DEVICE_SLOTS
-            );
-        }
         for (slot_index, (effect_type, entry)) in runtime_effects
             .into_iter()
-            .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
             let ti = track_index as u16;
@@ -815,7 +806,6 @@ pub fn rebuild_runtime_device_chains_from_project(
             .collect();
         for (slot_index, (effect_type, entry)) in master_runtime_effects
             .into_iter()
-            .take(MAX_DEVICE_SLOTS as usize)
             .enumerate()
         {
             push_prealloc_device(

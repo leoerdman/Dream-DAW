@@ -114,6 +114,13 @@ export function useDawShellGlobalShortcuts(args: {
                 e.preventDefault();
                 useAutomationStore.getState().toggleGlobalVisible();
             }
+            // Global Cmd/Ctrl+F: Focus browser search from anywhere in the DAW.
+            if (isMod(e) && !e.shiftKey && !e.altKey && (e.code === 'KeyF' || (typeof e.key === 'string' && e.key.toLowerCase() === 'f'))) {
+                if (isEditableTarget(e.target)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent('dream:browser-focus-search', { detail: {} }));
+            }
         };
         window.addEventListener('keydown', handler, { capture: true });
         return () => {

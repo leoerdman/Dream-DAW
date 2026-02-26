@@ -543,7 +543,7 @@ pub(super) fn drain_commands(
                 slot_index,
                 effect_type,
             } => {
-                if ctx.deferred_topology.len() >= 1024 {
+                if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }
@@ -557,7 +557,7 @@ pub(super) fn drain_commands(
                 track_index,
                 slot_index,
             } => {
-                if ctx.deferred_topology.len() >= 1024 {
+                if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }
@@ -572,7 +572,7 @@ pub(super) fn drain_commands(
                 from_slot,
                 to_slot,
             } => {
-                if ctx.deferred_topology.len() >= 1024 {
+                if ctx.deferred_topology.len() >= 4096 {
                     ctx.rt_debug_stats.record_topology_overflow();
                     let _ = ctx.deferred_topology.pop_front();
                 }

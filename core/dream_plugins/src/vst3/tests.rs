@@ -96,15 +96,19 @@ fn plugin_host_creation() {
 }
 
 #[test]
-fn vst3_process_without_activation_fails() {
+fn vst3_process_without_activation_passthroughs() {
+    // BUF-R03: Inactive plugin now does dry passthrough (Ok) instead of
+    // returning Err(InvalidState), which avoided an RT-unsafe String allocation.
     let desc = make_test_descriptor();
     let mut stub = Vst3Instance::stub(desc, 0);
 
-    let input = vec![0.0f32; 64];
+    let input = vec![0.42f32; 64];
     let mut output = vec![0.0f32; 64];
 
     let result = stub.process(&[&input], &mut [&mut output], 64, &[]);
-    assert!(matches!(result, Err(PluginError::InvalidState(_))));
+    assert!(result.is_ok(), "inactive plugin should passthrough, not error");
+    // Verify passthrough: output should contain input
+    assert_eq!(output[0], 0.42);
 }
 
 #[test]

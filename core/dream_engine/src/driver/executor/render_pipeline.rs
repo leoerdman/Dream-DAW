@@ -213,6 +213,14 @@ pub(super) fn process_master_bus(
         );
     }
 
+    // BUF-J02 FIX: Snap gain closer on large jumps (> 6dB / ±50%).
+    // Exponential smoothing converges slowly for large deltas (e.g. mute/unmute).
+    // Pre-snap to halve the distance, then let per-sample smoothing do the rest.
+    let delta = (master_gain_target - *master_gain_current).abs();
+    if delta > 0.5 {
+        *master_gain_current += (master_gain_target - *master_gain_current) * 0.5;
+    }
+
     for i in 0..n {
         *master_gain_current += (master_gain_target - *master_gain_current) * master_gain_smooth;
         graph_out_left[i] *= *master_gain_current;

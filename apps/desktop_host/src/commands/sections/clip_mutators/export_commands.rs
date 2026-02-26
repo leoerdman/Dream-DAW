@@ -357,8 +357,12 @@ async fn export_mix_cmd(
     // in the next callback cycle. After this, the RT callback will skip
     // all try_lock() calls on shared PluginInstanceArc objects.
     push_command(&handle, EngineCommand::SetExportActive(true))?;
-    // Brief wait for the RT callback to drain the SetExportActive command.
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    // BUF-E04 FIX: Adaptive wait for the RT callback to drain SetExportActive.
+    // The old hardcoded 50ms was insufficient at high buffer sizes (e.g.
+    // 8192 frames @ 44.1kHz = 186ms callback period). Now uses the same
+    // adaptive quiescence calculation to ensure at least one full callback.
+    let export_active_wait = export_quiescence_wait_ms(project.sample_rate.max(1.0));
+    std::thread::sleep(std::time::Duration::from_millis(export_active_wait));
 
     // Ensure plugins are reactivated for the offline export processing format.
     // MUST happen AFTER stopping playback — the RT thread must not be calling

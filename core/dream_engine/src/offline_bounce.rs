@@ -1824,9 +1824,14 @@ impl OfflineRenderer {
             &project.master_track.effects,
         );
 
+        // BUF-M05 FIX: Allocate extra tail frames for reverb/delay decay.
+        // 2 seconds of extra processing at project SR, capped to avoid OOM.
+        let max_tail_frames = (project_sr as usize * 2).min(384000);
+        let total_with_tail = total_frames + max_tail_frames;
+
         // Single-pass render into contiguous RAM at Project SR
-        let mut mix_l = vec![0.0f32; total_frames];
-        let mut mix_r = vec![0.0f32; total_frames];
+        let mut mix_l = vec![0.0f32; total_with_tail];
+        let mut mix_r = vec![0.0f32; total_with_tail];
         let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
         // CRACKLE-FIX-4: Pre-allocate VST output scratch buffers outside the
         // render loop. Previously, `vec![0.0; c]` was allocated per-slot per-chunk,
@@ -1953,6 +1958,65 @@ impl OfflineRenderer {
                 progress_callback(progress.min(1.0));
                 last_progress = progress;
             }
+        }
+
+        // BUF-M05 FIX: Render tail frames to capture reverb/delay decay.
+        // Continue processing with silence input until tail is either exhausted
+        // or output falls below -96dB (silence threshold).
+        let mut tail_rendered = 0usize;
+        let silence_threshold: f32 = 1e-5; // ~-100dB
+        while tail_rendered < max_tail_frames {
+            if self.cancel_flag.load(Ordering::SeqCst) {
+                break;
+            }
+            let chunk_frames = (max_tail_frames - tail_rendered).min(OFFLINE_BUFFER_FRAMES);
+            let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+            interleaved_buf[..chunk_samples].fill(0.0);
+
+            // Process master FX chain on silence to generate tail output
+            let process_ctx_tail = dream_dsp::device_slot::ProcessContext {
+                sample_rate: project_sr as f32,
+                playhead_frames: (self.config.end_frame as i64) + tail_rendered as i64,
+                tempo: self.config.bpm,
+                is_playing: false,
+                time_sig_numerator: project.time_signature.numerator.max(1),
+                time_sig_denominator: project.time_signature.denominator.max(1),
+            };
+            let _ = process_ctx_tail; // Silence warning if unused below
+
+            // Apply master device chain on the silence buffer for tail
+            let tail_start = total_frames + tail_rendered;
+            let tail_end = (tail_start + chunk_frames).min(total_with_tail);
+            let actual = tail_end - tail_start;
+            if actual == 0 { break; }
+
+            // Use mix_l/mix_r directly (already zeroed) to avoid allocation
+            let tail_slice_l = &mut mix_l[tail_start..tail_end];
+            let tail_slice_r = &mut mix_r[tail_start..tail_end];
+
+            if !master_device_chain.is_empty() {
+                master_device_chain.process_stereo(
+                    tail_slice_l,
+                    tail_slice_r,
+                    project_sr as f32,
+                );
+            }
+
+            // Check if tail is still audible
+            let peak_l: f32 = tail_slice_l.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            let peak_r: f32 = tail_slice_r.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+
+            if peak_l < silence_threshold && peak_r < silence_threshold {
+                break; // Tail has decayed to silence
+            }
+
+            tail_rendered += chunk_frames;
+        }
+
+        // Update effective total with actual tail length
+        let total_frames = total_frames + tail_rendered;
+        if tail_rendered > 0 {
+            info!("[Bounce] Rendered {} tail frames ({:.2}s)", tail_rendered, tail_rendered as f64 / project_sr);
         }
 
         info!("[Bounce] Phase 2: Gain / Normalization");

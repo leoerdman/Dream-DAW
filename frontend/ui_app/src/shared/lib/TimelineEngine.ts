@@ -717,6 +717,8 @@ export class TimelineEngine {
                 const clipStart = clip.startBeat;
                 const clipEnd = clip.startBeat + clip.durationBeats;
                 if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
+                // Skip clips on hidden (zero-height) tracks — e.g. collapsed group children
+                if (this._viewport.trackHeightAt(clip.trackIndex) <= 0) return false;
                 return clipEnd > minBeat && clipStart < maxBeat;
             })
             .map((clip) => clip.id);
@@ -1518,10 +1520,14 @@ export class TimelineEngine {
             }
 
             case DragMode.MarqueeSelect: {
-                const minBeat = Math.min(this._drag.startBeat, this._drag.currentBeat);
-                const maxBeat = Math.max(this._drag.startBeat, this._drag.currentBeat);
-                const minTrack = Math.min(this._drag.startTrack, this._drag.currentTrack);
-                const maxTrack = Math.max(this._drag.startTrack, this._drag.currentTrack);
+                // Recompute from mouseup event to avoid stale coordinates from last mousemove
+                const upWorld = this._clientToWorld(e.clientX, e.clientY);
+                const upBeat = this._snapBeat(Math.max(0, upWorld.beat));
+                const upTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, upWorld.trackIndex));
+                const minBeat = Math.min(this._drag.startBeat, upBeat);
+                const maxBeat = Math.max(this._drag.startBeat, upBeat);
+                const minTrack = Math.min(this._drag.startTrack, upTrack);
+                const maxTrack = Math.max(this._drag.startTrack, upTrack);
                 const isVerticalLine = Math.abs(maxBeat - minBeat) <= 1e-6 && minTrack !== maxTrack;
                 const moved =
                     Math.abs(maxBeat - minBeat) >= 1e-6 || minTrack !== maxTrack;

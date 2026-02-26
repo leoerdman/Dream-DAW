@@ -312,8 +312,14 @@ impl PluginInstance for Vst3Instance {
         midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.is_active {
-            // BUG-RT3 FIX: Use static str to avoid heap allocation on the RT audio thread.
-            return Err(PluginError::InvalidState("Plugin not active".into()));
+            // BUF-R03 FIX: Dry passthrough instead of allocating a String error.
+            // Copies input → output in-place. Zero heap allocation on RT thread.
+            let ch = inputs.len().min(outputs.len());
+            for c in 0..ch {
+                let n = num_frames.min(inputs[c].len()).min(outputs[c].len());
+                outputs[c][..n].copy_from_slice(&inputs[c][..n]);
+            }
+            return Ok(());
         }
 
         if self.com_initialized && self.processor_ptr != 0 {

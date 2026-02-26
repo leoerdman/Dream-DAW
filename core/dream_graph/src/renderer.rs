@@ -587,6 +587,18 @@ impl GraphRenderer {
             NodeKind::MasterOutput => {}
         }
 
+        // BUF-G06 FIX: Sanitize NaN/Inf after each node processes.
+        // A single bad plugin or DSP returning NaN/Inf would otherwise
+        // poison ALL downstream nodes via mix_from summation.
+        for i in 0..frame_count {
+            if !buf.left[i].is_finite() {
+                buf.left[i] = 0.0;
+            }
+            if !buf.right[i].is_finite() {
+                buf.right[i] = 0.0;
+            }
+        }
+
         if matches!(&node.kind, NodeKind::MasterOutput) {
             self.copy_master_output(node_idx, output_left, output_right, frame_count);
         }

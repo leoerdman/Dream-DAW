@@ -72,6 +72,13 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 filePath: status.filePath,
                 projectFolder: status.projectFolder,
             }));
+
+            if (status.isDirty) {
+                useEngineStore.getState().markDirty();
+            } else {
+                useEngineStore.getState().clearDirty();
+            }
+
             // Sync window title with dirty state (adds/removes *)
             await engineApi.syncTitle();
         } catch (err) {

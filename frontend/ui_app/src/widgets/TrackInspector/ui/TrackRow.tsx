@@ -152,8 +152,7 @@ export const TrackRow = ({
                             ? 'color-mix(in srgb, var(--color-text-primary) 8%, var(--surface-1))'
                             : 'var(--surface-1)',
                 cursor: 'default',
-                opacity: isActive ? 1 : 0.45,
-                transition: `background var(--transition-linear), opacity var(--transition-linear)`,
+                transition: `background var(--transition-linear)`,
                 position: 'relative',
                 flexShrink: 0,
                 boxSizing: 'border-box',
@@ -178,6 +177,7 @@ export const TrackRow = ({
                 groupRailColor={groupRailColor}
                 layout={layout}
                 mixerFocusMode={mixerFocusMode}
+                isActive={isActive}
                 onRenameChange={onRenameChange}
                 onRenameCommit={onRenameCommit}
                 onRenameCancel={onRenameCancel}

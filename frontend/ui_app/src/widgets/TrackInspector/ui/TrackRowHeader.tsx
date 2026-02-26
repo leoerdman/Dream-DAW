@@ -16,6 +16,7 @@ interface TrackRowHeaderProps {
     groupRailColor: string;
     layout: TrackRowLayoutMetrics;
     mixerFocusMode: boolean;
+    isActive: boolean;
     onRenameChange: (v: string) => void;
     onRenameCommit: () => void;
     onRenameCancel: () => void;
@@ -36,6 +37,7 @@ export function TrackRowHeader({
     groupRailColor,
     layout,
     mixerFocusMode,
+    isActive,
     onRenameChange,
     onRenameCommit,
     onRenameCancel,
@@ -76,6 +78,8 @@ export function TrackRowHeader({
                 borderRight: 'var(--space-px) solid var(--color-border-subtle)',
                 boxSizing: 'border-box',
                 cursor: !isMaster ? 'grab' : 'default',
+                opacity: isActive ? 1 : 0.45,
+                transition: 'opacity var(--transition-linear)',
             }}
         >
             {stripeW > 0 && (

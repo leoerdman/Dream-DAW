@@ -12,27 +12,65 @@ const FADER_SCALE_NODES = FADER_SCALE_VALS.map(val => (
     </div>
 ));
 
+const LABEL_STYLE: React.CSSProperties = { fontSize: '9px', fontWeight: 600, color: '#979797', textTransform: 'uppercase', marginBottom: 2 };
+const SELECT_STYLE: React.CSSProperties = {
+    width: '100%',
+    height: 16,
+    borderRadius: 2,
+    border: 'none',
+    background: '#1c1c1c',
+    color: '#d0d0d0',
+    fontSize: '9px',
+    padding: '0 4px',
+    cursor: 'pointer',
+    outline: 'none',
+    boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.5)',
+};
+
 export function SessionIoRow({ label, value }: { label: string; value: string }) {
     return (
-        <label style={{ display: 'grid', gap: 2 }}>
-            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>{label}</span>
+        <label style={{ display: 'grid', gap: 0, marginBottom: 2 }}>
+            <span style={LABEL_STYLE}>{label}</span>
             <select
                 value={value}
                 onChange={() => { /* routing apply follows dedicated inspector pipeline */ }}
-                style={{
-                    width: '100%',
-                    height: 20,
-                    borderRadius: 'var(--radius-sm)',
-                    border: 'var(--space-px) solid var(--color-overlay-medium)',
-                    background: 'var(--color-bg-header)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--font-size-2xs)',
-                    padding: '0 var(--space-1)',
-                }}
+                style={SELECT_STYLE}
             >
                 <option value={value}>{value}</option>
             </select>
         </label>
+    );
+}
+
+export function SessionMonitorRow({ value, onChange }: { value: 'In' | 'Auto' | 'Off'; onChange?: (v: 'In' | 'Auto' | 'Off') => void }) {
+    return (
+        <div style={{ display: 'grid', gap: 0, marginBottom: 2 }}>
+            <span style={LABEL_STYLE}>Monitor</span>
+            <div style={{ display: 'flex', height: 16, borderRadius: 2, overflow: 'hidden', boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.5)', background: '#1c1c1c' }}>
+                {(['In', 'Auto', 'Off'] as const).map(mode => {
+                    const isActive = value === mode;
+                    return (
+                        <button
+                            key={mode}
+                            type="button"
+                            onClick={() => onChange?.(mode)}
+                            style={{
+                                flex: 1,
+                                height: '100%',
+                                border: 'none',
+                                background: isActive ? '#e08031' : 'transparent',
+                                color: isActive ? '#000' : '#8c8c8c',
+                                fontSize: '9px',
+                                fontWeight: isActive ? 700 : 600,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            {mode}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
@@ -135,73 +173,39 @@ function SessionStripFaderInner({
     const peakText = isFinite(maxDbLabel) && maxDbLabel > -60 ? `${maxDbLabel > 0 ? '+' : ''}${maxDbLabel.toFixed(1)}` : '-inf';
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, height: '100%', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, height: '100%', alignItems: 'center' }}>
 
-            {/* PAN KNOB SECTION */}
-            <div
-                style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 38,
-                    height: 38,
-                    opacity: panDisabled ? 0.4 : 1,
-                    position: 'relative'
-                }}
-            >
-                {/* Numeric readout overlaps top */}
-                <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--color-text-secondary)', position: 'absolute', top: -14 }}>
-                    {Math.abs(pan) < 0.01 ? 'C' : `${Math.round(Math.abs(pan * 50))}${pan < 0 ? 'L' : 'R'}`}
-                </span>
-                <div
-                    ref={panRef}
-                    onPointerDown={handlePanPointerDown}
-                    onPointerMove={handlePanPointerMove}
-                    onPointerUp={handlePanPointerUp}
-                    onPointerCancel={handlePanPointerUp}
-                    onDoubleClick={() => !panDisabled && onPanChange(0)}
-                    style={{
-                        width: 28, height: 28,
-                        borderRadius: '50%',
-                        border: `1px solid ${BORDER_COLOR}`,
-                        background: 'color-mix(in srgb, var(--color-bg-elevated) 80%, black)',
-                        position: 'relative',
-                        cursor: panDisabled ? 'default' : 'ns-resize',
-                        boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.05), 0 2px 4px rgba(0,0,0,0.5)',
-                        transform: `rotate(${panAngle}deg)`
-                    }}
-                >
-                    <div style={{ position: 'absolute', top: 2, left: 13, width: 2, height: 8, background: 'var(--color-accent-primary)', borderRadius: 1 }} />
-                </div>
-            </div>
-
-            {/* NUMERIC VOLUME TEXT BOX */}
+            {/* NUMERIC VOLUME TEXT BOXES (TOP OF FADER IN ABLETON) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 2 }}>
-                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-text-primary)', fontSize: '10px', fontWeight: 600, textAlign: 'center', flex: 1, padding: '2px 0' }}>
+                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-text-primary)', fontSize: '9px', fontWeight: 600, textAlign: 'center', flex: 1, padding: '1px 0' }}>
                     {formatDb(volumeDb)}
                 </div>
-                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-status-success)', fontSize: '10px', textAlign: 'center', flex: 1, padding: '2px 0' }}>
+                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-status-success)', fontSize: '9px', textAlign: 'center', flex: 1, padding: '1px 0' }}>
                     {peakText}
                 </div>
             </div>
 
             {/* FADER AND METER SECTION */}
-            <div style={{ display: 'flex', flex: 1, width: '100%', gap: 4 }}>
+            <div style={{ display: 'flex', flex: 1, width: '100%', gap: 2 }}>
 
                 {/* FADER SCALE LABELS */}
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '9px', color: 'var(--color-text-tertiary)', paddingTop: 1, paddingBottom: 1, position: 'relative', width: 14 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '9px', color: '#666', paddingTop: 1, paddingBottom: 1, position: 'relative', width: 14 }}>
                     {FADER_SCALE_NODES}
                 </div>
 
+                {/* STEREO METER */}
+                <MeterStrip
+                    levelL={meterL}
+                    levelR={meterR}
+                    width={10}
+                    style={{ alignSelf: 'stretch', background: '#111', border: `1px solid #1c1c1c`, borderRadius: 1 }}
+                />
+
                 {/* FADER TRACK */}
                 <div style={{
-                    flex: 1,
-                    minWidth: 16,
-                    background: '#161616',
-                    border: `1px solid ${BORDER_COLOR}`,
-                    borderRadius: 2,
+                    width: 7,
                     position: 'relative',
+                    marginLeft: 1,
                 }}>
                     <div
                         ref={faderRef}
@@ -232,34 +236,47 @@ function SessionStripFaderInner({
                         }}
                     >
                         {/* 0dB Marker Line */}
-                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 2, background: 'rgba(255,255,255,0.1)' }} />
+                        <div style={{ position: 'absolute', left: -10, right: 0, bottom: `${clamp01(dbToFader(0)) * 100}%`, height: 1, background: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }} />
 
-                        {/* Volume Fill */}
+                        {/* Thumb (Ableton Triangle) */}
                         <div style={{
-                            position: 'absolute', left: 1, right: 1, bottom: 1,
-                            height: `calc(${volNorm * 100}% - 2px)`,
-                            background: '#3d3d3d',
-                            pointerEvents: 'none'
-                        }} />
-
-                        {/* Thumb (Cap) */}
-                        <div style={{
-                            position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 4px)`,
-                            height: 8, background: '#a0a0a0',
-                            borderRadius: 1, borderTop: '2px solid #fff', borderBottom: '2px solid #555',
+                            position: 'absolute', left: 0, bottom: `calc(${volNorm * 100}% - 4px)`,
+                            width: 0,
+                            height: 0,
+                            borderTop: '4px solid transparent',
+                            borderBottom: '4px solid transparent',
+                            borderRight: '6px solid #b0b0b0',
                             pointerEvents: 'none',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.5)'
                         }} />
                     </div>
                 </div>
+            </div>
 
-                {/* STEREO METER */}
-                <MeterStrip
-                    levelL={meterL}
-                    levelR={meterR}
-                    width={8}
-                    style={{ alignSelf: 'stretch', background: '#111', border: `1px solid ${BORDER_COLOR}` }}
-                />
+            {/* PAN BOX (ABLETON 11 STYLE) */}
+            <div style={{ width: '100%', marginBottom: 2 }}>
+                <div style={{ background: '#1c1c1c', border: `1px solid ${BORDER_COLOR}`, color: 'var(--color-text-primary)', fontSize: '9px', fontWeight: 600, textAlign: 'center', padding: '1px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: panDisabled ? 0.4 : 1 }}>
+                    <div
+                        ref={panRef}
+                        onPointerDown={handlePanPointerDown}
+                        onPointerMove={handlePanPointerMove}
+                        onPointerUp={handlePanPointerUp}
+                        onPointerCancel={handlePanPointerUp}
+                        onDoubleClick={() => !panDisabled && onPanChange(0)}
+                        style={{
+                            width: 16, height: 16,
+                            borderRadius: '50%',
+                            background: '#2c2c2c',
+                            border: '1px solid #111',
+                            position: 'relative',
+                            cursor: panDisabled ? 'default' : 'ns-resize',
+                            marginRight: 4,
+                            transform: `rotate(${panAngle}deg)`
+                        }}
+                    >
+                        <div style={{ position: 'absolute', top: 1, left: 7, width: 1, height: 6, background: '#eac92b', borderRadius: 1 }} />
+                    </div>
+                    <span>{Math.abs(pan) < 0.01 ? 'C' : `${Math.round(Math.abs(pan * 50))}${pan < 0 ? 'L' : 'R'}`}</span>
+                </div>
             </div>
 
             {/* ABLETON ACTIVATORS */}
@@ -269,12 +286,12 @@ function SessionStripFaderInner({
                         type="button"
                         onClick={() => setTrackDisabled(!trackDisabled)}
                         style={{
-                            height: 18,
+                            height: 16,
                             background: !trackDisabled ? '#eac92b' : '#3d3d3d',
                             color: !trackDisabled ? '#000' : '#8c8c8c',
-                            border: `1px solid ${BORDER_COLOR}`,
+                            border: `none`,
                             borderRadius: '1px',
-                            fontSize: '10px',
+                            fontSize: '9px',
                             fontWeight: 800,
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}
@@ -287,12 +304,14 @@ function SessionStripFaderInner({
                             onClick={() => setTrackSolo(!trackSolo)}
                             style={{
                                 flex: 1,
+                                height: 16,
                                 background: trackSolo ? '#358aff' : '#3d3d3d',
-                                color: trackSolo ? '#fff' : '#8c8c8c',
-                                border: `1px solid ${BORDER_COLOR}`,
+                                color: trackSolo ? '#000' : '#8c8c8c',
+                                border: 'none',
                                 borderRadius: '1px',
-                                fontSize: '10px',
+                                fontSize: '9px',
                                 fontWeight: 800,
+                                cursor: 'pointer',
                             }}
                         >
                             S
@@ -302,15 +321,18 @@ function SessionStripFaderInner({
                             onClick={() => setTrackArmed(!trackArmed)}
                             style={{
                                 flex: 1,
+                                height: 16,
                                 background: trackArmed ? '#df3f3f' : '#3d3d3d',
-                                color: trackArmed ? '#fff' : '#8c8c8c',
-                                border: `1px solid ${BORDER_COLOR}`,
+                                color: trackArmed ? '#000' : '#8c8c8c',
+                                border: 'none',
                                 borderRadius: '1px',
-                                fontSize: '10px',
+                                fontSize: '9px',
                                 fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
                             }}
                         >
-                            O
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: trackArmed ? '#000' : '#8c8c8c' }} />
                         </button>
                     </div>
                 </div>

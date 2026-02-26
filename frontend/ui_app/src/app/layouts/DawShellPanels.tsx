@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getContrastColor } from '@/shared/lib/colorUtils';
@@ -51,11 +52,18 @@ export const SessionWorkspace = ({
         activeScenes,
     } = useSessionWorkspaceState(tracks, isPlaying, togglePlay);
 
+    const [mixerHeight, setMixerHeight] = useState(() => {
+        const saved = localStorage.getItem('dream_daw_session_mixer_height');
+        return saved ? parseInt(saved, 10) : SESSION_MIXER_HEIGHT_PX;
+    });
+    const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
+    const [draggingMixerEdge, setDraggingMixerEdge] = useState(false);
+
     return (
         <div style={{
             flex: 1,
             display: 'grid',
-            gridTemplateRows: `1fr ${SESSION_MIXER_HEIGHT_PX}px`,
+            gridTemplateRows: `1fr ${mixerHeight}px`,
             minWidth: 0,
             minHeight: 0,
             background: 'var(--color-timeline-bg)',
@@ -199,7 +207,56 @@ export const SessionWorkspace = ({
                     stopScene={stopScene}
                 />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-timeline-grid-line)', background: 'color-mix(in srgb, var(--color-bg-panel) 94%, var(--color-timeline-bg))' }}>
+            <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-timeline-grid-line)', background: 'color-mix(in srgb, var(--color-bg-panel) 94%, var(--color-timeline-bg))' }}>
+                <div
+                    onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        resizeRef.current = { startY: e.clientY, startH: mixerHeight };
+                        setDraggingMixerEdge(true);
+                    }}
+                    onPointerMove={(e) => {
+                        if (!draggingMixerEdge || !resizeRef.current) return;
+                        const deltaY = resizeRef.current.startY - e.clientY;
+                        let newH = resizeRef.current.startH + deltaY;
+                        newH = Math.max(150, Math.min(newH, window.innerHeight - 150));
+                        setMixerHeight(newH);
+                    }}
+                    onPointerUp={(e) => {
+                        if (!draggingMixerEdge) return;
+                        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                        }
+                        if (resizeRef.current) {
+                            const deltaY = resizeRef.current.startY - e.clientY;
+                            let newH = resizeRef.current.startH + deltaY;
+                            newH = Math.max(150, Math.min(newH, window.innerHeight - 150));
+                            localStorage.setItem('dream_daw_session_mixer_height', newH.toString());
+                        }
+                        resizeRef.current = null;
+                        setDraggingMixerEdge(false);
+                    }}
+                    onPointerCancel={(e) => {
+                        if (!draggingMixerEdge) return;
+                        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                        }
+                        resizeRef.current = null;
+                        setDraggingMixerEdge(false);
+                    }}
+                    style={{
+                        position: 'absolute',
+                        top: -3,
+                        left: 0,
+                        right: 0,
+                        height: 6,
+                        cursor: 'ns-resize',
+                        zIndex: 10,
+                        background: draggingMixerEdge ? 'var(--color-accent-primary)' : 'transparent',
+                        transition: 'background 0.1s linear',
+                    }}
+                />
                 <SessionWorkspaceMixerTracks
                     tracks={tracks}
                     applyProjectDeltas={applyProjectDeltas}

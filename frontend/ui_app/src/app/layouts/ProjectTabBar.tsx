@@ -18,8 +18,8 @@ export function ProjectTabBar() {
                 height: 32,
                 alignItems: 'flex-end',
                 paddingLeft: 70, // macOS traffic lights padding offset
-                background: 'transparent', // The main window background is already dark #0f0f0f
-                borderBottom: 'var(--space-px) solid var(--color-divider)',
+                background: 'color-mix(in srgb, var(--color-bg-elevated) 40%, transparent)', // Slightly lighter than pure black
+                borderBottom: 'none',
                 userSelect: 'none',
                 flexShrink: 0,
                 width: '100%',

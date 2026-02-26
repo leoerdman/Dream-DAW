@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { MixerChannelStrip } from './MixerChannelStrip';
 import { MasterStrip } from './MasterStrip';
-import { STRIP_GAP } from './MixerPanel.constants';
 
 interface MixerPanelProps {
     selectedTrackId: string;
@@ -20,15 +19,11 @@ export function MixerPanel({ selectedTrackId, onSelectTrack }: MixerPanelProps) 
     return (
         <div
             ref={scrollRef}
+            className="w-full h-full flex flex-row overflow-x-auto overflow-y-hidden"
             style={{
-                display: 'flex',
-                flexDirection: 'row',
-                height: '100%',
-                overflowX: 'auto',
-                overflowY: 'hidden',
-                background: 'var(--bg-app)',
-                gap: STRIP_GAP,
-                padding: '0 2px',
+                background: 'var(--color-bg-canvas)',
+                gap: 0, // Using border right on strips
+                padding: '0 0px',
                 scrollbarWidth: 'thin',
                 scrollbarColor: 'color-mix(in srgb, var(--text-primary) 18%, transparent) transparent',
             }}

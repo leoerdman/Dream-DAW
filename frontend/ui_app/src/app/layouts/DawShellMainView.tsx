@@ -62,10 +62,13 @@ export function DawShellMainView({
                     <AssetBrowser />
                 </ErrorBoundary>
             </aside>
-            <div
-                onMouseDown={beginBrowserResize}
-                style={{ width: 6, cursor: 'ew-resize', background: 'var(--color-bg-panel)', flexShrink: 0 }}
-            />
+            <div className="relative shrink-0 z-50" style={{ width: 0 }}>
+                <div
+                    onMouseDown={beginBrowserResize}
+                    className="absolute top-0 bottom-0 left-[-3px] w-[6px] cursor-ew-resize hover:bg-white/5 transition-colors"
+                    title="Resize Browser"
+                />
+            </div>
 
             {mainViewMode === 'arrangement' ? (
                 <>

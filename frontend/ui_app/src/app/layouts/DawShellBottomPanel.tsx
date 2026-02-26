@@ -129,29 +129,10 @@ export function DawShellBottomPanel({
                     onPointerDown={bottomPanelMode === 'rack' ? onRackDragStart : undefined}
                     onPointerUp={bottomPanelMode === 'rack' ? onRackDragEnd : undefined}
                     onPointerCancel={bottomPanelMode === 'rack' ? onRackDragCancel : undefined}
-                    title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack (2 rows)' : 'Resize Clip Editor'}
-                    style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 8,
-                        cursor: 'ns-resize',
-                        zIndex: 'var(--z-modal)',
-                        background: 'transparent',
-                        touchAction: 'none',
-                    }}
-                >
-                    <div
-                        style={{
-                            width: 56,
-                            height: 2,
-                            borderRadius: 'var(--radius-xs)',
-                            background: 'color-mix(in srgb, var(--color-text-secondary) 45%, transparent)',
-                            margin: 'var(--space-0-5) auto 0',
-                        }}
-                    />
-                </div>
+                    title={bottomPanelMode === 'rack' ? 'Drag to expand plugin rack' : 'Resize Panel'}
+                    className="absolute top-0 left-0 right-0 h-[6px] cursor-ns-resize hover:bg-white/5 transition-colors"
+                    style={{ zIndex: 'var(--z-modal)', touchAction: 'none' }}
+                />
             )}
             {bottomPanelMode === 'rack' ? (
                 <ErrorBoundary module="Device Rack">

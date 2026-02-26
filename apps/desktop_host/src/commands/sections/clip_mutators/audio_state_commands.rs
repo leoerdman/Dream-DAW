@@ -104,7 +104,7 @@ async fn set_clip_source_offset_with_deltas_cmd(
     set_clip_source_offset_cmd(
         clip_id,
         source_offset_frames,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         app,
     )
@@ -358,7 +358,7 @@ async fn set_clip_fades_with_deltas_cmd(
         clip_id,
         fade_in_frames,
         fade_out_frames,
-        project_state.clone(),
+        project_registry.clone(),
         clip_pool_state,
         handle,
         app,

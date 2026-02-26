@@ -8,6 +8,7 @@ import { SplashScreen } from '@/widgets/SplashScreen'
 import * as engineApi from '@/shared/api/engine'
 import { useAutoSave } from '@/shared/hooks/useAutoSave'
 import { useSettingsStore } from '@/shared/stores/useSettingsStore'
+import { useEngineStore } from '@/shared/stores/useEngineStore'
 import { applyUiDisplayPrefs } from '@/shared/lib/uiDisplayPrefs'
 
 const img = new Image()
@@ -208,13 +209,16 @@ function App() {
     setSplashDone(true)
   }
 
+  const engineConnected = useEngineStore((s) => s.connected)
+
   useEffect(() => {
-    if (workspaceMounted) {
-      // Instantly try to close splash and maximize window the moment the 
-      // Main DAW interface has been fully mounted and painted to the DOM.
+    if (workspaceMounted && engineConnected) {
+      // Instantly try to close splash and reveal window the moment the 
+      // Main DAW interface has been fully mounted and painted to the DOM AND
+      // the initial backend sync has populated the store (avoids "grey flash no tracks").
       attemptCloseSplashscreen().catch(console.error)
     }
-  }, [workspaceMounted, attemptCloseSplashscreen])
+  }, [workspaceMounted, engineConnected, attemptCloseSplashscreen])
 
   return (
     <>

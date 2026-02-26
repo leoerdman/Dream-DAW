@@ -22,12 +22,22 @@ fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
     let _ = main_window.set_min_size(Some(min_size));
 
-    // 3. Since we set "maximized": true in tauri.conf.json, the OS created this window
-    // at its maximum bounding box already. Wait for React to finish drawing to DOM.
-    // By the time this Rust command runs, React has already mounted <Workspace />, 
-    // and `show` will reveal the painted frame perfectly without a zoom animation.
+    // 3. To completely bypass the macOS native "zoom" animation from offscreen/hidden state,
+    // we manually snap the window bounds to match the primary monitor's available work area
+    // *before* making the window visible.
+    if let Ok(Some(monitor)) = main_window.primary_monitor() {
+        let size = monitor.size();
+        let pos = monitor.position();
+        let _ = main_window.set_size(*size);
+        let _ = main_window.set_position(*pos);
+    }
+
+    // Now showing the window will be an instant painted reveal of the pre-stretched bounds.
     let _ = main_window.show();
     let _ = main_window.set_focus();
+    
+    // Register the OS maximized state so native window controls (green button) sync up
+    let _ = main_window.maximize();
 
     log::info!("[Splash] Closed splash screen, showed DAW main window");
     Ok(())

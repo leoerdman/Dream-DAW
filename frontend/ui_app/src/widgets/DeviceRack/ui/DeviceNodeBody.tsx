@@ -88,6 +88,7 @@ export function DeviceNodeBody({
                 runtimeStatus={runtimeStatus}
                 editorSupported={editorSupported}
                 editorReason={editorReason}
+                onParamContextMenu={onParamContextMenu}
             />
         </Suspense>
     );

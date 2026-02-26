@@ -3,7 +3,7 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { dbToFader, dbToGain, faderToDb, formatDb, gainToDb } from '@/widgets/TrackInspector/model/faderMath';
-import { METER_WIDTH, STRIP_ACCENT_HEIGHT, STRIP_ACCENT_INSET, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
+import { METER_WIDTH, STRIP_GAP, STRIP_WIDTH } from './MixerPanel.constants';
 import { MixerChannelMeters, MixerChannelPeakLabel } from './MixerChannelMeters';
 
 interface ChannelStripProps {
@@ -33,10 +33,13 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     const volumeDb = gainToDb(track.volume ?? 1);
     const volNorm = Math.max(0, Math.min(1, dbToFader(volumeDb)));
     const panVal = track.pan ?? 0;
+    
+    // Ableton 11 styling constants
     const trackColor = track.color || 'var(--color-accent-primary)';
     const headerTextColor = getContrastColor(trackColor) === 'black'
         ? 'var(--token-color-hex-000000)'
         : 'var(--color-text-bright)';
+    
     const isDisabled = track.is_disabled;
     const isSoloed = track.is_solo;
     const isMidi = track.track_type === 'midi';
@@ -58,97 +61,141 @@ export const MixerChannelStrip = memo(function MixerChannelStrip({
     return (
         <div
             onClick={onSelect}
+            className="flex flex-col relative overflow-hidden transition-colors duration-75 ease-out"
             style={{
-                display: 'flex', flexDirection: 'column', width: STRIP_WIDTH, minWidth: STRIP_WIDTH, maxWidth: STRIP_WIDTH, height: '100%',
-                background: isSelected ? 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-1))' : 'var(--surface-1)',
+                width: STRIP_WIDTH, minWidth: STRIP_WIDTH, maxWidth: STRIP_WIDTH, height: '100%',
+                background: isSelected ? 'var(--color-bg-panel)' : 'var(--surface-1)',
                 borderRight: `${STRIP_GAP}px solid var(--color-divider)`,
                 cursor: 'pointer',
-                overflow: 'hidden',
-                position: 'relative',
-                transition: 'background 80ms ease',
             }}
         >
-            <div style={{ height: STRIP_ACCENT_HEIGHT, width: '100%', flexShrink: 0, display: 'flex', alignItems: 'stretch' }}>
-                <div
-                    style={{
-                        marginInline: STRIP_ACCENT_INSET,
-                        width: `calc(100% - ${STRIP_ACCENT_INSET * 2}px)`,
-                        background: trackColor,
-                        borderBottomLeftRadius: 'var(--radius-xs)',
-                        borderBottomRightRadius: 'var(--radius-xs)',
-                    }}
-                />
-            </div>
+            {/* 1. Ableton Title Bar */}
             <div
                 style={{
-                    padding: '3px 4px 2px',
-                    fontSize: 9,
+                    height: 20,
+                    padding: '2px 4px',
+                    fontSize: 10,
                     fontFamily: 'var(--font-role-body)',
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: headerTextColor,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     textAlign: 'center',
-                    borderBottom: '1px solid color-mix(in srgb, var(--color-divider-light) 70%, transparent)',
                     flexShrink: 0,
                     background: trackColor,
+                    borderBottom: '1px solid color-mix(in srgb, var(--color-divider) 50%, transparent)',
                 }}
             >
                 {track.name || `Track ${trackIndex + 1}`}
             </div>
-            <div style={{ padding: '1px 4px', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', textAlign: 'center', flexShrink: 0 }}>
-                {trackIndex + 1} {isMidi ? 'MIDI' : 'Audio'}
-            </div>
-            <div style={{ padding: '2px 3px', flexShrink: 0, borderBottom: '1px solid var(--color-divider-light)' }}>
-                <div style={{ fontSize: 7.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 1 }}>
-                    {track.input ? `In: ${track.input}` : (isMidi ? 'All Ch' : 'Ext. In')}
+            
+            {/* 2. Empty Session Slots Area (Pushes I/O and Mixer to Bottom) */}
+            <div style={{ flex: 1, minHeight: 40, borderBottom: '1px solid var(--color-divider)' }} />
+
+            {/* 3. I/O Routing Section */}
+            <div style={{ padding: '4px 3px', flexShrink: 0, borderBottom: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--surface-2) 40%, transparent)' }}>
+                <div style={{
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', 
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', marginBottom: 2, border: '1px solid var(--color-divider)'
+                }}>
+                    {track.input ? track.input : (isMidi ? 'All Ins' : 'Ext. In')}
                 </div>
-                <div style={{ fontSize: 7.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {track.output ? `Out: ${track.output}` : 'Master'}
-                </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '3px 0', flexShrink: 0, borderBottom: '1px solid var(--color-divider-light)' }}>
-                <div style={{ position: 'relative', width: 36, height: 10, borderRadius: 'var(--radius-sm)', background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)' }}>
-                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
-                    <div style={{ position: 'absolute', top: 0, left: `calc(${((panVal + 1) / 2) * 100}% - 3px)`, width: 6, height: '100%', borderRadius: 'var(--radius-xs)', background: 'var(--text-primary)' }} />
-                    <input
-                        type="range" min={-1} max={1} step={0.01} value={panVal}
-                        onChange={(e) => { e.stopPropagation(); onPanChange(Number(e.target.value)); }}
-                        onDoubleClick={(e) => { e.stopPropagation(); onPanChange(0); }}
-                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' }}
-                    />
-                </div>
-                <span style={{ fontSize: 7, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-tertiary)', marginTop: 1 }}>
-                    {Math.abs(panVal) < 0.02 ? 'C' : (panVal < 0 ? `L${Math.round(Math.abs(panVal) * 100)}` : `R${Math.round(panVal * 100)}`)}
-                </span>
-            </div>
-            <div
-                ref={faderRef}
-                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId); activePointerId.current = e.pointerId; setIsDragging(true); applyVolume(e.clientY); }}
-                onPointerMove={(e) => { if (!isDragging) return; if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return; applyVolume(e.clientY); }}
-                onPointerUp={(e) => { if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return; (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); endDrag(); }}
-                onPointerCancel={endDrag}
-                onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(1.0); void useEngineStore.getState().flushTrackControlFinals(); }}
-                onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; const next = Math.max(0, Math.min(2, (track.volume ?? 1) + (e.deltaY < 0 ? step : -step))); onVolumeChange(next); void useEngineStore.getState().flushTrackControlFinals(); }}
-                style={{ flex: 1, minHeight: 190, display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 2, padding: '4px 3px', cursor: 'ns-resize', touchAction: 'none', position: 'relative' }}
-            >
-                <MixerChannelMeters trackIndex={trackIndex} isMidi={isMidi} meterWidth={METER_WIDTH} />
-                <div style={{ flex: 1, position: 'relative', borderRadius: 'var(--radius-xs)', background: 'color-mix(in srgb, var(--surface-2) 60%, transparent)', border: '1px solid color-mix(in srgb, var(--text-primary) 6%, transparent)' }}>
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${dbToFader(0) * 100}%`, height: 1, background: 'color-mix(in srgb, var(--color-text-secondary) 40%, transparent)', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 2, right: 2, bottom: 1, height: `calc(${volNorm * 100}% - 2px)`, background: `linear-gradient(to top, color-mix(in srgb, ${trackColor} 50%, var(--color-meter-green-start)) 0%, color-mix(in srgb, ${trackColor} 30%, var(--color-meter-green-end)) 100%)`, borderRadius: 'var(--radius-xs)', opacity: 0.7, transition: 'none', pointerEvents: 'none' }} />
-                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 1px)`, height: 2, background: 'color-mix(in srgb, var(--color-text-bright) 94%, transparent)', borderRadius: 'var(--radius-2xs)', boxShadow: '0 0 2px color-mix(in srgb, var(--color-text-bright) 35%, transparent)', transition: 'none', pointerEvents: 'none' }} />
+                <div style={{
+                    fontSize: 8.5, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', 
+                    background: 'var(--surface-elevated)', borderRadius: 2, padding: '2px 3px', border: '1px solid var(--color-divider)'
+                }}>
+                    {track.output ? track.output : 'Master'}
                 </div>
             </div>
-            <div style={{ textAlign: 'center', fontSize: 8, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', padding: '1px 0', flexShrink: 0, borderTop: '1px solid var(--color-divider-light)' }}>
-                {formatDb(volumeDb)}
+
+            {/* 4. Mixer Section (Pan, Activator, Solo) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 4px 4px', flexShrink: 0, background: 'color-mix(in srgb, var(--surface-1) 30%, transparent)' }}>
+                
+                {/* Pan Dial */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', width: 42, height: 12, borderRadius: 2, background: 'var(--surface-elevated)', border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)' }}>
+                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--color-divider-light)' }} />
+                        <div style={{ position: 'absolute', top: 1, left: `calc(${((panVal + 1) / 2) * 100}% - 3px)`, width: 6, height: 8, borderRadius: 1, background: 'var(--color-accent-primary)' }} />
+                        <input
+                            type="range" min={-1} max={1} step={0.01} value={panVal}
+                            onChange={(e) => { e.stopPropagation(); onPanChange(Number(e.target.value)); }}
+                            onDoubleClick={(e) => { e.stopPropagation(); onPanChange(0); }}
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'ew-resize' }}
+                        />
+                    </div>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                        {Math.abs(panVal) < 0.02 ? 'C' : (panVal < 0 ? `L${Math.round(Math.abs(panVal) * 100)}` : `R${Math.round(panVal * 100)}`)}
+                    </span>
+                </div>
+
+                {/* Track Activator & Solo */}
+                <div style={{ display: 'flex', flexDirection: 'row', gap: 3, justifyContent: 'center', marginTop: 2 }}>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }} 
+                        title={isDisabled ? 'Track Off' : 'Track On'} 
+                        style={{ 
+                            flex: 1, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                            fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0, 
+                            background: !isDisabled ? 'var(--color-status-warning)' : 'var(--surface-elevated)', 
+                            color: !isDisabled ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)', 
+                            boxShadow: !isDisabled ? '0 0 4px rgba(255,180,0,0.3)' : 'none',
+                        }}>
+                        {trackIndex + 1}
+                    </button>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onToggleSolo(); }} 
+                        title="Solo" 
+                        style={{ 
+                            width: 20, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                            fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 2, cursor: 'pointer', padding: 0, 
+                            background: isSoloed ? 'var(--color-status-info)' : 'var(--surface-elevated)', 
+                            color: isSoloed ? 'var(--token-color-hex-000000)' : 'var(--color-text-tertiary)', 
+                            boxShadow: isSoloed ? '0 0 4px rgba(0,180,255,0.3)' : 'none',
+                        }}>
+                        S
+                    </button>
+                </div>
             </div>
-            <MixerChannelPeakLabel trackIndex={trackIndex} />
-            <div style={{ display: 'flex', flexDirection: 'row', gap: 2, padding: '3px 4px', justifyContent: 'center', flexShrink: 0, borderTop: '1px solid var(--color-divider-light)' }}>
-                <button onClick={(e) => { e.stopPropagation(); onToggleSolo(); }} title="Solo" style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)', color: isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)', transition: 'background 80ms ease' }}>S</button>
-                <button onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }} title={isDisabled ? 'Enable track' : 'Disable track'} style={{ width: 22, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-role-data)', border: 'none', borderRadius: 'var(--radius-xs)', cursor: 'pointer', padding: 0, background: !isDisabled ? 'var(--color-status-success)' : 'color-mix(in srgb, var(--color-text-tertiary) 30%, var(--surface-elevated))', color: !isDisabled ? 'var(--color-text-on-color)' : 'var(--color-text-tertiary)', transition: 'background 80ms ease' }}>
-                    {trackIndex + 1}
-                </button>
+
+            {/* 5. Volume Fader & Meters */}
+            <div style={{ display: 'flex', flexDirection: 'row', padding: '0px 4px 4px', gap: 4, height: 160, flexShrink: 0 }}>
+                {/* Meter pair on the right in Ableton, fader track on the left */}
+                <div
+                    ref={faderRef}
+                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId); activePointerId.current = e.pointerId; setIsDragging(true); applyVolume(e.clientY); }}
+                    onPointerMove={(e) => { if (!isDragging) return; if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return; applyVolume(e.clientY); }}
+                    onPointerUp={(e) => { if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return; (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); endDrag(); }}
+                    onPointerCancel={endDrag}
+                    onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(1.0); void useEngineStore.getState().flushTrackControlFinals(); }}
+                    onWheel={(e) => { e.stopPropagation(); const step = e.shiftKey ? 0.006 : 0.018; const next = Math.max(0, Math.min(2, (track.volume ?? 1) + (e.deltaY < 0 ? step : -step))); onVolumeChange(next); void useEngineStore.getState().flushTrackControlFinals(); }}
+                    style={{ flex: 1, position: 'relative', cursor: 'ns-resize', touchAction: 'none' }}
+                >
+                    {/* Fader Groove */}
+                    <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, bottom: 0, width: 4, background: 'var(--surface-elevated)', border: '1px solid var(--color-divider)', borderRadius: 2 }} />
+                    
+                    {/* Fader Handle */}
+                    <div style={{ 
+                        position: 'absolute', left: 0, right: 0, bottom: `calc(${volNorm * 100}% - 4px)`, height: 8, 
+                        background: trackColor, borderRadius: 1, border: '1px solid rgba(0,0,0,0.5)', 
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.5)', pointerEvents: 'none' 
+                    }}>
+                        {/* Thumb indicator line */}
+                        <div style={{ position: 'absolute', left: 1, right: 1, top: '50%', transform: 'translateY(-50%)', height: 1, background: 'rgba(255,255,255,0.4)' }} />
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'row', gap: 1 }}>
+                    <MixerChannelMeters trackIndex={trackIndex} isMidi={isMidi} meterWidth={METER_WIDTH} />
+                </div>
+            </div>
+
+            {/* 6. dB and Peak Labels */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 0 6px', flexShrink: 0 }}>
+                <div style={{ fontSize: 9, fontFamily: 'var(--font-role-data)', color: 'var(--color-text-primary)' }}>
+                    {formatDb(volumeDb)}
+                </div>
+                <MixerChannelPeakLabel trackIndex={trackIndex} />
             </div>
         </div>
     );

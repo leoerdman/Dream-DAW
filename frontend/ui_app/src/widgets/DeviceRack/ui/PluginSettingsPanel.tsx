@@ -25,6 +25,7 @@ type PluginSettingsPanelProps = {
     runtimeStatus?: PluginSlotRuntimeStatus;
     editorSupported?: boolean;
     editorReason?: string;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 };
 
 export const PluginSettingsPanel = ({
@@ -47,6 +48,7 @@ export const PluginSettingsPanel = ({
     runtimeStatus,
     editorSupported,
     editorReason,
+    onParamContextMenu,
 }: PluginSettingsPanelProps) => {
     const [paramSearch, setParamSearch] = useState('');
     const baseParams = useMemo(() => (
@@ -228,6 +230,7 @@ export const PluginSettingsPanel = ({
                             onChange={onParamChange}
                             onGestureStart={onParamGestureStart}
                             onGestureEnd={onParamGestureEnd}
+                            onContextMenu={onParamContextMenu}
                             compact
                         />
                     ))}

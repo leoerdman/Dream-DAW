@@ -28,6 +28,7 @@ export class CanvasClipRenderer {
 
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
+    private _waveformStyle: 'default' | 'classic' = 'default';
 
     // (removed: _editCursorPlacedMs / _prevEditCursorBeat — replaced by quantized blink P4)
 
@@ -93,6 +94,8 @@ export class CanvasClipRenderer {
             rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || rgba(255, 255, 255, 0.5),
             trackDivider: s.getPropertyValue('--color-border-subtle').trim() || rgba(255, 255, 255, 0.08),
         };
+        // BUG-061 FIX: Cache waveformStyle here (max 1x/sec) instead of per-clip in _drawWaveform
+        this._waveformStyle = useSettingsStore.getState().settings.waveformStyle as 'default' | 'classic';
         this._lastThemeSync = now;
     }
 
@@ -663,10 +666,9 @@ export class CanvasClipRenderer {
         const centerY = bodyY + bodyH / 2;
         const halfH = bodyH / 2;
 
-        const waveformStyle = useSettingsStore.getState().settings.waveformStyle;
         const contrastColor = getContrastColor(clip.color);
 
-        if (waveformStyle === 'classic') {
+        if (this._waveformStyle === 'classic') {
             ctx.fillStyle = muted
                 ? rgba(40, 44, 52, 0.4)
                 : (clip.selected ? rgba(0, 0, 0, 0.85) : rgba(0, 0, 0, 0.65));
@@ -717,7 +719,7 @@ export class CanvasClipRenderer {
             ctx.globalAlpha = muted ? 0.25 : 1.0;
         }
 
-        if (waveformStyle === 'classic') {
+        if (this._waveformStyle === 'classic') {
             ctx.strokeStyle = muted
                 ? rgba(40, 44, 52, 0.2)
                 : rgba(0, 0, 0, 0.25);

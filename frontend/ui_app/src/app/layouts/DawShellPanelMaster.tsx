@@ -1,4 +1,6 @@
 import { SessionIoRow, SessionStripFader } from './DawShellPanelControls';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { sessionClipTransportBtnStyle } from './sessionPanelStyles';
 
 export function SessionMasterScenes({
@@ -48,16 +50,16 @@ export function SessionMasterScenes({
 export function SessionMasterStrip({
     width,
     masterVolume,
-    masterLevelL,
-    masterLevelR,
     setMasterVolume,
 }: {
     width: number;
     masterVolume: number;
-    masterLevelL: number;
-    masterLevelR: number;
     setMasterVolume: (gain: number) => void | Promise<unknown>;
 }) {
+    const masterMeterL = useEngineStore((s) => s.meters.master_left);
+    const masterMeterR = useEngineStore((s) => s.meters.master_right);
+    const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
+    const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
     return (
         <div style={{ width, padding: 'var(--space-2) var(--space-1-5) var(--space-1-5)', borderLeft: 'var(--space-px) solid var(--color-timeline-grid-line)', display: 'grid', gridTemplateRows: 'auto auto auto auto 1fr auto', gap: 4, background: 'color-mix(in srgb, var(--color-bg-panel) 96%, var(--color-timeline-bg))' }}>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
@@ -72,6 +74,13 @@ export function SessionMasterStrip({
                 onGainChange={(nextGain) => { void setMasterVolume(nextGain); }}
                 onPanChange={() => { }}
                 panDisabled
+                trackIndex={-1}
+                trackDisabled={false}
+                trackSolo={false}
+                trackArmed={false}
+                setTrackDisabled={() => { }}
+                setTrackSolo={() => { }}
+                setTrackArmed={() => { }}
             />
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-role-data)' }}>Out</div>
         </div>

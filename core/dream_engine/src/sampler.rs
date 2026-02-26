@@ -168,12 +168,8 @@ impl SamplerVoice {
             // to prevent click/pop. When within END_FADE_FRAMES of the end,
             // linearly ramp gain to zero for a smooth transition.
             let samples_remaining = last_idx.saturating_sub(idx);
-            let final_gain = if samples_remaining < END_FADE_FRAMES {
-                let fade = samples_remaining as f32 / END_FADE_FRAMES as f32;
-                gain * fade
-            } else {
-                gain
-            };
+            let fade = (samples_remaining as f32 * (1.0 / END_FADE_FRAMES as f32)).min(1.0);
+            let final_gain = gain * fade;
 
             left_out[i] += l * final_gain;
             right_out[i] += r * final_gain;

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     VB_W, VB_H, MARGIN_L, MARGIN_R, freqToX, gainToY, isFilterOnlyType,
     buildEqCurvePaths, buildSpectrumPath, parseBandsFromParams
@@ -54,7 +54,6 @@ export function PluginGuiSurfaceEq({
     setEqContextMenu,
     eqSpectrumEnabled,
     setEqSpectrumEnabled,
-    spectrumData,
     beginEqBandGesture,
     onParamChange,
     mergedParams: mergedParamsProp,
@@ -89,7 +88,6 @@ export function PluginGuiSurfaceEq({
     const out = effectiveParams.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
     const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
     const { curvePath, fillPath } = useMemo(() => buildEqCurvePaths(bands, projectSampleRate), [bands, projectSampleRate]);
-    const spectrumPath = useMemo(() => (eqSpectrumEnabled ? buildSpectrumPath(spectrumData) : null), [eqSpectrumEnabled, spectrumData]);
 
     const bi = activeBandIdx;
     const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);
@@ -191,9 +189,7 @@ export function PluginGuiSurfaceEq({
                                 <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
                             </linearGradient>
                         </defs>
-                        {eqSpectrumEnabled && spectrumPath && (
-                            <path d={spectrumPath} fill={`url(#specGrad-${device.id})`} opacity="0.36" />
-                        )}
+                        <PluginEqSpectrumOverlay deviceId={device.id} eqSpectrumEnabled={eqSpectrumEnabled} />
                         {enabledBands.length > 0 && (
                             <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.26" />
                         )}
@@ -293,3 +289,69 @@ export function PluginGuiSurfaceEq({
         </div>
     );
 }
+
+const PluginEqSpectrumOverlay = React.memo(({ deviceId, eqSpectrumEnabled }: { deviceId: string; eqSpectrumEnabled: boolean }) => {
+    const [spectrumPath, setSpectrumPath] = useState<string | null>(null);
+    const lastSpectrumRef = React.useRef<number[] | null>(null);
+
+    useEffect(() => {
+        if (!eqSpectrumEnabled) {
+            setSpectrumPath(null);
+            return;
+        }
+        let active = true;
+        let errorBackoff = 50;
+        const poll = async () => {
+            try {
+                const { invoke } = await import('@tauri-apps/api/core');
+                while (active) {
+                    if (!active) break;
+                    try {
+                        const data = await invoke<number[]>('get_spectrum_data');
+                        if (!active) break;
+                        errorBackoff = 50;
+                        if (Array.isArray(data) && data.length > 0) {
+                            const prev = lastSpectrumRef.current;
+                            if (prev && prev.length === data.length) {
+                                const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
+                                lastSpectrumRef.current = smoothed;
+                                setSpectrumPath(buildSpectrumPath(smoothed));
+                            } else {
+                                lastSpectrumRef.current = data;
+                                setSpectrumPath(buildSpectrumPath(data));
+                            }
+                        } else {
+                            lastSpectrumRef.current = null;
+                            setSpectrumPath(null);
+                        }
+                        await new Promise(r => setTimeout(r, 60)); // ~16FPS
+                    } catch {
+                        errorBackoff = Math.min(errorBackoff * 2, 2000);
+                        await new Promise(r => setTimeout(r, errorBackoff));
+                    }
+                }
+            } catch (err) {
+                console.warn('[PluginEqSpectrumOverlay] EQ spectrum poll stopped:', err);
+            }
+        };
+        poll();
+        return () => {
+            active = false;
+            lastSpectrumRef.current = null;
+        };
+    }, [eqSpectrumEnabled]);
+
+    if (!eqSpectrumEnabled || !spectrumPath) return null;
+
+    return (
+        <>
+            <defs>
+                <linearGradient id={`specGrad-${deviceId}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="color-mix(in srgb, var(--color-text-primary) 18%, transparent)" />
+                    <stop offset="100%" stopColor="color-mix(in srgb, var(--color-text-primary) 4%, transparent)" />
+                </linearGradient>
+            </defs>
+            <path d={spectrumPath} fill={`url(#specGrad-${deviceId})`} opacity="0.36" />
+        </>
+    );
+});

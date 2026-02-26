@@ -6,7 +6,7 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectDelta } from '@/shared/api/engine';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 
-type BottomPanelMode = 'rack' | 'clip' | 'mixer';
+type BottomPanelMode = 'rack' | 'clip';
 
 type Args = {
     tracksEntity: EntityState<ProjectTrack>;

@@ -1,6 +1,6 @@
 {
     "productName": "Dream DAW",
-    "version": "1.0.437",
+    "version": "1.0.441",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
@@ -17,7 +17,9 @@
                 "height": 900,
                 "resizable": true,
                 "fullscreen": false,
-                "decorations": false,
+                "decorations": true,
+                "titleBarStyle": "Overlay",
+                "hiddenTitle": true,
                 "backgroundColor": "#0f0f0f",
                 "maximizable": true,
                 "center": true

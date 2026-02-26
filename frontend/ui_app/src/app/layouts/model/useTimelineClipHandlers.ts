@@ -34,7 +34,6 @@ type Result = {
 
 export function useTimelineClipHandlers({
     projectBpm,
-    transportBpm,
     projectSampleRate,
     timelineClipsForView,
     selectedClipIds,

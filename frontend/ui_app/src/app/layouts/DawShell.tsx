@@ -45,7 +45,7 @@ import { cancelIdle, scheduleIdle } from './model/idleWarmup';
 import { useBottomPanelModeByTrack } from './model/useBottomPanelModeByTrack';
 import { DawShellContent } from './DawShellContent';
 import { DawShellOverlays } from './DawShellOverlays';
-type BottomPanelMode = 'rack' | 'clip' | 'mixer';
+type BottomPanelMode = 'rack' | 'clip';
 type MainViewMode = 'arrangement' | 'session';
 
 export const DawShell = () => {
@@ -187,7 +187,6 @@ export const DawShell = () => {
             void import('@/widgets/DeviceRack/DeviceRack');
             void import('@/widgets/PianoRoll/PianoRoll');
             void import('@/widgets/SettingsPanel/SettingsPanel');
-            void import('@/widgets/MixerPanel/MixerPanel');
             void import('@/widgets/MissingAssetsPanel/MissingAssetsPanel');
             void import('@/widgets/BlockingJobPopup/BlockingJobPopup');
         });

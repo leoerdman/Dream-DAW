@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::Once;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use cocoa::appkit::NSWindow;
 use cocoa::base::id;
@@ -8,9 +10,54 @@ use cocoa::foundation::{NSPoint, NSRect, NSSize};
 use log::info;
 
 use crate::vst3::com_abi::{
-    IID_FUNKNOWN, IID_IPLUG_FRAME, IPlugView, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK, Tresult,
-    Tuid, ViewRect, tuid_eq,
+    IID_FUNKNOWN, IID_IPLUG_FRAME, IID_IRUN_LOOP, IPlugView, K_NO_INTERFACE, K_RESULT_FALSE, K_RESULT_OK, Tresult,
+    Tuid, ViewRect, tuid_eq, IRunLoopVtbl, IEventHandler, ITimerHandler,
 };
+
+#[repr(C)]
+struct CFRunLoopTimerContext {
+    version: isize,
+    info: *mut c_void,
+    retain: *const c_void,
+    release: *const c_void,
+    copy_description: *const c_void,
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    static kCFRunLoopCommonModes: *const c_void;
+    fn CFRunLoopGetCurrent() -> *mut c_void;
+    fn CFRunLoopTimerCreate(
+        allocator: *mut c_void,
+        fireDate: f64,
+        interval: f64,
+        flags: usize,
+        order: isize,
+        context: *mut CFRunLoopTimerContext,
+        callout: extern "C" fn(*mut c_void, *mut c_void),
+    ) -> *mut c_void;
+    fn CFRunLoopAddTimer(rl: *mut c_void, timer: *mut c_void, mode: *const c_void);
+    fn CFRunLoopRemoveTimer(rl: *mut c_void, timer: *mut c_void, mode: *const c_void);
+    fn CFAbsoluteTimeGetCurrent() -> f64;
+    fn CFRelease(cf: *mut c_void);
+}
+
+unsafe extern "C" {
+    static _dispatch_main_q: c_void;
+    static _dispatch_source_type_read: c_void;
+    fn dispatch_source_create(type_: *const c_void, handle: usize, mask: usize, queue: *mut c_void) -> *mut c_void;
+    fn dispatch_set_context(object: *mut c_void, context: *mut c_void);
+    fn dispatch_source_set_event_handler_f(source: *mut c_void, handler: extern "C" fn(*mut c_void));
+    fn dispatch_source_set_cancel_handler_f(source: *mut c_void, handler: extern "C" fn(*mut c_void));
+    fn dispatch_resume(object: *mut c_void);
+    fn dispatch_source_cancel(object: *mut c_void);
+    fn dispatch_release(object: *mut c_void);
+}
+
+struct FdInfo {
+    handler: *mut c_void,
+    fd: i32,
+}
 
 #[inline]
 fn tuid_matches(iid: *const Tuid, expected: &Tuid) -> bool {
@@ -38,9 +85,12 @@ struct IPlugFrameVtbl {
 #[repr(C)]
 pub(crate) struct HostPlugFrame {
     vtbl: *const IPlugFrameVtbl,
+    vtbl_run_loop: *const IRunLoopVtbl,
     ref_count: u32,
     /// NSWindow pointer (stored as usize to keep Send safety).
     window_ptr: usize,
+    timers: Mutex<HashMap<usize, *mut c_void>>,
+    event_handlers: Mutex<HashMap<usize, *mut c_void>>,
 }
 
 unsafe impl Send for HostPlugFrame {}
@@ -49,8 +99,11 @@ impl HostPlugFrame {
     pub(crate) fn new(window_ptr: usize) -> Box<Self> {
         Box::new(Self {
             vtbl: &HOST_PLUG_FRAME_VTBL,
+            vtbl_run_loop: &HOST_RUN_LOOP_VTBL,
             ref_count: 1,
             window_ptr,
+            timers: Mutex::new(HashMap::new()),
+            event_handlers: Mutex::new(HashMap::new()),
         })
     }
 
@@ -71,6 +124,14 @@ unsafe extern "C" fn plug_frame_query_interface(
         // SAFETY: `obj` is validated non-null above and receives current COM object pointer.
         unsafe {
             *obj = this;
+            plug_frame_add_ref(this);
+        }
+        return K_RESULT_OK;
+    }
+    if tuid_matches(iid, &IID_IRUN_LOOP) {
+        unsafe {
+            let frame = &*(this as *mut HostPlugFrame);
+            *obj = &frame.vtbl_run_loop as *const _ as *mut c_void;
             plug_frame_add_ref(this);
         }
         return K_RESULT_OK;
@@ -159,6 +220,174 @@ unsafe extern "C" fn plug_frame_resize_view(
 
     K_RESULT_OK
 }
+
+
+// ── IRunLoop Implementation ──────────────────────────────────────────────────
+
+unsafe extern "C" fn run_loop_query_interface(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    unsafe {
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        plug_frame_query_interface(frame_ptr as *mut c_void, iid, obj)
+    }
+}
+
+unsafe extern "C" fn run_loop_add_ref(this: *mut c_void) -> u32 {
+    unsafe {
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        plug_frame_add_ref(frame_ptr as *mut c_void)
+    }
+}
+
+unsafe extern "C" fn run_loop_release(this: *mut c_void) -> u32 {
+    unsafe {
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        plug_frame_release(frame_ptr as *mut c_void)
+    }
+}
+
+extern "C" fn run_loop_timer_callback(_timer: *mut c_void, info: *mut c_void) {
+    if info.is_null() { return; }
+    let handler = info as *mut ITimerHandler;
+    unsafe {
+        if !(*handler).vtbl.is_null() {
+            ((*(*handler).vtbl).on_timer)(handler as *mut c_void);
+        }
+    }
+}
+
+unsafe extern "C" fn run_loop_register_timer(
+    this: *mut c_void,
+    handler: *mut c_void,
+    milliseconds: u64,
+) -> Tresult {
+    unsafe {
+        if handler.is_null() { return K_RESULT_FALSE; }
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame = &*frame_ptr;
+        let handler_addr = handler as usize;
+        
+        let interval = milliseconds as f64 / 1000.0;
+        let mut context = CFRunLoopTimerContext {
+            version: 0,
+            info: handler,
+            retain: std::ptr::null(),
+            release: std::ptr::null(),
+            copy_description: std::ptr::null(),
+        };
+        
+        let fire_date = CFAbsoluteTimeGetCurrent() + interval;
+        let timer = CFRunLoopTimerCreate(std::ptr::null_mut(), fire_date, interval, 0, 0, &mut context, run_loop_timer_callback);
+        
+        if !timer.is_null() {
+            let rl = CFRunLoopGetCurrent();
+            CFRunLoopAddTimer(rl, timer, kCFRunLoopCommonModes);
+            let mut timers = frame.timers.lock().unwrap();
+            timers.insert(handler_addr, timer);
+            K_RESULT_OK
+        } else {
+            K_RESULT_FALSE
+        }
+    }
+}
+
+unsafe extern "C" fn run_loop_unregister_timer(
+    this: *mut c_void,
+    handler: *mut c_void,
+) -> Tresult {
+    unsafe {
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame = &*frame_ptr;
+        let handler_addr = handler as usize;
+        
+        let mut timers = frame.timers.lock().unwrap();
+        if let Some(timer) = timers.remove(&handler_addr) {
+            let rl = CFRunLoopGetCurrent();
+            CFRunLoopRemoveTimer(rl, timer, kCFRunLoopCommonModes);
+            CFRelease(timer);
+        }
+        K_RESULT_OK
+    }
+}
+
+extern "C" fn run_loop_event_callback(context: *mut c_void) {
+    if context.is_null() { return; }
+    let fd_info = context as *mut FdInfo;
+    unsafe {
+        let handler = (*fd_info).handler as *mut IEventHandler;
+        if !(*handler).vtbl.is_null() {
+            ((*(*handler).vtbl).on_fd_is_set)(handler as *mut c_void, (*fd_info).fd);
+        }
+    }
+}
+
+extern "C" fn run_loop_cancel_callback(context: *mut c_void) {
+    if !context.is_null() {
+        unsafe { let _ = Box::from_raw(context as *mut FdInfo); }
+    }
+}
+
+unsafe extern "C" fn run_loop_register_event_handler(
+    this: *mut c_void,
+    handler: *mut c_void,
+    fd: i32,
+) -> Tresult {
+    unsafe {
+        if handler.is_null() { return K_RESULT_FALSE; }
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame = &*frame_ptr;
+        let handler_addr = handler as usize;
+        
+        let fd_info = Box::into_raw(Box::new(FdInfo { handler, fd }));
+        
+        let source = dispatch_source_create(&_dispatch_source_type_read as *const _ as _, fd as usize, 0, &_dispatch_main_q as *const _ as _);
+        if source.is_null() {
+            let _ = Box::from_raw(fd_info);
+            return K_RESULT_FALSE;
+        }
+        
+        dispatch_set_context(source, fd_info as *mut c_void);
+        dispatch_source_set_event_handler_f(source, run_loop_event_callback);
+        dispatch_source_set_cancel_handler_f(source, run_loop_cancel_callback);
+        dispatch_resume(source);
+        
+        let mut handlers = frame.event_handlers.lock().unwrap();
+        handlers.insert(handler_addr, source);
+        
+        K_RESULT_OK
+    }
+}
+
+unsafe extern "C" fn run_loop_unregister_event_handler(
+    this: *mut c_void,
+    handler: *mut c_void,
+) -> Tresult {
+    unsafe {
+        let frame_ptr = (this as *mut u8).sub(std::mem::size_of::<*const c_void>()) as *mut HostPlugFrame;
+        let frame = &*frame_ptr;
+        let handler_addr = handler as usize;
+        
+        let mut handlers = frame.event_handlers.lock().unwrap();
+        if let Some(source) = handlers.remove(&handler_addr) {
+            dispatch_source_cancel(source);
+            dispatch_release(source); // Will trigger cancel handler which frees FdInfo
+        }
+        K_RESULT_OK
+    }
+}
+
+static HOST_RUN_LOOP_VTBL: IRunLoopVtbl = IRunLoopVtbl {
+    query_interface: run_loop_query_interface,
+    add_ref: run_loop_add_ref,
+    release: run_loop_release,
+    register_event_handler: run_loop_register_event_handler,
+    unregister_event_handler: run_loop_unregister_event_handler,
+    register_timer: run_loop_register_timer,
+    unregister_timer: run_loop_unregister_timer,
+};
 
 static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
     query_interface: plug_frame_query_interface,

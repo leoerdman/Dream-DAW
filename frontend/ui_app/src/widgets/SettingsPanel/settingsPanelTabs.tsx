@@ -19,7 +19,7 @@ import { useShortcutStore } from '@/shared/stores/useShortcutStore';
 
 interface FoldersTabProps {
     settings: AppSettings;
-    pickAndSetFolder: (key: keyof AppSettings) => void;
+    pickAndSetFolder: (key: any) => void;
     handleRescan: () => void;
     rescanningPlugins: boolean;
     rescanResult: string | null;

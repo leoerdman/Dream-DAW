@@ -153,8 +153,9 @@ impl DspProcessor for DynamicTubeProcessor {
             let sat_r = Self::tube_stage(dry_r, drive, dyn_bias_r);
 
             // Tone LP filter
-            let tone_cutoff = 200.0 * (80.0f32).powf(tone.clamp(0.0, 1.0));
-            let tc = (1.0 - (-std::f32::consts::TAU * tone_cutoff / sr).exp()).clamp(0.0, 1.0);
+            // log2(80) ≈ 6.32192809
+            let tone_cutoff = 200.0 * crate::fast_math::fast_exp2(tone.clamp(0.0, 1.0) * 6.321928);
+            let tc = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * tone_cutoff / sr)).clamp(0.0, 1.0);
             self.tone_state_l += tc * (sat_l - self.tone_state_l);
             self.tone_state_r += tc * (sat_r - self.tone_state_r);
             let toned_l = self.tone_state_l;

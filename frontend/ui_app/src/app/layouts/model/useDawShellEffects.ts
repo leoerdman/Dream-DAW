@@ -5,7 +5,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { dreamGlobals } from '@/shared/lib/dreamGlobals';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
-type BottomPanelMode = 'rack' | 'clip' | 'mixer';
+type BottomPanelMode = 'rack' | 'clip';
 type ImportFileFn = (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
 interface AlsImportSummaryPayload {
     project_name: string;

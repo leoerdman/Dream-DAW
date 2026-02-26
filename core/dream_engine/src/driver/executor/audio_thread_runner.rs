@@ -680,6 +680,8 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             vst3_note_trackers[track_idx].flush_all(&mut vst3_midi_scratch);
                                                         }
 
+                                                        let mut split_offset_device: Option<usize> = None;
+
                                                         if is_playing
                                                             && let Some(midi_track) = midi_snap.get(track_idx)
                                                         {
@@ -724,10 +726,9 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                                     && buffer_end_timeline > lr.end
                                                                 {
                                                                     let wrap_offset_timeline = (lr.end - midi_playhead_pos) as usize;
-                                                                    let flush_offset = frame_converter
-                                                                        .timeline_to_device_offset_i32(wrap_offset_timeline)
-                                                                        .saturating_sub(1)
-                                                                        .max(0);
+                                                                    let wrap_offset = frame_converter.timeline_to_device_offset(wrap_offset_timeline);
+                                                                    split_offset_device = Some(wrap_offset);
+                                                                    let flush_offset = (wrap_offset as i32).saturating_sub(1).max(0);
                                                                     // Inject All Sound Off (CC 120) + All Notes Off (CC 123)
                                                                     // at the wrap boundary to reset VST internal state.
                                                                     vst3_midi_scratch.push(MidiEvent::cc(flush_offset, 0, 120, 0));
@@ -871,20 +872,65 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                             &mut external_right[..c],
                                                         ];
 
-                                                        // CRACKLE-FIX-2: Removed RT-unsafe log::info! VST diagnostics.
-                                                        // Atomic counters preserved for monitoring; log calls removed
-                                                        // because env_logger Mutex causes priority inversion.
+                                                        if let Some(split_at) = split_offset_device.filter(|&s| s > 0 && s < c) {
+                                                            // SUB-BUFFER SPLITTING (ENTERPRISE FIX for Loop Wrap)
+                                                            // 100% Zero Allocation. vst3_midi_scratch is already sorted by sample_offset.
+                                                            let split_i32 = split_at as i32;
+                                                            let split_idx = vst3_midi_scratch.partition_point(|ev| ev.sample_offset < split_i32);
 
-                                                        if let Err(_proc_err) = host.process_with_sidechain(
-                                                            &main_inputs,
-                                                            sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                                            &mut out_slices,
-                                                            c,
-                                                            &vst3_midi_scratch,
-                                                        ) {
-                                                            static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
-                                                                std::sync::atomic::AtomicU32::new(0);
-                                                            PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                            let main_before = [&main_inputs[0][..split_at], &main_inputs[1][..split_at]];
+                                                            let main_after = [&main_inputs[0][split_at..], &main_inputs[1][split_at..]];
+                                                            
+                                                            let sc_before = sc_pair.map(|p| [&p[0][..split_at], &p[1][..split_at]]);
+                                                            let sc_after = sc_pair.map(|p| [&p[0][split_at..], &p[1][split_at..]]);
+
+                                                            let (out_l, out_r) = out_slices.split_at_mut(1);
+                                                            let (out_l_before, out_l_after) = out_l[0].split_at_mut(split_at);
+                                                            let (out_r_before, out_r_after) = out_r[0].split_at_mut(split_at);
+
+                                                            let mut out_before: [&mut [f32]; 2] = [out_l_before, out_r_before];
+                                                            let mut out_after: [&mut [f32]; 2] = [out_l_after, out_r_after];
+
+                                                            // 1. Process block BEFORE loop wrap
+                                                            if let Err(_) = host.process_with_sidechain(
+                                                                &main_before,
+                                                                sc_before.as_ref().map(|p| p.as_slice()),
+                                                                &mut out_before,
+                                                                split_at,
+                                                                &vst3_midi_scratch[..split_idx],
+                                                            ) {
+                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                            }
+                                                            
+                                                            // 2. Adjust sample offsets for the events AFTER wrap
+                                                            for ev in &mut vst3_midi_scratch[split_idx..] {
+                                                                ev.sample_offset -= split_i32;
+                                                            }
+
+                                                            // 3. Process block AFTER loop wrap
+                                                            if let Err(_) = host.process_with_sidechain(
+                                                                &main_after,
+                                                                sc_after.as_ref().map(|p| p.as_slice()),
+                                                                &mut out_after,
+                                                                c - split_at,
+                                                                &vst3_midi_scratch[split_idx..],
+                                                            ) {
+                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                            }
+                                                        } else {
+                                                            if let Err(_) = host.process_with_sidechain(
+                                                                &main_inputs,
+                                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                                &mut out_slices,
+                                                                c,
+                                                                &vst3_midi_scratch,
+                                                            ) {
+                                                                static PROC_ERR_COUNT: std::sync::atomic::AtomicU32 =
+                                                                    std::sync::atomic::AtomicU32::new(0);
+                                                                PROC_ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                                            }
                                                         }
                                                     } else {
                                                         // CRACKLE-FIX-1: Lock contended — dry passthrough.

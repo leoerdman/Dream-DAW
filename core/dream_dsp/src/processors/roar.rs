@@ -80,7 +80,7 @@ impl RoarProcessor {
     #[inline]
     fn wavefold(x: f32, intensity: f32) -> f32 {
         let g = 1.0 + intensity * 8.0;
-        (x * g * std::f32::consts::PI).sin()
+        crate::fast_math::fast_sin(x * g * 0.5)
     }
 
     /// Rectifier + resonance
@@ -105,9 +105,9 @@ impl RoarProcessor {
         let g = 1.0 + intensity * 20.0;
         let d = x * g;
         if d >= 0.0 {
-            1.0 - (-d.min(10.0)).exp()
+            1.0 - crate::fast_math::fast_exp(-d.min(10.0))
         } else {
-            -(1.0 - (d.max(-10.0)).exp())
+            -(1.0 - crate::fast_math::fast_exp(d.max(-10.0)))
         }
     }
 }
@@ -166,7 +166,7 @@ impl DspProcessor for RoarProcessor {
             };
 
             // Color filter (variable LP)
-            let c = (1.0 - (-std::f32::consts::TAU * (500.0 + color * 10000.0) / sr).exp()).clamp(0.0, 1.0);
+            let c = (1.0 - crate::fast_math::fast_exp(-std::f32::consts::TAU * (500.0 + color * 10000.0) / sr)).clamp(0.0, 1.0);
             self.color_z_l += c * (sat_l - self.color_z_l);
             self.color_z_r += c * (sat_r - self.color_z_r);
 

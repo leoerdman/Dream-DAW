@@ -25,8 +25,8 @@ interface StatusBarProps {
     duration?: string;
     /** BUG-32 FIX: Accept time signature numerator (default 4). */
     timeSigNum?: number;
-    panelMode?: 'rack' | 'clip' | 'mixer';
-    onPanelModeChange?: (mode: 'rack' | 'clip' | 'mixer') => void;
+    panelMode?: 'rack' | 'clip';
+    onPanelModeChange?: (mode: 'rack' | 'clip') => void;
     panelInfo?: string;
     mainViewMode?: 'arrangement' | 'session';
 }
@@ -42,9 +42,6 @@ export const StatusBar = ({
 }: StatusBarProps) => {
     const prefetchRackPanel = () => {
         void import('@/widgets/DeviceRack/DeviceRack');
-    };
-    const prefetchMixerPanel = () => {
-        void import('@/widgets/MixerPanel/MixerPanel');
     };
     const prefetchClipPanel = () => {
         void import('@/widgets/PianoRoll/PianoRoll');
@@ -158,16 +155,6 @@ export const StatusBar = ({
                                 title="Clip Editor (Shift+Tab)"
                             >
                                 Clip
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onPanelModeChange('mixer')}
-                                onMouseEnter={prefetchMixerPanel}
-                                onFocus={prefetchMixerPanel}
-                                style={panelModeBtnStyle(panelMode === 'mixer')}
-                                title="Mixer Panel"
-                            >
-                                Mixer
                             </button>
                         </div>
                     )}

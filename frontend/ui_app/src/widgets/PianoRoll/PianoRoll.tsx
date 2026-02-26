@@ -29,7 +29,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         setRootNote,
         scaleName,
         setScaleName,
-        clipTranspose,
         quantizeAmount,
         setQuantizeAmount,
         foldToUsedNotes,
@@ -68,7 +67,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
         handleNoteDrag,
         handleNoteMouseMove,
         handleVelocityMouseDown,
-        transposeNotes,
         quantizeAllNotesToGrid,
         duplicateSelection,
         humanizeSelection,
@@ -163,8 +161,6 @@ export const PianoRoll = memo(function PianoRoll(props: PianoRollProps) {
                     clipDurationLabel={clipDurationLabel}
                     gridDivision={gridDivision}
                     gridTriplet={gridTriplet}
-                    transposeNotes={transposeNotes}
-                    clipTranspose={clipTranspose}
                     quantizeAllNotesToGrid={quantizeAllNotesToGrid}
                     setZoomOverrideH={setZoomOverrideH}
                     selectedNotes={selectedNotes}

@@ -100,6 +100,7 @@ pub struct SharedAudioBufferRegion {
     pub path: PathBuf,
     pub layout: SharedAudioBufferLayout,
     mmap: MmapMut,
+    pub is_owner: bool,
 }
 
 impl SharedAudioBufferRegion {
@@ -127,7 +128,12 @@ impl SharedAudioBufferRegion {
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
 
-        let mut region = Self { path, layout, mmap };
+        let mut region = Self {
+            path,
+            layout,
+            mmap,
+            is_owner: true,
+        };
         region.write_u32_raw(HEADER_MAGIC_OFFSET, SHARED_AUDIO_MAGIC);
         region.write_u32_raw(HEADER_REQUESTED_FRAMES_OFFSET, 0);
         region.write_u32_raw(HEADER_MIDI_COUNT_OFFSET, 0);
@@ -150,7 +156,12 @@ impl SharedAudioBufferRegion {
         // SAFETY: Same invariant — file is exclusively managed by Dream DAW processes.
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
-        Ok(Self { path, layout, mmap })
+        Ok(Self {
+            path,
+            layout,
+            mmap,
+            is_owner: false,
+        })
     }
 
     // ── Audio Channel I/O ───────────────────────────────────────────────
@@ -387,6 +398,15 @@ impl SharedAudioBufferRegion {
         let mut arr = [0u8; 4];
         arr.copy_from_slice(&self.mmap[offset..offset + 4]);
         u32::from_le_bytes(arr)
+    }
+}
+
+impl Drop for SharedAudioBufferRegion {
+    fn drop(&mut self) {
+        if self.is_owner {
+            // Unlink the shared memory file to prevent `/tmp` leaks.
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 

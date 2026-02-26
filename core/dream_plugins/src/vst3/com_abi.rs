@@ -52,6 +52,15 @@ pub const IID_IPLUG_INTERFACE_SUPPORT: Tuid = [
 pub const IID_ICOMPONENT_HANDLER_2: Tuid = [
     0xF0, 0x40, 0xB4, 0xB3, 0xA3, 0x60, 0x45, 0xEC, 0xAB, 0xCD, 0xDE, 0x7E, 0x3F, 0xBC, 0xA9, 0xED,
 ];
+pub const IID_IRUN_LOOP: Tuid = [
+    0x53, 0x5C, 0x58, 0xBE, 0xCF, 0x08, 0x4B, 0x57, 0x8B, 0xD7, 0xDD, 0xDC, 0x0E, 0x69, 0x7D, 0xB1,
+];
+pub const IID_IEVENT_HANDLER: Tuid = [
+    0x03, 0x73, 0xD2, 0x61, 0x7F, 0xC6, 0x4B, 0xA1, 0x8C, 0xB4, 0xCE, 0x3C, 0xEF, 0xE1, 0xEB, 0xE1,
+];
+pub const IID_ITIMER_HANDLER: Tuid = [
+    0xB7, 0xC4, 0xCB, 0xB1, 0x5C, 0xFF, 0x4E, 0x66, 0x8A, 0x3F, 0x21, 0xC6, 0xF8, 0x9B, 0xC9, 0x72,
+];
 
 // ── ProcessContext state flags ─────────────────────────────────────────────
 
@@ -284,6 +293,43 @@ pub struct IPlugViewVtbl {
     pub set_frame: unsafe extern "C" fn(*mut IPlugView, *mut c_void) -> Tresult,
     pub can_resize: unsafe extern "C" fn(*mut IPlugView) -> Tresult,
     pub check_size_constraint: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
+}
+
+#[repr(C)]
+pub struct IEventHandler {
+    pub vtbl: *const IEventHandlerVtbl,
+}
+
+#[repr(C)]
+pub struct IEventHandlerVtbl {
+    pub query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    pub add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub release: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub on_fd_is_set: unsafe extern "C" fn(*mut c_void, i32),
+}
+
+#[repr(C)]
+pub struct ITimerHandler {
+    pub vtbl: *const ITimerHandlerVtbl,
+}
+
+#[repr(C)]
+pub struct ITimerHandlerVtbl {
+    pub query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    pub add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub release: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub on_timer: unsafe extern "C" fn(*mut c_void),
+}
+
+#[repr(C)]
+pub struct IRunLoopVtbl {
+    pub query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    pub add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub release: unsafe extern "C" fn(*mut c_void) -> u32,
+    pub register_event_handler: unsafe extern "C" fn(*mut c_void, *mut c_void, i32) -> Tresult,
+    pub unregister_event_handler: unsafe extern "C" fn(*mut c_void, *mut c_void) -> Tresult,
+    pub register_timer: unsafe extern "C" fn(*mut c_void, *mut c_void, u64) -> Tresult,
+    pub unregister_timer: unsafe extern "C" fn(*mut c_void, *mut c_void) -> Tresult,
 }
 
 #[repr(C)]

@@ -447,7 +447,7 @@ impl EssenceSynthEngine {
                 }
 
                 // ── LFO ──
-                let lfo_val = (voice.lfo_phase * std::f64::consts::TAU).sin() * lfo_depth;
+                let lfo_val = dream_dsp::fast_math::fast_sin(voice.lfo_phase as f32) as f64 * lfo_depth;
                 voice.lfo_phase += lfo_dt;
                 if voice.lfo_phase >= 1.0 {
                     voice.lfo_phase -= 1.0;
@@ -455,13 +455,13 @@ impl EssenceSynthEngine {
 
                 // ── LFO Modulation Targets ──
                 let pitch_mod = if matches!(lfo_target, LfoTarget::Pitch) {
-                    2.0_f64.powf(lfo_val * 2.0 / 12.0) // ±2 semitones
+                    dream_dsp::fast_math::fast_exp2((lfo_val * 2.0 / 12.0) as f32) as f64 // ±2 semitones
                 } else {
                     1.0
                 };
                 let cutoff_mod = if matches!(lfo_target, LfoTarget::FilterCutoff) {
                     // LFO modulates cutoff in octaves: ±2 octaves
-                    2.0_f64.powf(lfo_val * 2.0)
+                    dream_dsp::fast_math::fast_exp2((lfo_val * 2.0) as f32) as f64
                 } else {
                     1.0
                 };
@@ -493,7 +493,7 @@ impl EssenceSynthEngine {
 
                 // Sub oscillator: always sine at -1 octave
                 let sub_sample =
-                    (voice.phase_sub * std::f64::consts::TAU).sin() as f32 * sub_lev;
+                    dream_dsp::fast_math::fast_sin(voice.phase_sub as f32) * sub_lev;
 
                 let raw = osc1_sample * osc1_vol + osc2_sample * osc2_vol + sub_sample;
 

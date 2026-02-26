@@ -49,6 +49,12 @@ struct PluginSandboxInstance {
     ticks_since_last_save: u32,
 }
 
+impl Drop for PluginSandboxInstance {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.heartbeat_file);
+    }
+}
+
 struct DaemonSpawnSpec<'a> {
     instance_id: Uuid,
     plugin_path: &'a std::path::Path,
@@ -816,8 +822,8 @@ impl PluginSandboxSupervisor {
                     }
                 }
             }
-            let _ = fs::remove_file(instance.heartbeat_file);
-            let _ = fs::remove_file(instance.shared_region.map_name);
+            let _ = fs::remove_file(&instance.heartbeat_file);
+            let _ = fs::remove_file(&instance.shared_region.map_name);
         }
     }
 

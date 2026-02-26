@@ -167,8 +167,8 @@ fn build_master_only_dag() -> AudioDag {
 
 #[derive(Debug, Clone)]
 pub struct PreparedGraphSnapshot {
-    pub dag: AudioDag,
-    pub plan: ExecutionPlan,
+    pub dag: Arc<AudioDag>,
+    pub plan: Arc<ExecutionPlan>,
     pub track_count: usize,
     pub generation: u64,
 }
@@ -188,8 +188,8 @@ impl PreparedGraphSnapshot {
                 parallelism_metrics: dream_graph::dag::ParallelismMetrics::default(),
             });
         Self {
-            dag,
-            plan,
+            dag: Arc::new(dag),
+            plan: Arc::new(plan),
             track_count: 0,
             generation: 0,
         }
@@ -217,8 +217,8 @@ pub fn prepare_graph_snapshot_for_routing(
         });
 
     PreparedGraphSnapshot {
-        dag,
-        plan,
+        dag: Arc::new(dag),
+        plan: Arc::new(plan),
         track_count: safe_track_count,
         generation,
     }

@@ -1,6 +1,5 @@
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { sessionClipTransportBtnStyle } from './sessionPanelStyles';
 import { SessionMasterScenes, SessionMasterStrip } from './DawShellPanelMaster';
@@ -29,7 +28,6 @@ export const SessionWorkspace = ({
     selectedTrackId: string;
     onSelectTrack: (trackId: string) => void;
 }) => {
-    const meters = useEngineStore((s) => s.meters);
     const setTrackDisabled = useEngineStore((s) => s.setTrackDisabled);
     const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const setTrackVolume = useEngineStore((s) => s.setTrackVolume);
@@ -52,11 +50,6 @@ export const SessionWorkspace = ({
         stopScene,
         activeScenes,
     } = useSessionWorkspaceState(tracks, isPlaying, togglePlay);
-
-    const masterMeterL = meters.master_left;
-    const masterMeterR = meters.master_right;
-    const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
-    const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
 
     return (
         <div style={{
@@ -209,7 +202,6 @@ export const SessionWorkspace = ({
             <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: 'var(--space-px) solid var(--color-timeline-grid-line)', background: 'color-mix(in srgb, var(--color-bg-panel) 94%, var(--color-timeline-bg))' }}>
                 <SessionWorkspaceMixerTracks
                     tracks={tracks}
-                    meters={meters}
                     applyProjectDeltas={applyProjectDeltas}
                     setTrackDisabled={setTrackDisabled}
                     setTrackSolo={setTrackSolo}
@@ -219,8 +211,6 @@ export const SessionWorkspace = ({
                 <SessionMasterStrip
                     width={SESSION_MASTER_WIDTH}
                     masterVolume={masterVolume}
-                    masterLevelL={masterLevelL}
-                    masterLevelR={masterLevelR}
                     setMasterVolume={setMasterVolume}
                 />
             </div>

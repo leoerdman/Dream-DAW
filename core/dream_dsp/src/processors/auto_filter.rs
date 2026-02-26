@@ -70,9 +70,9 @@ pub struct AutoFilterProcessor {
 impl AutoFilterProcessor {
     pub fn new(sample_rate: f32) -> Self {
         let sample_rate = sanitize_sample_rate(sample_rate);
-        let env_coeff = (-1.0 / (20.0 * 0.001 * sample_rate)).exp();
+        let env_coeff = crate::fast_math::fast_exp(-1.0 / (20.0 * 0.001 * sample_rate));
         // BUG-C04 FIX: Envelope attack coefficient — prevents instant cutoff slam on clicks.
-        let env_attack_coeff = (-1.0 / (2.0 * 0.001 * sample_rate)).exp(); // ~2ms attack
+        let env_attack_coeff = crate::fast_math::fast_exp(-1.0 / (2.0 * 0.001 * sample_rate)); // ~2ms attack
         Self {
             cutoff_hz: 1000.0,
             cutoff_target_hz: 1000.0,
@@ -87,7 +87,7 @@ impl AutoFilterProcessor {
             drive_db: 0.0,
             drive_lin: 1.0,
             env_speed_ms: 20.0,
-            cutoff_smooth_coeff: (-1.0 / (0.003 * sample_rate)).exp(), // ~3ms anti-zipper
+            cutoff_smooth_coeff: crate::fast_math::fast_exp(-1.0 / (0.003 * sample_rate)), // ~3ms anti-zipper
             lfo_phase: 0.0,
             env_follower: 0.0,
             env_coeff,
@@ -115,8 +115,8 @@ impl AutoFilterProcessor {
         if (sr - self.sample_rate).abs() > 0.5 {
             self.sample_rate = sr;
             self.update_env_coeff();
-            self.env_attack_coeff = (-1.0 / (2.0 * 0.001 * sr)).exp();
-            self.cutoff_smooth_coeff = (-1.0 / (0.003 * sr)).exp();
+            self.env_attack_coeff = crate::fast_math::fast_exp(-1.0 / (2.0 * 0.001 * sr));
+            self.cutoff_smooth_coeff = crate::fast_math::fast_exp(-1.0 / (0.003 * sr));
             self.zdf_l.set_sample_rate(sr);
             self.zdf_r.set_sample_rate(sr);
             self.resonance_sm.set_sample_rate(sr);
@@ -141,7 +141,7 @@ impl AutoFilterProcessor {
     }
 
     fn update_env_coeff(&mut self) {
-        self.env_coeff = (-1.0 / (self.env_speed_ms * 0.001 * self.sample_rate)).exp();
+        self.env_coeff = crate::fast_math::fast_exp(-1.0 / (self.env_speed_ms * 0.001 * self.sample_rate));
     }
 
     #[inline]
@@ -172,13 +172,7 @@ impl AutoFilterProcessor {
             }
             _ => {
                 // 0 (Sine) or any unknown: fast Bhaskara approximation
-                let (t, sign) = if phase < 0.5 {
-                    (phase * 2.0, 1.0f32)
-                } else {
-                    ((phase - 0.5) * 2.0, -1.0)
-                };
-                let t2 = t * (1.0 - t);
-                sign * (16.0 * t2) / (5.0 - 4.0 * t2)
+                crate::fast_math::fast_sin(phase)
             }
         }
     }
@@ -260,15 +254,15 @@ impl DspProcessor for AutoFilterProcessor {
                 lfo_r * lfo_depth * max_range * 0.5 + self.env_follower * env_amount * max_range;
             let nyq_safe_max = (sr * 0.45).max(40.0);
             let mod_cutoff_l = (20.0
-                * 2.0_f32.powf((base_log_cutoff + mod_offset_l).clamp(0.0, max_range)))
+                * crate::fast_math::fast_exp2((base_log_cutoff + mod_offset_l).clamp(0.0, max_range)))
             .clamp(20.0, nyq_safe_max);
             let mod_cutoff_r = (20.0
-                * 2.0_f32.powf((base_log_cutoff + mod_offset_r).clamp(0.0, max_range)))
+                * crate::fast_math::fast_exp2((base_log_cutoff + mod_offset_r).clamp(0.0, max_range)))
             .clamp(20.0, nyq_safe_max);
 
             // Drive
-            let driven_l = (dry_l * drive).tanh();
-            let driven_r = (dry_r * drive).tanh();
+            let driven_l = crate::fast_math::fast_tanh(dry_l * drive);
+            let driven_r = crate::fast_math::fast_tanh(dry_r * drive);
 
             // ZDF/TPT filter core
             self.zdf_l.set_mode(zdf_mode);

@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 
-type BottomPanelMode = 'rack' | 'clip' | 'mixer';
+type BottomPanelMode = 'rack' | 'clip';
 
 interface UseBottomPanelModeByTrackArgs {
     selectedTrackId: string;

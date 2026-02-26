@@ -65,54 +65,9 @@ export const PluginGuiSurface = ({
         });
     }, [device.id, resolvedEqBandFilterTypes]);
 
-    const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
-    const [spectrumData, setSpectrumData] = useState<number[] | null>(null);
-    const lastSpectrumRef = useRef<number[] | null>(null);
-
-    useEffect(() => {
-        if (!eqSpectrumEnabled) { setSpectrumData(null); return; }
-        let active = true;
-        let errorBackoff = 50;
-        const poll = async () => {
-            try {
-                const { invoke } = await import('@tauri-apps/api/core');
-                while (active) {
-                    if (!active) break;
-                    try {
-                        const data = await invoke<number[]>('get_spectrum_data');
-                        if (!active) break;
-                        errorBackoff = 50;
-                        if (Array.isArray(data) && data.length > 0) {
-                            const prev = lastSpectrumRef.current;
-                            if (prev && prev.length === data.length) {
-                                const smoothed = data.map((v, i) => prev[i] * 0.65 + v * 0.35);
-                                lastSpectrumRef.current = smoothed;
-                                setSpectrumData(smoothed);
-                            } else {
-                                lastSpectrumRef.current = data;
-                                setSpectrumData(data);
-                            }
-                        } else {
-                            lastSpectrumRef.current = null;
-                            setSpectrumData(null);
-                        }
-                        await new Promise(r => setTimeout(r, 50));
-                    } catch {
-                        errorBackoff = Math.min(errorBackoff * 2, 2000);
-                        await new Promise(r => setTimeout(r, errorBackoff));
-                    }
-                }
-            } catch (err) {
-                console.warn('[PluginGuiSurface] EQ spectrum poll stopped:', err);
-            }
-        };
-        poll();
-        return () => {
-            active = false;
-            lastSpectrumRef.current = null;
-        };
-    }, [eqSpectrumEnabled]);
     const projectSampleRate = useEngineStore(s => resolveSampleRate(s.projectSampleRate, s.transport.sample_rate));
+
+    const [eqSpectrumEnabled, setEqSpectrumEnabled] = useState(false);
 
     useEffect(() => {
         const isSamplerSurface = device.effectType === 'sampler' || device.effectType === 'instrument';
@@ -294,13 +249,13 @@ export const PluginGuiSurface = ({
                 eqSurfaceRef={eqSurfaceRef}
                 dragEqBand={dragEqBand}
                 setDragEqBand={setDragEqBand}
+                spectrumData={null}
                 selectedEqBand={selectedEqBand}
                 setSelectedEqBand={setSelectedEqBand}
                 eqContextMenu={eqContextMenu}
                 setEqContextMenu={setEqContextMenu}
                 eqSpectrumEnabled={eqSpectrumEnabled}
                 setEqSpectrumEnabled={setEqSpectrumEnabled}
-                spectrumData={spectrumData}
                 beginEqBandGesture={beginEqBandGesture}
                 onParamChange={onParamChangeLocal}
                 mergedParams={mergedEqParams}

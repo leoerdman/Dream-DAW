@@ -17,6 +17,7 @@
 pub mod biquad;
 pub mod dither;
 pub mod fades;
+pub mod fast_math;
 pub mod resampler;
 pub mod spectrum_analyzer;
 pub mod svf;

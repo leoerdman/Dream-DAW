@@ -54,6 +54,8 @@ pub struct SandboxedPluginInstance {
     /// counts down to 0. Output is multiplied by (remaining / BYPASS_RAMP_SAMPLES).
     bypass_ramp_remaining: u32,
     was_crashed_last_block: bool,
+    /// Cache of last sent parameter values to prevent IPC flooding from automation curves.
+    param_cache: std::collections::HashMap<u32, f64>,
 }
 
 /// Number of samples over which to ramp bypass→active after crash recovery.
@@ -114,6 +116,7 @@ impl SandboxedPluginInstance {
             is_crashed: Arc::new(AtomicBool::new(false)),
             bypass_ramp_remaining: 0,
             was_crashed_last_block: false,
+            param_cache: std::collections::HashMap::new(),
         })
     }
 
@@ -258,6 +261,27 @@ impl PluginInstance for SandboxedPluginInstance {
 
     fn deactivate(&mut self) -> Result<(), PluginError> {
         self.active = false;
+        Ok(())
+    }
+
+    fn set_parameter(&mut self, index: u32, value: f64) -> Result<(), PluginError> {
+        // Debounce: Only send if the value changed significantly to prevent IPC flood
+        // from flat automation curves or high-frequency UI dragging.
+        if let Some(&last_val) = self.param_cache.get(&index) {
+            if (last_val - value).abs() < 1e-6 {
+                return Ok(());
+            }
+        }
+        self.param_cache.insert(index, value);
+
+        if let Some(ref sender) = self.ipc_sender {
+            let msg = PluginHostControlMessage::SetParameter {
+                instance_id: self.id,
+                index,
+                value,
+            };
+            let _ = sender.send(msg);
+        }
         Ok(())
     }
 

@@ -4,8 +4,8 @@ interface DawShellStatusAreaProps {
     missingAssetsOpen: boolean;
     missingMediaSummary: { offlineClipCount: number; missingPluginCount: number; total: number };
     onToggleMissingAssets: () => void;
-    panelMode: 'rack' | 'clip' | 'mixer';
-    onPanelModeChange: (mode: 'rack' | 'clip' | 'mixer') => void;
+    panelMode: 'rack' | 'clip';
+    onPanelModeChange: (mode: 'rack' | 'clip') => void;
     panelInfo: string;
     mainViewMode: 'arrangement' | 'session';
 }

@@ -536,6 +536,16 @@ impl PluginInstance for Vst3Instance {
             // SAFETY: processor pointer is valid and `data` references buffers alive for the call.
             let status = unsafe { ((*(*processor).vtbl).process)(processor, &mut data) };
             if status != K_RESULT_OK {
+                // DIAGNOSTIC: Log process failures that cause passthrough.
+                static PROC_FAIL_COUNT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
+                let n = PROC_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 10 || n.is_multiple_of(1000) {
+                    log::warn!(
+                        "[VST3] IAudioProcessor::process() returned {} for '{}' — passthrough (#{n})",
+                        status, self.descriptor.name
+                    );
+                }
                 passthrough(inputs, outputs, num_frames);
             } else {
                 for out in outputs.iter_mut().skip(main_channels) {

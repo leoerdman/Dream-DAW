@@ -55,6 +55,12 @@ export function useTimelineClipSync({
             pitchShiftSemitones: c.pitchShiftSemitones,
             midiNotes: c.midiNotes,
         }));
+        // BUG-C02 FIX: Apply selection directly to clipData before setClips
+        // to prevent 1-frame deselection flicker between setClips/setClipSelection.
+        const selectedSet = new Set(selectedClipIdsRef.current);
+        for (const cd of clipData) {
+            cd.selected = selectedSet.has(cd.id);
+        }
         engine.setClips(clipData);
         engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef, trackActiveStates, selectedClipIdsRef]);

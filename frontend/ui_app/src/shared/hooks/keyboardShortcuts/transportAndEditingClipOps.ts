@@ -53,34 +53,43 @@ export async function splitSelectedClipsAtCursor(ctx: KeyboardShortcutHandlerEnv
     return clipsAtPlayhead.map((clip) => clip.id);
 }
 
+// BUG-B08 FIX: In-flight guard prevents rapid Ctrl+D from creating overlapping duplicates.
+let _duplicateInFlight = false;
+
 export async function duplicateSelectedClips(ctx: KeyboardShortcutHandlerEnv['ctx']): Promise<string[] | null> {
-    const {
-        selectedClipId,
-        selectedClipIds,
-        timelineClips,
-        onClipSelectionChanged,
-    } = ctx;
-    const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
-    if (targets.length === 0) return null;
-    const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
-    if (selected.length === 0) return null;
-    const store = useEngineStore.getState();
-    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
-    let minStart = Infinity;
-    let maxEnd = -Infinity;
-    for (const c of selected) {
-        if (c.startBeat < minStart) minStart = c.startBeat;
-        const end = c.startBeat + c.durationBeats;
-        if (end > maxEnd) maxEnd = end;
+    if (_duplicateInFlight) return null;
+    _duplicateInFlight = true;
+    try {
+        const {
+            selectedClipId,
+            selectedClipIds,
+            timelineClips,
+            onClipSelectionChanged,
+        } = ctx;
+        const targets = selectedClipIds.length > 0 ? selectedClipIds : (selectedClipId ? [selectedClipId] : []);
+        if (targets.length === 0) return null;
+        const selected = timelineClips.filter((c) => targets.includes(c.id)).sort((a, b) => a.startBeat - b.startBeat);
+        if (selected.length === 0) return null;
+        const store = useEngineStore.getState();
+        const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+        let minStart = Infinity;
+        let maxEnd = -Infinity;
+        for (const c of selected) {
+            if (c.startBeat < minStart) minStart = c.startBeat;
+            const end = c.startBeat + c.durationBeats;
+            if (end > maxEnd) maxEnd = end;
+        }
+        const spanBeats = Math.max(0.0001, maxEnd - minStart);
+        const sampleRate = resolveSampleRate(store.projectSampleRate);
+        const results = await Promise.all(selected.map((clip) => engine.duplicateClipWithDeltas(clip.id, Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate)))));
+        await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'keyboard:duplicate-clips');
+        const nextSelection = results.map((r) => r.new_id);
+        onClipSelectionChanged(nextSelection);
+        useStatusStore.getState().setInfo(`Duplicate: ${nextSelection.length} clip(s)`);
+        return nextSelection;
+    } finally {
+        _duplicateInFlight = false;
     }
-    const spanBeats = Math.max(0.0001, maxEnd - minStart);
-    const sampleRate = resolveSampleRate(store.projectSampleRate);
-    const results = await Promise.all(selected.map((clip) => engine.duplicateClipWithDeltas(clip.id, Math.max(0, beatToFrame(clip.startBeat + spanBeats, bpm, sampleRate)))));
-    await useEngineStore.getState().applyProjectDeltas(results.flatMap((r) => r.deltas), 'keyboard:duplicate-clips');
-    const nextSelection = results.map((r) => r.new_id);
-    onClipSelectionChanged(nextSelection);
-    useStatusStore.getState().setInfo(`Duplicate: ${nextSelection.length} clip(s)`);
-    return nextSelection;
 }
 
 export async function nudgeSelectedClips(

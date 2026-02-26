@@ -49,12 +49,13 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, numbe
  * @returns Beat interval appropriate for the current zoom
  */
 export function adaptiveInterval(ppb: number, beatsPerBar: number): number {
-    // Thresholds: when ppb is high enough, use finer subdivision
-    if (ppb >= 120) return beatsPerBar / 32; // 1/32
-    if (ppb >= 60) return beatsPerBar / 16; // 1/16
-    if (ppb >= 30) return beatsPerBar / 8;  // 1/8
-    if (ppb >= 15) return beatsPerBar / 4;  // 1/4
-    if (ppb >= 8) return beatsPerBar / 2;  // 1/2
+    // BUG-C09 FIX: ±2ppb hysteresis bands around each threshold
+    // to prevent grid density flicker during smooth zoom.
+    if (ppb >= 122) return beatsPerBar / 32; // 1/32 (engage at 122, disengage at 118)
+    if (ppb >= 62) return beatsPerBar / 16;  // 1/16
+    if (ppb >= 32) return beatsPerBar / 8;   // 1/8
+    if (ppb >= 17) return beatsPerBar / 4;   // 1/4
+    if (ppb >= 10) return beatsPerBar / 2;   // 1/2
     return beatsPerBar;                       // 1/1
 }
 
@@ -97,7 +98,9 @@ export function divisionToInterval(
  */
 export function snapToGrid(rawBeat: number, interval: number): number {
     if (interval <= 0) return Math.max(0, rawBeat);
-    return Math.max(0, Math.round(rawBeat / interval) * interval);
+    // BUG-C07 FIX: Use Math.floor for predictable drag snap behavior.
+    // Round causes clips to jump forward unexpectedly at beat midpoints.
+    return Math.max(0, Math.floor(rawBeat / interval + 1e-9) * interval);
 }
 
 /**

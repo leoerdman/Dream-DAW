@@ -96,13 +96,24 @@ export function createTelemetryActions(
                                 telemetryUpdate.lastError = null;
                             }
                             const perf = event.payload.performance;
-                            telemetryUpdate.performance = {
-                                cpuUsage: perf.cpu_usage,
-                                ramUsedMb: perf.ram_used_mb,
-                                ramTotalMb: perf.ram_total_mb,
-                                processMemoryMb: perf.process_memory_mb,
-                                dspLoad: perf.dsp_load,
-                            };
+                            // BUG-023 FIX: Only create new performance object when values change.
+                            // Previously allocated on every tick (~30Hz) triggering needless re-renders.
+                            const prev_perf = get().performance;
+                            if (
+                                perf.cpu_usage !== prev_perf.cpuUsage ||
+                                perf.ram_used_mb !== prev_perf.ramUsedMb ||
+                                perf.ram_total_mb !== prev_perf.ramTotalMb ||
+                                perf.process_memory_mb !== prev_perf.processMemoryMb ||
+                                perf.dsp_load !== prev_perf.dspLoad
+                            ) {
+                                telemetryUpdate.performance = {
+                                    cpuUsage: perf.cpu_usage,
+                                    ramUsedMb: perf.ram_used_mb,
+                                    ramTotalMb: perf.ram_total_mb,
+                                    processMemoryMb: perf.process_memory_mb,
+                                    dspLoad: perf.dsp_load,
+                                };
+                            }
                             if (!get().connected && !telemetryUpdate.connected) {
                                 telemetryUpdate.connected = true;
                                 telemetryUpdate.lastError = null;
@@ -183,7 +194,11 @@ export function createTelemetryActions(
                                     last_error: null,
                                 }),
                             );
-                            enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: null });
+                            // BUG-097 FIX: Only clear lastError if it was set by a plugin crash.
+                            // Previously cleared errors from unrelated subsystems.
+                            const currentError = get().lastError;
+                            const clearError = currentError?.startsWith('Plugin crashed:') ? null : currentError;
+                            enqueuePendingStoreUpdate(set, { pluginSandbox: nextSandbox, lastError: clearError });
                         },
                     );
                     pluginSandboxAutoBypassUnlisten = await listen<SandboxSlotUpdateEvent>(
@@ -233,7 +248,18 @@ export function createTelemetryActions(
                         },
                     );
                 } catch (e) {
+                    // BUG-010 FIX: Clean up any partially-registered listeners.
+                    // Previously only reset flag, leaking listeners registered
+                    // before the error. Next startTelemetryLoop() would add duplicates.
                     telemetryStarted = false;
+                    telemetryUnlisten?.(); telemetryUnlisten = null;
+                    telemetryMetersBinaryUnlisten?.(); telemetryMetersBinaryUnlisten = null;
+                    pluginSandboxUnlisten?.(); pluginSandboxUnlisten = null;
+                    pluginSandboxCrashUnlisten?.(); pluginSandboxCrashUnlisten = null;
+                    pluginSandboxRecoveredUnlisten?.(); pluginSandboxRecoveredUnlisten = null;
+                    pluginSandboxAutoBypassUnlisten?.(); pluginSandboxAutoBypassUnlisten = null;
+                    pluginSandboxAutoRecoveredUnlisten?.(); pluginSandboxAutoRecoveredUnlisten = null;
+                    pluginSandboxReloadedUnlisten?.(); pluginSandboxReloadedUnlisten = null;
                     const msg = String(e);
                     if (get().lastError !== msg) {
                         set({ lastError: msg, connected: false, telemetryRunning: false });

@@ -1,6 +1,5 @@
 import * as engine from '@/shared/api/engine';
 import { beatToFrame, frameToBeat, resolveSampleRate } from '@/shared/lib/audioMath';
-import { normalizeTimelineClips } from '@/shared/lib/clipNormalization';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { KeyboardShortcutHandlerEnv } from './types';
@@ -20,18 +19,22 @@ function optimisticRemoveClips(clipIds: string[]): () => void {
         clips: state.clips,
     };
 
-    const nextTimelineClips = normalizeTimelineClips(
-        state.timelineClips.filter((c: TimelineClip) => !idSet.has(c.id)),
-    );
-    const nextClipsById = Object.fromEntries(
-        nextTimelineClips.map((clip: TimelineClip) => [clip.id, clip]),
-    );
+    // BUG-046: Use structural sharing — only remove deleted entries instead of
+    // rebuilding entire state from scratch on every Delete key press.
+    const nextTimelineClips = state.timelineClips.filter((c: TimelineClip) => !idSet.has(c.id));
+    const nextClipsById = { ...state.clipsById };
+    const nextClipsByIdEntity = { ...state.clips.byId };
+    for (const id of clipIds) {
+        delete nextClipsById[id];
+        delete nextClipsByIdEntity[id];
+    }
+    const nextAllIds = state.clips.allIds.filter((id) => !idSet.has(id));
     useEngineStore.setState({
         timelineClips: nextTimelineClips,
         clipsById: nextClipsById,
         clips: {
-            byId: nextClipsById,
-            allIds: nextTimelineClips.map((clip: TimelineClip) => clip.id),
+            byId: nextClipsByIdEntity,
+            allIds: nextAllIds,
         },
     });
 
@@ -261,7 +264,8 @@ export async function handleClipAndTrackShortcuts(env: KeyboardShortcutHandlerEn
             startBeat = Math.min(startBeat, clip.startBeat);
             endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
         }
-        const beatsPerBar = (store as typeof store & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
+        // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
+        const beatsPerBar = store.timeSigNumerator ?? 4;
         if (endBeat - startBeat < beatsPerBar) endBeat = startBeat + beatsPerBar;
         store.setLoop(true, beatToFrame(startBeat, bpm, sr), beatToFrame(endBeat, bpm, sr));
         return true;

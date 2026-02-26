@@ -110,6 +110,17 @@ impl LimiterProcessor {
             self.update_coefficients();
             self.threshold_sm_lin.set_sample_rate(sr);
             self.ceiling_sm_lin.set_sample_rate(sr);
+            // BUG-034 FIX: Reset lookahead state on SR change.
+            // Previously only recalculated la_samples but left stale
+            // gain values from old SR in la_gain/la_buf arrays,
+            // contaminating the new processing.
+            self.la_pos = 0;
+            self.gain = 1.0;
+            for i in 0..MAX_LOOKAHEAD {
+                self.la_buf_l[i] = 0.0;
+                self.la_buf_r[i] = 0.0;
+                self.la_gain[i] = 1.0;
+            }
         }
     }
 }

@@ -24,9 +24,15 @@ import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/lib/trackAdapter';
 import type { EntityState } from '@/shared/stores/engine/storeHelpers';
 export type { ProjectTrack } from '@/shared/lib/trackAdapter';
+// ── BUG-042: Viewport restore epsilon constants ────────────────────────
+const VIEWPORT_POSITION_EPSILON = 0.5;
+const VIEWPORT_ZOOM_EPSILON = 0.0001;
+
 export interface EngineStore {
     telemetryRunning: boolean;
     connected: boolean;
+    /** BUG-001: Project dirty flag — true when unsaved changes exist. */
+    isDirty: boolean;
     transport: TransportState;
     meters: MeteringSnapshot;
     timelineClips: TimelineClip[];
@@ -49,6 +55,10 @@ export interface EngineStore {
     pluginSandbox: PluginSandboxSnapshot | null;
     openEditorsByTrack: Record<string, Set<string>>;
     performance: { cpuUsage: number; ramUsedMb: number; ramTotalMb: number; processMemoryMb: number; dspLoad: number };
+    /** BUG-001: Mark the project as having unsaved changes. */
+    markDirty: () => void;
+    /** BUG-001: Clear the dirty flag (called after save). */
+    clearDirty: () => void;
     togglePlay: () => Promise<void>;
     play: () => Promise<void>;
     stop: () => Promise<void>;
@@ -118,6 +128,7 @@ function shouldApplyViewportRestore(reason: string): boolean {
 export const useEngineStore = create<EngineStore>((set, get) => ({
     telemetryRunning: false,
     connected: false,
+    isDirty: false, // BUG-001: Project dirty flag
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
     timelineClips: [],
@@ -140,153 +151,180 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     masterVolume: 1.0,
     pluginSandbox: null,
     openEditorsByTrack: {},
+    // BUG-001: Dirty flag actions
+    markDirty: () => set((s) => s.isDirty ? s : { isDirty: true }),
+    clearDirty: () => set({ isDirty: false }),
     ...createTransportActions(set, get, markBpmPending),
     ...createTrackProjectActions(set, get),
     ...createFetchProjectAction(set, get),
     ...createTelemetryActions(set, get),
     applyProjectDeltas: async (deltas: ProjectDelta[], reason: string = 'delta') => {
-        const sanitizedDeltas = sanitizeProjectDeltas(deltas);
-        if (sanitizedDeltas.length === 0) return;
-        if (sanitizedDeltas.length !== deltas.length) {
-            console.error('[engine-store] dropped malformed deltas', {
-                reason,
-                received: deltas.length,
-                accepted: sanitizedDeltas.length,
-            });
-        }
-        let unhandledDeltaKinds: string[] = [];
-        const snapshotMeta = extractSnapshotProjectMeta(sanitizedDeltas, get().transport);
-        // BUG-C017 FIX: Apply grid only ONCE from the authoritative source.
-        // Previously, ArrangementGridChanged deltas were applied here AND again
-        // from snapshotMeta, causing grid settings to flicker on full snapshots.
-        // Now: snapshot grid wins (it's more recent), then individual deltas
-        // override if present (they are newer than any snapshot).
-        if (snapshotMeta) {
-            useGridStore.getState().applyProjectGrid({
-                numerator: snapshotMeta.grid.numerator,
-                denominator: snapshotMeta.grid.denominator,
-                ntoles: snapshotMeta.grid.ntoles,
-                snapToGrid: snapshotMeta.grid.snapToGrid,
-                fixed: snapshotMeta.grid.fixed,
-            });
-        }
-        for (const delta of sanitizedDeltas) {
-            if (delta.kind === 'ArrangementGridChanged') {
-                useGridStore.getState().applyProjectGrid({
-                    numerator: delta.data.numerator,
-                    denominator: delta.data.denominator,
-                    ntoles: delta.data.ntoles,
-                    snapToGrid: delta.data.snap_to_grid,
-                    fixed: delta.data.fixed,
+        try { // BUG-010: Error boundary wrapping entire delta application
+            const sanitizedDeltas = sanitizeProjectDeltas(deltas);
+            if (sanitizedDeltas.length === 0) return;
+            if (sanitizedDeltas.length !== deltas.length) {
+                // BUG-041: Downgrade to warn — dropped deltas are not unrecoverable errors.
+                console.warn('[engine-store] dropped malformed deltas', {
+                    reason,
+                    received: deltas.length,
+                    accepted: sanitizedDeltas.length,
                 });
             }
-        }
-        set((s) => {
-            let nextProjectBpm = snapshotMeta?.bpm ?? s.projectBpm;
-            const nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
-            let nextTransport = s.transport;
-            let nextTimeSigNumerator = snapshotMeta?.timeSigNumerator ?? s.timeSigNumerator;
-            let nextTimeSigDenominator = snapshotMeta?.timeSigDenominator ?? s.timeSigDenominator;
-            let nextKeySigEnabled = snapshotMeta?.keySigEnabled ?? s.keySigEnabled;
-            let nextKeySigTonic = snapshotMeta?.keySigTonic ?? s.keySigTonic;
-            let nextKeySigMode = snapshotMeta?.keySigMode ?? s.keySigMode;
+            let unhandledDeltaKinds: string[] = [];
+            const snapshotMeta = extractSnapshotProjectMeta(sanitizedDeltas, get().transport);
+            // BUG-C017 FIX: Apply grid only ONCE from the authoritative source.
+            // Previously, ArrangementGridChanged deltas were applied here AND again
+            // from snapshotMeta, causing grid settings to flicker on full snapshots.
+            // Now: snapshot grid wins (it's more recent), then individual deltas
+            // override if present (they are newer than any snapshot).
             if (snapshotMeta) {
-                const loopEnd = snapshotMeta.loopEndFrames > snapshotMeta.loopStartFrames
-                    ? snapshotMeta.loopEndFrames
-                    : snapshotMeta.loopStartFrames;
-                nextTransport = {
-                    ...nextTransport,
-                    bpm: snapshotMeta.bpm,
-                    sample_rate: snapshotMeta.sampleRate,
-                    loop_enabled: snapshotMeta.loopEnabled,
-                    loop_start: snapshotMeta.loopStartFrames,
-                    loop_end: loopEnd,
-                    time_sig_numerator: snapshotMeta.timeSigNumerator,
-                    time_sig_denominator: snapshotMeta.timeSigDenominator,
-                };
+                useGridStore.getState().applyProjectGrid({
+                    numerator: snapshotMeta.grid.numerator,
+                    denominator: snapshotMeta.grid.denominator,
+                    ntoles: snapshotMeta.grid.ntoles,
+                    snapToGrid: snapshotMeta.grid.snapToGrid,
+                    fixed: snapshotMeta.grid.fixed,
+                });
             }
             for (const delta of sanitizedDeltas) {
-                if (delta.kind === 'TempoChanged') {
-                    nextProjectBpm = delta.data.bpm;
-                    nextTransport = { ...nextTransport, bpm: delta.data.bpm };
-                } else if (delta.kind === 'LoopRegionChanged') {
-                    nextTransport = {
-                        ...nextTransport,
-                        loop_enabled: delta.data.enabled,
-                        loop_start: delta.data.start,
-                        loop_end: delta.data.end,
-                    };
-                } else if (delta.kind === 'KeySignatureChanged') {
-                    nextKeySigEnabled = delta.data.enabled;
-                    nextKeySigTonic = delta.data.tonic;
-                    nextKeySigMode = delta.data.mode;
-                } else if (delta.kind === 'TimeSignatureChanged') {
-                    nextTimeSigNumerator = Math.max(1, Math.min(32, delta.data.numerator));
-                    nextTimeSigDenominator = Math.max(1, Math.min(32, delta.data.denominator));
-                    nextTransport = {
-                        ...nextTransport,
-                        time_sig_numerator: nextTimeSigNumerator,
-                        time_sig_denominator: nextTimeSigDenominator,
-                    };
+                if (delta.kind === 'ArrangementGridChanged') {
+                    useGridStore.getState().applyProjectGrid({
+                        numerator: delta.data.numerator,
+                        denominator: delta.data.denominator,
+                        ntoles: delta.data.ntoles,
+                        snapToGrid: delta.data.snap_to_grid,
+                        fixed: delta.data.fixed,
+                    });
                 }
             }
-            const { nextState, unhandledDeltaKinds: nextUnhandledDeltaKinds = [] } = applyProjectDeltasToState(s, sanitizedDeltas, reason);
-            if (nextUnhandledDeltaKinds.length > 0) {
-                unhandledDeltaKinds = nextUnhandledDeltaKinds;
-            }
-            if (!nextState) {
-                if (
-                    nextProjectBpm !== s.projectBpm
-                    || nextProjectSampleRate !== s.projectSampleRate
-                    || nextTransport !== s.transport
-                    || nextTimeSigNumerator !== s.timeSigNumerator
-                    || nextTimeSigDenominator !== s.timeSigDenominator
-                    || nextKeySigEnabled !== s.keySigEnabled
-                    || nextKeySigTonic !== s.keySigTonic
-                    || nextKeySigMode !== s.keySigMode
-                ) {
-                    return {
-                        projectBpm: nextProjectBpm,
-                        projectSampleRate: nextProjectSampleRate,
-                        transport: nextTransport,
-                        timeSigNumerator: nextTimeSigNumerator,
-                        timeSigDenominator: nextTimeSigDenominator,
-                        keySigEnabled: nextKeySigEnabled,
-                        keySigTonic: nextKeySigTonic,
-                        keySigMode: nextKeySigMode,
+            set((s) => {
+                let nextProjectBpm = snapshotMeta?.bpm ?? s.projectBpm;
+                const nextProjectSampleRate = snapshotMeta?.sampleRate ?? s.projectSampleRate;
+                let nextTransport = s.transport;
+                let nextTimeSigNumerator = snapshotMeta?.timeSigNumerator ?? s.timeSigNumerator;
+                let nextTimeSigDenominator = snapshotMeta?.timeSigDenominator ?? s.timeSigDenominator;
+                let nextKeySigEnabled = snapshotMeta?.keySigEnabled ?? s.keySigEnabled;
+                let nextKeySigTonic = snapshotMeta?.keySigTonic ?? s.keySigTonic;
+                let nextKeySigMode = snapshotMeta?.keySigMode ?? s.keySigMode;
+                if (snapshotMeta) {
+                    // BUG-034: If loopEnd <= loopStart, enforce a minimum 1-frame loop
+                    // instead of creating a zero-length loop that produces empty buffers.
+                    const loopEnd = snapshotMeta.loopEndFrames > snapshotMeta.loopStartFrames
+                        ? snapshotMeta.loopEndFrames
+                        : snapshotMeta.loopStartFrames + 1;
+                    nextTransport = {
+                        ...nextTransport,
+                        bpm: snapshotMeta.bpm,
+                        sample_rate: snapshotMeta.sampleRate,
+                        loop_enabled: snapshotMeta.loopEnabled,
+                        loop_start: snapshotMeta.loopStartFrames,
+                        loop_end: loopEnd,
+                        time_sig_numerator: snapshotMeta.timeSigNumerator,
+                        time_sig_denominator: snapshotMeta.timeSigDenominator,
                     };
                 }
-                return s;
-            }
-            return {
-                ...nextState,
-                projectBpm: nextProjectBpm,
-                projectSampleRate: nextProjectSampleRate,
-                transport: nextTransport,
-                timeSigNumerator: nextTimeSigNumerator,
-                timeSigDenominator: nextTimeSigDenominator,
-                keySigEnabled: nextKeySigEnabled,
-                keySigTonic: nextKeySigTonic,
-                keySigMode: nextKeySigMode,
-            };
-        });
-        if (unhandledDeltaKinds.length > 0) {
-            console.error('[engine-store] unhandled project deltas', {
-                reason,
-                unhandledDeltaKinds,
+                // BUG-016 FIX: Accumulate transport mutations into a single mutable
+                // patch. Previously, each TempoChanged/LoopRegionChanged/TimeSignatureChanged
+                // delta created a new spread object — N deltas = N intermediate objects.
+                let transportPatched = false;
+                const transportPatch: Record<string, unknown> = {};
+                for (const delta of sanitizedDeltas) {
+                    if (delta.kind === 'TempoChanged') {
+                        nextProjectBpm = delta.data.bpm;
+                        transportPatch.bpm = delta.data.bpm;
+                        transportPatched = true;
+                    } else if (delta.kind === 'LoopRegionChanged') {
+                        transportPatch.loop_enabled = delta.data.enabled;
+                        transportPatch.loop_start = delta.data.start;
+                        transportPatch.loop_end = delta.data.end;
+                        transportPatched = true;
+                    } else if (delta.kind === 'KeySignatureChanged') {
+                        nextKeySigEnabled = delta.data.enabled;
+                        nextKeySigTonic = delta.data.tonic;
+                        nextKeySigMode = delta.data.mode;
+                    } else if (delta.kind === 'TimeSignatureChanged') {
+                        nextTimeSigNumerator = Math.max(1, Math.min(32, delta.data.numerator));
+                        nextTimeSigDenominator = Math.max(1, Math.min(32, delta.data.denominator));
+                        transportPatch.time_sig_numerator = nextTimeSigNumerator;
+                        transportPatch.time_sig_denominator = nextTimeSigDenominator;
+                        transportPatched = true;
+                    }
+                }
+                if (transportPatched) {
+                    nextTransport = { ...nextTransport, ...transportPatch };
+                }
+                const { nextState, unhandledDeltaKinds: nextUnhandledDeltaKinds = [] } = applyProjectDeltasToState(s, sanitizedDeltas, reason);
+                if (nextUnhandledDeltaKinds.length > 0) {
+                    unhandledDeltaKinds = nextUnhandledDeltaKinds;
+                }
+                if (!nextState) {
+                    if (
+                        nextProjectBpm !== s.projectBpm
+                        || nextProjectSampleRate !== s.projectSampleRate
+                        || nextTransport !== s.transport
+                        || nextTimeSigNumerator !== s.timeSigNumerator
+                        || nextTimeSigDenominator !== s.timeSigDenominator
+                        || nextKeySigEnabled !== s.keySigEnabled
+                        || nextKeySigTonic !== s.keySigTonic
+                        || nextKeySigMode !== s.keySigMode
+                    ) {
+                        return {
+                            projectBpm: nextProjectBpm,
+                            projectSampleRate: nextProjectSampleRate,
+                            transport: nextTransport,
+                            timeSigNumerator: nextTimeSigNumerator,
+                            timeSigDenominator: nextTimeSigDenominator,
+                            keySigEnabled: nextKeySigEnabled,
+                            keySigTonic: nextKeySigTonic,
+                            keySigMode: nextKeySigMode,
+                        };
+                    }
+                    return s;
+                }
+                return {
+                    ...nextState,
+                    projectBpm: nextProjectBpm,
+                    projectSampleRate: nextProjectSampleRate,
+                    transport: nextTransport,
+                    timeSigNumerator: nextTimeSigNumerator,
+                    timeSigDenominator: nextTimeSigDenominator,
+                    keySigEnabled: nextKeySigEnabled,
+                    keySigTonic: nextKeySigTonic,
+                    keySigMode: nextKeySigMode,
+                };
             });
-        }
-        if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {
-            const timeline = useTimelineStore.getState();
-            const requestedPixelsPerBeat = snapshotMeta.viewport.pixelsPerBeat ?? timeline.pixelsPerBeat;
-            const requestedScrollLeft = snapshotMeta.viewport.scrollLeft ?? timeline.scrollLeft;
-            const requestedScrollTop = snapshotMeta.viewport.scrollTop ?? timeline.scrollTop;
-            const viewportDeltaPx = Math.abs((timeline.scrollLeft ?? 0) - requestedScrollLeft);
-            const viewportDeltaZoom = Math.abs((timeline.pixelsPerBeat ?? 20) - requestedPixelsPerBeat);
-            const viewportDeltaY = Math.abs((timeline.scrollTop ?? 0) - requestedScrollTop);
-            if (viewportDeltaPx > 0.5 || viewportDeltaY > 0.5 || viewportDeltaZoom > 0.0001) {
-                timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft, requestedScrollTop);
+            // BUG-001: Mark project dirty for any mutation-type delta.
+            // Snapshot replacements (project open) reset dirty; everything else marks dirty.
+            const isSnapshotReason = reason.startsWith('open') || reason.startsWith('last-project') || reason.endsWith(':new') || reason.includes(':new-project');
+            if (!isSnapshotReason) {
+                get().markDirty();
+            } else {
+                set({ isDirty: false });
             }
+            if (unhandledDeltaKinds.length > 0) {
+                // BUG-041: Downgrade to warn — unhandled deltas are non-fatal.
+                console.warn('[engine-store] unhandled project deltas', {
+                    reason,
+                    unhandledDeltaKinds,
+                });
+            }
+            if (snapshotMeta?.viewport && shouldApplyViewportRestore(reason)) {
+                const timeline = useTimelineStore.getState();
+                const requestedPixelsPerBeat = snapshotMeta.viewport.pixelsPerBeat ?? timeline.pixelsPerBeat;
+                const requestedScrollLeft = snapshotMeta.viewport.scrollLeft ?? timeline.scrollLeft;
+                const requestedScrollTop = snapshotMeta.viewport.scrollTop ?? timeline.scrollTop;
+                const viewportDeltaPx = Math.abs((timeline.scrollLeft ?? 0) - requestedScrollLeft);
+                const viewportDeltaZoom = Math.abs((timeline.pixelsPerBeat ?? 20) - requestedPixelsPerBeat);
+                const viewportDeltaY = Math.abs((timeline.scrollTop ?? 0) - requestedScrollTop);
+                // BUG-042: Use named constants instead of magic numbers.
+                if (viewportDeltaPx > VIEWPORT_POSITION_EPSILON || viewportDeltaY > VIEWPORT_POSITION_EPSILON || viewportDeltaZoom > VIEWPORT_ZOOM_EPSILON) {
+                    timeline.requestViewportRestore(requestedPixelsPerBeat, requestedScrollLeft, requestedScrollTop);
+                }
+            }
+        } catch (err) {
+            // BUG-010: Error boundary — catch and report any crash in delta application.
+            console.error('[engine-store] CRITICAL: applyProjectDeltas crashed', err);
+            set({ lastError: `Delta application failed: ${err instanceof Error ? err.message : String(err)}` });
         }
     },
 }));

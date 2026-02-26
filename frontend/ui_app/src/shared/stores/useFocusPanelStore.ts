@@ -3,17 +3,19 @@ import { create } from 'zustand';
 /**
  * Canonical panel identifiers used across the DAW.
  *
- * 'arrangement' – main timeline / arrangement view
- * 'piano-roll'  – MIDI note editor (bottom panel)
- * 'device-rack' – insert/device chain editor (bottom panel)
- * 'mixer'       – mixer panel
- * 'browser'     – asset browser sidebar
- * 'none'        – no panel focused (initial state)
+ * 'arrangement'    – main timeline / arrangement view
+ * 'piano-roll'     – MIDI note editor (bottom panel)
+ * 'device-rack'    – insert/device chain editor (bottom panel)
+ * 'sample-editor'  – audio clip / sample editor (bottom panel)
+ * 'mixer'          – mixer panel
+ * 'browser'        – asset browser sidebar
+ * 'none'           – no panel focused (initial state)
  */
 export type FocusPanel =
     | 'arrangement'
     | 'piano-roll'
     | 'device-rack'
+    | 'sample-editor'
     | 'mixer'
     | 'browser'
     | 'none';

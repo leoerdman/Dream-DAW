@@ -31,6 +31,12 @@ use crate::processors::{db_to_linear, sanitize_sample_rate};
 use crate::processors::smoothing::SmoothedValue;
 
 const MAX_LOOKAHEAD_SAMPLES: usize = 2048;
+// BUG-084: Compile-time assertion that MAX_LOOKAHEAD_SAMPLES is a power of two.
+// LOOKAHEAD_MASK relies on this for correct ring buffer wraparound via bitwise AND.
+const _: () = assert!(
+    MAX_LOOKAHEAD_SAMPLES > 0 && (MAX_LOOKAHEAD_SAMPLES & (MAX_LOOKAHEAD_SAMPLES - 1)) == 0,
+    "MAX_LOOKAHEAD_SAMPLES must be a power of two for LOOKAHEAD_MASK to work correctly",
+);
 const LOOKAHEAD_MASK: usize = MAX_LOOKAHEAD_SAMPLES - 1;
 const DEFAULT_LOOKAHEAD_MS: f32 = 1.0;
 
@@ -169,12 +175,25 @@ impl CompressorProcessor {
     }
 
     fn compute_auto_makeup(&self) -> f32 {
-        // Estimate makeup from threshold and ratio
+        // BUG-018 FIX: Account for soft knee in auto-makeup estimation.
+        // Previous formula assumed hard knee and overestimated gain reduction
+        // when a wide knee was set (e.g., 24dB knee).
         if self.auto_gain {
             let over = -self.threshold_db;
             if over > 0.0 {
-                let reduction = over * (1.0 - 1.0 / self.ratio) * 0.5;
-                db_to_linear(reduction)
+                let knee_half = self.knee_db * 0.5;
+                // Knee reduces the effective compression in the knee zone.
+                // Approximate by blending hard-knee GR with a softer estimate.
+                let hard_reduction = over * (1.0 - 1.0 / self.ratio);
+                let knee_factor = if knee_half > 0.01 {
+                    // The wider the knee, the less aggressive the actual GR.
+                    // Scale by how much of the signal sits inside the knee zone.
+                    let knee_coverage = (knee_half / over).min(1.0);
+                    1.0 - knee_coverage * 0.5
+                } else {
+                    1.0
+                };
+                db_to_linear(hard_reduction * knee_factor * 0.5)
             } else {
                 1.0
             }

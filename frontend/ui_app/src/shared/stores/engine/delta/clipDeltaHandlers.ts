@@ -19,10 +19,24 @@ function syncClipMapFromTimeline(state: DeltaWorkingState): void {
 
 function upsertClip(state: DeltaWorkingState, clip: TimelineClip): void {
     if (!isValidClipId(clip.id)) return;
-    const exists = state.timelineClips.some((c) => c.id === clip.id);
-    state.timelineClips = exists
-        ? state.timelineClips.map((c) => (c.id === clip.id ? clip : c))
-        : [...state.timelineClips, clip];
+    // BUG-A05 FIX: O(1) lookup via clipsById map instead of O(n) .some() scan.
+    const existing = state.clipsById[clip.id];
+    if (existing) {
+        const idx = state.timelineClips.indexOf(existing);
+        if (idx >= 0) {
+            state.timelineClips[idx] = clip;
+        } else {
+            // Fallback: linear scan if reference changed.
+            const fallbackIdx = state.timelineClips.findIndex((c) => c.id === clip.id);
+            if (fallbackIdx >= 0) {
+                state.timelineClips[fallbackIdx] = clip;
+            } else {
+                state.timelineClips = [...state.timelineClips, clip];
+            }
+        }
+    } else {
+        state.timelineClips = [...state.timelineClips, clip];
+    }
     state.clipsById = { ...state.clipsById, [clip.id]: clip };
 }
 
@@ -49,7 +63,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationBeats: frameToBeat(delta.data.duration, env.bpm, env.sampleRate),
             durationSamples: delta.data.duration,
             type: delta.data.clip_type === 'midi' ? 'midi' : 'audio',
-            color: track?.color ?? 'var(--token-color-hex-667788)',
+            color: track?.color ?? '#667788',
             filePath: delta.data.file_path ?? undefined,
             sourceOffset: 0,
             muted: false,
@@ -109,10 +123,17 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
 
         const splitOffsetBeats = splitBeat - clip.startBeat;
         const splitOffsetFrames = Math.max(0, delta.data.split_frame - Math.round(beatToFrame(clip.startBeat, env.bpm, env.sampleRate)));
+        // BUG-C03 FIX: Clamp fades to not exceed new clip durations after split.
+        const leftFadeIn = Math.min(clip.fadeIn ?? 0, leftDuration);
+        const leftFadeOut = 0; // Split edge has no fade out
+        const rightFadeIn = 0; // Split edge has no fade in  
+        const rightFadeOut = Math.min(clip.fadeOut ?? 0, rightDuration);
         const leftClip: TimelineClip = {
             ...clip,
             durationBeats: leftDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(leftDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
+            fadeIn: leftFadeIn,
+            fadeOut: leftFadeOut,
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes) ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats <= splitOffsetBeats + 1e-9) : clip.midiNotes,
         };
         const rightClip: TimelineClip = {
@@ -122,8 +143,12 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
             durationBeats: rightDuration,
             durationSamples: clip.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(rightDuration, env.bpm, env.sampleRate))) : clip.durationSamples,
             sourceOffset: Math.max(0, (clip.sourceOffset ?? 0) + splitOffsetFrames),
+            fadeIn: rightFadeIn,
+            fadeOut: rightFadeOut,
+            // BUG-A04 FIX: Filter by note START position >= split point, not note end.
+            // Prevents notes at the exact boundary from appearing in both halves.
             midiNotes: clip.type === 'midi' && Array.isArray(clip.midiNotes)
-                ? clip.midiNotes.filter((n) => n.startBeat + n.durationBeats > splitOffsetBeats + 1e-9).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
+                ? clip.midiNotes.filter((n) => n.startBeat >= splitOffsetBeats - 1e-9).map((n) => ({ ...n, startBeat: Math.max(0, n.startBeat - splitOffsetBeats) }))
                 : clip.midiNotes,
         };
         upsertClip(state, leftClip);
@@ -146,7 +171,7 @@ export function applyClipDelta(state: DeltaWorkingState, delta: ProjectDelta, en
         const mergedClip: TimelineClip = {
             ...representative,
             id: delta.data.new_clip_id,
-            name: 'Merged Clip',
+            name: representative.name || 'Merged Clip',
             startBeat: mergedStart,
             durationBeats: mergedDuration,
             durationSamples: representative.durationSamples != null ? Math.max(1, Math.round(beatDurationToFrames(mergedDuration, env.bpm, env.sampleRate))) : representative.durationSamples,

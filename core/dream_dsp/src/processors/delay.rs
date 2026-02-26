@@ -159,6 +159,10 @@ impl DelayProcessor {
             self.dry_wet_sm.set_sample_rate(sr);
             self.delay_l_sm.set_sample_rate(sr);
             self.delay_r_sm.set_sample_rate(sr);
+            // BUG-079 FIX: Reset cross-feedback on SR change.
+            // Stale values from old SR cause brief garbage in ping-pong mode.
+            self.cross_fb_l = 0.0;
+            self.cross_fb_r = 0.0;
         }
     }
 
@@ -189,7 +193,6 @@ impl DspProcessor for DelayProcessor {
         let bs = self.buf_size;
         let fc = self.fb_filter_coeff;
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
-        let mod_max = self.mod_depth * 20.0; // ±20 samples at full depth
 
         // Keep smoother targets synced with latest parameter values.
         self.feedback_sm.set_target(self.feedback);
@@ -203,17 +206,24 @@ impl DspProcessor for DelayProcessor {
             let dry = 1.0 - wet;
 
             // SSOT: Fast sine LFO from mod.rs.
+            // BUG-061 FIX: Keep phase in f64 for precision over long sessions.
+            // Only downcast to f32 for the sine approximation call.
             let lfo = crate::processors::fast_sin_phase(self.lfo_phase as f32);
-            self.lfo_phase += lfo_inc;
-            self.lfo_phase = self.lfo_phase.fract();
+            self.lfo_phase = (self.lfo_phase + lfo_inc).fract();
 
-            let mod_offset = lfo * mod_max;
+            // BUG-021 FIX: Clamp mod_max to half the base delay to prevent collapse.
+            // Previously, at 100% depth with short delay (e.g., 10 samples),
+            // mod_offset = ±20 could push delay below 1.0, killing the effect.
+            let mod_max_raw = self.mod_depth * 20.0;
+            let mod_offset = lfo * mod_max_raw;
             let base_dl = self.delay_l_sm.next_value();
             let base_dr = self.delay_r_sm.next_value();
-            let dl = (base_dl + mod_offset).clamp(1.0, (bs - 2) as f32);
+            let safe_mod_l = mod_offset.clamp(-(base_dl * 0.5), base_dl * 0.5);
+            let safe_mod_r = (-mod_offset).clamp(-(base_dr * 0.5), base_dr * 0.5);
+            let dl = (base_dl + safe_mod_l).clamp(1.0, (bs - 2) as f32);
             // BUG-029 FIX: Symmetric modulation — removed 0.7 factor that caused
             // permanent pitch imbalance between L/R during modulation.
-            let dr = (base_dr - mod_offset).clamp(1.0, (bs - 2) as f32);
+            let dr = (base_dr + safe_mod_r).clamp(1.0, (bs - 2) as f32);
 
             // Read delayed signals
             let delayed_l = Self::read_interp(&self.buf_l, self.write_pos, dl, bs);

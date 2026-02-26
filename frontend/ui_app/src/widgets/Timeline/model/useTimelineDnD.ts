@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useDragStore } from '@/shared/stores/useDragStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { secondsToBeat } from '@/shared/lib/audioMath';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
@@ -60,7 +61,9 @@ export function useTimelineDnD({
         const rect = canvas.getBoundingClientRect();
         if (e.clientY < rect.top || e.clientY > rect.bottom) return;
 
-        const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
+        const rawBeat = engine.viewport.screenToBeats(e.clientX, rect);
+        const { snapBeat } = useGridStore.getState();
+        const beat = Math.max(0, snapBeat(rawBeat));
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
         if (storeDrag) {

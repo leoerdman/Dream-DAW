@@ -82,6 +82,15 @@ impl DeviceChain {
         self.sample_rate
     }
 
+    /// BUG-022 FIX: Returns the total latency (in samples) of all active
+    /// slots in the chain. This is the sum of individual `latency_samples()`
+    /// across every slot — used for Plugin Delay Compensation (PDC).
+    /// Previously, individual slots reported their latency but DeviceChain
+    /// didn't aggregate, causing downstream slots to process late data.
+    pub fn total_latency_samples(&self) -> usize {
+        self.slots.iter().map(|s| s.latency_samples()).sum()
+    }
+
     // ── Generic device management ──────────────────────────────────────
 
     /// Adds any device at the specified slot index.

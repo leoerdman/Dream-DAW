@@ -21,7 +21,13 @@ export class TimelineCommandBus {
     private readonly listeners = new Set<Listener>();
 
     emit(command: TimelineCommand): void {
-        this.listeners.forEach((l) => l(command));
+        this.listeners.forEach((l) => {
+            try {
+                l(command);
+            } catch (err) {
+                console.error('[TimelineCommandBus] Listener error:', err);
+            }
+        });
     }
 
     subscribe(listener: Listener): () => void {

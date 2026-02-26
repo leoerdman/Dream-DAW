@@ -14,7 +14,12 @@ interface UsePianoRollClipboardArgs {
     enforceNoOverlap: (input: MidiNote[], aggressorIds: Set<string>) => MidiNote[];
 }
 
-/** Module-level clipboard so copied notes survive across PianoRoll instances. */
+/**
+ * Module-level clipboard so copied notes survive across PianoRoll instances.
+ * BUG-011 DOC: This is INTENTIONALLY module-level — in a DAW, copy/paste should
+ * work across different MIDI clips (select notes in clip A, paste into clip B).
+ * The clipboard is isolated per-window via the JS module boundary.
+ */
 let _moduleClipboard: MidiNote[] = [];
 
 export function usePianoRollClipboard({

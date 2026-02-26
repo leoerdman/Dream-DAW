@@ -248,6 +248,12 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         // deferred_topology as AddDevice — zero heap alloc.
                         while let Ok(prebuilt) = prealloc_consumer.pop() {
                             if deferred_topology.len() >= 4096 {
+                                // BUG-015 FIX: Track overflow via atomic counter.
+                                // Previously silently dropped oldest commands, causing
+                                // device chain operations to vanish without trace.
+                                static TOPOLOGY_OVERFLOW: std::sync::atomic::AtomicU32 =
+                                    std::sync::atomic::AtomicU32::new(0);
+                                TOPOLOGY_OVERFLOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 let _ = deferred_topology.pop_front();
                             }
                             deferred_topology.push_back(
@@ -589,28 +595,18 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                                 }
 
                                                 if let Some(instance_id) = runtime_slot.instance_id {
-                                                    let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
-                                                        // AUD-601 FIX: Diagnose missing plugin instances.
-                                                        // Previously this was a silent skip — the slot produced
-                                                        // unprocessed audio with zero indication why.
-                                                        static MISS_COUNT: std::sync::atomic::AtomicU32 =
-                                                            std::sync::atomic::AtomicU32::new(0);
-                                                        let n = MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                                        if n.is_multiple_of(500) {
-                                                            log::warn!(
-                                                                "[AudioRT] External plugin instance {:?} not in registry (track={}, #{})",
-                                                                instance_id, track_idx, n
-                                                            );
-                                                        }
-                                                        continue;
-                                                    };
-                                                    // EXPORT-SAFETY: Skip external VST try_lock when
-                                                    // offline export is active. The export thread holds
-                                                    // blocking locks on these same instances — concurrent
-                                                    // process() calls corrupt filter/delay state → crackling.
-                                                    if export_active {
-                                                        continue;
-                                                    }
+                                            let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
+                                            // AUD-601 FIX: Diagnose missing plugin instances.
+                                            // BUG-002 FIX: Removed log::warn! — RT-unsafe Mutex.
+                                            static MISS_COUNT: std::sync::atomic::AtomicU32 =
+                                                std::sync::atomic::AtomicU32::new(0);
+                                            MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                            continue;
+                                        };
+                                        // BUG-007 FIX: Do NOT skip per-track VSTs during export.
+                                        // The offline renderer must process ALL plugins for correct
+                                        // exported audio. Previously, export_active=true caused
+                                        // all VST effects to be silently skipped in bounced output.
                                                     // CRACKLE-FIX-1: Copy input into external buffers BEFORE
                                                     // attempting lock. On lock miss, the dry signal is already
                                                     // in external_left/right, so the copy-back below produces
@@ -866,10 +862,15 @@ pub(crate) fn start_audio_thread_on_device_impl(
                                         let rms_r = linear_to_db(compute_rms(&right[..c]));
                                         let peak_l = linear_to_db(compute_peak(&left[..c]));
                                         let peak_r = linear_to_db(compute_peak(&right[..c]));
+                                        // BUG-012 FIX: Use store_peak_decay for proper peak-hold with decay.
+                                        // Previously used store_peak(peak.max(load_peak())), but baseline
+                                        // decay at L237 already reset to METER_FLOOR_DB — making .max()
+                                        // dead code. Now uses the same decay-based approach as master meters.
+                                        let track_decay = peak_decay_for_block(sample_rate_f64, c);
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
-                                        meter_l.store_peak(peak_l.max(meter_l.load_peak()));
-                                        meter_r.store_peak(peak_r.max(meter_r.load_peak()));
+                                        meter_l.store_peak_decay(peak_l, track_decay);
+                                        meter_r.store_peak_decay(peak_r, track_decay);
                                     }
 
                                     // SSOT-FIX: Publish post-insert/post-strip track output
@@ -977,21 +978,26 @@ pub(crate) fn start_audio_thread_on_device_impl(
                         unsafe { std::arch::asm!("msr fpcr, {}", in(reg) original_fpcr); }
                     };
 
-                #[cfg(debug_assertions)]
+                // BUG-004 FIX: Always wrap callback in catch_unwind, including release builds.
+                // Previously only debug_assertions had panic protection — in release,
+                // any panic in the audio callback killed the entire audio stream permanently.
                 {
                     let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                         &mut run_callback,
                     ));
                     if callback_result.is_err() {
                         data.fill(0.0);
+                        #[cfg(debug_assertions)]
                         error!(
                             "[RT] Panic trapped inside audio callback; emitted silence for this buffer"
                         );
+                        #[cfg(not(debug_assertions))]
+                        {
+                            static PANIC_COUNT: std::sync::atomic::AtomicU32 =
+                                std::sync::atomic::AtomicU32::new(0);
+                            PANIC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
-                }
-                #[cfg(not(debug_assertions))]
-                {
-                    run_callback();
                 }
             },
             // RT_CALLBACK_END

@@ -87,8 +87,10 @@ export const useTimelineStore = create<TimelineState>((set) => ({
             restoreScrollLeft: Number.isFinite(scrollLeft) ? Math.max(0, scrollLeft) : 0,
             restoreScrollTop: Number.isFinite(scrollTop) ? Math.max(0, scrollTop as number) : null,
         })),
+    // BUG-013: Reset restoreSeq to 0 to prevent stale sequence re-triggers after clear.
     clearViewportRestore: () =>
         set({
+            restoreSeq: 0,
             restorePixelsPerBeat: null,
             restoreScrollLeft: null,
             restoreScrollTop: null,

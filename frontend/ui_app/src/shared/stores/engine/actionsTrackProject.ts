@@ -54,6 +54,8 @@ export function createTrackProjectActions(
 > {
     return {
         setTrackVolume: async (trackIndex: number, volume: number) => {
+            // BUG-009: Guard track index bounds to prevent stale index access.
+            if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
                 // BUG-011 FIX: Capture old value for rollback on IPC failure.
                 const trackId = get().tracks.allIds[trackIndex];
@@ -92,6 +94,8 @@ export function createTrackProjectActions(
         },
 
         setTrackPan: async (trackIndex: number, pan: number) => {
+            // BUG-009: Guard track index bounds to prevent stale index access.
+            if (trackIndex < 0 || trackIndex >= get().tracks.allIds.length) return;
             try {
                 // BUG-011 FIX: Capture old value for rollback on IPC failure.
                 const trackId = get().tracks.allIds[trackIndex];
@@ -287,8 +291,11 @@ export function createTrackProjectActions(
         },
 
         createMidiClip: async (trackIndex: number, positionFrames: number, durationFrames: number) => {
+            // BUG-036: Validate inputs — reject NaN, negative, zero-duration.
+            const safePosition = Number.isFinite(positionFrames) ? Math.max(0, Math.round(positionFrames)) : 0;
+            const safeDuration = Number.isFinite(durationFrames) ? Math.max(1, Math.round(durationFrames)) : 1;
             try {
-                const response = await engine.createMidiClipWithDeltas(trackIndex, positionFrames, durationFrames);
+                const response = await engine.createMidiClipWithDeltas(trackIndex, safePosition, safeDuration);
                 await get().applyProjectDeltas(response.deltas, 'createMidiClip');
             } catch (err) {
                 const msg = `Create MIDI clip failed: ${err}`;

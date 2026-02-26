@@ -60,12 +60,16 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
-                st.triplet ? 3 : 2,
+                st.triplet ? 3 : 1,
                 st.snapEnabled,
                 st.fixedMode,
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-division'))
-            .catch((err) => console.error('[GridStore] setArrangementGrid(setDivision) failed:', err));
+            // BUG-037: Clear pendingSync on IPC failure to prevent stale lock-up.
+            .catch((err) => {
+                set({ pendingSync: null });
+                console.error('[GridStore] setArrangementGrid(setDivision) failed:', err);
+            });
     },
     stepDivisionFiner: () => {
         const st = get();
@@ -107,12 +111,16 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
-                st.triplet ? 3 : 2,
+                st.triplet ? 3 : 1,
                 st.snapEnabled,
                 st.fixedMode,
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-triplet'))
-            .catch((err) => console.error('[GridStore] setArrangementGrid(setTriplet) failed:', err));
+            // BUG-037: Clear pendingSync on IPC failure to prevent stale lock-up.
+            .catch((err) => {
+                set({ pendingSync: null });
+                console.error('[GridStore] setArrangementGrid(setTriplet) failed:', err);
+            });
     },
     setSnapEnabled: (enabled: boolean) => {
         const stBefore = get();
@@ -121,7 +129,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
             pendingSync: {
                 numerator: Math.max(1, Math.round(stBefore.fixedNumerator)),
                 denominator: Math.max(1, Math.round(stBefore.fixedDenominator)),
-                ntoles: stBefore.triplet ? 3 : 2,
+                ntoles: stBefore.triplet ? 3 : 1,
                 snapToGrid: enabled,
                 fixed: stBefore.fixedMode,
                 expiresAtMs: Date.now() + 1500,
@@ -132,17 +140,21 @@ export const useGridStore = create<GridStore>((set, get) => ({
             .setArrangementGridWithDeltas(
                 Math.max(1, Math.round(st.fixedNumerator)),
                 Math.max(1, Math.round(st.fixedDenominator)),
-                st.triplet ? 3 : 2,
+                st.triplet ? 3 : 1,
                 st.snapEnabled,
                 st.fixedMode,
             )
             .then((response) => useEngineStore.getState().applyProjectDeltas(response.deltas, 'grid:set-snap-enabled'))
-            .catch((err) => console.error('[GridStore] setArrangementGrid(setSnapEnabled) failed:', err));
+            // BUG-037: Clear pendingSync on IPC failure to prevent stale lock-up.
+            .catch((err) => {
+                set({ pendingSync: null });
+                console.error('[GridStore] setArrangementGrid(setSnapEnabled) failed:', err);
+            });
     },
     applyProjectGrid: (cfg) => {
         const numerator = Math.max(1, Math.round(cfg.numerator || 1));
         const denominator = Math.max(1, Math.round(cfg.denominator || 16));
-        const ntoles = Math.max(1, Math.round(cfg.ntoles || 2));
+        const ntoles = Math.max(1, Math.round(cfg.ntoles || 1));
         const fixed = Boolean(cfg.fixed);
         const snapToGrid = Boolean(cfg.snapToGrid);
         const pending = get().pendingSync;
@@ -224,15 +236,19 @@ export const useGridStore = create<GridStore>((set, get) => ({
         const next = CYCLE_ORDER[(idx + 1) % CYCLE_ORDER.length];
         get().setDivision(next);
     },
-    snapBeat: (rawBeat: number, beatsPerBar: number = 4, ppb?: number) => {
+    // BUG-031: Derive default beatsPerBar from engine store instead of hardcoded 4,
+    // so non-4/4 time signatures snap correctly even when caller omits the argument.
+    snapBeat: (rawBeat: number, beatsPerBar?: number, ppb?: number) => {
         const { division, triplet, snapEnabled } = get();
         if (!snapEnabled) return Math.max(0, rawBeat);
-        const interval = Math.max(0.001, divisionToInterval(division, beatsPerBar, triplet, ppb));
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? 4;
+        const interval = Math.max(0.001, divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb));
         return snapToGrid(rawBeat, interval);
     },
-    gridInterval: (beatsPerBar: number = 4, ppb?: number) => {
+    gridInterval: (beatsPerBar?: number, ppb?: number) => {
         const { division, triplet } = get();
-        return divisionToInterval(division, beatsPerBar, triplet, ppb);
+        const effectiveBeatsPerBar = beatsPerBar ?? useEngineStore.getState().timeSigNumerator ?? 4;
+        return divisionToInterval(division, effectiveBeatsPerBar, triplet, ppb);
     },
     setPianoPencilMode: (enabled: boolean) => {
         set({ pianoPencilMode: enabled });

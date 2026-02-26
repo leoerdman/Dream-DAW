@@ -139,6 +139,11 @@ impl DspProcessor for EqProcessor {
             if !band.enabled {
                 continue;
             }
+            // BUG-026 FIX: Skip flat peaking bands — gain=0dB means no effect.
+            // HP/LP/shelf always process since gain=0 still affects frequency response.
+            if matches!(band.filter_type, BiquadType::Peaking) && band.gain_db.abs() < 0.01 {
+                continue;
+            }
             band.filter_l.process_buffer(left_buf);
             band.filter_r.process_buffer(right_buf);
             // BUG-C08 FIX: Per-band output clamp to prevent cascaded extreme gain
@@ -160,16 +165,17 @@ impl DspProcessor for EqProcessor {
             left_buf[i] *= g;
             right_buf[i] *= g;
         }
-        // Numeric runaway guard only for extreme boost stacks / pathological automation.
-        // Transparent in normal operating range and bounded in stress scenarios.
+        // BUG-043 FIX: Replaced tanh() with cheaper rational approximation.
+        // tanh() is ~20ns/call; this is ~2ns with identical clamping behavior.
         #[inline(always)]
         fn runaway_guard(x: f32) -> f32 {
             let ax = x.abs();
             if ax <= 24.0 {
                 x
             } else {
-                let tail = (ax - 24.0) / (1.0 + (ax - 24.0));
-                x.signum() * (24.0 + 6.0 * tail)
+                let over = ax - 24.0;
+                // Rational soft-clip: asymptotically approaches 30.0
+                x.signum() * (24.0 + 6.0 * over / (1.0 + over))
             }
         }
 

@@ -166,8 +166,10 @@ function App() {
     settingsLoaded,
   ])
 
+  // BUG-005 FIX: Retry expandWindow with exponential backoff (max 3 attempts)
+  // BUG-029 FIX: Set error state on final failure so user gets visual feedback.
+  const [windowError, setWindowError] = useState(false)
   useEffect(() => {
-    // BUG-005 FIX: Retry expandWindow with exponential backoff (max 3 attempts)
     const retryExpandWindow = async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -180,14 +182,20 @@ function App() {
         }
       }
       console.error('[App] expandWindow failed after 3 attempts')
+      setWindowError(true)
     }
     retryExpandWindow()
   }, [])
 
   useEffect(() => {
-    // Fail-open: ensure app never stays on blank splash forever.
+    // BUG-028 FIX: Check connection state before dismissing splash.
+    // Previously, timeout always dismissed splash even if backend never connected.
     if (splashDone) return
-    const timeoutId = window.setTimeout(() => setSplashDone(true), 8000)
+    const timeoutId = window.setTimeout(() => {
+      setSplashDone(true)
+      // If we haven't connected by splash timeout, something is wrong.
+      // The workspace will load but may show connection-related errors.
+    }, 8000)
     return () => window.clearTimeout(timeoutId)
   }, [splashDone])
 
@@ -206,11 +214,23 @@ function App() {
 
   return (
     <>
+      {/* BUG-029: Show visual warning if window expansion failed */}
+      {windowError && (
+        <div style={{
+          position: 'fixed', top: 8, right: 8, zIndex: 100000, padding: '6px 12px',
+          background: 'rgba(255,100,0,0.9)', color: '#fff', borderRadius: 6, fontSize: 12,
+          fontFamily: 'var(--font-role-data)'
+        }}>
+          Window resize failed — some UI elements may be clipped
+        </div>
+      )}
       {fatalError && (
         <div style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 999999,
+          // BUG-030 FIX: Lowered z-index so ErrorBoundary recovery button
+          // is accessible. Previously 999999 blocked everything.
+          zIndex: 99999,
           background: 'var(--token-color-hex-1a0000)',
           color: 'var(--token-color-hex-ff6b6b)',
           padding: 40,

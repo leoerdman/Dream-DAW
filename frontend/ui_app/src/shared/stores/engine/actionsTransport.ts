@@ -84,8 +84,10 @@ export function createTransportActions(
         },
 
         seekSeconds: async (seconds: number) => {
+            // BUG-006: Validate input — reject NaN, Infinity, and negative values.
+            const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
             try {
-                await engine.seekSeconds(seconds);
+                await engine.seekSeconds(safe);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });
@@ -93,8 +95,10 @@ export function createTransportActions(
         },
 
         seekToBeat: async (beat: number) => {
+            // BUG-006: Validate input — reject NaN, Infinity, and negative values.
+            const safe = Number.isFinite(beat) ? Math.max(0, beat) : 0;
             try {
-                await engine.seekToBeat(beat);
+                await engine.seekToBeat(safe);
                 set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });
@@ -126,6 +130,8 @@ export function createTransportActions(
         expandWindow: async () => {
             try {
                 await engine.expandWindow();
+                // BUG-035: Clear lastError on success, consistent with other actions.
+                set({ lastError: null });
             } catch (e) {
                 set({ lastError: String(e) });
             }

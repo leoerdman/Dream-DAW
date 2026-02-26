@@ -422,7 +422,10 @@ impl RenderContext {
                 };
                 let is_warped = clip.is_warped && clip_source_len > 1.0;
 
-                let pitch_multiplier = 2.0_f64.powf(clip.pitch_shift_semitones / 12.0);
+                // BUG-020 FIX: Clamp pitch_shift_semitones to ±36 (±3 octaves) before powf()
+                // to prevent intermediate f64 underflow/overflow for extreme values.
+                let clamped_pitch = clip.pitch_shift_semitones.clamp(-36.0, 36.0);
+                let pitch_multiplier = 2.0_f64.powf(clamped_pitch / 12.0);
 
                 let mut playback_rate = if is_warped {
                     let rate = (clip_source_len / clip_timeline_len).clamp(0.125, 8.0);
@@ -662,8 +665,11 @@ impl RenderContext {
         let advance_frames = advance_exact.floor().max(0.0) as usize;
         self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
 
+        // BUG-015 FIX: Use rem_euclid instead of fract() — fract() on negative
+        // values returns a negative fraction, causing the playhead to micro-stutter
+        // backwards by up to 1 sample periodically.
         if self.timeline_advance_accumulator.abs() > 1.0 {
-            self.timeline_advance_accumulator = self.timeline_advance_accumulator.fract();
+            self.timeline_advance_accumulator = self.timeline_advance_accumulator.rem_euclid(1.0);
         }
         self.playhead
             .advance(advance_frames, transport_loop.as_ref());

@@ -77,7 +77,10 @@ export function flattenFolderBrowserItems(params: {
         };
     });
     const result: BrowserItem[] = [];
+    // BUG-092: Limit recursion depth to prevent stack overflow on deeply nested folders.
+    const MAX_FOLDER_DEPTH = 10;
     const insertWithChildren = (items: BrowserItem[], depth: number) => {
+        if (depth > MAX_FOLDER_DEPTH) return;
         for (const item of items) {
             const isExpanded = item.isDirectory && item.path ? expandedFolders.has(item.path) : false;
             const isLoading = item.isDirectory && item.path ? loadingFolders.has(item.path) : false;

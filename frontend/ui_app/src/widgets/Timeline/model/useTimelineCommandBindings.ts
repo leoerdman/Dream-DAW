@@ -66,14 +66,17 @@ export function useTimelineCommandBusBindings({
                             break;
                         }
 
-                        const orderedClips = [...currentClips].sort((a, b) => {
-                            if (a.trackIndex !== b.trackIndex) return a.trackIndex - b.trackIndex;
-                            if (a.startBeat !== b.startBeat) return a.startBeat - b.startBeat;
-                            if (a.durationBeats !== b.durationBeats) return a.durationBeats - b.durationBeats;
-                            return a.id.localeCompare(b.id);
-                        });
-                        const anchorIndex = orderedClips.findIndex((c) => c.id === anchorClip.id);
-                        const targetIndex = orderedClips.findIndex((c) => c.id === targetClip.id);
+                        // BUG-B01 FIX: Shift+click selects within same track only.
+                        // Filter to clips on the anchor's track, then select the range.
+                        const sameTrackClips = [...currentClips]
+                            .filter((c) => c.trackIndex === anchorClip.trackIndex)
+                            .sort((a, b) => {
+                                if (a.startBeat !== b.startBeat) return a.startBeat - b.startBeat;
+                                if (a.durationBeats !== b.durationBeats) return a.durationBeats - b.durationBeats;
+                                return a.id.localeCompare(b.id);
+                            });
+                        const anchorIndex = sameTrackClips.findIndex((c) => c.id === anchorClip.id);
+                        const targetIndex = sameTrackClips.findIndex((c) => c.id === targetClip.id);
                         if (anchorIndex < 0 || targetIndex < 0) {
                             callbacksRef.current.onClipSelect?.(command.clipId);
                             selectionAnchorClipIdRef.current = command.clipId;
@@ -81,7 +84,7 @@ export function useTimelineCommandBusBindings({
                         }
                         const startIndex = Math.min(anchorIndex, targetIndex);
                         const endIndex = Math.max(anchorIndex, targetIndex);
-                        const next = orderedClips.slice(startIndex, endIndex + 1).map((c) => c.id);
+                        const next = sameTrackClips.slice(startIndex, endIndex + 1).map((c) => c.id);
                         callbacksRef.current.onClipSelectionChange?.(next);
                     } else if (command.isCtrl) {
                         const prev = selectedClipIdsRef.current;

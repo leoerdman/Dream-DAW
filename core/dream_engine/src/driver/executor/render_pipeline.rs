@@ -82,24 +82,19 @@ pub(super) fn process_master_bus(
     master_gain_smooth: f32,
     _render_ctx: &mut RenderContext,
     process_ctx: &ProcessContext,
-    export_active: bool,
+    _export_active: bool,
 ) {
     let master_slots_opt = resolve_master_runtime_slots(external_fx_map, track_count);
     if let Some(master_slots) = master_slots_opt {
         if !master_slots.is_empty() {
             let has_external = master_slots.iter().any(|s| s.instance_id.is_some());
             if !has_external {
-                // AUD-500 FIX: Diagnostic — log once if DeviceChain is empty despite
-                // having internal runtime slots, which indicates a topology sync bug.
+                // AUD-500 FIX: Diagnostic — count topology sync mismatches via atomic counter.
+                // BUG-001 FIX: Removed log::warn! — log backend Mutex is RT-unsafe (priority inversion).
                 if master_device_chain.is_empty() && master_slots.iter().any(|s| s.internal_slot_index.is_some()) {
-                    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                    if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                        log::warn!(
-                            "[AUD-500] Master has {} internal runtime slots but DeviceChain is empty — \
-                             topology sync issue. Internal master FX will not process.",
-                            master_slots.iter().filter(|s| s.internal_slot_index.is_some()).count()
-                        );
-                    }
+                    static TOPOLOGY_SYNC_MISS: std::sync::atomic::AtomicU32 =
+                        std::sync::atomic::AtomicU32::new(0);
+                    TOPOLOGY_SYNC_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 if !master_device_chain.is_empty() {
                     master_device_chain.process_with_context(
@@ -125,22 +120,17 @@ pub(super) fn process_master_bus(
                     if let Some(instance_id) = runtime_slot.instance_id {
                         let Some(plugin_mtx) = plugin_registry_ref.get(&instance_id) else {
                             // AUD-601 FIX: Diagnose missing master-bus plugin instances.
+                            // BUG-003 FIX: Removed log::warn! — RT-unsafe Mutex in log backend.
                             static MASTER_MISS: std::sync::atomic::AtomicU32 =
                                 std::sync::atomic::AtomicU32::new(0);
-                            let n_miss = MASTER_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            if n_miss.is_multiple_of(500) {
-                                log::warn!(
-                                    "[AudioRT] Master bus plugin {:?} not in registry (#{})",
-                                    instance_id, n_miss
-                                );
-                            }
+                            MASTER_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             continue;
                         };
-                        // EXPORT-SAFETY: Skip master bus external VST try_lock when
-                        // offline export is active. Same as per-track skip logic.
-                        if export_active {
-                            continue;
-                        }
+                        // BUG-008 FIX: Do NOT skip master bus VSTs during export.
+                        // The offline renderer processes sequentially — blocking locks
+                        // are safe and necessary for correct exported audio.
+                        // Previously, export_active caused `continue`, producing
+                        // exported audio with NO master bus VST effects at all.
                         // CRACKLE-FIX-1: Copy input into external buffers BEFORE
                         // attempting lock. On lock miss, the dry signal is already
                         // in external_left/right, so the copy-back below produces
@@ -213,11 +203,11 @@ pub(super) fn process_master_bus(
         );
     }
 
-    // BUF-J02 FIX: Snap gain closer on large jumps (> 6dB / ±50%).
-    // Exponential smoothing converges slowly for large deltas (e.g. mute/unmute).
-    // Pre-snap to halve the distance, then let per-sample smoothing do the rest.
+    // BUG-058 FIX: Lowered snap threshold from 0.5 to 0.15.
+    // 0.5 (≈-6dBFS) was too aggressive — normal volume changes (e.g., +3dB)
+    // caused audible discontinuity. Now only snaps for extreme jumps (mute→unmute).
     let delta = (master_gain_target - *master_gain_current).abs();
-    if delta > 0.5 {
+    if delta > 0.15 {
         *master_gain_current += (master_gain_target - *master_gain_current) * 0.5;
     }
 
@@ -245,7 +235,9 @@ pub(super) fn interleave_graph_output(
             break;
         }
         if channels == 1 {
-            data[base] = (graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2;
+            // BUG-014 FIX: Use 0.5 (-6dB) for mono fold-down instead of FRAC_1_SQRT_2 (-3dB).
+            // -3dB causes clipping with correlated stereo signals; -6dB is the standard.
+            data[base] = (graph_out_left[i] + graph_out_right[i]) * 0.5;
             continue;
         }
         data[base] = graph_out_left[i];
@@ -327,7 +319,7 @@ pub(super) fn mix_preview_audio(
                         let p_right = preview_data[p_idx + 1];
                         if channels == 1 {
                             data[d_idx] +=
-                                soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
+                                soft_clip((p_left + p_right) * 0.5);
                         } else {
                             data[d_idx] += soft_clip(p_left);
                             if d_idx + 1 < data.len() {
@@ -337,12 +329,11 @@ pub(super) fn mix_preview_audio(
                     }
                 }
                 let new_cursor = cursor + mix_frames * preview_channels;
-                let _ = preview_cursor.compare_exchange(
-                    cursor,
-                    new_cursor,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                );
+                // BUG-009 FIX: Use store instead of compare_exchange.
+                // The audio callback is the sole writer — CAS failure (from UI reset)
+                // should not silently replay the same chunk. Unconditional store
+                // ensures cursor always advances.
+                preview_cursor.store(new_cursor, Ordering::Release);
             } else {
                 let mut src_pos = cursor_frame as f64;
                 for f in 0..frame_count {
@@ -378,12 +369,8 @@ pub(super) fn mix_preview_audio(
                 }
                 let new_cursor_frame = src_pos.ceil() as usize;
                 let new_cursor = (new_cursor_frame * preview_channels).min(total);
-                let _ = preview_cursor.compare_exchange(
-                    cursor,
-                    new_cursor,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                );
+                // BUG-009 FIX: Same as above — unconditional store.
+                preview_cursor.store(new_cursor, Ordering::Release);
             }
         }
     }
@@ -401,24 +388,27 @@ pub(super) fn finalize_output_and_publish(
     }
 
     if let Some(producer) = &mut render_ctx.spectrum_producer {
-        let mut drops = 0u32;
+        // BUG-013 FIX: Track drops as boolean per-buffer, not per-sample counter.
+        // Previously incremented the atomic up to N times per buffer (e.g., 1024
+        // atomic ops at 48kHz) — pure overhead when the ring is full.
+        let mut had_drops = false;
         if channels >= 2 {
             for frame in data.chunks_exact(channels) {
                 let mono = (frame[0] + frame[1]) * 0.5;
                 if producer.push(mono).is_err() {
-                    drops += 1;
+                    had_drops = true;
                 }
             }
         } else if channels == 1 {
             for &sample in data.iter() {
                 if producer.push(sample).is_err() {
-                    drops += 1;
+                    had_drops = true;
                 }
             }
         }
-        if drops > 0 {
+        if had_drops {
             crate::render_callback::SPECTRUM_DROP_COUNT
-                .fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 

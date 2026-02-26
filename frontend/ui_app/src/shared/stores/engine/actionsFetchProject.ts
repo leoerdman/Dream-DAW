@@ -15,7 +15,12 @@ export function createFetchProjectAction(
                 if (delta.length === 0) return;
                 set((s) => {
                     const merged = mergeProjectHistory(s.projectHistory, s.projectHistoryCursor, delta);
-                    return { projectHistory: merged.history, projectHistoryCursor: merged.cursor };
+                    // BUG-007: Cap history at 500 entries to prevent unbounded memory growth.
+                    const MAX_HISTORY = 500;
+                    const history = merged.history.length > MAX_HISTORY
+                        ? merged.history.slice(merged.history.length - MAX_HISTORY)
+                        : merged.history;
+                    return { projectHistory: history, projectHistoryCursor: merged.cursor };
                 });
             } catch (e) {
                 console.warn('[Engine] syncProjectHistory failed:', e);

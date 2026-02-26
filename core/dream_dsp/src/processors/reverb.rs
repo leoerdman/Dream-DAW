@@ -416,6 +416,13 @@ impl DspProcessor for ReverbProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
+
+        // BUG-025 FIX: Early-return when fully dry — skip all 12 delay lines.
+        // Saves ~200 multiply-adds per sample when reverb is bypassed via mix=0.
+        if self.mix <= 0.001 && !self.freeze {
+            return;
+        }
+
         let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
         let sr = self.sample_rate;
 

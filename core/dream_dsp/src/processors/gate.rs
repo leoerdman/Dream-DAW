@@ -388,6 +388,9 @@ impl DspProcessor for GateProcessor {
         self.sc_prev_r = 0.0;
         self.threshold_sm_db.set_instant(self.threshold_db);
         self.range_sm_lin.set_instant(self.range_lin);
+        // BUG-074 FIX: Recalculate hold_samples on reset.
+        // After SR change, hold_samples may retain old SR's value.
+        self.update_all();
     }
 }
 

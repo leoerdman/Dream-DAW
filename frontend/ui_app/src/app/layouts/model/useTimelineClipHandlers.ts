@@ -78,17 +78,20 @@ export function useTimelineClipHandlers({
     }, [setSelectedClipIds]);
 
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
-        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
+        // BUG-026: Use projectBpm as single source of truth — transportBpm can diverge during pending changes.
+        const bpm = Math.max(1, projectBpm ?? 120);
         const sampleRate = projectSampleRate;
         const storeState = useEngineStore.getState();
-        const beatsPerBar = (storeState as typeof storeState & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
+        // BUG-005: Derive beatsPerBar from timeSigNumerator instead of unsafe `as` cast.
+        const beatsPerBar = storeState.timeSigNumerator ?? 4;
         const positionFrames = beatToFrame(beat, bpm, sampleRate);
         const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sampleRate);
         void createMidiClip(trackIndex, positionFrames, durationFrames);
-    }, [createMidiClip, projectBpm, projectSampleRate, transportBpm]);
+    }, [createMidiClip, projectBpm, projectSampleRate]);
 
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
+        // BUG-026: Use projectBpm as single source of truth.
+        const bpm = Math.max(1, projectBpm ?? 120);
         const sampleRate = projectSampleRate;
         const liveState = useEngineStore.getState();
         const liveClip = liveState.clips.byId[clipId] ?? liveState.clipsById[clipId];
@@ -209,7 +212,6 @@ export function useTimelineClipHandlers({
         selectedClipIds,
         timelineClipsForView,
         trackCountRaw,
-        transportBpm,
     ]);
 
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number, allowStretch: boolean) => {
@@ -219,7 +221,8 @@ export function useTimelineClipHandlers({
             pruneGhostClip(clipId);
             return;
         }
-        const bpm = Math.max(1, projectBpm ?? transportBpm ?? 120);
+        // BUG-026: Use projectBpm as single source of truth.
+        const bpm = Math.max(1, projectBpm ?? 120);
         const sampleRate = projectSampleRate;
         const newPositionFrames = beatToFrame(newStartBeat, bpm, sampleRate);
         const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sampleRate));
@@ -236,7 +239,7 @@ export function useTimelineClipHandlers({
                 console.error('[DawShell] resizeClip failed:', err);
                 useStatusStore.getState().setError(`Clip resize failed: ${err instanceof Error ? err.message : String(err)}`);
             });
-    }, [applyProjectDeltas, projectBpm, projectSampleRate, pruneGhostClip, transportBpm]);
+    }, [applyProjectDeltas, projectBpm, projectSampleRate, pruneGhostClip]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         const liveState = useEngineStore.getState();
@@ -256,6 +259,8 @@ export function useTimelineClipHandlers({
                     return;
                 }
                 console.error('[DawShell] setClipFades failed:', err);
+                // BUG-062: Surface error to user via status store.
+                useStatusStore.getState().setError(`Clip fades failed: ${err instanceof Error ? err.message : String(err)}`);
             });
     }, [applyProjectDeltas, pruneGhostClip]);
 

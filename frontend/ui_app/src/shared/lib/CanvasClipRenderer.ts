@@ -739,6 +739,8 @@ export class CanvasClipRenderer {
             ? rgba(156, 163, 173, 0.62)
             : (contrastColor === 'black' ? rgba(0, 0, 0, 0.5) : rgba(255, 255, 255, 0.5));
 
+        // BUG-C10 FIX: save/restore to prevent globalAlpha leak on exception.
+        ctx.save();
         for (const note of clip.midiNotes) {
             const clampedPitch = Math.max(0, Math.min(127, note.pitch));
             const noteX = clipX + note.startBeat * ppb;
@@ -749,7 +751,7 @@ export class CanvasClipRenderer {
             ctx.globalAlpha = 0.3 + (note.velocity / 127) * 0.7;
             ctx.fillRect(noteX, noteY, noteW, noteH);
         }
-        ctx.globalAlpha = 1.0;
+        ctx.restore();
     }
 
     private _drawPlayhead(
